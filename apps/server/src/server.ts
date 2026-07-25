@@ -85,6 +85,7 @@ import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import { AgentControlLive } from "./agent-control/Layers/AgentControl.ts";
+import { agentControlRouteLayer } from "./agent-control/http.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -379,6 +380,11 @@ export const makeRoutesLayer = Layer.mergeAll(
     assetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
+    // The `t3 agent` CLI calls these from inside a provider session's shell. They
+    // authenticate against the live MCP session registry through
+    // `resolveActiveMcpScope`, so the agent API and the MCP server always agree on
+    // which credential belongs to which thread.
+    agentControlRouteLayer,
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
 ).pipe(

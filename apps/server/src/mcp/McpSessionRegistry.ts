@@ -82,10 +82,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const maximumLifetimeMs = options.maximumLifetimeMs ?? DEFAULT_MAXIMUM_LIFETIME_MS;
-  const endpoint =
+  const origin =
     httpServer.address._tag === "TcpAddress"
-      ? `http://${getHttpMcpEndpointHost(httpServer.address.hostname)}:${httpServer.address.port}/mcp`
-      : "http://127.0.0.1/mcp";
+      ? `http://${getHttpMcpEndpointHost(httpServer.address.hostname)}:${httpServer.address.port}`
+      : "http://127.0.0.1";
+  const endpoint = `${origin}/mcp`;
 
   const hashToken = (token: string) =>
     crypto
@@ -114,7 +115,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        capabilities: new Set(["preview"]),
+        // `agent-control` is granted to every provider session. Recursion is not
+        // gated here: `AgentControl` refuses to delegate from a thread that
+        // carries a persisted parent edge, which holds across restarts and is the
+        // single enforcement point. Gating the credential too would put the same
+        // rule in two places that could drift apart.
+        capabilities: new Set(["preview", "agent-control"]),
         issuedAt,
         expiresAt,
       };
@@ -130,6 +136,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerSessionId,
           providerInstanceId: scope.providerInstanceId,
           endpoint,
+          origin,
           authorizationHeader: `Bearer ${rawToken}`,
         },
         expiresAt,
@@ -201,6 +208,23 @@ export const issueActiveMcpCredential = (
         .revokeThread(request.threadId)
         .pipe(Effect.andThen(activeMcpSessionRegistry.issue(request)))
     : Effect.sync((): McpIssuedCredential | undefined => undefined);
+
+/**
+ * Resolve a raw bearer token against the live registry.
+ *
+ * Exposed alongside `issueActiveMcpCredential` for callers that cannot take the
+ * registry from context — the agent HTTP routes are added with
+ * `HttpRouter.addAll`, whose handler-requirement marker is not discharged by
+ * `Layer.provide`. Going through the active instance also guarantees the agent API
+ * and the MCP server share one registry, so a credential minted for a provider
+ * session resolves identically on both.
+ */
+export const resolveActiveMcpScope = (
+  rawToken: string,
+): Effect.Effect<McpInvocationContext.McpInvocationScope | undefined> =>
+  activeMcpSessionRegistry
+    ? activeMcpSessionRegistry.resolve(rawToken)
+    : Effect.sync((): McpInvocationContext.McpInvocationScope | undefined => undefined);
 
 export const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeThread(threadId) : Effect.void;

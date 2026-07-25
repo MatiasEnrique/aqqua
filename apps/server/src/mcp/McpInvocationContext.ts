@@ -7,7 +7,15 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
-export type McpCapability = "preview";
+/**
+ * Capabilities a provider-scoped credential may carry.
+ *
+ * - `preview`: collaborative browser automation.
+ * - `agent-control`: orchestrator → sub-agent delegation, used by the `t3 agent`
+ *   CLI. Holding it does not imply a thread may delegate; `AgentControl` refuses
+ *   to delegate from a thread with a persisted parent edge.
+ */
+export type McpCapability = "preview" | "agent-control";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
@@ -24,8 +32,15 @@ export class McpInvocationContext extends Context.Service<
   McpInvocationScope
 >()("t3/mcp/McpInvocationContext") {}
 
+/**
+ * Assert the preview capability.
+ *
+ * Narrowed to `"preview"` because the failure it raises is preview-shaped.
+ * Agent-control callers check `capabilities` directly and answer with their own
+ * HTTP status rather than borrowing a browser-automation error.
+ */
 export const requireMcpCapability = Effect.fn("mcp.requireCapability")(function* (
-  capability: McpCapability,
+  capability: Extract<McpCapability, "preview">,
 ) {
   const invocation = yield* McpInvocationContext;
   if (!invocation.capabilities.has(capability)) {

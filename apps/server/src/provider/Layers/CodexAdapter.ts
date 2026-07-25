@@ -1416,6 +1416,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 environment: {
                   ...(options?.environment ?? process.env),
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                  // Delegation identity for the `t3 agent` CLI. The parent thread
+                  // is resolved server-side from the token, so an agent cannot
+                  // impersonate another thread even though it writes the command
+                  // line. `T3_THREAD_ID` is informational only.
+                  T3_AGENT_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                  T3_AGENT_API: mcpSession.origin,
+                  T3_THREAD_ID: mcpSession.threadId,
                 },
                 appServerArgs: [
                   "-c",

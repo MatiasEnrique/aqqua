@@ -13,6 +13,20 @@
   - Subagents must not independently launch dev servers or repeat integrated client verification unless their delegated task explicitly requires it.
   - Stop dev servers, watchers, and other long-running verification processes when the focused verification is complete.
 
+## Delegating to Sub-Agents
+
+When a task splits cleanly across providers, delegate with `t3 agent` from your own
+shell. Sub-agents appear nested under this thread in the sidebar and can be opened,
+read, and interrupted while they work.
+
+- `t3 agent spawn --profile implementer --task-file <path>` — start one; returns immediately.
+- `t3 agent await <threadId>` — wait for its current task; re-run to keep waiting.
+- `t3 agent send <threadId> --message-file <path>` — continue it with its context intact.
+- `t3 agent list` / `t3 agent interrupt <threadId>`.
+
+Pass long tasks by file, not inline. Add `--json` for machine-readable output. A
+sub-agent cannot itself delegate.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
