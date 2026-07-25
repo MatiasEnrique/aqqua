@@ -2,14 +2,26 @@
 
 Implementation plan for native orchestrator/sub-agent delegation inside T3 Code.
 
-Status: **partially implemented.** The hierarchy foundation from §8 (persisted
-`parentThreadId`, migration 035, projection plumbing, and the nested v1 sidebar) is
-built and tested. Everything else — `AgentControl`, the `t3 agent` CLI, the event
-feed, profiles, and the `terminal` runtime — is still plan only.
+Status: **partially implemented.**
 
-The hierarchy landed first on purpose: it is the one piece that is identical under
-either answer to the open runtime decision in §16.1, so it could not be built
-wrong while that decision is outstanding.
+| Piece                                                                                       | State                                                 |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                         |
+| §6 agent profiles + typed errors                                                            | built, tested                                         |
+| §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                         |
+| §5.1 `t3 agent` CLI + agent HTTP endpoints                                                  | **not built** — nothing can invoke `AgentControl` yet |
+| §5.2 `t3 agent events` feed + HTTP events replay endpoint                                   | not built (lifecycle activities _are_ emitted)        |
+| §2 `terminal` runtime (PTY-hosted CLI)                                                      | not built                                             |
+| §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default           |
+| §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                             |
+
+Order was chosen so nothing could be built wrong while §16.1 is open: the
+hierarchy and `AgentControl` are identical under either answer to the
+session-versus-terminal runtime question.
+
+**The next step is the CLI front-end plus the parent-identity seam in §5.1.**
+Until that lands, delegation is reachable from server code but not from an
+orchestrating agent.
 
 ## 1. Outcome
 
@@ -340,8 +352,35 @@ Why this satisfies "contaminate prompt as little as possible":
 - Total unavoidable contamination is one line of `AGENTS.md` telling the agent the
   command exists — and even that is optional if the user says it once.
 
-The parent thread id is **not** a CLI argument. It is derived server-side from the
-caller (§9), so an orchestrator cannot impersonate another parent.
+The parent thread id is **not** a CLI argument. It is derived from the environment
+T3 itself created for the calling provider session, so an orchestrator cannot
+impersonate another parent even though it controls the command line.
+
+**Parent identity seam (next to build).** T3 already injects per-session values
+into provider process environments — `CodexAdapter` passes
+`T3_MCP_BEARER_TOKEN` plus `-c mcp_servers.t3-code.*` overrides
+(`apps/server/src/provider/Layers/CodexAdapter.ts:1414-1427`) and `ClaudeAdapter`
+passes `env: claudeEnvironment` (`:3544`). The same mechanism carries delegation
+identity:
+
+- `T3_THREAD_ID` — the calling thread, minted per session alongside the MCP
+  credential in `ProviderService.prepareMcpSession`
+  (`apps/server/src/provider/Layers/ProviderService.ts:217-228`).
+- `T3_AGENT_TOKEN` — a session-scoped bearer the CLI presents, so a stray process
+  outside a provider session cannot spawn sub-agents.
+
+`t3 agent` reads both from its own environment and never accepts them as flags.
+The server resolves the parent from the token, not from anything the model wrote.
+
+Because the orchestration engine lives in the server process, the CLI must reach a
+**running** server rather than opening the database itself — two engines writing
+one SQLite file is the failure `t3 project` already avoids by preferring live mode
+(`apps/server/src/cli/project.ts:343-373`). Delegation has no safe offline mode at
+all: a spawned sub-agent needs the server's provider reactor to start its turn. So
+the CLI requires a live server and fails clearly when there is none, and the
+server grows a small agent endpoint group (`spawn`, `send`, `await`, `interrupt`,
+`list`) beside the existing orchestration endpoints
+(`packages/contracts/src/environmentHttp.ts:460-490`).
 
 ### 5.2 Events as the coordination bus
 
@@ -519,6 +558,29 @@ for no milestone-1 benefit.
 Provider process exit surfaces as `session.exited` → session `stopped`/`error`, so
 it lands in `interrupted` or `failed` — no separate status needed.
 
+**Implementation note — two signals, not one.** As built, status derivation reads
+the session status _and_ `latestTurn`, because
+`projection_threads.latest_turn_id` is written from the session's `activeTurnId` and
+is therefore **cleared** the instant a session leaves `running`
+(`apps/server/src/orchestration/Layers/ProjectionPipeline.ts:804-817`). The settled
+turn row is only re-linked later, when the checkpoint reactor dispatches
+`thread.turn.diff.complete`. In that window a thread has no latest turn at all, so
+reading `latestTurn` alone reports a finished sub-agent as still working and an
+orchestrator waits on a turn that already ended. `agentRunStatusFromThread` prefers
+a settled `latestTurn` (it reflects checkpoint state) and otherwise falls back to
+the session status, which is the authoritative turn-end signal. This was a real bug,
+caught by the layer test.
+
+**Implementation note — the waiter needs no replay cursor.** The sequence above
+described cursor replay by analogy with `subscribeThread`. In practice, attaching
+the live subscription _before_ rechecking the projection is sufficient and simpler:
+the engine updates the projection inside the transaction that appends the event and
+publishes to the PubSub only after that transaction commits
+(`apps/server/src/orchestration/Layers/OrchestrationEngine.ts:169-230`). A settle
+committed before the recheck is already visible in the projection; one committed
+after it is delivered to an already-attached subscription. `ws.ts` needs replay only
+because it resumes from a _client's_ older cursor.
+
 ### Sequence diagram
 
 ```mermaid
@@ -691,7 +753,10 @@ uncommitted context but allows parallel writers to clobber each other.
 
 ## 12. Milestones
 
-**Milestone 1 — tracer bullet (`session` runtime, CLI channel)**
+**Milestone 1 — tracer bullet (`session` runtime, CLI channel)** — _partially
+complete; see the status table at the top. Acceptance criteria 2–11 below are not
+yet demonstrable end to end, because criterion 1 (the CLI front-end) is the piece
+still missing._
 
 Scope: `parentThreadId` through contracts/migration/projection; nested v1 sidebar;
 `AgentControl` with `spawn`/`send`/`await`/`interrupt`/`list`/`events`; `t3 agent`
