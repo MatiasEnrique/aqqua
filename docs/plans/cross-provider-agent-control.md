@@ -4,17 +4,17 @@ Implementation plan for native orchestrator/sub-agent delegation inside T3 Code.
 
 Status: **partially implemented.**
 
-| Piece                                                                                       | State                                                      |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                              |
-| §6 agent profiles + typed errors                                                            | built, tested                                              |
-| §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                              |
-| §5.1 `t3 agent` CLI + agent HTTP endpoints + parent-identity env seam                       | built, tested                                              |
-| §5.2 `t3 agent events [--follow]` transition feed                                           | built (derived from state, not activity replay)            |
-| §2 `terminal` runtime: PTY-hosted CLI in the sub-agent's own terminal                       | built, tested; completion detection outstanding            |
-| §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default                |
-| §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                                  |
-| Integrated browser verification (`test-t3-app`)                                             | **not run** — required by AGENTS.md for the sidebar change |
+| Piece                                                                                       | State                                                        |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                                |
+| §6 agent profiles + typed errors                                                            | built, tested                                                |
+| §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                                |
+| §5.1 `t3 agent` CLI + agent HTTP endpoints + parent-identity env seam                       | built, tested                                                |
+| §5.2 `t3 agent events [--follow]` transition feed                                           | built (derived from state, not activity replay)              |
+| §2 `terminal` runtime: PTY-hosted CLI in the sub-agent's own terminal                       | built, tested; completion detection outstanding              |
+| §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default                  |
+| §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                                    |
+| Integrated browser verification (`test-t3-app`)                                             | run; end-to-end Codex → Codex delegation observed in the app |
 
 Both runtimes from §2 now exist, so §16.1 is no longer blocking: a profile chooses
 `session` (provider adapter, full structured transcript) or `terminal` (PTY-hosted
@@ -25,6 +25,44 @@ session, so nothing settles its turn. `awaitTurn` and `send` refuse it with
 `AgentTerminalRuntimeError` rather than waiting forever, and `list`/`events` report
 it from thread state only. Wiring terminal `exited` events into thread session state
 is the next step for that runtime.
+
+### Verified end to end
+
+Observed in a running T3 Code dev environment, with a Codex orchestrator
+(GPT-5.6-Sol) delegating from its own shell. Verbatim from its transcript:
+
+```text
+$ t3 agent spawn --profile implementer --task-file task.md --json
+{"threadId":"d24dc155-…","profile":"implementer","terminalId":null}
+
+$ t3 agent list
+running     d24dc155-…  implementer: Task
+
+$ t3 agent await d24dc155-… --timeout 60 --json
+{"threadId":"d24dc155-…","status":"completed",
+ "finalMessage":"Added a JSDoc comment above `greet` in greet.js:1. Behavior is
+ unchanged; `git diff --check` passes.","sequence":58}
+
+$ t3 agent events
+{"kind":"agent.observed","threadId":"d24dc155-…","status":"completed",
+ "title":"implementer: Task"}
+```
+
+Alongside that:
+
+- Sidebar hierarchy, read from the live DOM: orchestrator at `data-thread-depth=0`
+  with a sub-agent count badge of `1`; sub-agent at `data-thread-depth=1`, indented.
+- The sub-agent's thread is fully inspectable — the task as its first user message,
+  a "Started by an orchestrator" work-log row, "Worked for 16s", and an assistant
+  message linking `greet.js:1`.
+- Real work: `git diff --stat` showed `greet.js | 6 ++++++`.
+- Persisted edge: the sub-agent's `parent_thread_id` points at the orchestrator.
+- `/api/agents` answers `401` unauthenticated and `401
+invalid_agent_credential` for a forged bearer, so parent identity really does come
+  from the session credential rather than the command line.
+
+`await` returned `completed` for a sub-agent that had **already finished before the
+wait began** — the subscribe-after-completion race, exercised for real.
 
 ## 1. Outcome
 
