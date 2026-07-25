@@ -296,6 +296,38 @@ it.layer(
     }),
   );
 
+  it.effect("hosts a requested program instead of an interactive shell", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput({ program: "codex", args: ["--model", "gpt-5.4-codex"] }));
+
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      const spawned = ptyAdapter.spawnInputs[0];
+      assert.equal(spawned?.shell, "codex");
+      assert.deepEqual(spawned?.args, ["--model", "gpt-5.4-codex"]);
+    }),
+  );
+
+  it.effect("does not fall back to a shell when a requested program cannot start", () =>
+    Effect.gen(function* () {
+      // Falling back would hand the caller an interactive shell that looks like a
+      // working agent but runs nothing, so a failed program must surface as a
+      // failure. One attempt, not a walk down the shell candidate chain.
+      const { manager, ptyAdapter } = yield* createManager();
+      ptyAdapter.spawnFailures.push(new Error("no such program"));
+
+      const snapshot = yield* manager.open(openInput({ program: "definitely-not-a-real-program" }));
+
+      // `open` reports startup trouble through the session, not by failing.
+      assert.equal(snapshot.status, "error");
+      // Exactly one attempt: no walk down the shell candidate chain.
+      assert.deepEqual(
+        ptyAdapter.spawnInputs.map((input) => input.shell),
+        ["definitely-not-a-real-program"],
+      );
+    }),
+  );
+
   it.effect("attaches to running sessions without restarting them", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

@@ -254,6 +254,9 @@ export interface TerminalSessionState {
   /** Normalized child command name when `hasRunningSubprocess`; cleared when idle. */
   childCommandLabel: string | null;
   runtimeEnv: Record<string, string> | null;
+  /** Program hosted instead of an interactive shell, when one was requested. */
+  program: string | null;
+  programArgs: ReadonlyArray<string> | null;
 }
 
 interface PersistHistoryRequest {
@@ -1883,7 +1886,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
+            const shellCandidates =
+              session.program === null
+                ? resolveShellCandidates(shellResolver, platform, baseEnv)
+                : [
+                    {
+                      shell: session.program,
+                      ...(session.programArgs === null ? {} : { args: [...session.programArgs] }),
+                    },
+                  ];
             const terminalEnv = createTerminalSpawnEnv(baseEnv, session.runtimeEnv);
             const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
             ptyProcess = spawnResult.process;
@@ -2178,6 +2189,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         hasRunningSubprocess: false,
         childCommandLabel: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
+        program: input.program ?? null,
+        programArgs: input.args ?? null,
       };
 
       const createdSession = session;
@@ -2590,6 +2603,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             hasRunningSubprocess: false,
             childCommandLabel: null,
             runtimeEnv: normalizedRuntimeEnv(input.env),
+            program: input.program ?? null,
+            programArgs: input.args ?? null,
           };
           const createdSession = session;
           yield* modifyManagerState((state) => {

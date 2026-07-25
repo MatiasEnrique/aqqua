@@ -107,6 +107,18 @@ export class AgentLaunchFailedError extends Schema.TaggedErrorClass<AgentLaunchF
   }
 }
 
+export class AgentTerminalRuntimeError extends Schema.TaggedErrorClass<AgentTerminalRuntimeError>()(
+  "AgentTerminalRuntimeError",
+  {
+    childThreadId: ThreadId,
+    operation: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Sub-agent '${this.childThreadId}' runs as an interactive CLI in its own terminal, so '${this.operation}' does not apply. Open its thread to watch or drive it.`;
+  }
+}
+
 export class AgentDispatchError extends Schema.TaggedErrorClass<AgentDispatchError>()(
   "AgentDispatchError",
   {
@@ -128,4 +140,5 @@ export type AgentControlError =
   | AgentConcurrencyLimitError
   | AgentBusyError
   | AgentLaunchFailedError
+  | AgentTerminalRuntimeError
   | AgentDispatchError;

@@ -4,24 +4,27 @@ Implementation plan for native orchestrator/sub-agent delegation inside T3 Code.
 
 Status: **partially implemented.**
 
-| Piece                                                                                       | State                                                 |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                         |
-| §6 agent profiles + typed errors                                                            | built, tested                                         |
-| §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                         |
-| §5.1 `t3 agent` CLI + agent HTTP endpoints                                                  | **not built** — nothing can invoke `AgentControl` yet |
-| §5.2 `t3 agent events` feed + HTTP events replay endpoint                                   | not built (lifecycle activities _are_ emitted)        |
-| §2 `terminal` runtime (PTY-hosted CLI)                                                      | not built                                             |
-| §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default           |
-| §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                             |
+| Piece                                                                                       | State                                                      |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                              |
+| §6 agent profiles + typed errors                                                            | built, tested                                              |
+| §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                              |
+| §5.1 `t3 agent` CLI + agent HTTP endpoints + parent-identity env seam                       | built, tested                                              |
+| §5.2 `t3 agent events [--follow]` transition feed                                           | built (derived from state, not activity replay)            |
+| §2 `terminal` runtime: PTY-hosted CLI in the sub-agent's own terminal                       | built, tested; completion detection outstanding            |
+| §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default                |
+| §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                                  |
+| Integrated browser verification (`test-t3-app`)                                             | **not run** — required by AGENTS.md for the sidebar change |
 
-Order was chosen so nothing could be built wrong while §16.1 is open: the
-hierarchy and `AgentControl` are identical under either answer to the
-session-versus-terminal runtime question.
+Both runtimes from §2 now exist, so §16.1 is no longer blocking: a profile chooses
+`session` (provider adapter, full structured transcript) or `terminal` (PTY-hosted
+CLI the user watches and types into). Neither is a background task.
 
-**The next step is the CLI front-end plus the parent-identity seam in §5.1.**
-Until that lands, delegation is reachable from server code but not from an
-orchestrating agent.
+**Known gap in the `terminal` runtime.** A PTY-hosted sub-agent has no provider
+session, so nothing settles its turn. `awaitTurn` and `send` refuse it with
+`AgentTerminalRuntimeError` rather than waiting forever, and `list`/`events` report
+it from thread state only. Wiring terminal `exited` events into thread session state
+is the next step for that runtime.
 
 ## 1. Outcome
 

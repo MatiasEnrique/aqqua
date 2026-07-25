@@ -43,6 +43,8 @@ export interface AgentInstanceCandidate {
 export interface ResolvedAgentProfile {
   readonly profile: AgentProfileName;
   readonly runtime: AgentProfile["runtime"];
+  /** Driver behind the resolved instance; needed to host a CLI in a terminal. */
+  readonly driverKind: ProviderDriverKind;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
@@ -108,6 +110,9 @@ export function resolveAgentProfile(
     return Result.fail(instanceResult.failure);
   }
   const instanceId = instanceResult.success;
+  const driverKind =
+    instances.find((candidate) => candidate.instanceId === instanceId)?.driverKind ??
+    (DEFAULT_AGENT_PROFILE_DRIVER as ProviderDriverKind);
 
   const inheritedModel =
     projectDefaultModelSelection !== null && projectDefaultModelSelection.instanceId === instanceId
@@ -121,6 +126,7 @@ export function resolveAgentProfile(
   return Result.succeed({
     profile,
     runtime: definition.runtime,
+    driverKind,
     modelSelection: {
       instanceId,
       model,

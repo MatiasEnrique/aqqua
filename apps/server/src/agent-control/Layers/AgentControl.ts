@@ -29,6 +29,7 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as TerminalManager from "../../terminal/Manager.ts";
 import {
   AgentBusyError,
   AgentConcurrencyLimitError,
@@ -38,6 +39,7 @@ import {
   AgentNotOwnedError,
   AgentParentNotFoundError,
   AgentRecursionDeniedError,
+  AgentTerminalRuntimeError,
 } from "../Errors.ts";
 import { type AgentInstanceCandidate, resolveAgentProfile } from "../Profiles.ts";
 import {
@@ -78,6 +80,14 @@ export const MAX_AWAIT_TURN_TIMEOUT = Duration.minutes(25);
 
 const MAX_FINAL_MESSAGE_CHARS = 16_000;
 
+/**
+ * Terminal a PTY-hosted sub-agent runs in.
+ *
+ * The thread's first terminal, so opening the sub-agent's thread in the desktop
+ * app shows the running CLI without the user hunting for a tab.
+ */
+const DEFAULT_AGENT_TERMINAL_ID = "term-1";
+
 const truncateFinalMessage = (text: string): string =>
   text.length <= MAX_FINAL_MESSAGE_CHARS
     ? text
@@ -104,6 +114,7 @@ const make = Effect.gen(function* () {
   const projection = yield* ProjectionSnapshotQuery;
   const registry = yield* ProviderAdapterRegistry;
   const settings = yield* ServerSettingsService;
+  const terminals = yield* TerminalManager.TerminalManager;
   const crypto = yield* Crypto.Crypto;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -171,6 +182,22 @@ const make = Effect.gen(function* () {
     return child;
   });
 
+  /**
+   * How a sub-agent is hosted, read from the durable link activity written at
+   * spawn time.
+   *
+   * A PTY-hosted sub-agent has no provider session, so operations that wait on one
+   * must refuse rather than wait forever.
+   */
+  const subAgentRuntime = (thread: OrchestrationThread): "session" | "terminal" => {
+    const linked = thread.activities.find((activity) => activity.kind === "agent.parent.linked");
+    const payload =
+      typeof linked?.payload === "object" && linked.payload !== null
+        ? (linked.payload as Record<string, unknown>)
+        : {};
+    return payload.runtime === "terminal" ? "terminal" : "session";
+  };
+
   const listSubAgentShells = (operation: string, parentThreadId: ThreadId) =>
     projection.getShellSnapshot().pipe(
       Effect.map((snapshot) =>
@@ -223,13 +250,16 @@ const make = Effect.gen(function* () {
     return candidates;
   });
 
-  const projectDefaultModelSelection = (operation: string, projectId: ProjectId) =>
-    projection.getProjectShellById(projectId).pipe(
-      Effect.map((project) =>
-        Option.isSome(project) ? project.value.defaultModelSelection : null,
-      ),
-      Effect.catchCause(dispatchFailure(operation)),
-    );
+  /**
+   * Owning project, for its default model and its workspace root.
+   *
+   * The root is the fallback cwd for a sub-agent whose orchestrator is not on a
+   * worktree, matching `resolveThreadWorkspaceCwd`.
+   */
+  const readProject = (operation: string, projectId: ProjectId) =>
+    projection
+      .getProjectShellById(projectId)
+      .pipe(Effect.map(Option.getOrNull), Effect.catchCause(dispatchFailure(operation)));
 
   const startTurn = (input: {
     readonly operation: string;
@@ -258,6 +288,53 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * Binary that hosts a driver's interactive CLI.
+   *
+   * Falls back to the driver slug, which is what the settings default already is
+   * (`codex`, `claude`), so an unconfigured machine still resolves something on
+   * PATH rather than failing.
+   */
+  const driverBinaryPath = (
+    providers: Record<string, { readonly binaryPath?: string | undefined } | undefined>,
+    driverKind: string,
+  ): string => providers[driverKind]?.binaryPath?.trim() || driverKind;
+
+  /**
+   * Host the driver's own CLI in a terminal bound to the sub-agent's thread.
+   *
+   * The terminal is what the goal calls a spawned terminal: a real interactive
+   * process the user can watch and type into, in the sub-agent's own workspace.
+   * It is not a background task — closing the thread's terminal stops it.
+   */
+  const openAgentTerminal = Effect.fn("AgentControl.openAgentTerminal")(function* (input: {
+    readonly childThreadId: ThreadId;
+    readonly cwd: string;
+    readonly program: string;
+    readonly task: string;
+  }) {
+    const snapshot = yield* terminals
+      .open({
+        threadId: input.childThreadId,
+        terminalId: DEFAULT_AGENT_TERMINAL_ID,
+        cwd: input.cwd,
+        program: input.program,
+        // The task is the CLI's initial prompt. Both `codex` and `claude` accept a
+        // positional prompt and stay interactive afterwards.
+        args: [input.task],
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new AgentLaunchFailedError({
+              profile: "terminal",
+              detail: `could not start '${input.program}' in a terminal: ${cause.message}`,
+            }),
+        ),
+      );
+    return snapshot.terminalId;
+  });
+
   const spawn: AgentControlShape["spawn"] = Effect.fn("AgentControl.spawn")(function* (input) {
     const parent = yield* requireOrchestrator(input.parentThreadId);
 
@@ -270,16 +347,16 @@ const make = Effect.gen(function* () {
       });
     }
 
+    const serverSettings = yield* settings.getSettings.pipe(
+      Effect.catchCause(dispatchFailure("spawn")),
+    );
+    const project = yield* readProject("spawn", parent.projectId);
     const resolved = yield* Result.match(
       resolveAgentProfile({
         profile: input.profile,
-        profiles: (yield* settings.getSettings.pipe(Effect.catchCause(dispatchFailure("spawn"))))
-          .agentProfiles,
+        profiles: serverSettings.agentProfiles,
         instances: yield* instanceCandidates,
-        projectDefaultModelSelection: yield* projectDefaultModelSelection(
-          "spawn",
-          parent.projectId,
-        ),
+        projectDefaultModelSelection: project?.defaultModelSelection ?? null,
       }),
       {
         onSuccess: (value) => Effect.succeed(value),
@@ -341,6 +418,20 @@ const make = Effect.gen(function* () {
         },
         createdAt,
       });
+      if (resolved.runtime === "terminal") {
+        return yield* openAgentTerminal({
+          childThreadId,
+          cwd: parent.worktreePath ?? project?.workspaceRoot ?? process.cwd(),
+          program: driverBinaryPath(
+            serverSettings.providers as Record<
+              string,
+              { readonly binaryPath?: string | undefined } | undefined
+            >,
+            resolved.driverKind,
+          ),
+          task: input.task,
+        });
+      }
       yield* startTurn({
         operation: "spawn",
         threadId: childThreadId,
@@ -349,9 +440,10 @@ const make = Effect.gen(function* () {
         interactionMode: resolved.interactionMode,
         createdAt,
       });
+      return null;
     });
 
-    yield* launch.pipe(
+    const terminalId = yield* launch.pipe(
       Effect.catchCause((cause) =>
         commandId("thread-delete").pipe(
           Effect.flatMap((id) =>
@@ -375,9 +467,9 @@ const make = Effect.gen(function* () {
     return {
       threadId: childThreadId,
       profile: input.profile,
-      // Terminal binding lands with the `terminal` runtime; a `session` sub-agent
-      // gets its terminal from the UI on demand like any other thread.
-      terminalId: null,
+      // Set for a PTY-hosted sub-agent. A `session` sub-agent gets its terminal
+      // from the UI on demand, like any other thread.
+      terminalId,
     } satisfies AgentHandle;
   });
 
@@ -388,6 +480,13 @@ const make = Effect.gen(function* () {
       parentThreadId: input.parentThreadId,
       childThreadId: input.childThreadId,
     });
+
+    if (subAgentRuntime(child) === "terminal") {
+      return yield* new AgentTerminalRuntimeError({
+        childThreadId: input.childThreadId,
+        operation: "send",
+      });
+    }
 
     // Starting a second turn while one is in flight races the provider; make the
     // caller wait instead of silently interleaving two tasks.
@@ -445,11 +544,17 @@ const make = Effect.gen(function* () {
 
   const awaitTurn: AgentControlShape["awaitTurn"] = Effect.fn("AgentControl.awaitTurn")(
     function* (input) {
-      yield* requireOwnedSubAgent({
+      const subAgent = yield* requireOwnedSubAgent({
         operation: "await",
         parentThreadId: input.parentThreadId,
         childThreadId: input.childThreadId,
       });
+      if (subAgentRuntime(subAgent) === "terminal") {
+        return yield* new AgentTerminalRuntimeError({
+          childThreadId: input.childThreadId,
+          operation: "await",
+        });
+      }
 
       const timeout = Duration.min(
         input.timeout ?? DEFAULT_AWAIT_TURN_TIMEOUT,

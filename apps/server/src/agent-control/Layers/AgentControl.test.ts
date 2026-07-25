@@ -9,6 +9,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type TerminalOpenInput,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -27,11 +28,13 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "../../orchestration/runtimeLayer.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import * as TerminalManager from "../../terminal/Manager.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { AgentControl } from "../Services/AgentControl.ts";
 import { AgentControlLive, MAX_LIVE_SUB_AGENTS_PER_PARENT } from "./AgentControl.ts";
 
 const implementer = AgentProfileName.make("implementer");
+const terminalProfile = AgentProfileName.make("terminalImplementer");
 const codexInstanceId = ProviderInstanceId.make("codex");
 
 let uniqueCounter = 0;
@@ -54,6 +57,42 @@ const registryStub = Layer.succeed(ProviderAdapterRegistry, {
   subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
 } as unknown as typeof ProviderAdapterRegistry.Service);
 
+/**
+ * Records terminals opened for PTY-hosted sub-agents, so the terminal runtime can
+ * be asserted without spawning a real process.
+ */
+const openedTerminals: Array<{
+  readonly threadId: string;
+  readonly program: string | undefined;
+  readonly args: ReadonlyArray<string> | undefined;
+  readonly cwd: string;
+}> = [];
+
+const terminalStub = Layer.succeed(TerminalManager.TerminalManager, {
+  open: (input: TerminalOpenInput) =>
+    Effect.sync(() => {
+      openedTerminals.push({
+        threadId: input.threadId,
+        program: input.program,
+        args: input.args,
+        cwd: input.cwd,
+      });
+      return {
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+        cwd: input.cwd,
+        worktreePath: null,
+        status: "running" as const,
+        pid: 4242,
+        history: "",
+        exitCode: null,
+        exitSignal: null,
+        label: input.program ?? "shell",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      };
+    }),
+} as unknown as typeof TerminalManager.TerminalManager.Service);
+
 // One engine and one projection pipeline, composed the way the server composes
 // them. Building `OrchestrationEngineLive` twice would give the test and
 // AgentControl separate read models over the same database, which silently breaks
@@ -61,7 +100,20 @@ const registryStub = Layer.succeed(ProviderAdapterRegistry, {
 const agentControlLayer = it.layer(
   AgentControlLive.pipe(
     Layer.provideMerge(
-      Layer.mergeAll(OrchestrationLayerLive, registryStub, serverSettingsLayerTest()),
+      Layer.mergeAll(
+        OrchestrationLayerLive,
+        registryStub,
+        terminalStub,
+        serverSettingsLayerTest({
+          agentProfiles: {
+            [terminalProfile]: {
+              runtime: "terminal",
+              runtimeMode: "full-access",
+              interactionMode: "default",
+            },
+          },
+        }),
+      ),
     ),
     Layer.provide(RepositoryIdentityResolver.layer),
     Layer.provide(SqlitePersistenceMemory),
@@ -561,6 +613,73 @@ agentControlLayer("AgentControl", (it) => {
       const engine = yield* OrchestrationEngineService;
       const sequence = yield* engine.latestSequence;
       assert.ok(sequence > 0);
+    }),
+  );
+
+  it.effect("hosts a terminal-runtime sub-agent as a CLI in its own terminal", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      openedTerminals.length = 0;
+
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        profile: terminalProfile,
+        task: "Fix the failing test",
+      });
+
+      // A real interactive process the user can watch and type into, in the
+      // sub-agent's own workspace — not a background job.
+      assert.equal(handle.terminalId, "term-1");
+      assert.equal(openedTerminals.length, 1);
+      const opened = openedTerminals[0];
+      assert.equal(opened?.threadId, handle.threadId);
+      assert.equal(opened?.program, "codex");
+      assert.deepEqual(opened?.args, ["Fix the failing test"]);
+      assert.equal(opened?.cwd, "/tmp/worktree-delegation");
+
+      // Still an ordinary nested thread, so it shows up under its orchestrator.
+      const child = yield* readThread(handle.threadId);
+      assert.equal(child.parentThreadId, parentThreadId);
+      // No provider turn was started: the CLI in the terminal is the sub-agent.
+      assert.equal(child.messages.filter((message) => message.role === "user").length, 0);
+      const linked = child.activities.find((activity) => activity.kind === "agent.parent.linked");
+      assert.ok(linked, "expected the delegation link activity");
+      assert.equal((linked.payload as { readonly runtime?: string }).runtime, "terminal");
+    }),
+  );
+
+  it.effect("refuses to wait on or message a terminal-hosted sub-agent", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        profile: terminalProfile,
+        task: "Watch me in the terminal",
+      });
+
+      // A PTY-hosted sub-agent has no provider session to settle. Waiting would
+      // block until the bound elapsed and then report `running` forever, so both
+      // operations must say plainly that they do not apply.
+      const awaitFailure = yield* Effect.flip(
+        agents.awaitTurn({
+          parentThreadId,
+          childThreadId: handle.threadId,
+          timeout: Duration.millis(50),
+        }),
+      );
+      assert.equal(awaitFailure._tag, "AgentTerminalRuntimeError");
+      assert.match(awaitFailure.message, /terminal/);
+
+      const sendFailure = yield* Effect.flip(
+        agents.send({
+          parentThreadId,
+          childThreadId: handle.threadId,
+          message: "another task",
+        }),
+      );
+      assert.equal(sendFailure._tag, "AgentTerminalRuntimeError");
     }),
   );
 

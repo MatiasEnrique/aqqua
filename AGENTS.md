@@ -24,8 +24,16 @@ read, and interrupted while they work.
 - `t3 agent send <threadId> --message-file <path>` — continue it with its context intact.
 - `t3 agent list` / `t3 agent interrupt <threadId>`.
 
+- `t3 agent events --follow` — NDJSON as sub-agents start, change status, and settle.
+
 Pass long tasks by file, not inline. Add `--json` for machine-readable output. A
 sub-agent cannot itself delegate.
+
+A profile's runtime decides how its sub-agent is hosted: `session` runs it through a
+provider adapter, so its reasoning, tool calls, and file changes render as a normal
+transcript; `terminal` runs the provider's own CLI in the sub-agent's terminal, which
+you watch rather than await. `t3 agent await` and `send` do not apply to a
+`terminal` sub-agent and will tell you so.
 
 ## Package Roles
 
