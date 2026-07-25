@@ -4,7 +4,13 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
-import { ModelSelection } from "./orchestration.ts";
+import {
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  ModelSelection,
+  ProviderInteractionMode,
+  RuntimeMode,
+} from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -389,6 +395,64 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
+// ── Agent profiles (orchestrator → sub-agent delegation) ─────────────
+//
+// A profile maps a role name an orchestrator can ask for ("implementer") to a
+// concrete provider configuration. Profiles live in machine-local settings, not
+// in the repository, because `instanceId` names a provider instance configured on
+// this machine and is not portable across checkouts.
+
+const AGENT_PROFILE_NAME_MAX_CHARS = 64;
+
+export const AgentProfileName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(AGENT_PROFILE_NAME_MAX_CHARS),
+  Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
+).pipe(Schema.brand("AgentProfileName"));
+export type AgentProfileName = typeof AgentProfileName.Type;
+
+/**
+ * How a sub-agent's work is hosted.
+ *
+ * - `session`: a provider adapter session, so the sub-agent's reasoning, tool
+ *   calls, and file changes render as a normal T3 transcript.
+ * - `terminal`: an interactive CLI in a PTY, for providers T3 has no adapter for.
+ *   Visible and interactive, but only as terminal output.
+ *
+ * Neither is a background task.
+ */
+export const AgentProfileRuntime = Schema.Literals(["session", "terminal"]);
+export type AgentProfileRuntime = typeof AgentProfileRuntime.Type;
+export const DEFAULT_AGENT_PROFILE_RUNTIME: AgentProfileRuntime = "session";
+
+export const AgentProfile = Schema.Struct({
+  runtime: AgentProfileRuntime.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_PROFILE_RUNTIME)),
+  ),
+  /** Omit to fall back to the first enabled instance of `driver`. */
+  instanceId: Schema.optional(ProviderInstanceId),
+  /** Driver used for the fallback when `instanceId` is absent. */
+  driver: Schema.optional(TrimmedNonEmptyString),
+  /** Omit to inherit the project's default model. */
+  model: Schema.optional(TrimmedNonEmptyString),
+  options: Schema.optional(ProviderOptionSelections),
+  // A delegated sub-agent has no human watching its approval prompts while the
+  // orchestrator waits, so profiles default to the non-blocking runtime mode.
+  // Lower this per profile to keep a human in the loop at the cost of stalling.
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
+  ),
+  /** Prefixed to generated sub-agent thread titles, e.g. "impl". */
+  titlePrefix: Schema.optional(TrimmedNonEmptyString),
+});
+export type AgentProfile = typeof AgentProfile.Type;
+
+export const AgentProfileMap = Schema.Record(AgentProfileName, AgentProfile);
+export type AgentProfileMap = typeof AgentProfileMap.Type;
+
+/** Role every build ships so delegation works before any settings are written. */
+export const DEFAULT_AGENT_PROFILE_NAME = AgentProfileName.make("implementer");
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -442,6 +506,9 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  // Role → provider configuration for delegated sub-agents. Empty by default;
+  // `resolveAgentProfile` supplies a working `implementer` when unset.
+  agentProfiles: AgentProfileMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
