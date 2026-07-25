@@ -7,6 +7,7 @@ import {
   FolderPlusIcon,
   Globe2Icon,
   LoaderIcon,
+  NetworkIcon,
   SearchIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -173,6 +174,8 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   getSidebarThreadIdsToPrewarm,
+  buildSidebarThreadTree,
+  takeSidebarThreadFamilies,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isTrailingDoubleClick,
@@ -301,8 +304,15 @@ function buildThreadJumpLabelMap(input: {
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
 }
 
+/** Horizontal indent applied per nesting level of the orchestrator/sub-agent tree. */
+const THREAD_DEPTH_INDENT_PX = 10;
+
 interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
+  /** 0 for a root conversation, 1+ for a sub-agent spawned by an orchestrator. */
+  depth: number;
+  /** Direct sub-agent count, shown on an orchestrator row. */
+  childCount: number;
   projectCwd: string | null;
   orderedProjectThreadKeys: readonly string[];
   isActive: boolean;
@@ -364,6 +374,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     attemptArchiveThread,
     openPrLink,
     thread,
+    depth,
+    childCount,
   } = props;
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
@@ -661,6 +673,10 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     <SidebarMenuSubItem
       className="w-full"
       data-thread-item
+      data-thread-depth={depth}
+      // Indent sub-agents under the orchestrator that spawned them. Padding (not
+      // margin) keeps the row's full width clickable at every depth.
+      style={depth > 0 ? { paddingInlineStart: depth * THREAD_DEPTH_INDENT_PX } : undefined}
       onMouseLeave={handleMouseLeave}
       onBlurCapture={handleBlurCapture}
     >
@@ -699,6 +715,24 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {childCount > 0 && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-sidebar-muted-foreground/80 tabular-nums"
+                    data-testid={`thread-subagent-count-${thread.id}`}
+                  />
+                }
+              >
+                <NetworkIcon className="size-3" />
+                {childCount}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {childCount === 1 ? "1 sub-agent" : `${childCount} sub-agents`}
+              </TooltipPopup>
+            </Tooltip>
+          )}
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
@@ -884,6 +918,8 @@ interface SidebarProjectThreadListProps {
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
+  /** Nesting depth and sub-agent count per rendered thread key. */
+  threadTreeMetaByKey: ReadonlyMap<string, { depth: number; childCount: number }>;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -935,6 +971,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     hiddenThreadStatus,
     orderedProjectThreadKeys,
     renderedThreads,
+    threadTreeMetaByKey,
     showEmptyThreadState,
     shouldShowThreadPanel,
     isThreadListExpanded,
@@ -985,10 +1022,13 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       {shouldShowThreadPanel &&
         renderedThreads.map((thread) => {
           const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          const treeMeta = threadTreeMetaByKey.get(threadKey);
           return (
             <SidebarThreadRow
               key={threadKey}
               thread={thread}
+              depth={treeMeta?.depth ?? 0}
+              childCount={treeMeta?.childCount ?? 0}
               projectCwd={projectCwd}
               orderedProjectThreadKeys={orderedProjectThreadKeys}
               isActive={activeRouteThreadKey === threadKey}
@@ -1236,39 +1276,48 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
-  const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
-    );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  const { projectStatus, threadTreeEntries, visibleProjectThreads, orderedProjectThreadKeys } =
+    useMemo(() => {
+      const lastVisitedAtByThreadKey = new Map(
+        projectThreads.map((thread, index) => [
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          threadLastVisitedAts[index] ?? null,
+        ]),
       );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
+      const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
+        const lastVisitedAt = lastVisitedAtByThreadKey.get(
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        return resolveThreadStatusPill({
+          thread: {
+            ...thread,
+            ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+          },
+        });
+      };
+      // Sort first so siblings keep the user's chosen order, then reorder into
+      // orchestrator → sub-agent display order. `visibleProjectThreads` stays the
+      // single source of visual order, so keyboard traversal and the prewarm list
+      // follow the nesting for free.
+      const threadTreeEntries = buildSidebarThreadTree({
+        threads: sortThreads(
+          projectThreads.filter((thread) => thread.archivedAt === null),
+          threadSortOrder,
+        ),
       });
-    };
-    const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
-      threadSortOrder,
-    );
-    const projectStatus = resolveProjectStatusIndicator(
-      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
-    );
-    return {
-      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-      projectStatus,
-      visibleProjectThreads,
-    };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+      const visibleProjectThreads = threadTreeEntries.map((entry) => entry.thread);
+      const projectStatus = resolveProjectStatusIndicator(
+        visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      );
+      return {
+        orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        projectStatus,
+        threadTreeEntries,
+        visibleProjectThreads,
+      };
+    }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -1286,6 +1335,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     hasOverflowingThreads,
     hiddenThreadStatus,
     renderedThreads,
+    threadTreeMetaByKey,
     showEmptyThreadState,
     shouldShowThreadPanel,
   } = useMemo(() => {
@@ -1306,11 +1356,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
-    const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
-        ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
+    // The preview limit caps conversations, not rows: an orchestrator always
+    // keeps its sub-agents, so a family is shown or hidden as a unit.
+    const families = takeSidebarThreadFamilies({
+      entries: threadTreeEntries,
+      rootLimit: isThreadListExpanded ? Number.POSITIVE_INFINITY : sidebarThreadPreviewCount,
+    });
+    const hasOverflowingThreads = families.rootCount > sidebarThreadPreviewCount;
+    const previewThreads = families.visible.map((entry) => entry.thread);
     const visibleThreadKeys = new Set(
       [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1325,12 +1378,23 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       (thread) =>
         !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
     );
+    // A thread pinned on its own while the project is collapsed has no visible
+    // ancestor to indent under, so it renders flat.
+    const threadTreeMetaByKey = pinnedCollapsedThread
+      ? new Map<string, { depth: number; childCount: number }>()
+      : new Map(
+          threadTreeEntries.map((entry) => [
+            scopedThreadKey(scopeThreadRef(entry.thread.environmentId, entry.thread.id)),
+            { depth: entry.depth, childCount: entry.childCount },
+          ]),
+        );
     return {
       hasOverflowingThreads,
       hiddenThreadStatus: resolveProjectStatusIndicator(
         hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
       ),
       renderedThreads,
+      threadTreeMetaByKey,
       showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
       shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
     };
@@ -1341,6 +1405,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     projectThreads,
     sidebarThreadPreviewCount,
     threadLastVisitedAts,
+    threadTreeEntries,
     visibleProjectThreads,
   ]);
 
@@ -2327,6 +2392,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         projectExpanded={projectExpanded}
         hasOverflowingThreads={hasOverflowingThreads}
         hiddenThreadStatus={hiddenThreadStatus}
+        threadTreeMetaByKey={threadTreeMetaByKey}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
         renderedThreads={renderedThreads}
         showEmptyThreadState={showEmptyThreadState}

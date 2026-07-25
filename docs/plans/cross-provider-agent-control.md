@@ -2,11 +2,18 @@
 
 Implementation plan for native orchestrator/sub-agent delegation inside T3 Code.
 
-Status: **plan only — not implemented.** Nothing in this document has been coded.
+Status: **partially implemented.** The hierarchy foundation from §8 (persisted
+`parentThreadId`, migration 035, projection plumbing, and the nested v1 sidebar) is
+built and tested. Everything else — `AgentControl`, the `t3 agent` CLI, the event
+feed, profiles, and the `terminal` runtime — is still plan only.
+
+The hierarchy landed first on purpose: it is the one piece that is identical under
+either answer to the open runtime decision in §16.1, so it could not be built
+wrong while that decision is outstanding.
 
 ## 1. Outcome
 
-One T3 Code thread acts as an orchestrator. It spawns sub-agent threads on *other*
+One T3 Code thread acts as an orchestrator. It spawns sub-agent threads on _other_
 providers (Claude orchestrating Codex, or the reverse), each of which:
 
 - appears immediately in the left sidebar, **nested under its parent**;
@@ -46,14 +53,14 @@ The goal calls for spawning terminals and forbids background tasks. Those are tw
 different requirements, and conflating them costs observability. The plan
 separates them:
 
-| | `runtime: "session"` (default) | `runtime: "terminal"` |
-|---|---|---|
-| Child process | provider adapter session (`codex app-server`, Claude Agent SDK) | PTY-hosted interactive CLI (`codex`, `claude`) |
-| Transcript | full structured events — reasoning, tool calls, file changes, checkpoints | terminal output stream + parsed lifecycle markers |
-| Approvals | native T3 approval UI | in-CLI TUI |
-| Interrupt | `thread.turn.interrupt` | signal / `Ctrl-C` write |
-| Terminal | bound terminal for shell work | *is* the terminal |
-| Background task | no | no |
+|                 | `runtime: "session"` (default)                                            | `runtime: "terminal"`                             |
+| --------------- | ------------------------------------------------------------------------- | ------------------------------------------------- |
+| Child process   | provider adapter session (`codex app-server`, Claude Agent SDK)           | PTY-hosted interactive CLI (`codex`, `claude`)    |
+| Transcript      | full structured events — reasoning, tool calls, file changes, checkpoints | terminal output stream + parsed lifecycle markers |
+| Approvals       | native T3 approval UI                                                     | in-CLI TUI                                        |
+| Interrupt       | `thread.turn.interrupt`                                                   | signal / `Ctrl-C` write                           |
+| Terminal        | bound terminal for shell work                                             | _is_ the terminal                                 |
+| Background task | no                                                                        | no                                                |
 
 Both are user-visible and interactive, so both satisfy "no background tasks".
 `session` is the default because T3's provider adapters already produce exactly
@@ -286,18 +293,18 @@ and messages.
 
 `apps/server/src/agent-control/Errors.ts`, all `Schema.TaggedErrorClass`:
 
-| Error | Raised when |
-|---|---|
-| `AgentProfileUnknownError` | profile is not configured and no fallback resolves |
-| `AgentProfileUnavailableError` | resolved provider instance is missing or disabled |
-| `AgentParentNotFoundError` | parent thread is absent, archived, or deleted |
-| `AgentNotOwnedError` | `childThreadId` was not created by this parent |
-| `AgentRecursionDeniedError` | caller is itself a sub-agent |
-| `AgentConcurrencyLimitError` | parent already has the maximum live children |
-| `AgentBusyError` | `send` targets a child with a turn already in flight |
-| `AgentLaunchFailedError` | create succeeded, turn start failed (after compensation) |
-| `AgentWaitTimeoutError` | reserved for hard-cap breaches, not normal bound elapse |
-| `AgentDispatchError` | wraps `OrchestrationDispatchError` |
+| Error                          | Raised when                                              |
+| ------------------------------ | -------------------------------------------------------- |
+| `AgentProfileUnknownError`     | profile is not configured and no fallback resolves       |
+| `AgentProfileUnavailableError` | resolved provider instance is missing or disabled        |
+| `AgentParentNotFoundError`     | parent thread is absent, archived, or deleted            |
+| `AgentNotOwnedError`           | `childThreadId` was not created by this parent           |
+| `AgentRecursionDeniedError`    | caller is itself a sub-agent                             |
+| `AgentConcurrencyLimitError`   | parent already has the maximum live children             |
+| `AgentBusyError`               | `send` targets a child with a turn already in flight     |
+| `AgentLaunchFailedError`       | create succeeded, turn start failed (after compensation) |
+| `AgentWaitTimeoutError`        | reserved for hard-cap breaches, not normal bound elapse  |
+| `AgentDispatchError`           | wraps `OrchestrationDispatchError`                       |
 
 ## 5. Coordination channel
 
@@ -346,16 +353,16 @@ web timeline sorts and collapses on (`apps/web/src/session-logic.ts:1327-1338`):
 
 On the **parent** thread:
 
-| kind | tone | payload |
-|---|---|---|
-| `agent.child.started` | `tool` | `{childThreadId, profile, title, terminalId, runtime}` |
-| `agent.child.updated` | `tool` | `{childThreadId, profile, phase}` |
+| kind                    | tone             | payload                                                        |
+| ----------------------- | ---------------- | -------------------------------------------------------------- |
+| `agent.child.started`   | `tool`           | `{childThreadId, profile, title, terminalId, runtime}`         |
+| `agent.child.updated`   | `tool`           | `{childThreadId, profile, phase}`                              |
 | `agent.child.completed` | `tool` / `error` | `{childThreadId, profile, status, finalMessageId, durationMs}` |
 
 On the **child** thread:
 
-| kind | tone | payload |
-|---|---|---|
+| kind                  | tone   | payload                              |
+| --------------------- | ------ | ------------------------------------ |
 | `agent.parent.linked` | `info` | `{parentThreadId, profile, runtime}` |
 
 `agent.parent.linked` does double duty: it is the durable marker that survives a
@@ -431,9 +438,9 @@ carry machine-specific instance ids into the repository.
       "model": "gpt-5.4-codex",
       "options": { "effort": "high" },
       "runtimeMode": "full-access",
-      "interactionMode": "default"
-    }
-  }
+      "interactionMode": "default",
+    },
+  },
 }
 ```
 
@@ -456,7 +463,7 @@ a real privilege grant, so §9 records it as security-relevant and the profile
 lets a user lower it.
 
 Do **not** put profiles in `t3.json` (`packages/contracts/src/t3ProjectFile.ts:61-81`)
-in milestone 1. A committed role→driver *intent* map with machine-local instance
+in milestone 1. A committed role→driver _intent_ map with machine-local instance
 binding is a reasonable milestone 4 addition, but it doubles the resolution paths
 for no milestone-1 benefit.
 
@@ -502,12 +509,12 @@ for no milestone-1 benefit.
 
 ### Definitions
 
-| Result | Condition |
-|---|---|
-| `completed` | session left `running` via `idle`/`ready`, or `turn-diff-completed` with status `ready` |
-| `failed` | session status `error`, or a `provider.turn.start.failed` activity |
-| `interrupted` | session status `interrupted` / `stopped`; includes user interrupt from the child's UI |
-| `running` | await bound elapsed with the turn still in flight |
+| Result        | Condition                                                                               |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `completed`   | session left `running` via `idle`/`ready`, or `turn-diff-completed` with status `ready` |
+| `failed`      | session status `error`, or a `provider.turn.start.failed` activity                      |
+| `interrupted` | session status `interrupted` / `stopped`; includes user interrupt from the child's UI   |
+| `running`     | await bound elapsed with the turn still in flight                                       |
 
 Provider process exit surfaces as `session.exited` → session `stopped`/`error`, so
 it lands in `interrupted` or `failed` — no separate status needed.
@@ -546,6 +553,23 @@ sequenceDiagram
 ```
 
 ## 8. Sidebar hierarchy
+
+**Implemented.** What actually shipped differs from the sketch below in two ways
+worth recording:
+
+- `parentThreadId` is `Schema.optional(Schema.NullOr(ThreadId))`, not
+  `NullOr` + `withDecodingDefault`. A decoding default still leaves the field
+  _required_ on the decoded type, which forced every `thread.create` construction
+  site and test fixture to name it. Optional matches the `snoozedUntil` /
+  `snoozedAt` precedent on the same struct and keeps the change additive; read
+  sites normalize with `?? null`. Note this admits an explicit `undefined`, so
+  consumer types must spell out `| undefined` under `exactOptionalPropertyTypes`.
+- Per-parent collapse is **not** built. Sub-agents are indented under their
+  orchestrator and orchestrator rows show a sub-agent count; collapsing a family
+  moves to milestone 2 with the `SidebarV2` work.
+
+The preview limit now counts roots via `takeSidebarThreadFamilies`, so an
+orchestrator can never be separated from its own sub-agents by truncation.
 
 ### Contracts and persistence
 
@@ -653,17 +677,17 @@ uncommitted context but allows parallel writers to clobber each other.
 
 ## 11. Failure and recovery
 
-| Scenario | Behavior |
-|---|---|
-| Turn start fails after thread creation | compensating `thread.delete`; `AgentLaunchFailedError`; no orphan row |
-| Child provider crashes | `session.exited` → session `error`/`stopped` → `await` returns `failed`/`interrupted` with the session's `lastError` |
-| Orchestrator interrupted mid-`await` | `await` is interruptible and leaves the child running; the child stays visible and re-attachable via `t3 agent await` |
-| User interrupts the child from T3 | existing `thread.turn.interrupt` path; `await` returns `interrupted` |
-| T3 restarts mid-run | children are ordinary threads and rehydrate from the projection; `parentThreadId` and `agent.parent.linked` are persisted, so hierarchy, ownership, and recursion checks all survive; an in-flight `await` is lost and is re-established by calling it again |
-| Await bound elapses | `status: "running"`; child untouched |
-| MCP credential expires (optional front-end) | tool call 401s; the child is unaffected and still inspectable; recovery is a new turn on the parent |
-| Orphaned child (parent deleted) | child is promoted to a sidebar root and keeps working; ownership checks fail closed |
-| Terminal exits (`runtime: "terminal"`) | `exited` event → mapped to `failed`/`completed` by exit code |
+| Scenario                                    | Behavior                                                                                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Turn start fails after thread creation      | compensating `thread.delete`; `AgentLaunchFailedError`; no orphan row                                                                                                                                                                                        |
+| Child provider crashes                      | `session.exited` → session `error`/`stopped` → `await` returns `failed`/`interrupted` with the session's `lastError`                                                                                                                                         |
+| Orchestrator interrupted mid-`await`        | `await` is interruptible and leaves the child running; the child stays visible and re-attachable via `t3 agent await`                                                                                                                                        |
+| User interrupts the child from T3           | existing `thread.turn.interrupt` path; `await` returns `interrupted`                                                                                                                                                                                         |
+| T3 restarts mid-run                         | children are ordinary threads and rehydrate from the projection; `parentThreadId` and `agent.parent.linked` are persisted, so hierarchy, ownership, and recursion checks all survive; an in-flight `await` is lost and is re-established by calling it again |
+| Await bound elapses                         | `status: "running"`; child untouched                                                                                                                                                                                                                         |
+| MCP credential expires (optional front-end) | tool call 401s; the child is unaffected and still inspectable; recovery is a new turn on the parent                                                                                                                                                          |
+| Orphaned child (parent deleted)             | child is promoted to a sidebar root and keeps working; ownership checks fail closed                                                                                                                                                                          |
+| Terminal exits (`runtime: "terminal"`)      | `exited` event → mapped to `failed`/`completed` by exit code                                                                                                                                                                                                 |
 
 ## 12. Milestones
 
@@ -720,7 +744,7 @@ Focused, per `AGENTS.md` — smallest relevant set, no repo-wide runs.
   extraction from `latestTurn.assistantMessageId` and its fallback; status mapping
   for each session terminal state; bound elapse → `running`.
 - **Race regression test:** publish the child's terminal `thread.session-set`
-  *before* `await` subscribes, and assert the cursor replay still resolves it.
+  _before_ `await` subscribes, and assert the cursor replay still resolves it.
   This is the bug the design exists to prevent, so it gets an explicit test.
 - `orchestration/Layers/ProjectionSnapshotQuery.test.ts` — `parentThreadId` round
   trips through shell and detail snapshots, and defaults to `null` for pre-migration
@@ -791,27 +815,27 @@ apps/server/src/mcp/toolkits/agents/handlers.ts
 
 **Modified**
 
-| File | Change |
-|---|---|
-| `packages/contracts/src/orchestration.ts` | `parentThreadId` on thread/shell/create-command/created-payload/bootstrap |
-| `packages/contracts/src/settings.ts` | `agentProfiles` in `ServerSettings` + patch schema |
-| `packages/contracts/src/environmentHttp.ts` | `GET /api/orchestration/events` replay endpoint |
-| `packages/contracts/src/terminal.ts` | optional `program`/`args` on open (milestone 3) |
-| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts` | persist `parent_thread_id` |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | select and map `parentThreadId` |
-| `apps/server/src/orchestration/http.ts` | events replay handler |
-| `apps/server/src/bin.ts` | register `agentCommand` |
-| `apps/server/src/server.ts` | provide `AgentControl` layer |
-| `apps/server/src/terminal/Manager.ts` | thread `program`/`args` to `PtyAdapter.spawn` (milestone 3) |
-| `apps/server/src/mcp/McpInvocationContext.ts` | second capability; capability-neutral error (optional) |
-| `apps/server/src/mcp/McpSessionRegistry.ts` | injectable capability policy (optional) |
-| `apps/server/src/mcp/McpHttpServer.ts` | register `agents` toolkit (optional) |
-| `apps/web/src/components/Sidebar.logic.ts` | `buildSidebarThreadTree`; root-based preview limit; traversal |
-| `apps/web/src/components/Sidebar.tsx` | nested rows, depth, disclosure, collapse state |
-| `apps/web/src/components/SidebarV2.tsx` | same (milestone 2) |
-| `apps/web/src/session-logic.ts` | surface `childThreadId` on work entries |
-| `apps/web/src/components/chat/MessagesTimeline.tsx` | "Open agent thread" affordance |
-| `AGENTS.md` | one line documenting `t3 agent` (the only prompt-side cost) |
+| File                                                              | Change                                                                    |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `packages/contracts/src/orchestration.ts`                         | `parentThreadId` on thread/shell/create-command/created-payload/bootstrap |
+| `packages/contracts/src/settings.ts`                              | `agentProfiles` in `ServerSettings` + patch schema                        |
+| `packages/contracts/src/environmentHttp.ts`                       | `GET /api/orchestration/events` replay endpoint                           |
+| `packages/contracts/src/terminal.ts`                              | optional `program`/`args` on open (milestone 3)                           |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`      | persist `parent_thread_id`                                                |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | select and map `parentThreadId`                                           |
+| `apps/server/src/orchestration/http.ts`                           | events replay handler                                                     |
+| `apps/server/src/bin.ts`                                          | register `agentCommand`                                                   |
+| `apps/server/src/server.ts`                                       | provide `AgentControl` layer                                              |
+| `apps/server/src/terminal/Manager.ts`                             | thread `program`/`args` to `PtyAdapter.spawn` (milestone 3)               |
+| `apps/server/src/mcp/McpInvocationContext.ts`                     | second capability; capability-neutral error (optional)                    |
+| `apps/server/src/mcp/McpSessionRegistry.ts`                       | injectable capability policy (optional)                                   |
+| `apps/server/src/mcp/McpHttpServer.ts`                            | register `agents` toolkit (optional)                                      |
+| `apps/web/src/components/Sidebar.logic.ts`                        | `buildSidebarThreadTree`; root-based preview limit; traversal             |
+| `apps/web/src/components/Sidebar.tsx`                             | nested rows, depth, disclosure, collapse state                            |
+| `apps/web/src/components/SidebarV2.tsx`                           | same (milestone 2)                                                        |
+| `apps/web/src/session-logic.ts`                                   | surface `childThreadId` on work entries                                   |
+| `apps/web/src/components/chat/MessagesTimeline.tsx`               | "Open agent thread" affordance                                            |
+| `AGENTS.md`                                                       | one line documenting `t3 agent` (the only prompt-side cost)               |
 
 **Deliberately unchanged:** `apps/server/src/ws.ts` (no bootstrap extraction in
 milestone 1), all provider adapters, and the checkpoint/approval/interrupt paths.
@@ -823,7 +847,7 @@ central reason this design is small.
 1. **Runtime priority.** The plan defaults to `runtime: "session"` because it
    preserves the structured transcript the goal asks to inspect, and schedules
    PTY-hosted agents as milestone 3. If "spawning new terminals" means literally
-   *PTY-hosted CLIs first*, milestones 1 and 3 swap, milestone 1 loses structured
+   _PTY-hosted CLIs first_, milestones 1 and 3 swap, milestone 1 loses structured
    reasoning/tool-call/file-change rendering for children, and completion status
    must be parsed from ANSI output. **This is the one decision that changes
    milestone 1's shape.**
@@ -841,5 +865,7 @@ central reason this design is small.
 6. **Event retention for `--follow`.** Polling the replay endpoint is bounded by
    event-store retention. If a long-lived orchestrator can outlive retention, it
    needs a durable per-parent cursor.
+
 ```
 
+```
