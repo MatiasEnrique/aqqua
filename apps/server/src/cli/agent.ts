@@ -14,6 +14,7 @@
  * @module cli/agent
  */
 import * as Console from "effect/Console";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -150,12 +151,15 @@ export const resolveText = Effect.fn("agentCli.resolveText")(function* (input: {
   });
 });
 
+/** Schema-backed JSON encoding, so output shape is declared rather than implied. */
+const toJsonLine = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
 const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDescription("Emit a single JSON object instead of human-readable text."),
 );
 
 const emit = (input: { readonly json: boolean; readonly value: unknown; readonly text: string }) =>
-  Console.log(input.json ? JSON.stringify(input.value) : input.text);
+  Console.log(input.json ? toJsonLine(input.value) : input.text);
 
 const readField = (value: unknown, key: string): string => {
   const record =
@@ -329,7 +333,102 @@ const listCommand = Command.make("list", { json: jsonFlag }).pipe(
   ),
 );
 
+/**
+ * Emit sub-agent lifecycle transitions as NDJSON.
+ *
+ * Transitions are derived from real projected state rather than replayed from
+ * activity rows, so an orchestrator sees a sub-agent finish whether or not anyone
+ * awaited it. The diff is held here, which keeps the server stateless and means
+ * two orchestrators watching the same sub-agents cannot interfere.
+ */
+const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
+  readonly api: AgentApi;
+  readonly follow: boolean;
+  readonly intervalMillis: number;
+}) {
+  const previous = new Map<string, string>();
+  let firstPass = true;
+
+  while (true) {
+    const result = yield* input.api.get("/api/agents");
+    const record =
+      typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
+    const agents = Array.isArray(record.agents) ? record.agents : [];
+    const seen = new Set<string>();
+
+    for (const agent of agents) {
+      const threadId = readField(agent, "threadId");
+      if (threadId.length === 0) continue;
+      seen.add(threadId);
+      const status = readField(agent, "status");
+      const before = previous.get(threadId);
+      if (before === status) continue;
+      previous.set(threadId, status);
+      // The first pass reports current state so a late watcher is not blind to
+      // sub-agents that already exist; later passes report only changes.
+      yield* Console.log(
+        toJsonLine({
+          kind:
+            before === undefined
+              ? firstPass
+                ? "agent.observed"
+                : "agent.started"
+              : "agent.changed",
+          threadId,
+          status,
+          title: readField(agent, "title"),
+          ...(before === undefined ? {} : { previousStatus: before }),
+        }),
+      );
+    }
+
+    for (const [threadId, status] of previous) {
+      if (seen.has(threadId)) continue;
+      previous.delete(threadId);
+      yield* Console.log(toJsonLine({ kind: "agent.removed", threadId, status }));
+    }
+
+    firstPass = false;
+    if (!input.follow) return;
+    // Every sub-agent settled and nothing left to report: stop rather than poll a
+    // quiet server forever.
+    if (agents.length > 0 && [...previous.values()].every((status) => status !== "running")) {
+      return;
+    }
+    yield* Effect.sleep(Duration.millis(input.intervalMillis));
+  }
+});
+
+const eventsCommand = Command.make("events", {
+  follow: Flag.boolean("follow").pipe(
+    Flag.withDescription("Keep streaming until every sub-agent has settled."),
+  ),
+  intervalSeconds: Flag.integer("interval").pipe(
+    Flag.withDescription("Seconds between checks while following."),
+    Flag.withDefault(2),
+  ),
+}).pipe(
+  Command.withDescription("Stream sub-agent lifecycle transitions as NDJSON."),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const api = yield* agentApi();
+      yield* watchTransitions({
+        api,
+        follow: flags.follow,
+        intervalMillis: Math.max(1, flags.intervalSeconds) * 1000,
+      });
+    }).pipe(Effect.provide(cliRuntime)),
+  ),
+);
+
 export const agentCommand = Command.make("agent").pipe(
   Command.withDescription("Delegate work to sub-agents from inside an agent session."),
-  Command.withSubcommands([spawnCommand, sendCommand, awaitCommand, interruptCommand, listCommand]),
+  Command.withSubcommands([
+    spawnCommand,
+    sendCommand,
+    awaitCommand,
+    interruptCommand,
+    listCommand,
+    eventsCommand,
+  ]),
 );
