@@ -1,34 +1,44 @@
+#!/usr/bin/env node
+
 /**
  * generate-sigma-icon - Draw the app icon for Sigma desktop builds.
  *
  * A Sigma build sits in the Dock beside the release it was built from, so it
  * cannot wear the same artwork: with identical icons there is no way to tell
- * which tile or window belongs to which app. The other channels ship designed
- * artwork under `assets/`; this one is generated, because it only has to be
- * unmistakable, not pretty.
+ * which tile or window belongs to which app. The other channels export designed
+ * artwork from Icon Composer projects (see `export-brand-icons`); this one is
+ * drawn here, because it only has to be unmistakable, not pretty, and a
+ * self-built channel should not need design tooling installed to produce it.
  *
- * Everything is rasterized here rather than pulled from a dependency: encoding a
- * non-interlaced RGBA PNG is a header, a zlib stream and three CRCs, and a
- * Vista-era `.ico` is a 22-byte header wrapped around a PNG. Committing the
- * generator alongside its output keeps the artwork reviewable and reproducible.
+ * The PNG encoder is local because nothing else in the repo rasterizes from
+ * scratch — a non-interlaced RGBA PNG is a header, a zlib stream and three
+ * CRCs. The `.ico` goes through the same `encodePngIco` the designed channels
+ * use.
  *
- * Run `node scripts/generate-sigma-icon.ts` after changing it, and commit the
- * regenerated files in `assets/sigma/`.
+ * Run `node scripts/generate-sigma-icon.ts` after changing it and commit the
+ * regenerated files in `assets/sigma/`; the output is byte-reproducible.
  *
  * @module generate-sigma-icon
  */
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
-import * as NodeURL from "node:url";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { Command } from "effect/unstable/cli";
 import * as NodeZlib from "node:zlib";
 
-const OUTPUT_DIR_NAME = NodePath.join("assets", "sigma");
+import { encodePngIco } from "./lib/icon-export.ts";
+
+const OUTPUT_DIR_SEGMENTS = ["assets", "sigma"] as const;
 
 /** Violet reads as neither the production black nor the nightly artwork. */
 const BACKGROUND: RGB = [124, 58, 237];
 const GLYPH: RGB = [255, 255, 255];
 /** Samples per pixel axis. 2 is enough to keep the diagonals from stair-stepping. */
 const SUPERSAMPLE = 2;
+const WINDOWS_ICON_SIZE = 256;
 
 type RGB = readonly [number, number, number];
 
@@ -70,7 +80,7 @@ function pngChunk(type: string, data: Uint8Array): Buffer {
 }
 
 /** Encode straight RGBA pixels as a non-interlaced, filter-0 PNG, which is what
-    `sips` and `magick` downscale from in the build. */
+    `sips` and `magick` downscale from during a desktop build. */
 function encodePng(width: number, height: number, rgba: Uint8Array): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
@@ -94,24 +104,6 @@ function encodePng(width: number, height: number, rgba: Uint8Array): Buffer {
     pngChunk("IDAT", NodeZlib.deflateSync(raw, { level: 9 })),
     pngChunk("IEND", new Uint8Array()),
   ]);
-}
-
-/** Wrap a PNG in a single-image `.ico`. Windows has read PNG-backed icons since
-    Vista, and electron-builder only requires the 256px entry. */
-function encodeIco(png: Buffer, size: number): Buffer {
-  const directory = Buffer.alloc(22);
-  directory.writeUInt16LE(0, 0); // reserved
-  directory.writeUInt16LE(1, 2); // type: icon
-  directory.writeUInt16LE(1, 4); // image count
-  directory[6] = size >= 256 ? 0 : size; // 0 encodes 256
-  directory[7] = size >= 256 ? 0 : size;
-  directory[8] = 0; // palette size
-  directory[9] = 0; // reserved
-  directory.writeUInt16LE(1, 10); // colour planes
-  directory.writeUInt16LE(32, 12); // bits per pixel
-  directory.writeUInt32LE(png.length, 14);
-  directory.writeUInt32LE(directory.length, 18);
-  return Buffer.concat([directory, png]);
 }
 
 function distanceToSegment(px: number, py: number, segment: Segment): number {
@@ -146,8 +138,8 @@ function insideRoundedRect(
 
 /**
  * A `>_` prompt on a violet field: a shell mark for a build that only exists on
- * the machine that made it. `padding` insets the plate so macOS gets the shape it
- * expects; full-bleed output (Linux, Windows) passes 0.
+ * the machine that made it. `padding` insets the plate so macOS gets the shape
+ * it expects; full-bleed output (Linux, Windows) passes 0.
  */
 function drawIcon(size: number, padding: number): Uint8Array {
   const rgba = new Uint8Array(size * size * 4);
@@ -227,28 +219,50 @@ function drawIcon(size: number, padding: number): Uint8Array {
   return rgba;
 }
 
-function main(): void {
-  const repoRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
-  const outputDir = NodePath.join(repoRoot, OUTPUT_DIR_NAME);
-  NodeFS.mkdirSync(outputDir, { recursive: true });
+const generateSigmaIcon = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const repoRoot = yield* path.fromFileUrl(new URL("..", import.meta.url));
+  const outputDir = path.join(repoRoot, ...OUTPUT_DIR_SEGMENTS);
 
-  // macOS art carries its own inset and rounding; the icns is built from this.
-  const macPng = encodePng(1024, 1024, drawIcon(1024, Math.round(1024 * 0.09)));
-  // Linux and Windows tile the full square.
-  const universalPng = encodePng(1024, 1024, drawIcon(1024, 0));
-  const windowsPng = encodePng(256, 256, drawIcon(256, 0));
+  yield* fileSystem.makeDirectory(outputDir, { recursive: true });
 
-  const written: Array<readonly [string, Buffer]> = [
-    ["sigma-macos-1024.png", macPng],
-    ["sigma-universal-1024.png", universalPng],
-    ["sigma-windows.ico", encodeIco(windowsPng, 256)],
-  ];
+  const windowsPng = encodePng(
+    WINDOWS_ICON_SIZE,
+    WINDOWS_ICON_SIZE,
+    drawIcon(WINDOWS_ICON_SIZE, 0),
+  );
+  const artifacts = [
+    // macOS art carries its own inset and rounding; the icns is built from this.
+    {
+      name: "sigma-macos-1024.png",
+      contents: encodePng(1024, 1024, drawIcon(1024, Math.round(1024 * 0.09))),
+    },
+    // Linux tiles the full square.
+    { name: "sigma-universal-1024.png", contents: encodePng(1024, 1024, drawIcon(1024, 0)) },
+    {
+      name: "sigma-windows.ico",
+      contents: encodePngIco([{ size: WINDOWS_ICON_SIZE, contents: windowsPng }]),
+    },
+  ] as const;
 
-  for (const [name, contents] of written) {
-    const target = NodePath.join(outputDir, name);
-    NodeFS.writeFileSync(target, contents);
-    console.log(`${NodePath.join(OUTPUT_DIR_NAME, name)} (${contents.length} bytes)`);
+  for (const artifact of artifacts) {
+    yield* fileSystem.writeFile(path.join(outputDir, artifact.name), artifact.contents);
+    yield* Console.log(
+      `${OUTPUT_DIR_SEGMENTS.join("/")}/${artifact.name} (${artifact.contents.length} bytes)`,
+    );
   }
-}
+});
 
-main();
+const generateSigmaIconCommand = Command.make(
+  "generate-sigma-icon",
+  {},
+  () => generateSigmaIcon,
+).pipe(Command.withDescription("Draw the app icon assets for Sigma desktop builds."));
+
+if (import.meta.main) {
+  Command.run(generateSigmaIconCommand, { version: "0.0.0" }).pipe(
+    Effect.provide(NodeServices.layer),
+    NodeRuntime.runMain,
+  );
+}

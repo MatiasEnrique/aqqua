@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 
 import {
   ModelSelection,
+  type OrchestrationSession,
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderDriverKind,
@@ -160,6 +161,9 @@ describe("ProviderCommandReactor", () => {
     readonly deferReactorStart?: boolean;
     /** Provider bindings the previous process left in the directory. */
     readonly providerBindings?: ReadonlyArray<ProviderRuntimeBindingWithMetadata>;
+    /** Thread session to stage before the reactor starts, as the previous
+        process would have left it in the projection. */
+    readonly seedSession?: OrchestrationSession;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -425,8 +429,11 @@ describe("ProviderCommandReactor", () => {
     }
     const drain = () => Effect.runPromise(reactor.drain);
 
-    await Effect.runPromise(
-      engine.dispatch({
+    // Seeded through one runner so tests never reach for `Effect.runPromise`
+    // themselves; `seedSession` lands before `startReactor`, which is the only
+    // way to stage state the reactor reads once at start.
+    const seedCommands: ReadonlyArray<Parameters<typeof engine.dispatch>[0]> = [
+      {
         type: "project.create",
         commandId: CommandId.make("cmd-project-create"),
         projectId: asProjectId("project-1"),
@@ -434,10 +441,8 @@ describe("ProviderCommandReactor", () => {
         workspaceRoot: "/tmp/provider-project",
         defaultModelSelection: modelSelection,
         createdAt: now,
-      }),
-    );
-    await Effect.runPromise(
-      engine.dispatch({
+      },
+      {
         type: "thread.create",
         commandId: CommandId.make("cmd-thread-create"),
         threadId: ThreadId.make("thread-1"),
@@ -449,8 +454,25 @@ describe("ProviderCommandReactor", () => {
         branch: null,
         worktreePath: null,
         createdAt: now,
-      }),
-    );
+      },
+      ...(input?.seedSession
+        ? [
+            {
+              // Pinned: the conditional spread builds its own array, which
+              // infers `string` before the outer annotation reaches it.
+              type: "thread.session.set" as const,
+              commandId: CommandId.make("cmd-seed-session"),
+              threadId: ThreadId.make("thread-1"),
+              session: input.seedSession,
+              createdAt: now,
+            },
+          ]
+        : []),
+    ];
+
+    for (const command of seedCommands) {
+      await Effect.runPromise(engine.dispatch(command));
+    }
 
     return {
       engine,
@@ -485,28 +507,19 @@ describe("ProviderCommandReactor", () => {
           lastSeenAt: "2026-01-01T00:00:00.000Z",
         },
       ],
-    });
-
-    // What the projection looks like after the server dies mid-turn: the
-    // provider child is gone, so no turn.completed ever arrives to close this.
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-stranded-session"),
+      // What the projection looks like after the server dies mid-turn: the
+      // provider child is gone, so no turn.completed ever closes this.
+      seedSession: {
         threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex-default"),
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-stranded"),
-          lastError: null,
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      }),
-    );
+        status: "running",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex-default"),
+        runtimeMode: "approval-required",
+        activeTurnId: asTurnId("turn-stranded"),
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
 
     await harness.startReactor();
 
@@ -535,26 +548,17 @@ describe("ProviderCommandReactor", () => {
           lastSeenAt: "2026-01-01T00:00:00.000Z",
         },
       ],
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-claimed-session"),
+      seedSession: {
         threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex-default"),
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-live"),
-          lastError: null,
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      }),
-    );
+        status: "running",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex-default"),
+        runtimeMode: "approval-required",
+        activeTurnId: asTurnId("turn-live"),
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
 
     await harness.startReactor();
 
@@ -567,26 +571,19 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("leaves an already settled session untouched when it starts", async () => {
-    const harness = await createHarness({ deferReactorStart: true });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-settled-session"),
+    const harness = await createHarness({
+      deferReactorStart: true,
+      seedSession: {
         threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "ready",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex-default"),
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      }),
-    );
+        status: "ready",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex-default"),
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
 
     await harness.startReactor();
 
