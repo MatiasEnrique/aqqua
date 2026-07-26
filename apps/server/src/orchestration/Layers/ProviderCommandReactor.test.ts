@@ -26,6 +26,7 @@ import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -42,6 +43,10 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBindingWithMetadata,
+} from "../../provider/Services/ProviderSessionDirectory.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration, type TextGenerationShape } from "../../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
@@ -149,6 +154,12 @@ describe("ProviderCommandReactor", () => {
     readonly startSessionEffect?: (
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderAdapterRequestError>;
+    /** Leave the reactor unstarted so a test can seed projection state the
+        reactor only inspects at start, such as sessions stranded by a previous
+        process. Call `startReactor` once the state is in place. */
+    readonly deferReactorStart?: boolean;
+    /** Provider bindings the previous process left in the directory. */
+    readonly providerBindings?: ReadonlyArray<ProviderRuntimeBindingWithMetadata>;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -353,9 +364,26 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
+    // Persisted provider bindings, as the previous process left them. Only the
+    // reads the reactor makes are implemented; the rest die loudly.
+    const providerBindings: ProviderRuntimeBindingWithMetadata[] = [
+      ...(input?.providerBindings ?? []),
+    ];
+    const providerSessionDirectoryLayer = Layer.succeed(ProviderSessionDirectory, {
+      upsert: () => Effect.void,
+      getProvider: () => Effect.die("getProvider should not be called in this test"),
+      getBinding: (threadId) => {
+        const found = providerBindings.find((binding) => binding.threadId === threadId);
+        return Effect.succeed(found === undefined ? Option.none() : Option.some(found));
+      },
+      listThreadIds: () => Effect.succeed(providerBindings.map((binding) => binding.threadId)),
+      listBindings: () => Effect.succeed(providerBindings),
+    });
+
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
+      Layer.provideMerge(providerSessionDirectoryLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(makeProviderRegistryLayer(providerSnapshots as never)),
       Layer.provideMerge(
@@ -387,8 +415,14 @@ describe("ProviderCommandReactor", () => {
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
-    scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(reactor.start().pipe(Scope.provide(scope)));
+    // Held locally as well as on the shared `scope` so the deferred starter
+    // closes over a non-null scope.
+    const reactorScope = await Effect.runPromise(Scope.make("sequential"));
+    scope = reactorScope;
+    const startReactor = () => Effect.runPromise(reactor.start().pipe(Scope.provide(reactorScope)));
+    if (input?.deferReactorStart !== true) {
+      await startReactor();
+    }
     const drain = () => Effect.runPromise(reactor.drain);
 
     await Effect.runPromise(
@@ -434,8 +468,136 @@ describe("ProviderCommandReactor", () => {
       runtimeSessions,
       stateDir,
       drain,
+      startReactor,
     };
   }
+
+  it("closes sessions stranded by the previous process when it starts", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      // The shutdown path released this binding, so no process owns it now.
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "stopped",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    // What the projection looks like after the server dies mid-turn: the
+    // provider child is gone, so no turn.completed ever arrives to close this.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-stranded-session"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-stranded"),
+          lastError: null,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+
+    const readModel = await harness.readModel();
+    const session = readModel.threads.find(
+      (thread) => thread.id === ThreadId.make("thread-1"),
+    )?.session;
+    expect(session?.status).toBe("stopped");
+    expect(session?.activeTurnId).toBeNull();
+    expect(session?.lastError).toContain("restarted while this turn was running");
+    // The binding survives so the next message can resume the thread.
+    expect(session?.providerName).toBe("codex");
+    expect(session?.providerInstanceId).toBe(ProviderInstanceId.make("codex-default"));
+  });
+
+  it("leaves a still-claimed binding alone so a second server keeps its session", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      // Another server homed at this state directory still owns the session.
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "running",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-claimed-session"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-live"),
+          lastError: null,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+
+    const readModel = await harness.readModel();
+    const session = readModel.threads.find(
+      (thread) => thread.id === ThreadId.make("thread-1"),
+    )?.session;
+    expect(session?.status).toBe("running");
+    expect(session?.activeTurnId).toBe(asTurnId("turn-live"));
+  });
+
+  it("leaves an already settled session untouched when it starts", async () => {
+    const harness = await createHarness({ deferReactorStart: true });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-settled-session"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+
+    const readModel = await harness.readModel();
+    const session = readModel.threads.find(
+      (thread) => thread.id === ThreadId.make("thread-1"),
+    )?.session;
+    expect(session?.status).toBe("ready");
+    expect(session?.lastError).toBeNull();
+    expect(session?.updatedAt).toBe("2026-01-01T00:00:00.000Z");
+  });
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
     const harness = await createHarness();

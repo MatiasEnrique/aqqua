@@ -16,6 +16,7 @@ import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shar
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -41,6 +42,8 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { claimedThreadIdsFromBindings, selectOrphanedSessions } from "../orphanedSessions.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -191,11 +194,13 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -1084,7 +1089,53 @@ const make = Effect.gen(function* () {
 
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
 
+  // Boot-only: a provider session is a child of the server process, so one the
+  // projection still calls live was stranded when its owner exited — no
+  // `turn.completed` or `session.exited` will ever arrive to close it, and the
+  // reaper skips it twice over (its binding reads `stopped`, and it holds an
+  // active turn). Close those so the thread settles instead of showing
+  // "working" forever, but only where the provider directory agrees the binding
+  // was released: another server may share this state directory, and its live
+  // sessions are not ours to end. See orphanedSessions.
+  const reconcileOrphanedSessions = Effect.fn("reconcileOrphanedSessions")(function* () {
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const bindings = yield* providerSessionDirectory.listBindings();
+    const stoppedAt = yield* nowIso;
+    const orphaned = selectOrphanedSessions({
+      threads: snapshot.threads,
+      claimedThreadIds: claimedThreadIdsFromBindings(bindings),
+      stoppedAt,
+    });
+    if (orphaned.length === 0) {
+      return;
+    }
+
+    for (const entry of orphaned) {
+      yield* setThreadSession({
+        threadId: entry.threadId,
+        session: entry.session,
+        createdAt: stoppedAt,
+      });
+    }
+
+    yield* Effect.logInfo("provider command reactor closed orphaned provider sessions", {
+      threadCount: orphaned.length,
+      threadIds: orphaned.map((entry) => entry.threadId),
+    });
+  });
+
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
+    // Runs to completion before the event subscription is forked, so a turn
+    // start accepted after boot can never be mistaken for a stranded session.
+    // A failure here must not keep the server from starting.
+    yield* reconcileOrphanedSessions().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to close orphaned provider sessions", {
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
       if (
         event.type === "thread.runtime-mode-set" ||
