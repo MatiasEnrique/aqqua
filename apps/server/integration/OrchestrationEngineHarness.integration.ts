@@ -282,13 +282,17 @@ export const makeOrchestrationIntegrationHarness = (
     const providerEventLoggersLayer = Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers);
     const providerLayer = useRealCodex
       ? makeProviderServiceLive().pipe(
-          Layer.provide(providerSessionDirectoryLayer),
+          // provideMerge, as in server.ts: the reactor reads the directory too,
+          // to tell a released binding from one another server still owns.
+          Layer.provideMerge(providerSessionDirectoryLayer),
           Layer.provide(realCodexRegistry),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(providerEventLoggersLayer),
         )
       : makeProviderServiceLive().pipe(
-          Layer.provide(providerSessionDirectoryLayer),
+          // provideMerge, as in server.ts: the reactor reads the directory too,
+          // to tell a released binding from one another server still owns.
+          Layer.provideMerge(providerSessionDirectoryLayer),
           Layer.provide(fakeRegistry!),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(providerEventLoggersLayer),
