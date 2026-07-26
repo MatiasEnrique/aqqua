@@ -1,22 +1,23 @@
 #!/usr/bin/env node
 
 /**
- * generate-sigma-icon - Draw the app icon for Sigma desktop builds.
+ * generate-sigma-icon - Derive the Sigma channel's icon renditions.
  *
  * A Sigma build sits in the Dock beside the release it was built from, so it
  * cannot wear the same artwork: with identical icons there is no way to tell
- * which tile or window belongs to which app. The other channels export designed
- * artwork from Icon Composer projects (see `export-brand-icons`); this one is
- * drawn here, because it only has to be unmistakable, not pretty, and a
- * self-built channel should not need design tooling installed to produce it.
+ * which tile or window belongs to which app. The released channels export their
+ * renditions from Icon Composer projects (see `export-brand-icons`); Sigma is
+ * self-built and keeps a single committed source image instead, so changing the
+ * icon is dropping a new square PNG at `assets/sigma/sigma-source.png` and
+ * rerunning this.
  *
- * The PNG encoder is local because nothing else in the repo rasterizes from
- * scratch — a non-interlaced RGBA PNG is a header, a zlib stream and three
- * CRCs. The `.ico` goes through the same `encodePngIco` the designed channels
- * use.
+ * `sips` does the resampling, as it already does for the macOS iconset during a
+ * desktop build, and the `.ico` goes through the same `encodePngIco` the
+ * designed channels use. That makes this macOS-only to *run*; the renditions it
+ * writes are committed, so Linux and Windows builds never need it.
  *
- * Run `node scripts/generate-sigma-icon.ts` after changing it and commit the
- * regenerated files in `assets/sigma/`; the output is byte-reproducible.
+ * Run `node scripts/generate-sigma-icon.ts` and commit the regenerated files in
+ * `assets/sigma/`.
  *
  * @module generate-sigma-icon
  */
@@ -26,239 +27,90 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { Command } from "effect/unstable/cli";
-import * as NodeZlib from "node:zlib";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { encodePngIco } from "./lib/icon-export.ts";
 
+const SOURCE_RELATIVE_PATH = "assets/sigma/sigma-source.png";
 const OUTPUT_DIR_SEGMENTS = ["assets", "sigma"] as const;
-
-/** Violet reads as neither the production black nor the nightly artwork. */
-const BACKGROUND: RGB = [124, 58, 237];
-const GLYPH: RGB = [255, 255, 255];
-/** Samples per pixel axis. 2 is enough to keep the diagonals from stair-stepping. */
-const SUPERSAMPLE = 2;
+/** macOS renders the icns from this; Linux downsizes the same square. */
+const DESKTOP_RENDITION_SIZE = 1024;
+/** electron-builder requires the 256px entry, and one entry is enough. */
 const WINDOWS_ICON_SIZE = 256;
 
-type RGB = readonly [number, number, number];
-
-interface Segment {
-  readonly x1: number;
-  readonly y1: number;
-  readonly x2: number;
-  readonly y2: number;
-  readonly halfWidth: number;
-}
-
-const crcTable = (() => {
-  const table = new Uint32Array(256);
-  for (let index = 0; index < 256; index += 1) {
-    let value = index;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-    table[index] = value >>> 0;
+export class SigmaIconResizeError extends Schema.TaggedErrorClass<SigmaIconResizeError>()(
+  "SigmaIconResizeError",
+  {
+    size: Schema.Number,
+    exitCode: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return `Failed to resize the Sigma icon source to ${this.size}px (sips exited ${this.exitCode}).`;
   }
-  return table;
-})();
+}
 
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+const resize = Effect.fn("generateSigmaIcon.resize")(function* (
+  sourcePath: string,
+  targetPath: string,
+  size: number,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const process = yield* spawner.spawn(
+    ChildProcess.make({})`sips -z ${size} ${size} ${sourcePath} --out ${targetPath}`,
+  );
+  const exitCode = yield* process.exitCode;
+  if (exitCode !== 0) {
+    return yield* new SigmaIconResizeError({ size, exitCode });
   }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function pngChunk(type: string, data: Uint8Array): Buffer {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const typeAndData = Buffer.concat([Buffer.from(type, "ascii"), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(typeAndData), 0);
-  return Buffer.concat([length, typeAndData, crc]);
-}
-
-/** Encode straight RGBA pixels as a non-interlaced, filter-0 PNG, which is what
-    `sips` and `magick` downscale from during a desktop build. */
-function encodePng(width: number, height: number, rgba: Uint8Array): Buffer {
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header[8] = 8; // bit depth
-  header[9] = 6; // colour type: truecolour with alpha
-  header[10] = 0; // deflate
-  header[11] = 0; // adaptive filtering
-  header[12] = 0; // no interlace
-
-  const stride = width * 4;
-  const raw = Buffer.alloc((stride + 1) * height);
-  for (let y = 0; y < height; y += 1) {
-    raw[y * (stride + 1)] = 0; // per-scanline filter type
-    Buffer.from(rgba.buffer, rgba.byteOffset + y * stride, stride).copy(raw, y * (stride + 1) + 1);
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", header),
-    pngChunk("IDAT", NodeZlib.deflateSync(raw, { level: 9 })),
-    pngChunk("IEND", new Uint8Array()),
-  ]);
-}
-
-function distanceToSegment(px: number, py: number, segment: Segment): number {
-  const dx = segment.x2 - segment.x1;
-  const dy = segment.y2 - segment.y1;
-  const lengthSquared = dx * dx + dy * dy;
-  const t =
-    lengthSquared === 0
-      ? 0
-      : Math.max(0, Math.min(1, ((px - segment.x1) * dx + (py - segment.y1) * dy) / lengthSquared));
-  const cx = segment.x1 + t * dx;
-  const cy = segment.y1 + t * dy;
-  return Math.hypot(px - cx, py - cy);
-}
-
-/** Whether a point falls inside a rounded rectangle. */
-function insideRoundedRect(
-  px: number,
-  py: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-  radius: number,
-): boolean {
-  const cx = Math.max(left + radius, Math.min(right - radius, px));
-  const cy = Math.max(top + radius, Math.min(bottom - radius, py));
-  if (px >= left + radius && px <= right - radius) return py >= top && py <= bottom;
-  if (py >= top + radius && py <= bottom - radius) return px >= left && px <= right;
-  return Math.hypot(px - cx, py - cy) <= radius;
-}
-
-/**
- * A `>_` prompt on a violet field: a shell mark for a build that only exists on
- * the machine that made it. `padding` insets the plate so macOS gets the shape
- * it expects; full-bleed output (Linux, Windows) passes 0.
- */
-function drawIcon(size: number, padding: number): Uint8Array {
-  const rgba = new Uint8Array(size * size * 4);
-  const left = padding;
-  const top = padding;
-  const right = size - padding;
-  const bottom = size - padding;
-  const plateRadius = (right - left) * (padding === 0 ? 0 : 0.22);
-
-  const unit = size / 32;
-  const centreX = size / 2;
-  const centreY = size / 2;
-  const chevronHalf = unit * 4;
-  const strokeHalf = unit * 1.5;
-  const chevronX = centreX - unit * 4.5;
-  const strokes: readonly Segment[] = [
-    {
-      x1: chevronX,
-      y1: centreY - chevronHalf,
-      x2: chevronX + chevronHalf,
-      y2: centreY,
-      halfWidth: strokeHalf,
-    },
-    {
-      x1: chevronX + chevronHalf,
-      y1: centreY,
-      x2: chevronX,
-      y2: centreY + chevronHalf,
-      halfWidth: strokeHalf,
-    },
-    {
-      x1: centreX + unit * 2,
-      y1: centreY + chevronHalf,
-      x2: centreX + unit * 8,
-      y2: centreY + chevronHalf,
-      halfWidth: strokeHalf,
-    },
-  ];
-
-  const step = 1 / SUPERSAMPLE;
-  const samplesPerPixel = SUPERSAMPLE * SUPERSAMPLE;
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      let plateHits = 0;
-      let glyphHits = 0;
-
-      for (let sy = 0; sy < SUPERSAMPLE; sy += 1) {
-        for (let sx = 0; sx < SUPERSAMPLE; sx += 1) {
-          const px = x + (sx + 0.5) * step;
-          const py = y + (sy + 0.5) * step;
-          if (!insideRoundedRect(px, py, left, top, right, bottom, plateRadius)) {
-            continue;
-          }
-          plateHits += 1;
-          if (strokes.some((stroke) => distanceToSegment(px, py, stroke) <= stroke.halfWidth)) {
-            glyphHits += 1;
-          }
-        }
-      }
-
-      const offset = (y * size + x) * 4;
-      if (plateHits === 0) {
-        continue;
-      }
-
-      const glyphRatio = glyphHits / plateHits;
-      const [br, bg, bb] = BACKGROUND;
-      const [gr, gg, gb] = GLYPH;
-      rgba[offset] = Math.round(br + (gr - br) * glyphRatio);
-      rgba[offset + 1] = Math.round(bg + (gg - bg) * glyphRatio);
-      rgba[offset + 2] = Math.round(bb + (gb - bb) * glyphRatio);
-      rgba[offset + 3] = Math.round((plateHits / samplesPerPixel) * 255);
-    }
-  }
-
-  return rgba;
-}
+});
 
 const generateSigmaIcon = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const repoRoot = yield* path.fromFileUrl(new URL("..", import.meta.url));
+  const sourcePath = path.join(repoRoot, SOURCE_RELATIVE_PATH);
   const outputDir = path.join(repoRoot, ...OUTPUT_DIR_SEGMENTS);
 
   yield* fileSystem.makeDirectory(outputDir, { recursive: true });
 
-  const windowsPng = encodePng(
-    WINDOWS_ICON_SIZE,
-    WINDOWS_ICON_SIZE,
-    drawIcon(WINDOWS_ICON_SIZE, 0),
-  );
-  const artifacts = [
-    // macOS art carries its own inset and rounding; the icns is built from this.
-    {
-      name: "sigma-macos-1024.png",
-      contents: encodePng(1024, 1024, drawIcon(1024, Math.round(1024 * 0.09))),
-    },
-    // Linux tiles the full square.
-    { name: "sigma-universal-1024.png", contents: encodePng(1024, 1024, drawIcon(1024, 0)) },
-    {
-      name: "sigma-windows.ico",
-      contents: encodePngIco([{ size: WINDOWS_ICON_SIZE, contents: windowsPng }]),
-    },
-  ] as const;
+  const macPath = path.join(outputDir, "sigma-macos-1024.png");
+  const linuxPath = path.join(outputDir, "sigma-universal-1024.png");
+  const icoPath = path.join(outputDir, "sigma-windows.ico");
 
-  for (const artifact of artifacts) {
-    yield* fileSystem.writeFile(path.join(outputDir, artifact.name), artifact.contents);
-    yield* Console.log(
-      `${OUTPUT_DIR_SEGMENTS.join("/")}/${artifact.name} (${artifact.contents.length} bytes)`,
-    );
+  // The source already carries its own rounded plate, so macOS and Linux take
+  // the same square; only the pixel size differs from the source.
+  yield* resize(sourcePath, macPath, DESKTOP_RENDITION_SIZE);
+  yield* resize(sourcePath, linuxPath, DESKTOP_RENDITION_SIZE);
+
+  // Round-trip the Windows rendition through a temp file so `sips` owns the
+  // resampling for every size, then wrap it in the shared ICO encoder.
+  const windowsPngPath = path.join(outputDir, "sigma-windows-256.png");
+  yield* resize(sourcePath, windowsPngPath, WINDOWS_ICON_SIZE);
+  const windowsPng = Buffer.from(yield* fileSystem.readFile(windowsPngPath));
+  yield* fileSystem.remove(windowsPngPath);
+  yield* fileSystem.writeFile(
+    icoPath,
+    encodePngIco([{ size: WINDOWS_ICON_SIZE, contents: windowsPng }]),
+  );
+
+  for (const target of [macPath, linuxPath, icoPath]) {
+    const stats = yield* fileSystem.stat(target);
+    yield* Console.log(`${path.relative(repoRoot, target)} (${stats.size} bytes)`);
   }
 });
 
-const generateSigmaIconCommand = Command.make(
-  "generate-sigma-icon",
-  {},
-  () => generateSigmaIcon,
-).pipe(Command.withDescription("Draw the app icon assets for Sigma desktop builds."));
+const generateSigmaIconCommand = Command.make("generate-sigma-icon", {}, () =>
+  // Scoped here, as in `export-brand-icons`: each spawned `sips` binds its
+  // process handle to this scope.
+  generateSigmaIcon.pipe(Effect.scoped),
+).pipe(
+  Command.withDescription(
+    "Derive the Sigma desktop icon renditions from assets/sigma/sigma-source.png.",
+  ),
+);
 
 if (import.meta.main) {
   Command.run(generateSigmaIconCommand, { version: "0.0.0" }).pipe(
