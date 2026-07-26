@@ -23,6 +23,18 @@ const TerminalEnvValueSchema = Schema.String.check(Schema.isMaxLength(8_192));
 const TerminalEnvSchema = Schema.Record(TerminalEnvKeySchema, TerminalEnvValueSchema).check(
   Schema.isMaxProperties(128),
 );
+/**
+ * Program to run instead of an interactive shell.
+ *
+ * Used to host an agent CLI in a terminal so the user watches it work and can type
+ * into it. When set, the shell fallback chain does not apply: if the requested
+ * program cannot start that is an error, not a reason to silently drop the caller
+ * into bash.
+ */
+const TerminalProgramSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(1024));
+const TerminalProgramArgsSchema = Schema.Array(Schema.String.check(Schema.isMaxLength(4096))).check(
+  Schema.isMaxLength(64),
+);
 
 export const TerminalThreadInput = Schema.Struct({
   threadId: TrimmedNonEmptyStringSchema,
@@ -43,6 +55,8 @@ export const TerminalOpenInput = Schema.Struct({
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
+  program: Schema.optional(TerminalProgramSchema),
+  args: Schema.optional(TerminalProgramArgsSchema),
 });
 export type TerminalOpenInput = Schema.Codec.Encoded<typeof TerminalOpenInput>;
 
@@ -80,6 +94,8 @@ export const TerminalRestartInput = Schema.Struct({
   cols: TerminalColsSchema,
   rows: TerminalRowsSchema,
   env: Schema.optional(TerminalEnvSchema),
+  program: Schema.optional(TerminalProgramSchema),
+  args: Schema.optional(TerminalProgramArgsSchema),
 });
 export type TerminalRestartInput = Schema.Codec.Encoded<typeof TerminalRestartInput>;
 

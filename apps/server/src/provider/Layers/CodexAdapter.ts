@@ -1395,6 +1395,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const agentEnvironment = mcpSession
+          ? McpProviderSession.agentSessionEnvironment(mcpSession)
+          : undefined;
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -1415,7 +1418,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? {
                 environment: {
                   ...(options?.environment ?? process.env),
-                  T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                  T3_MCP_BEARER_TOKEN: agentEnvironment?.T3_AGENT_TOKEN,
+                  ...agentEnvironment,
                 },
                 appServerArgs: [
                   "-c",

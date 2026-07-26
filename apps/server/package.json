@@ -11,7 +11,8 @@
     "3T": "./dist/bin.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "src/cli/t3-launcher.ts"
   ],
   "type": "module",
   "scripts": {

@@ -16,6 +16,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { beforeEach } from "vite-plus/test";
 
 import {
+  EnvironmentId,
   OpenCodeSettings,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -23,6 +24,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import type { OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
@@ -57,6 +59,7 @@ type MessageEntry = {
 const runtimeMock = {
   state: {
     startCalls: [] as string[],
+    startEnvironments: [] as Array<NodeJS.ProcessEnv | undefined>,
     sessionCreateUrls: [] as string[],
     sessionCreateInputs: [] as Array<Record<string, unknown>>,
     authHeaders: [] as Array<string | null>,
@@ -77,6 +80,7 @@ const runtimeMock = {
   },
   reset() {
     this.state.startCalls.length = 0;
+    this.state.startEnvironments.length = 0;
     this.state.sessionCreateUrls.length = 0;
     this.state.sessionCreateInputs.length = 0;
     this.state.authHeaders.length = 0;
@@ -115,8 +119,9 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         exitCode: Effect.never,
       };
     }),
-  connectToOpenCodeServer: ({ serverUrl }) =>
+  connectToOpenCodeServer: ({ serverUrl, environment }) =>
     Effect.gen(function* () {
+      runtimeMock.state.startEnvironments.push(environment);
       const url = serverUrl ?? "http://127.0.0.1:4301";
       // Always register a finalizer so the closeCalls/closeError probes fire;
       // production attaches none for external servers.
@@ -212,6 +217,9 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
           })(),
         }),
       },
+      mcp: {
+        add: async () => ({ data: true }),
+      },
     }) as unknown as ReturnType<OpenCodeRuntimeShape["createOpenCodeSdkClient"]>,
   loadOpenCodeInventory: () =>
     Effect.fail(
@@ -251,6 +259,9 @@ const openCodeAdapterTestSettings = Schema.decodeSync(OpenCodeSettings)({
   serverUrl: "http://127.0.0.1:9999",
   serverPassword: "secret-password",
 });
+const localOpenCodeAdapterTestSettings = Schema.decodeSync(OpenCodeSettings)({
+  binaryPath: "fake-opencode",
+});
 
 const OpenCodeAdapterTestLayer = Layer.effect(
   OpenCodeAdapter,
@@ -275,10 +286,55 @@ const OpenCodeAdapterTestLayer = Layer.effect(
 
 beforeEach(() => {
   runtimeMock.reset();
+  McpProviderSession.clearAllMcpProviderSessions();
 });
 
 const advanceTestClock = (ms: number) =>
   TestClock.adjust(`${ms} millis`).pipe(Effect.andThen(Effect.yieldNow));
+
+it.effect("injects agent identity into a local OpenCode process environment", () => {
+  const threadId = asThreadId("thread-opencode-agent-environment");
+  McpProviderSession.setMcpProviderSession({
+    environmentId: EnvironmentId.make("environment-opencode"),
+    threadId,
+    providerSessionId: "provider-session-opencode",
+    providerInstanceId: ProviderInstanceId.make("opencode"),
+    endpoint: "http://127.0.0.1:5173/mcp",
+    origin: "http://127.0.0.1:5173",
+    authorizationHeader: "Bearer delegated-agent-token",
+  });
+
+  const adapterLayer = Layer.effect(
+    OpenCodeAdapter,
+    makeOpenCodeAdapter(localOpenCodeAdapterTestSettings, {
+      environment: { CUSTOM_ENV: "preserved" },
+    }),
+  ).pipe(
+    Layer.provideMerge(Layer.succeed(OpenCodeRuntime, OpenCodeRuntimeTestDouble)),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  );
+
+  return Effect.gen(function* () {
+    const adapter = yield* OpenCodeAdapter;
+    yield* adapter.startSession({
+      provider: ProviderDriverKind.make("opencode"),
+      threadId,
+      runtimeMode: "full-access",
+    });
+
+    NodeAssert.deepEqual(runtimeMock.state.startEnvironments, [
+      {
+        CUSTOM_ENV: "preserved",
+        T3_AGENT_TOKEN: "delegated-agent-token",
+        T3_AGENT_API: "http://127.0.0.1:5173",
+        T3_THREAD_ID: "thread-opencode-agent-environment",
+      },
+    ]);
+  }).pipe(Effect.provide(adapterLayer));
+});
 
 it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
   it.effect("reuses a configured OpenCode server URL instead of spawning a local server", () =>

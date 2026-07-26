@@ -417,6 +417,102 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
   }),
 );
 
+it.effect("treats a thread without a delegation edge as unparented", () =>
+  Effect.gen(function* () {
+    const common = {
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Historical thread",
+      modelSelection: { provider: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      session: null,
+    };
+    const detailExtras = {
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    };
+    const shellExtras = {
+      latestUserMessageAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    };
+
+    // Payloads written before delegation existed omit the field entirely.
+    const thread = yield* decodeOrchestrationThread({ ...common, ...detailExtras });
+    const shell = yield* decodeOrchestrationThreadShell({ ...common, ...shellExtras });
+    assert.strictEqual(thread.parentThreadId ?? null, null);
+    assert.strictEqual(shell.parentThreadId ?? null, null);
+
+    // An explicit null is equivalent to omission.
+    const explicitlyNull = yield* decodeOrchestrationThread({
+      ...common,
+      ...detailExtras,
+      parentThreadId: null,
+    });
+    assert.strictEqual(explicitlyNull.parentThreadId ?? null, null);
+
+    // A sub-agent round trips its orchestrator.
+    const subAgent = yield* decodeOrchestrationThread({
+      ...common,
+      ...detailExtras,
+      parentThreadId: "thread-orchestrator",
+    });
+    assert.strictEqual(subAgent.parentThreadId, "thread-orchestrator");
+
+    const subAgentShell = yield* decodeOrchestrationThreadShell({
+      ...common,
+      ...shellExtras,
+      parentThreadId: "thread-orchestrator",
+    });
+    assert.strictEqual(subAgentShell.parentThreadId, "thread-orchestrator");
+  }),
+);
+
+it.effect("decodes a thread.create command that omits the delegation edge", () =>
+  Effect.gen(function* () {
+    const base = {
+      type: "thread.create",
+      commandId: "cmd-create-1",
+      threadId: "thread-1",
+      projectId: "project-1",
+      title: "Plain thread",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const plain = yield* decodeOrchestrationCommand(base);
+    assert.strictEqual(
+      plain.type === "thread.create" ? (plain.parentThreadId ?? null) : "wrong-command",
+      null,
+    );
+
+    const delegated = yield* decodeOrchestrationCommand({
+      ...base,
+      threadId: "thread-child",
+      parentThreadId: "thread-orchestrator",
+    });
+    assert.strictEqual(
+      delegated.type === "thread.create" ? delegated.parentThreadId : "wrong-command",
+      "thread-orchestrator",
+    );
+  }),
+);
+
 it.effect("decodes thread archived and unarchived events", () =>
   Effect.gen(function* () {
     const archived = yield* decodeOrchestrationEvent({

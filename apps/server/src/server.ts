@@ -84,6 +84,8 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
+import { AgentControlLive } from "./agent-control/Layers/AgentControl.ts";
+import { agentControlRouteLayer } from "./agent-control/http.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -287,13 +289,29 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
+/**
+ * Orchestrator → sub-agent delegation.
+ *
+ * Composed here rather than as its own entry in `RuntimeCoreDependenciesLive`:
+ * it dispatches through the orchestration engine and reads the projection, both
+ * of which this layer already provides. Its remaining requirements — the provider
+ * instance registry, settings, and crypto — are satisfied further out.
+ */
+const AgentControlLayerLive = AgentControlLive.pipe(
+  // `ProviderLayerLive` consumes the adapter registry with `provide`, so it is not
+  // re-exported; delegation needs it directly to enumerate provider instances
+  // while resolving an agent profile.
+  Layer.provide(ProviderAdapterRegistryLive),
+  Layer.provideMerge(ProviderRuntimeLayerLive),
+);
+
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
-  Layer.provideMerge(ProviderRuntimeLayerLive),
+  Layer.provideMerge(AgentControlLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),
@@ -362,6 +380,11 @@ export const makeRoutesLayer = Layer.mergeAll(
     assetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
+    // The `t3 agent` CLI calls these from inside a provider session's shell. They
+    // authenticate against the live MCP session registry through
+    // `resolveActiveMcpScope`, so the agent API and the MCP server always agree on
+    // which credential belongs to which thread.
+    agentControlRouteLayer,
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
 ).pipe(

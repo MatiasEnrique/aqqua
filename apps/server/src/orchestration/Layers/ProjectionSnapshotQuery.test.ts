@@ -284,6 +284,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
+          parentThreadId: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -398,6 +399,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
+          parentThreadId: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -567,6 +569,185 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         [ThreadId.make("thread-archived")],
       );
       assert.equal(archivedShellSnapshot.threads[0]?.archivedAt, "2026-04-06T00:00:06.000Z");
+    }),
+  );
+
+  it.effect("carries the orchestrator edge through shell and detail snapshots", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-delegation',
+          'Delegation',
+          '/tmp/delegation',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-06T00:00:00.000Z',
+          '2026-04-06T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          parent_thread_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES
+          (
+            'thread-orchestrator',
+            'project-delegation',
+            NULL,
+            'Orchestrator',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            0,
+            '2026-04-06T00:00:02.000Z',
+            '2026-04-06T00:00:03.000Z',
+            NULL,
+            NULL
+          ),
+          (
+            'thread-subagent',
+            'project-delegation',
+            'thread-orchestrator',
+            'Sub-agent',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            0,
+            '2026-04-06T00:00:04.000Z',
+            '2026-04-06T00:00:05.000Z',
+            NULL,
+            NULL
+          )
+      `;
+
+      // A row written before the delegation column existed leaves it unset; it
+      // must read back as null rather than becoming a phantom edge.
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-legacy',
+          'project-delegation',
+          'Legacy',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          '2026-04-06T00:00:06.000Z',
+          '2026-04-06T00:00:07.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+        VALUES
+          (${ORCHESTRATION_PROJECTOR_NAMES.projects}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threads}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadMessages}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadActivities}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadSessions}, 6, '2026-04-06T00:00:08.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.checkpoints}, 6, '2026-04-06T00:00:08.000Z')
+      `;
+
+      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(
+        shellSnapshot.threads.map((thread) => [thread.id, thread.parentThreadId]),
+        [
+          [ThreadId.make("thread-orchestrator"), null],
+          [ThreadId.make("thread-subagent"), ThreadId.make("thread-orchestrator")],
+          [ThreadId.make("thread-legacy"), null],
+        ],
+      );
+
+      const subagentDetail = yield* snapshotQuery.getThreadDetailById(
+        ThreadId.make("thread-subagent"),
+      );
+      assert.equal(
+        subagentDetail._tag === "Some" ? subagentDetail.value.parentThreadId : "missing",
+        ThreadId.make("thread-orchestrator"),
+      );
+
+      const orchestratorDetail = yield* snapshotQuery.getThreadDetailById(
+        ThreadId.make("thread-orchestrator"),
+      );
+      assert.equal(
+        orchestratorDetail._tag === "Some" ? orchestratorDetail.value.parentThreadId : "missing",
+        null,
+      );
     }),
   );
 

@@ -7,6 +7,11 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
+/**
+ * Capabilities a provider-scoped credential may carry.
+ *
+ * - `preview`: collaborative browser automation.
+ */
 export type McpCapability = "preview";
 
 export interface McpInvocationScope {
@@ -24,6 +29,9 @@ export class McpInvocationContext extends Context.Service<
   McpInvocationScope
 >()("t3/mcp/McpInvocationContext") {}
 
+/**
+ * Assert an MCP capability.
+ */
 export const requireMcpCapability = Effect.fn("mcp.requireCapability")(function* (
   capability: McpCapability,
 ) {

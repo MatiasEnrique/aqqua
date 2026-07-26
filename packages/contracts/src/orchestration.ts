@@ -342,9 +342,24 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+/**
+ * Orchestrator → sub-agent edge. Absent or `null` for an ordinary user thread.
+ *
+ * The relationship is provider-neutral by design: a Claude orchestrator can own
+ * a Codex sub-agent and vice versa, which provider-local subagent metadata
+ * cannot express.
+ *
+ * Optional rather than null-defaulted, matching `snoozedUntil`/`snoozedAt`
+ * below: payloads from servers and clients that predate delegation still decode,
+ * and callers that never delegate do not have to name the field. Read sites
+ * normalize with `?? null`.
+ */
+const ParentThreadId = Schema.optional(Schema.NullOr(ThreadId));
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  parentThreadId: ParentThreadId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -401,6 +416,7 @@ export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  parentThreadId: ParentThreadId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -546,6 +562,7 @@ const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
+  parentThreadId: ParentThreadId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -641,6 +658,7 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
 
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   projectId: ProjectId,
+  parentThreadId: ParentThreadId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -940,6 +958,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  parentThreadId: ParentThreadId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),

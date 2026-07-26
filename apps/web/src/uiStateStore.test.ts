@@ -9,10 +9,13 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  retainThreadExpansionForKnownThreads,
   reorderProjects,
   resolveProjectExpanded,
+  resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setThreadExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -22,6 +25,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
+    threadExpandedById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     ...overrides,
@@ -135,6 +139,49 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("resolves thread expansion from the first matching preference key", () => {
+    const threadKey = "environment-a:thread-1";
+    const aliasKey = "legacy:thread-1";
+
+    expect(resolveThreadExpanded({ [threadKey]: false, [aliasKey]: true }, [threadKey])).toBe(
+      false,
+    );
+    expect(resolveThreadExpanded({ [aliasKey]: false }, ["new-key", aliasKey])).toBe(false);
+    expect(resolveThreadExpanded({}, [threadKey])).toBe(true);
+  });
+
+  it("sets expansion for every stable key belonging to a thread", () => {
+    const initialState = makeUiState();
+    const keys = ["environment-a:thread-1", "environment-b:thread-1"];
+
+    const next = setThreadExpanded(initialState, keys, false);
+
+    expect(next.threadExpandedById).toEqual({
+      "environment-a:thread-1": false,
+      "environment-b:thread-1": false,
+    });
+    expect(setThreadExpanded(next, keys, false)).toBe(next);
+  });
+
+  it("retains expansion preferences only for currently known threads", () => {
+    const initialState = makeUiState({
+      threadExpandedById: {
+        "environment-a:thread-current": false,
+        "environment-a:thread-removed": true,
+      },
+    });
+
+    const next = retainThreadExpansionForKnownThreads(initialState, [
+      "environment-a:thread-current",
+      "environment-a:thread-new",
+    ]);
+
+    expect(next.threadExpandedById).toEqual({
+      "environment-a:thread-current": false,
+    });
+    expect(retainThreadExpansionForKnownThreads(next, ["environment-a:thread-current"])).toBe(next);
+  });
+
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -158,6 +205,10 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
       },
+      threadExpandedById: {
+        "environment:thread-1": false,
+        invalid: "no" as unknown as boolean,
+      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -175,6 +226,9 @@ describe("parsePersistedState", () => {
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
+      },
+      threadExpandedById: {
+        "environment:thread-1": false,
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
@@ -295,6 +349,7 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
+      threadExpandedById: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
