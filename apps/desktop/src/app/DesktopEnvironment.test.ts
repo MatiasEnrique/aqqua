@@ -111,6 +111,41 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("keeps a Sigma build's identity and state clear of an installed release", () =>
+    Effect.gen(function* () {
+      const sigma = yield* makeEnvironment({ appVersion: "0.0.28-sigma" });
+      const release = yield* makeEnvironment({ appVersion: "0.0.28" });
+
+      // Two servers sharing one state.sqlite corrupt the projection and stop
+      // each other's sessions, so a Sigma build never lands in the release home.
+      assert.equal(sigma.baseDir, "/Users/alice/.t3-sigma");
+      assert.equal(sigma.stateDir, "/Users/alice/.t3-sigma/userdata");
+      assert.equal(release.stateDir, "/Users/alice/.t3/userdata");
+
+      assert.equal(sigma.branding.stageLabel, "Sigma");
+      assert.equal(sigma.displayName, "T3 Code (Sigma)");
+      assert.equal(sigma.appUserModelId, "com.t3tools.t3code.sigma");
+      assert.equal(sigma.userDataDirName, "t3code-sigma");
+      assert.equal(sigma.linuxWmClass, "t3code-sigma");
+      assert.equal(sigma.linuxDesktopEntryName, "t3code-sigma.desktop");
+
+      assert.equal(release.branding.stageLabel, "Alpha");
+      assert.equal(release.appUserModelId, "com.t3tools.t3code");
+      assert.equal(release.userDataDirName, "t3code");
+    }),
+  );
+
+  it.effect("lets an explicit T3CODE_HOME override a Sigma build's default home", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { appVersion: "0.0.28-sigma" },
+        { T3CODE_HOME: "/tmp/t3-elsewhere" },
+      );
+
+      assert.equal(environment.stateDir, "/tmp/t3-elsewhere/userdata");
+    }),
+  );
+
   it.effect("uses a configured app user model id override", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

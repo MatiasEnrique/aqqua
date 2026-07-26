@@ -31,6 +31,8 @@ interface UpdatesHarnessOptions {
   readonly setDisableDifferentialDownload?: Effect.Effect<void>;
   readonly stopBackend?: Effect.Effect<void>;
   readonly env?: Record<string, string | undefined>;
+  /** Drives the build channel: a `-sigma` suffix makes this a local build. */
+  readonly appVersion?: string;
 }
 
 const flushCallbacks = Effect.yieldNow;
@@ -134,7 +136,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
     homeDirectory: `/tmp/t3-desktop-updates-home-${process.pid}`,
     platform: "darwin",
     processArch: "x64",
-    appVersion: "1.2.3",
+    appVersion: options.appVersion ?? "1.2.3",
     appPath: "/repo",
     isPackaged: true,
     resourcesPath: "/missing/resources",
@@ -272,6 +274,32 @@ describe("DesktopUpdates", () => {
 
       assert.equal(harness.listenerCount(), 0);
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("never auto-updates a Sigma build, even with a feed configured", () => {
+    // The mock update feed is on in this harness, so a release build here would
+    // be enabled. Only the -local version suffix turns it off.
+    const harness = makeHarness({ appVersion: "1.2.3-sigma" });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        const state = yield* updates.getState;
+        assert.equal(state.enabled, false);
+        assert.equal(state.status, "disabled");
+
+        const reason = yield* updates.disabledReason;
+        assert.deepEqual(
+          reason,
+          Option.some("This is a Sigma build. Update it by pulling and rebuilding."),
+        );
+
+        yield* TestClock.adjust(Duration.millis(15_000));
+        assert.equal(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
   it.effect("updates and broadcasts state from updater events", () => {

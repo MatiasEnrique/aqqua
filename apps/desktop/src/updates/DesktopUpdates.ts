@@ -219,12 +219,18 @@ function shouldBroadcastDownloadProgress(
 
 function getAutoUpdateDisabledReason(args: {
   isDevelopment: boolean;
+  isSigmaBuild: boolean;
   isPackaged: boolean;
   platform: NodeJS.Platform;
   appImage?: string | undefined;
   disabledByEnv: boolean;
   hasUpdateFeedConfig: boolean;
 }): string | null {
+  // Checked before the feed: a Sigma build is updated by pulling and rebuilding,
+  // so say that rather than blaming a missing feed.
+  if (args.isSigmaBuild) {
+    return "This is a Sigma build. Update it by pulling and rebuilding.";
+  }
   if (!args.hasUpdateFeedConfig) {
     return "Automatic updates are not available because no update feed is configured.";
   }
@@ -304,6 +310,7 @@ export const make = Effect.gen(function* () {
     return Option.fromNullishOr(
       getAutoUpdateDisabledReason({
         isDevelopment: environment.isDevelopment,
+        isSigmaBuild: environment.branding.stageLabel === "Sigma",
         isPackaged: environment.isPackaged,
         platform: environment.platform,
         appImage: Option.getOrUndefined(config.appImagePath),
