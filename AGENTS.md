@@ -15,16 +15,16 @@
 
 ## Delegating to Sub-Agents
 
-When a task splits cleanly across providers, delegate with `t3 agent` from your own
+When a task splits cleanly across providers, delegate with `3T agent` from your own
 shell. Sub-agents appear nested under this thread in the sidebar and can be opened,
 read, and interrupted while they work.
 
-- `t3 agent spawn --profile implementer --task-file <path>` — start one; returns immediately.
-- `t3 agent await <threadId>` — wait for its current task; re-run to keep waiting.
-- `t3 agent send <threadId> --message-file <path>` — continue it with its context intact.
-- `t3 agent list` / `t3 agent interrupt <threadId>`.
+- `3T agent spawn --profile implementer --task-file <path>` — start one; returns immediately.
+- `3T agent await <threadId>` — wait for its current task; re-run to keep waiting.
+- `3T agent send <threadId> --message-file <path>` — continue it with its context intact.
+- `3T agent list` / `3T agent interrupt <threadId>`.
 
-- `t3 agent events --follow` — NDJSON as sub-agents start, change status, and settle.
+- `3T agent events --follow` — NDJSON as sub-agents start, change status, and settle.
 
 Pass long tasks by file, not inline. Add `--json` for machine-readable output. A
 sub-agent cannot itself delegate.
@@ -32,7 +32,7 @@ sub-agent cannot itself delegate.
 A profile's runtime decides how its sub-agent is hosted: `session` runs it through a
 provider adapter, so its reasoning, tool calls, and file changes render as a normal
 transcript; `terminal` runs the provider's own CLI in the sub-agent's terminal, which
-you watch rather than await. `t3 agent await` and `send` do not apply to a
+you watch rather than await. `3T agent await` and `send` do not apply to a
 `terminal` sub-agent and will tell you so.
 
 ## Package Roles

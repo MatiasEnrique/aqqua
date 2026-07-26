@@ -1,7 +1,7 @@
 /**
  * Agent-control HTTP surface.
  *
- * The `t3 agent` CLI runs inside a provider session's own shell and calls these
+ * The `3T agent` CLI runs inside a provider session's own shell and calls these
  * routes. They are authenticated with the same provider-scoped bearer credential
  * the MCP server uses (`McpSessionRegistry`), which is what makes the parent
  * thread trustworthy: it comes from the credential T3 minted for that session, not
@@ -45,7 +45,7 @@ const unauthorized = response(
   {
     error: "invalid_agent_credential",
     message:
-      "A valid provider-scoped credential is required. Run `t3 agent` from inside a T3 Code agent session.",
+      "A valid provider-scoped credential is required. Run `3T agent` from inside a T3 Code agent session.",
   },
   { status: 401, headers: { "cache-control": "no-store", "www-authenticate": "Bearer" } },
 );

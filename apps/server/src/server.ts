@@ -380,7 +380,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     assetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
-    // The `t3 agent` CLI calls these from inside a provider session's shell. They
+    // The `3T agent` CLI calls these from inside a provider session's shell. They
     // authenticate against the live MCP session registry through
     // `resolveActiveMcpScope`, so the agent API and the MCP server always agree on
     // which credential belongs to which thread.

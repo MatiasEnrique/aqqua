@@ -9,7 +9,7 @@ export interface McpProviderSessionConfig {
   /**
    * Server origin behind `endpoint`, e.g. `http://127.0.0.1:5173`.
    *
-   * Adapters pass this into the provider process so the `t3 agent` CLI can reach
+   * Adapters pass this into the provider process so the `3T agent` CLI can reach
    * this environment's agent API without being told where the server lives.
    */
   readonly origin: string;
@@ -17,7 +17,7 @@ export interface McpProviderSessionConfig {
 }
 
 /**
- * Delegation identity for the `t3 agent` CLI, which runs inside the provider
+ * Delegation identity for the `3T agent` CLI, which runs inside the provider
  * session's shell. The parent thread is resolved server-side from the token,
  * so an agent cannot impersonate another thread even though it writes the
  * command line. `T3_THREAD_ID` is informational only.

@@ -9,7 +9,7 @@
  *
  * Callers see thread ids, role names, statuses, and messages. They never see
  * provider instance ids, MCP credentials, worktree paths, terminal pids, or
- * orchestration command shapes — front-ends (the `t3 agent` CLI, and optionally
+ * orchestration command shapes — front-ends (the `3T agent` CLI, and optionally
  * an MCP toolkit) hand these values to a model, so the interface is also the
  * disclosure boundary.
  *

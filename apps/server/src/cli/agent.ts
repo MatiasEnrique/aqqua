@@ -1,5 +1,5 @@
 /**
- * `t3 agent` — delegate work to sub-agents from an orchestrator's own shell.
+ * `3T agent` — delegate work to sub-agents from an orchestrator's own shell.
  *
  * This is the delegation front-end, and it is a CLI on purpose. An MCP toolkit
  * would put its tool schemas into the orchestrator's context on every turn; a
@@ -256,7 +256,7 @@ const spawnCommand = Command.make("spawn", {
       yield* emit({
         json: flags.json,
         value: result,
-        text: `Started ${flags.profile} sub-agent ${threadId}. Await it with: t3 agent await ${threadId}`,
+        text: `Started ${flags.profile} sub-agent ${threadId}. Await it with: 3T agent await ${threadId}`,
       });
     }).pipe(Effect.provide(cliRuntime)),
   ),

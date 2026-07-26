@@ -51,7 +51,7 @@ export function formatServiceStatus(
     return "T3 Code service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd";
   }
   if (!status.installed) {
-    return "T3 Code service\n  Status: not installed\n  Next: Run `t3 service install`.";
+    return "T3 Code service\n  Status: not installed\n  Next: Run `3T service install`.";
   }
   return [
     "T3 Code service",
