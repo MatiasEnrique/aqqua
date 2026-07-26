@@ -166,8 +166,8 @@ update it by pulling and rebuilding.
 npm run dist:desktop:sigma     # host platform/target/arch are auto-detected
 ```
 
-The artifact lands in `release/` as `T3-Code-<version>-<arch>.<ext>` — for example
-`T3-Code-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
+The artifact lands in `release/` as `3T-Code-<version>-<arch>.<ext>` — for example
+`3T-Code-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
 
 `--sigma` is expressed as a `-sigma` suffix on the version, and that suffix is the entire channel
 signal — `scripts/build-desktop-artifact.ts` reads it when generating the electron-builder config,
@@ -175,18 +175,20 @@ and the running app reads the same suffix through `isSigmaDesktopVersion`. Every
 
 |              | Released app         | Sigma build                |
 | ------------ | -------------------- | -------------------------- |
-| Product name | `T3 Code (Alpha)`    | `T3 Code (Sigma)`          |
+| Product name | `3T Code (Alpha)`    | `3T Code (Sigma)`          |
 | Bundle id    | `com.t3tools.t3code` | `com.t3tools.t3code.sigma` |
 | User data    | `t3code`             | `t3code-sigma`             |
 | T3 home      | `~/.t3`              | `~/.t3-sigma`              |
 | Update feed  | GitHub releases      | none                       |
-| App icon     | `assets/prod` black  | `assets/sigma` violet `>_` |
+| App icon     | `assets/prod` black  | `assets/sigma` 3T artwork  |
 
 The icon matters as much as the name: both apps sit in the Dock at once, and identical tiles leave
-no way to tell which is which. `assets/sigma/` is generated rather than designed —
-`node scripts/generate-sigma-icon.ts` rasterizes the PNGs and the `.ico` with no dependencies and is
-byte-reproducible, so regenerate and commit it if you change the generator. In-app favicons stay on
-the blueprint `dev` set, which is already distinct from production.
+no way to tell which is which. `assets/sigma/` now holds designed artwork, committed directly.
+
+`scripts/generate-sigma-icon.ts` still draws the violet `>_` placeholder those files started as, and
+it writes to the same three paths — running it overwrites the artwork. Restore it from git rather
+than regenerating. In-app favicons stay on the blueprint `dev` set, which is already distinct from
+production.
 
 The separate T3 home is not cosmetic. Two servers pointed at one `state.sqlite` corrupt the
 projection and close each other's provider sessions, so a Sigma build must not share a home with an
@@ -198,7 +200,7 @@ Notes:
 
 - Sigma builds are unsigned unless you pass `--signed`. A locally produced artifact is not
   quarantined, so it opens normally; an app copied from another machine needs
-  `xattr -dr com.apple.quarantine "/Applications/T3 Code (Sigma).app"`.
+  `xattr -dr com.apple.quarantine "/Applications/3T Code (Sigma).app"`.
 - A Sigma build carries no `app-update.yml`, and the app reports "This is a Sigma build. Update it
   by pulling and rebuilding." in place of update status.
 - To start over, delete `~/.t3-sigma` — the released app's state is untouched.

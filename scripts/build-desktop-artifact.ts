@@ -1415,11 +1415,11 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   if (isDesktopSigmaBuildVersion(version)) {
-    return "T3 Code (Sigma)";
+    return "3T Code (Sigma)";
   }
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    ? "3T Code (Nightly)"
+    : (desktopPackageJson.productName ?? "3T Code");
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -1439,7 +1439,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: resolveDesktopAppId(version),
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: "3T-Code-${version}-${arch}.${ext}",
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -1484,7 +1484,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       protocols: [
         {
-          name: "T3 Code",
+          name: "3T Code",
           schemes: ["t3code", "t3code-dev"],
         },
       ],

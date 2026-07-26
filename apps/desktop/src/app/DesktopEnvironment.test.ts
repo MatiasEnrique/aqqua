@@ -123,7 +123,7 @@ describe("DesktopEnvironment", () => {
       assert.equal(release.stateDir, "/Users/alice/.t3/userdata");
 
       assert.equal(sigma.branding.stageLabel, "Sigma");
-      assert.equal(sigma.displayName, "T3 Code (Sigma)");
+      assert.equal(sigma.displayName, "3T Code (Sigma)");
       assert.equal(sigma.appUserModelId, "com.t3tools.t3code.sigma");
       assert.equal(sigma.userDataDirName, "t3code-sigma");
       assert.equal(sigma.linuxWmClass, "t3code-sigma");

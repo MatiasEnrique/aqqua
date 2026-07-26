@@ -88,8 +88,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "3T Code (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "3T Code (Nightly)");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -477,7 +477,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
       assert.deepStrictEqual(mac.protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "3T Code", schemes: ["t3code", "t3code-dev"] },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
@@ -514,7 +514,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("names a Sigma build apart from the release it installs beside", () => {
-    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "T3 Code (Sigma)");
+    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "3T Code (Sigma)");
     assert.equal(resolveDesktopAppId("0.0.28-sigma"), "com.t3tools.t3code.sigma");
     assert.equal(resolveDesktopAppId("0.0.28"), "com.t3tools.t3code");
     assert.equal(resolveDesktopAppId("0.0.28-nightly.20260413.42"), "com.t3tools.t3code");
@@ -543,7 +543,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(config, "publish");
       assert.equal(config.appId, "com.t3tools.t3code.sigma");
-      assert.equal(config.productName, "T3 Code (Sigma)");
+      assert.equal(config.productName, "3T Code (Sigma)");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
