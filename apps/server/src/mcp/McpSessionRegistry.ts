@@ -115,12 +115,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        // `agent-control` is granted to every provider session. Recursion is not
-        // gated here: `AgentControl` refuses to delegate from a thread that
-        // carries a persisted parent edge, which holds across restarts and is the
-        // single enforcement point. Gating the credential too would put the same
-        // rule in two places that could drift apart.
-        capabilities: new Set(["preview", "agent-control"]),
+        capabilities: new Set(["preview"]),
         issuedAt,
         expiresAt,
       };

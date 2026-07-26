@@ -532,9 +532,15 @@ export function makeCursorAdapter(
             : cursorSettings;
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          const sessionEnvironment = mcpSession
+            ? {
+                ...(options?.environment ?? process.env),
+                ...McpProviderSession.agentSessionEnvironment(mcpSession),
+              }
+            : options?.environment;
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
-            ...(options?.environment ? { environment: options.environment } : {}),
+            ...(sessionEnvironment ? { environment: sessionEnvironment } : {}),
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),

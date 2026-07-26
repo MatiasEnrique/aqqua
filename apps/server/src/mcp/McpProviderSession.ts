@@ -16,6 +16,20 @@ export interface McpProviderSessionConfig {
   readonly authorizationHeader: string;
 }
 
+/**
+ * Delegation identity for the `t3 agent` CLI, which runs inside the provider
+ * session's shell. The parent thread is resolved server-side from the token,
+ * so an agent cannot impersonate another thread even though it writes the
+ * command line. `T3_THREAD_ID` is informational only.
+ */
+export function agentSessionEnvironment(session: McpProviderSessionConfig): Record<string, string> {
+  return {
+    T3_AGENT_TOKEN: session.authorizationHeader.replace(/^Bearer\s+/, ""),
+    T3_AGENT_API: session.origin,
+    T3_THREAD_ID: session.threadId,
+  };
+}
+
 const sessionsByThread = new Map<ThreadId, McpProviderSessionConfig>();
 
 export function setMcpProviderSession(config: McpProviderSessionConfig): void {

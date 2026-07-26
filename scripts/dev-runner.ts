@@ -19,6 +19,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
 
 import { loadRepoEnv } from "./lib/public-config.ts";
+import { installT3DevShim, prependPathEntry } from "./t3-dev-shim.ts";
 
 Object.assign(process.env, loadRepoEnv());
 
@@ -524,6 +525,12 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
         : "";
     const baseDir = env.T3CODE_HOME ?? (yield* DEFAULT_T3_HOME);
+    const shimInstallation = yield* installT3DevShim({
+      baseDirectoryPath: baseDir,
+      nodeExecutablePath: process.execPath,
+    });
+
+    env.PATH = prependPathEntry(env.PATH, shimInstallation.shimDirectoryPath, process.platform);
 
     yield* Effect.logInfo(
       `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,

@@ -1,28 +1,97 @@
 import { assert, it } from "@effect/vitest";
 import { NodeFileSystem } from "@effect/platform-node";
+import { AgentListResponse } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
-import { agentCommand, formatServerFailure, resolveText } from "./agent.ts";
+import {
+  type AgentApi,
+  agentCommand,
+  decodeServerResponse,
+  formatServerFailure,
+  resolveText,
+  watchTransitions,
+} from "./agent.ts";
 
 const withFileSystem = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
-  effect.pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(Path.layer));
+  effect.pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, Path.layer)));
+const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
 
 it("surfaces the server's own explanation rather than a status code", () => {
   assert.equal(
-    formatServerFailure(409, {
+    formatServerFailure({
       error: "AgentConcurrencyLimitError",
       message: "Thread 'a' already has 3 sub-agents running.",
     }),
     "AgentConcurrencyLimitError: Thread 'a' already has 3 sub-agents running.",
   );
-  assert.equal(formatServerFailure(500, {}), "The T3 Code server rejected the request (HTTP 500).");
-  assert.equal(
-    formatServerFailure(401, "not json"),
-    "The T3 Code server rejected the request (HTTP 401).",
-  );
 });
+
+it.effect("reports one clear diagnostic for an undecodable server response", () =>
+  Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      decodeServerResponse(decodeAgentListResponse, 200, "/api/agents", { agents: [{}] }),
+    );
+    assert.equal(
+      failure.message,
+      "The T3 Code server returned an invalid response for /api/agents (HTTP 200).",
+    );
+  }),
+);
+
+const unused = () => Effect.die("unused");
+const makeApi = (list: AgentApi["list"]): AgentApi => ({
+  spawn: unused,
+  send: unused,
+  await: unused,
+  interrupt: unused,
+  list,
+});
+
+it.effect("follow exits after an empty first snapshot", () =>
+  Effect.gen(function* () {
+    let polls = 0;
+    const api = makeApi(() =>
+      Effect.sync(() => {
+        polls += 1;
+        return { agents: [] };
+      }),
+    );
+
+    yield* watchTransitions({ api, follow: true, intervalMillis: 0 });
+    assert.equal(polls, 1);
+  }),
+);
+
+it.effect("follow exits when the last running agent disappears", () =>
+  Effect.gen(function* () {
+    let polls = 0;
+    const api = makeApi(() =>
+      Effect.sync(() => {
+        polls += 1;
+        return polls === 1
+          ? {
+              agents: [
+                {
+                  threadId: "thread-1",
+                  profile: "implementer",
+                  title: "Fix lane B",
+                  status: "running" as const,
+                  updatedAt: "2026-07-25T21:00:00.000Z",
+                },
+              ],
+            }
+          : { agents: [] };
+      }),
+    );
+
+    yield* watchTransitions({ api, follow: true, intervalMillis: 0 });
+    assert.equal(polls, 2);
+  }),
+);
 
 it.effect("reads a task from a file so long tasks never pass through the command line", () =>
   withFileSystem(

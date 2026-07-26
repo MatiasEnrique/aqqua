@@ -9,7 +9,20 @@
  *
  * @module agent-control/http
  */
-import { AgentProfileName, ThreadId } from "@t3tools/contracts";
+import {
+  AgentAwaitRequest,
+  AgentAwaitResponse,
+  AgentErrorResponse,
+  AgentInterruptRequest,
+  AgentInterruptResponse,
+  AgentListResponse,
+  AgentProfileName,
+  AgentSendRequest,
+  AgentSendResponse,
+  AgentSpawnRequest,
+  AgentSpawnResponse,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,7 +34,14 @@ import { AgentControl } from "./Services/AgentControl.ts";
 
 export const AGENT_API_PREFIX = "/api/agents";
 
-const unauthorized = HttpServerResponse.jsonUnsafe(
+const response = <A, I>(
+  schema: Schema.Codec<A, I>,
+  value: A,
+  options?: Parameters<typeof HttpServerResponse.jsonUnsafe>[1],
+) => HttpServerResponse.jsonUnsafe(Schema.encodeSync(schema)(value), options);
+
+const unauthorized = response(
+  AgentErrorResponse,
   {
     error: "invalid_agent_credential",
     message:
@@ -29,34 +49,6 @@ const unauthorized = HttpServerResponse.jsonUnsafe(
   },
   { status: 401, headers: { "cache-control": "no-store", "www-authenticate": "Bearer" } },
 );
-
-const forbidden = HttpServerResponse.jsonUnsafe(
-  {
-    error: "agent_control_not_permitted",
-    message: "This session is not permitted to control sub-agents.",
-  },
-  { status: 403, headers: { "cache-control": "no-store" } },
-);
-
-const SpawnBody = Schema.Struct({
-  profile: Schema.String,
-  task: Schema.String,
-  title: Schema.optional(Schema.String),
-});
-
-const SendBody = Schema.Struct({
-  threadId: Schema.String,
-  message: Schema.String,
-});
-
-const AwaitBody = Schema.Struct({
-  threadId: Schema.String,
-  timeoutMs: Schema.optional(Schema.Number),
-});
-
-const ThreadBody = Schema.Struct({
-  threadId: Schema.String,
-});
 
 /**
  * Resolve the calling thread from the bearer credential.
@@ -75,15 +67,13 @@ const authenticate = Effect.fn("agentControl.authenticate")(function* () {
   if (!scope) {
     return { _tag: "unauthorized" } as const;
   }
-  if (!scope.capabilities.has("agent-control")) {
-    return { _tag: "forbidden" } as const;
-  }
   return { _tag: "ok", parentThreadId: scope.threadId } as const;
 });
 
 /** Agent-control failures are the agent's to read, so they are shaped for a model. */
 const failureResponse = (error: { readonly _tag: string; readonly message: string }) =>
-  HttpServerResponse.jsonUnsafe(
+  response(
+    AgentErrorResponse,
     { error: error._tag, message: error.message },
     {
       status: error._tag === "AgentNotOwnedError" ? 403 : 409,
@@ -98,13 +88,15 @@ const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
     return yield* Schema.decodeUnknownEffect(schema)(json);
   });
 
-const invalidBody = HttpServerResponse.jsonUnsafe(
+const invalidBody = response(
+  AgentErrorResponse,
   { error: "invalid_request", message: "The request body was not understood." },
   { status: 400, headers: { "cache-control": "no-store" } },
 );
 
 /** Wrap a handler with authentication and uniform failure shaping. */
-const route = <A>(
+const route = <A, I>(
+  responseSchema: Schema.Codec<A, I>,
   handler: (
     parentThreadId: ThreadId,
   ) => Effect.Effect<
@@ -116,9 +108,8 @@ const route = <A>(
   Effect.gen(function* () {
     const auth = yield* authenticate();
     if (auth._tag === "unauthorized") return unauthorized;
-    if (auth._tag === "forbidden") return forbidden;
     return yield* handler(auth.parentThreadId).pipe(
-      Effect.map((value) => HttpServerResponse.jsonUnsafe(value, { status: 200 })),
+      Effect.map((value) => response(responseSchema, value, { status: 200 })),
       Effect.catch((error) => Effect.succeed(failureResponse(error))),
     );
   }).pipe(Effect.catchCause(() => Effect.succeed(invalidBody)));
@@ -136,8 +127,8 @@ export const agentControlRouteLayer = Layer.unwrap(
       HttpRouter.route(
         "POST",
         `${AGENT_API_PREFIX}/spawn`,
-        route((parentThreadId) =>
-          decodeBody(SpawnBody).pipe(
+        route(AgentSpawnResponse, (parentThreadId) =>
+          decodeBody(AgentSpawnRequest).pipe(
             Effect.orDie,
             Effect.flatMap((body) =>
               agents.spawn({
@@ -153,8 +144,8 @@ export const agentControlRouteLayer = Layer.unwrap(
       HttpRouter.route(
         "POST",
         `${AGENT_API_PREFIX}/send`,
-        route((parentThreadId) =>
-          decodeBody(SendBody).pipe(
+        route(AgentSendResponse, (parentThreadId) =>
+          decodeBody(AgentSendRequest).pipe(
             Effect.orDie,
             Effect.flatMap((body) =>
               agents.send({
@@ -169,8 +160,8 @@ export const agentControlRouteLayer = Layer.unwrap(
       HttpRouter.route(
         "POST",
         `${AGENT_API_PREFIX}/await`,
-        route((parentThreadId) =>
-          decodeBody(AwaitBody).pipe(
+        route(AgentAwaitResponse, (parentThreadId) =>
+          decodeBody(AgentAwaitRequest).pipe(
             Effect.orDie,
             Effect.flatMap((body) =>
               agents.awaitTurn({
@@ -187,8 +178,8 @@ export const agentControlRouteLayer = Layer.unwrap(
       HttpRouter.route(
         "POST",
         `${AGENT_API_PREFIX}/interrupt`,
-        route((parentThreadId) =>
-          decodeBody(ThreadBody).pipe(
+        route(AgentInterruptResponse, (parentThreadId) =>
+          decodeBody(AgentInterruptRequest).pipe(
             Effect.orDie,
             Effect.flatMap((body) =>
               agents
@@ -201,7 +192,7 @@ export const agentControlRouteLayer = Layer.unwrap(
       HttpRouter.route(
         "GET",
         AGENT_API_PREFIX,
-        route((parentThreadId) =>
+        route(AgentListResponse, (parentThreadId) =>
           agents.list({ parentThreadId }).pipe(Effect.map((list) => ({ agents: list }))),
         ),
       ),

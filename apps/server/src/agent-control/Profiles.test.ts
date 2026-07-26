@@ -9,10 +9,12 @@ import {
 import * as Result from "effect/Result";
 
 import {
-  AGENT_PROFILE_FALLBACK_MODEL,
+  agentProfileFallbackModel,
   type AgentInstanceCandidate,
   resolveAgentProfile,
 } from "./Profiles.ts";
+
+const codexFallbackModel = agentProfileFallbackModel(ProviderDriverKind.make("codex"));
 
 const implementer = AgentProfileName.make("implementer");
 const reviewer = AgentProfileName.make("reviewer");
@@ -59,7 +61,7 @@ it("resolves the default role on a machine with no agent profiles configured", (
   const resolved = expectSuccess(resolve({}));
 
   assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("codex"));
-  assert.equal(resolved.modelSelection.model, AGENT_PROFILE_FALLBACK_MODEL);
+  assert.equal(resolved.modelSelection.model, codexFallbackModel);
   assert.equal(resolved.runtime, "session");
   // A delegated sub-agent has nobody to answer approval prompts while its
   // orchestrator waits, so it must not start in a mode that can block.
@@ -103,7 +105,38 @@ it("inherits the project model only when the project targets the resolved instan
       },
     }),
   );
-  assert.equal(mismatched.modelSelection.model, AGENT_PROFILE_FALLBACK_MODEL);
+  assert.equal(mismatched.modelSelection.model, codexFallbackModel);
+});
+
+it("falls back to the resolved driver's default model rather than a fixed one", () => {
+  // The fallback fires exactly when the project default belongs to *another*
+  // provider — which is the cross-provider delegation case — so a single pinned
+  // model name would hand a Claude sub-agent a Codex model. Observed for real: a
+  // sub-agent was created on a pinned `gpt-5.4-codex` and the provider rejected
+  // it outright.
+  const resolved = expectSuccess(
+    resolve({
+      profiles: {
+        [implementer]: {
+          runtime: "session",
+          driver: "claudeAgent",
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        },
+      } as AgentProfileMap,
+      projectDefaultModelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.6-sol",
+      },
+    }),
+  );
+
+  assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("claudeAgent"));
+  assert.equal(
+    resolved.modelSelection.model,
+    agentProfileFallbackModel(ProviderDriverKind.make("claudeAgent")),
+  );
+  assert.notEqual(resolved.modelSelection.model, codexFallbackModel);
 });
 
 it("prefers the profile's explicit model over the project default", () => {

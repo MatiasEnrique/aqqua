@@ -3519,16 +3519,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(ultracode ? { ultracode: true } : {}),
       };
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-      // Delegation identity for the `t3 agent` CLI, which runs inside this
-      // session's shell. The parent thread is resolved server-side from the
-      // token, so an agent cannot impersonate another thread even though it
-      // writes the command line. `T3_THREAD_ID` is informational only.
       const sessionEnvironment: NodeJS.ProcessEnv = mcpSession
         ? {
             ...claudeEnvironment,
-            T3_AGENT_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
-            T3_AGENT_API: mcpSession.origin,
-            T3_THREAD_ID: mcpSession.threadId,
+            ...McpProviderSession.agentSessionEnvironment(mcpSession),
           }
         : claudeEnvironment;
       const queryOptions: ClaudeQueryOptions = {

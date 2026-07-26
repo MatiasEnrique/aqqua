@@ -16,6 +16,8 @@ import {
   type AgentProfileName,
   DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_AGENT_PROFILE_RUNTIME,
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   type ModelSelection,
@@ -31,8 +33,16 @@ import { AgentProfileUnavailableError, AgentProfileUnknownError } from "./Errors
 /** Driver used for sub-agents when a profile does not name one. */
 export const DEFAULT_AGENT_PROFILE_DRIVER = "codex";
 
-/** Model used when neither the profile nor the project supplies one. */
-export const AGENT_PROFILE_FALLBACK_MODEL = "gpt-5.4-codex";
+/**
+ * Model used when neither the profile nor the project supplies one.
+ *
+ * Resolved per driver rather than pinned to one name: this fallback fires
+ * precisely when the project's default belongs to *another* provider, which is
+ * the cross-provider delegation case, so the sub-agent's own driver is the only
+ * thing that says which model names are even meaningful.
+ */
+export const agentProfileFallbackModel = (driverKind: ProviderDriverKind): string =>
+  DEFAULT_MODEL_BY_PROVIDER[driverKind] ?? DEFAULT_MODEL;
 
 export interface AgentInstanceCandidate {
   readonly instanceId: ProviderInstanceId;
@@ -118,7 +128,7 @@ export function resolveAgentProfile(
     projectDefaultModelSelection !== null && projectDefaultModelSelection.instanceId === instanceId
       ? projectDefaultModelSelection.model
       : undefined;
-  const model = definition.model ?? inheritedModel ?? AGENT_PROFILE_FALLBACK_MODEL;
+  const model = definition.model ?? inheritedModel ?? agentProfileFallbackModel(driverKind);
   const options =
     definition.options ??
     projectDefaultModelSelectionOptions(projectDefaultModelSelection, instanceId);

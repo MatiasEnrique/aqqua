@@ -570,9 +570,15 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           });
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          const sessionEnvironment = mcpSession
+            ? {
+                ...(options?.environment ?? process.env),
+                ...McpProviderSession.agentSessionEnvironment(mcpSession),
+              }
+            : options?.environment;
           const acp = yield* makeGrokAcpRuntime({
             grokSettings,
-            ...(options?.environment ? { environment: options.environment } : {}),
+            ...(sessionEnvironment ? { environment: sessionEnvironment } : {}),
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),

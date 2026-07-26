@@ -23,6 +23,21 @@ import * as Schema from "effect/Schema";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { NodeFileSystem } from "@effect/platform-node";
+import {
+  AgentAwaitRequest,
+  AgentAwaitResponse,
+  type AgentAwaitResponse as AgentAwaitResponseType,
+  AgentErrorResponse,
+  type AgentErrorResponse as AgentErrorResponseType,
+  AgentInterruptRequest,
+  AgentInterruptResponse,
+  AgentListResponse,
+  type AgentListResponse as AgentListResponseType,
+  AgentSendRequest,
+  AgentSendResponse,
+  AgentSpawnRequest,
+  AgentSpawnResponse,
+} from "@t3tools/contracts";
 
 export const AGENT_TOKEN_ENV = "T3_AGENT_TOKEN";
 export const AGENT_API_ENV = "T3_AGENT_API";
@@ -43,10 +58,46 @@ const NOT_IN_SESSION_HELP = [
   "from an ordinary terminal rather than from inside an agent's own shell.",
 ].join("\n");
 
-interface AgentApi {
-  readonly post: (path: string, body: unknown) => Effect.Effect<unknown, AgentCliError>;
-  readonly get: (path: string) => Effect.Effect<unknown, AgentCliError>;
+export interface AgentApi {
+  readonly spawn: (body: AgentSpawnRequest) => Effect.Effect<AgentSpawnResponse, AgentCliError>;
+  readonly send: (body: AgentSendRequest) => Effect.Effect<AgentSendResponse, AgentCliError>;
+  readonly await: (body: AgentAwaitRequest) => Effect.Effect<AgentAwaitResponseType, AgentCliError>;
+  readonly interrupt: (
+    body: AgentInterruptRequest,
+  ) => Effect.Effect<AgentInterruptResponse, AgentCliError>;
+  readonly list: () => Effect.Effect<AgentListResponseType, AgentCliError>;
 }
+
+type ResponseDecoder<A, E> = (body: unknown) => Effect.Effect<A, E>;
+const decodeAgentErrorResponse = Schema.decodeUnknownEffect(AgentErrorResponse);
+const decodeAgentSpawnResponse = Schema.decodeUnknownEffect(AgentSpawnResponse);
+const decodeAgentSendResponse = Schema.decodeUnknownEffect(AgentSendResponse);
+const decodeAgentAwaitResponse = Schema.decodeUnknownEffect(AgentAwaitResponse);
+const decodeAgentInterruptResponse = Schema.decodeUnknownEffect(AgentInterruptResponse);
+const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
+
+const invalidServerResponse = (status: number, path: string) =>
+  new AgentCliError({
+    detail: `The T3 Code server returned an invalid response for ${path} (HTTP ${status}).`,
+  });
+
+export const decodeServerResponse = <A, E>(
+  decode: ResponseDecoder<A, E>,
+  status: number,
+  path: string,
+  body: unknown,
+): Effect.Effect<A, AgentCliError> =>
+  status >= 200 && status < 300
+    ? decode(body).pipe(Effect.mapError(() => invalidServerResponse(status, path)))
+    : decodeAgentErrorResponse(body).pipe(
+        Effect.mapError(() => invalidServerResponse(status, path)),
+        Effect.flatMap(
+          (failure) =>
+            new AgentCliError({
+              detail: formatServerFailure(failure),
+            }),
+        ),
+      );
 
 /**
  * Resolve the session credential.
@@ -63,59 +114,61 @@ const agentApi = Effect.fn("agentCli.api")(function* () {
   }
   const client = yield* HttpClient.HttpClient;
 
-  const send = <E>(
-    request: Effect.Effect<HttpClientResponse.HttpClientResponse, E>,
+  const send = <A, DecodeError, RequestError>(
+    request: Effect.Effect<HttpClientResponse.HttpClientResponse, RequestError>,
     path: string,
+    decode: ResponseDecoder<A, DecodeError>,
   ) =>
     request.pipe(
-      Effect.flatMap((response) =>
-        response.json.pipe(
-          Effect.map((body) => ({ status: response.status, body })),
-          Effect.orElseSucceed(() => ({ status: response.status, body: undefined as unknown })),
-        ),
-      ),
       Effect.mapError(
         (cause) =>
           new AgentCliError({
             detail: `Could not reach the T3 Code server at ${origin}${path}: ${String(cause)}`,
           }),
       ),
-      Effect.flatMap(({ body, status }) =>
-        status >= 200 && status < 300
-          ? Effect.succeed(body)
-          : new AgentCliError({ detail: formatServerFailure(status, body) }),
+      Effect.flatMap((response) =>
+        response.json.pipe(
+          Effect.mapError(() => invalidServerResponse(response.status, path)),
+          Effect.flatMap((body) => decodeServerResponse(decode, response.status, path, body)),
+        ),
       ),
     );
 
+  const post = <RequestA, RequestI, ResponseA, DecodeError>(
+    path: string,
+    requestSchema: Schema.Codec<RequestA, RequestI>,
+    decodeResponse: ResponseDecoder<ResponseA, DecodeError>,
+    body: RequestA,
+  ) =>
+    send(
+      client.post(`${origin}${path}`, {
+        headers: { authorization: `Bearer ${token}` },
+        body: HttpBody.jsonUnsafe(Schema.encodeSync(requestSchema)(body)),
+      }),
+      path,
+      decodeResponse,
+    );
+
   return {
-    post: (path, body) =>
+    spawn: (body) => post("/api/agents/spawn", AgentSpawnRequest, decodeAgentSpawnResponse, body),
+    send: (body) => post("/api/agents/send", AgentSendRequest, decodeAgentSendResponse, body),
+    await: (body) => post("/api/agents/await", AgentAwaitRequest, decodeAgentAwaitResponse, body),
+    interrupt: (body) =>
+      post("/api/agents/interrupt", AgentInterruptRequest, decodeAgentInterruptResponse, body),
+    list: () =>
       send(
-        client.post(`${origin}${path}`, {
-          headers: { authorization: `Bearer ${token}` },
-          body: HttpBody.jsonUnsafe(body),
-        }),
-        path,
-      ),
-    get: (path) =>
-      send(
-        client.get(`${origin}${path}`, {
+        client.get(`${origin}/api/agents`, {
           headers: { authorization: `Bearer ${token}` },
         }),
-        path,
+        "/api/agents",
+        decodeAgentListResponse,
       ),
   } satisfies AgentApi;
 });
 
 /** Server failures are written for the agent reading stderr, not for a log. */
-export const formatServerFailure = (status: number, body: unknown): string => {
-  const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-  const message = typeof record.message === "string" ? record.message : undefined;
-  const error = typeof record.error === "string" ? record.error : undefined;
-  if (message) {
-    return error ? `${error}: ${message}` : message;
-  }
-  return `The T3 Code server rejected the request (HTTP ${status}).`;
-};
+export const formatServerFailure = (body: AgentErrorResponseType): string =>
+  `${body.error}: ${body.message}`;
 
 /**
  * Read task text from a file, or take it inline.
@@ -161,13 +214,6 @@ const jsonFlag = Flag.boolean("json").pipe(
 const emit = (input: { readonly json: boolean; readonly value: unknown; readonly text: string }) =>
   Console.log(input.json ? toJsonLine(input.value) : input.text);
 
-const readField = (value: unknown, key: string): string => {
-  const record =
-    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  const field = record[key];
-  return typeof field === "string" ? field : "";
-};
-
 const cliRuntime = Layer.mergeAll(FetchHttpClient.layer, NodeFileSystem.layer);
 
 const spawnCommand = Command.make("spawn", {
@@ -198,7 +244,7 @@ const spawnCommand = Command.make("spawn", {
         file: Option.getOrUndefined(flags.taskFile),
         label: "task",
       });
-      const result = yield* api.post("/api/agents/spawn", {
+      const result = yield* api.spawn({
         profile: flags.profile,
         task,
         ...Option.match(flags.title, {
@@ -206,7 +252,7 @@ const spawnCommand = Command.make("spawn", {
           onSome: (title) => ({ title }),
         }),
       });
-      const threadId = readField(result, "threadId");
+      const threadId = result.threadId;
       yield* emit({
         json: flags.json,
         value: result,
@@ -239,7 +285,7 @@ const sendCommand = Command.make("send", {
         file: Option.getOrUndefined(flags.messageFile),
         label: "message",
       });
-      const result = yield* api.post("/api/agents/send", {
+      const result = yield* api.send({
         threadId: flags.threadId,
         message,
       });
@@ -266,15 +312,14 @@ const awaitCommand = Command.make("await", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const api = yield* agentApi();
-      const result = yield* api.post("/api/agents/await", {
+      const result = yield* api.await({
         threadId: flags.threadId,
         ...Option.match(flags.timeoutSeconds, {
           onNone: () => ({}),
           onSome: (seconds) => ({ timeoutMs: seconds * 1000 }),
         }),
       });
-      const status = readField(result, "status");
-      const finalMessage = readField(result, "finalMessage");
+      const { status, finalMessage } = result;
       yield* emit({
         json: flags.json,
         value: result,
@@ -297,7 +342,7 @@ const interruptCommand = Command.make("interrupt", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const api = yield* agentApi();
-      const result = yield* api.post("/api/agents/interrupt", { threadId: flags.threadId });
+      const result = yield* api.interrupt({ threadId: flags.threadId });
       yield* emit({
         json: flags.json,
         value: result,
@@ -312,10 +357,8 @@ const listCommand = Command.make("list", { json: jsonFlag }).pipe(
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const api = yield* agentApi();
-      const result = yield* api.get("/api/agents");
-      const record =
-        typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
-      const agents = Array.isArray(record.agents) ? record.agents : [];
+      const result = yield* api.list();
+      const { agents } = result;
       yield* emit({
         json: flags.json,
         value: result,
@@ -323,10 +366,7 @@ const listCommand = Command.make("list", { json: jsonFlag }).pipe(
           agents.length === 0
             ? "No sub-agents."
             : agents
-                .map(
-                  (agent) =>
-                    `${readField(agent, "status").padEnd(11)} ${readField(agent, "threadId")}  ${readField(agent, "title")}`,
-                )
+                .map((agent) => `${agent.status.padEnd(11)} ${agent.threadId}  ${agent.title}`)
                 .join("\n"),
       });
     }).pipe(Effect.provide(cliRuntime)),
@@ -341,7 +381,7 @@ const listCommand = Command.make("list", { json: jsonFlag }).pipe(
  * awaited it. The diff is held here, which keeps the server stateless and means
  * two orchestrators watching the same sub-agents cannot interfere.
  */
-const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
+export const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
   readonly api: AgentApi;
   readonly follow: boolean;
   readonly intervalMillis: number;
@@ -350,17 +390,12 @@ const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
   let firstPass = true;
 
   while (true) {
-    const result = yield* input.api.get("/api/agents");
-    const record =
-      typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
-    const agents = Array.isArray(record.agents) ? record.agents : [];
+    const { agents } = yield* input.api.list();
     const seen = new Set<string>();
 
     for (const agent of agents) {
-      const threadId = readField(agent, "threadId");
-      if (threadId.length === 0) continue;
+      const { threadId, status } = agent;
       seen.add(threadId);
-      const status = readField(agent, "status");
       const before = previous.get(threadId);
       if (before === status) continue;
       previous.set(threadId, status);
@@ -376,7 +411,7 @@ const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
               : "agent.changed",
           threadId,
           status,
-          title: readField(agent, "title"),
+          title: agent.title,
           ...(before === undefined ? {} : { previousStatus: before }),
         }),
       );
@@ -392,7 +427,10 @@ const watchTransitions = Effect.fn("agentCli.watch")(function* (input: {
     if (!input.follow) return;
     // Every sub-agent settled and nothing left to report: stop rather than poll a
     // quiet server forever.
-    if (agents.length > 0 && [...previous.values()].every((status) => status !== "running")) {
+    // Follow drains the frontier visible after each poll. Once that frontier has
+    // no running agents (including an empty first snapshot), later spawns belong
+    // to a new invocation.
+    if ([...previous.values()].every((status) => status !== "running")) {
       return;
     }
     yield* Effect.sleep(Duration.millis(input.intervalMillis));
