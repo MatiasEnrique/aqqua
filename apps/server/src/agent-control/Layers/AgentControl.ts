@@ -22,7 +22,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
-import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -351,17 +350,13 @@ const make = Effect.gen(function* () {
       Effect.catchCause(dispatchFailure("spawn")),
     );
     const project = yield* readProject("spawn", parent.projectId);
-    const resolved = yield* Result.match(
+    const resolved = yield* Effect.fromResult(
       resolveAgentProfile({
         profile: input.profile,
         profiles: serverSettings.agentProfiles,
         instances: yield* instanceCandidates,
         projectDefaultModelSelection: project?.defaultModelSelection ?? null,
       }),
-      {
-        onSuccess: (value) => Effect.succeed(value),
-        onFailure: (error) => Effect.fail(error),
-      },
     );
 
     const childThreadId = ThreadId.make(yield* uuid);
