@@ -28,7 +28,10 @@ import {
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
+  isDesktopSigmaBuildVersion,
+  resolveDesktopAppId,
   resolveDesktopProductName,
+  resolveSigmaBuildVersion,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
   resolveGitHubPublishConfig,
@@ -498,6 +501,81 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it("gives a Sigma build its own icon so the Dock tile is tellable apart", () => {
+    const sigma = resolveDesktopBuildIconAssets("0.0.28-sigma");
+
+    assert.deepStrictEqual(sigma, {
+      macIconPng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.sigmaLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.sigmaWindowsIconIco,
+    });
+    assert.notEqual(sigma.macIconPng, BRAND_ASSET_PATHS.productionMacIconPng);
+    assert.notEqual(sigma.macIconPng, BRAND_ASSET_PATHS.nightlyMacIconPng);
+  });
+
+  it("names a Sigma build apart from the release it installs beside", () => {
+    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "T3 Code (Sigma)");
+    assert.equal(resolveDesktopAppId("0.0.28-sigma"), "com.t3tools.t3code.sigma");
+    assert.equal(resolveDesktopAppId("0.0.28"), "com.t3tools.t3code");
+    assert.equal(resolveDesktopAppId("0.0.28-nightly.20260413.42"), "com.t3tools.t3code");
+  });
+
+  it("stamps -sigma once, so an already-Sigma version is not doubled", () => {
+    assert.equal(resolveSigmaBuildVersion("0.0.28"), "0.0.28-sigma");
+    assert.equal(resolveSigmaBuildVersion("0.0.28-sigma"), "0.0.28-sigma");
+    assert.equal(resolveSigmaBuildVersion("0.0.28-sigma.7"), "0.0.28-sigma.7");
+    assert.isFalse(isDesktopSigmaBuildVersion("0.0.28"));
+    assert.isFalse(isDesktopSigmaBuildVersion("0.0.28-nightly.20260413.42"));
+    assert.isTrue(isDesktopSigmaBuildVersion("0.0.28-sigma"));
+  });
+
+  it.effect("gives a Sigma build no update feed even when a release repo is set", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.28-sigma",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.notProperty(config, "publish");
+      assert.equal(config.appId, "com.t3tools.t3code.sigma");
+      assert.equal(config.productName, "T3 Code (Sigma)");
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "t3-tools/t3code" } }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("still publishes a release build from the same repository setting", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.28",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.property(config, "publish");
+      assert.equal(config.appId, "com.t3tools.t3code");
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "t3-tools/t3code" } }),
+        ),
+      ),
+    ),
+  );
+
   it("promotes target fff binaries to direct staged dependencies", () => {
     assert.deepStrictEqual(resolveFffNativeDependencies("mac", "arm64", "0.9.4"), {
       "@ff-labs/fff-bin-darwin-arm64": "0.9.4",
@@ -601,6 +679,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         skipBuild: Option.none(),
         keepStage: Option.none(),
         signed: Option.none(),
+        sigma: Option.none(),
         verbose: Option.none(),
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
@@ -639,6 +718,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         skipBuild: Option.some(false),
         keepStage: Option.some(false),
         signed: Option.some(false),
+        sigma: Option.some(false),
         verbose: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
@@ -664,6 +744,47 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.signed, false);
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
+    }),
+  );
+
+  it.effect("stamps -sigma onto the resolved version when --sigma is passed", () =>
+    Effect.gen(function* () {
+      const baseInput = {
+        platform: Option.some("mac" as const),
+        target: Option.none<string>(),
+        arch: Option.some("arm64" as const),
+        outputDir: Option.none<string>(),
+        skipBuild: Option.some(true),
+        keepStage: Option.none<boolean>(),
+        signed: Option.none<boolean>(),
+        verbose: Option.none<boolean>(),
+        mockUpdates: Option.none<boolean>(),
+        mockUpdateServerPort: Option.none<number>(),
+        wslPrebuild: Option.none<string>(),
+      };
+      const emptyEnv = ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }));
+
+      const sigma = yield* resolveBuildOptions({
+        ...baseInput,
+        buildVersion: Option.none(),
+        sigma: Option.some(true),
+      }).pipe(Effect.provide(emptyEnv));
+
+      const explicit = yield* resolveBuildOptions({
+        ...baseInput,
+        buildVersion: Option.some("9.9.9"),
+        sigma: Option.some(true),
+      }).pipe(Effect.provide(emptyEnv));
+
+      const release = yield* resolveBuildOptions({
+        ...baseInput,
+        buildVersion: Option.some("9.9.9"),
+        sigma: Option.some(false),
+      }).pipe(Effect.provide(emptyEnv));
+
+      assert.isTrue(isDesktopSigmaBuildVersion(sigma.version ?? ""));
+      assert.equal(explicit.version, "9.9.9-sigma");
+      assert.equal(release.version, "9.9.9");
     }),
   );
 });

@@ -156,6 +156,53 @@ One-time Vercel dashboard setup:
 - Publishes the CLI package (`apps/server`, npm package `t3`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
+## Sigma builds
+
+Sigma is the self-built channel: a packaged desktop app made from a working copy and installed
+**beside** a released app rather than over it. It is never published and never auto-updates — you
+update it by pulling and rebuilding.
+
+```bash
+npm run dist:desktop:sigma     # host platform/target/arch are auto-detected
+```
+
+The artifact lands in `release/` as `T3-Code-<version>-<arch>.<ext>` — for example
+`T3-Code-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
+
+`--sigma` is expressed as a `-sigma` suffix on the version, and that suffix is the entire channel
+signal — `scripts/build-desktop-artifact.ts` reads it when generating the electron-builder config,
+and the running app reads the same suffix through `isSigmaDesktopVersion`. Everything else follows:
+
+|              | Released app         | Sigma build                |
+| ------------ | -------------------- | -------------------------- |
+| Product name | `T3 Code (Alpha)`    | `T3 Code (Sigma)`          |
+| Bundle id    | `com.t3tools.t3code` | `com.t3tools.t3code.sigma` |
+| User data    | `t3code`             | `t3code-sigma`             |
+| T3 home      | `~/.t3`              | `~/.t3-sigma`              |
+| Update feed  | GitHub releases      | none                       |
+| App icon     | `assets/prod` black  | `assets/sigma` violet `>_` |
+
+The icon matters as much as the name: both apps sit in the Dock at once, and identical tiles leave
+no way to tell which is which. `assets/sigma/` is generated rather than designed —
+`node scripts/generate-sigma-icon.ts` rasterizes the PNGs and the `.ico` with no dependencies and is
+byte-reproducible, so regenerate and commit it if you change the generator. In-app favicons stay on
+the blueprint `dev` set, which is already distinct from production.
+
+The separate T3 home is not cosmetic. Two servers pointed at one `state.sqlite` corrupt the
+projection and close each other's provider sessions, so a Sigma build must not share a home with an
+installed release. `T3CODE_HOME` still overrides the default if you deliberately want to point one
+somewhere else. Backend ports need no configuration: `resolveDesktopBackendPort` scans upward from
+the default until it finds a free one, so both apps can run at once.
+
+Notes:
+
+- Sigma builds are unsigned unless you pass `--signed`. A locally produced artifact is not
+  quarantined, so it opens normally; an app copied from another machine needs
+  `xattr -dr com.apple.quarantine "/Applications/T3 Code (Sigma).app"`.
+- A Sigma build carries no `app-update.yml`, and the app reports "This is a Sigma build. Update it
+  by pulling and rebuilding." in place of update status.
+- To start over, delete `~/.t3-sigma` — the released app's state is untouched.
+
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released

@@ -121,6 +121,7 @@ interface BuildCliInput {
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
+  readonly sigma: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
@@ -966,6 +967,7 @@ const BuildEnvConfig = Config.all({
   skipBuild: Config.boolean("T3CODE_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
   keepStage: Config.boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.boolean("T3CODE_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
+  sigma: Config.boolean("T3CODE_DESKTOP_SIGMA").pipe(Config.withDefault(false)),
   verbose: Config.boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
   mockUpdates: Config.boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
@@ -1031,7 +1033,13 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const target = mergeOptions(input.target, env.target, PLATFORM_CONFIG[platform].defaultTarget);
   const defaultArch = yield* getDefaultArch(platform);
   const arch = mergeOptions(input.arch, env.arch, defaultArch);
-  const version = mergeOptions(input.buildVersion, env.version, undefined);
+  const mergedVersion = mergeOptions(input.buildVersion, env.version, undefined);
+  const sigmaBuild = resolveBooleanFlag(input.sigma, env.sigma);
+  // `--sigma` is expressed entirely as a version suffix so the build config and
+  // the packaged app agree on the channel without another env var to thread.
+  const version = sigmaBuild
+    ? resolveSigmaBuildVersion(mergedVersion ?? serverPackageJson.version)
+    : mergedVersion;
   const releaseDir = resolveBooleanFlag(input.mockUpdates, env.mockUpdates)
     ? "release-mock"
     : "release";
@@ -1329,11 +1337,50 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
 }
 
+/**
+ * A build made from a working copy, installed beside a release rather than over
+ * it. The `-sigma` version suffix is the whole signal: `createBuildConfig` reads
+ * it here, and the running app reads the same suffix through
+ * `isSigmaDesktopVersion` to pick its bundle id, user data and T3 home. Keep the
+ * two patterns in step.
+ */
+export function isDesktopSigmaBuildVersion(version: string): boolean {
+  return /-sigma(?:\.[0-9A-Za-z-]+)*$/.test(version);
+}
+
+/** Bundle id for a build. Sigma builds take a distinct id so macOS and Windows
+    treat them as a separate application instead of a reinstall. */
+export function resolveDesktopAppId(version: string): string {
+  return isDesktopSigmaBuildVersion(version) ? `${DESKTOP_APP_ID}.sigma` : DESKTOP_APP_ID;
+}
+
+/** Stamp `-sigma` onto the version `--sigma` is building, which is what marks
+    the artifact and the running app as a Sigma build. Already-Sigma versions
+    pass through so `--sigma --build-version 1.2.3-sigma` is not doubled. */
+export function resolveSigmaBuildVersion(baseVersion: string): string {
+  return isDesktopSigmaBuildVersion(baseVersion) ? baseVersion : `${baseVersion}-sigma`;
+}
+
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
-  return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
+  // In-app favicons stay on the blueprint set for Sigma builds: already distinct
+  // from production, and the generated icon set covers only the app icon.
+  return isDesktopSigmaBuildVersion(version)
+    ? "development"
+    : resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
 }
 
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
+  // A Sigma build sits in the Dock next to the release it was built from, so it
+  // must not wear the same icon — there would be no way to tell which window or
+  // Dock tile belongs to which app.
+  if (isDesktopSigmaBuildVersion(version)) {
+    return {
+      macIconPng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.sigmaLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.sigmaWindowsIconIco,
+    };
+  }
+
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
@@ -1367,6 +1414,9 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 }
 
 export function resolveDesktopProductName(version: string): string {
+  if (isDesktopSigmaBuildVersion(version)) {
+    return "T3 Code (Sigma)";
+  }
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
@@ -1387,7 +1437,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: DESKTOP_APP_ID,
+    appId: resolveDesktopAppId(version),
     productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     directories: {
@@ -1409,10 +1459,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     asarUnpack: [...DESKTOP_ASAR_UNPACK, "apps/server/dist/**", "**/node_modules/**"],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
-  const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+  // A Sigma build ships no update feed at all, even when the environment
+  // carries a release repository (a Sigma build run on CI, or an exported
+  // GITHUB_REPOSITORY in the shell). Without a feed there is no app-update.yml,
+  // so electron-updater has nothing to point at and the app says so.
+  const publishConfig = isDesktopSigmaBuildVersion(version)
+    ? undefined
+    : yield* resolveGitHubPublishConfig(updateChannel);
   if (publishConfig) {
     buildConfig.publish = [publishConfig];
-  } else if (mockUpdates) {
+  } else if (mockUpdates && !isDesktopSigmaBuildVersion(version)) {
     buildConfig.publish = [
       {
         provider: "generic",
@@ -1961,6 +2017,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
       "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: T3CODE_DESKTOP_SIGNED).",
+    ),
+    Flag.optional,
+  ),
+  sigma: Flag.boolean("sigma").pipe(
+    Flag.withDescription(
+      "Build a parallel Sigma app: own bundle id, own T3 home, no update feed (env: T3CODE_DESKTOP_SIGMA).",
     ),
     Flag.optional,
   ),

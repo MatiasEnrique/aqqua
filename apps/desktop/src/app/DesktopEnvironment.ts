@@ -13,7 +13,7 @@ import * as Path from "effect/Path";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
-import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
+import { isNightlyDesktopVersion, isSigmaDesktopVersion } from "../updates/updateChannels.ts";
 
 export interface MakeDesktopEnvironmentInput {
   readonly dirname: string;
@@ -85,6 +85,9 @@ function resolveDesktopAppStageLabel(input: {
   if (input.isDevelopment) {
     return "Dev";
   }
+  if (isSigmaDesktopVersion(input.appVersion)) {
+    return "Sigma";
+  }
 
   return isNightlyDesktopVersion(input.appVersion) ? "Nightly" : "Alpha";
 }
@@ -148,20 +151,32 @@ const make = Effect.fn("desktop.environment.make")(function* (
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
   const configuredBaseDir = config.t3Home;
-  const baseDir = Option.getOrElse(configuredBaseDir, () => path.join(homeDirectory, ".t3"));
-  const rootDir = path.resolve(input.dirname, "../../..");
-  const appRoot = input.isPackaged ? input.appPath : rootDir;
   const branding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
+  // A Sigma build is meant to run beside an installed release, so it never
+  // shares a T3 home with one: two servers on one state.sqlite corrupt the
+  // projection and stop each other's sessions. `T3CODE_HOME` still wins when
+  // set explicitly.
+  const isSigmaBuild = branding.stageLabel === "Sigma";
+  const defaultBaseDirName = isSigmaBuild ? ".t3-sigma" : ".t3";
+  const baseDir = Option.getOrElse(configuredBaseDir, () =>
+    path.join(homeDirectory, defaultBaseDirName),
+  );
+  const rootDir = path.resolve(input.dirname, "../../..");
+  const appRoot = input.isPackaged ? input.appPath : rootDir;
   const stateDir = path.join(
     baseDir,
     isDevelopment && Option.isNone(configuredBaseDir) ? "dev" : "userdata",
   );
-  const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
-  const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+  const userDataDirName = isDevelopment ? "t3code-dev" : isSigmaBuild ? "t3code-sigma" : "t3code";
+  const legacyUserDataDirName = isDevelopment
+    ? "T3 Code (Dev)"
+    : isSigmaBuild
+      ? "T3 Code (Sigma)"
+      : "T3 Code (Alpha)";
   const resourcesPath = input.resourcesPath;
 
   return DesktopEnvironment.of({
@@ -201,10 +216,18 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      isDevelopment
+        ? "com.t3tools.t3code.dev"
+        : isSigmaBuild
+          ? "com.t3tools.t3code.sigma"
+          : "com.t3tools.t3code",
     ),
-    linuxDesktopEntryName: isDevelopment ? "t3code-dev.desktop" : "t3code.desktop",
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
+    linuxDesktopEntryName: isDevelopment
+      ? "t3code-dev.desktop"
+      : isSigmaBuild
+        ? "t3code-sigma.desktop"
+        : "t3code.desktop",
+    linuxWmClass: isDevelopment ? "t3code-dev" : isSigmaBuild ? "t3code-sigma" : "t3code",
     userDataDirName,
     legacyUserDataDirName,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),

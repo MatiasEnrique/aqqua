@@ -29,6 +29,7 @@
     "fmt:check": "vp fmt --check",
     "build:contracts": "vp run --filter @t3tools/contracts build",
     "dist:desktop:artifact": "node scripts/build-desktop-artifact.ts",
+    "dist:desktop:sigma": "node scripts/build-desktop-artifact.ts --local",
     "dist:desktop:dmg": "node scripts/build-desktop-artifact.ts --platform mac --target dmg",
     "dist:desktop:dmg:arm64": "node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64",
     "dist:desktop:dmg:x64": "node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch x64",
