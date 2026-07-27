@@ -951,6 +951,7 @@ const makeWsRpcLayer = (
                   threadId: command.threadId,
                   ...(targetProjectId ? { projectId: targetProjectId } : {}),
                   ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+                  ...(bootstrap.setupScriptId ? { scriptId: bootstrap.setupScriptId } : {}),
                   worktreePath,
                 })
                 .pipe(

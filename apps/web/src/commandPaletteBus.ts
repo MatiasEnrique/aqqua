@@ -3,7 +3,11 @@
 const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
-  readonly open?: "add-project" | "new-thread-in";
+  /**
+   * `new-worktree` skips the palette and opens the worktree dialog the palette
+   * hosts, so callers do not have to own that dialog's state either.
+   */
+  readonly open?: "add-project" | "new-thread-in" | "new-worktree";
 }
 
 export function openCommandPalette(detail?: CommandPaletteOpenDetail): void {

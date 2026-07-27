@@ -89,6 +89,13 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "chat.newWorktree") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette({ open: "new-worktree" });
+        return;
+      }
+
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();

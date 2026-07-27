@@ -152,6 +152,94 @@ describe("ProjectSetupScriptRunner", () => {
     },
   );
 
+  it.effect("runs the requested script instead of the one flagged for worktree creation", () => {
+    const open = vi.fn(() =>
+      Effect.succeed({
+        threadId: "thread-1",
+        terminalId: "setup-seed",
+        cwd: "/repo/worktrees/a",
+        worktreePath: "/repo/worktrees/a",
+        status: "running" as const,
+        pid: 123,
+        history: "",
+        exitCode: null,
+        exitSignal: null,
+        label: "setup-seed",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const write = vi.fn(() => Effect.void);
+    const project = makeProject([
+      {
+        id: "setup",
+        name: "Setup",
+        command: "bun install",
+        icon: "configure",
+        runOnWorktreeCreate: true,
+      },
+      {
+        id: "seed",
+        name: "Seed",
+        command: "bun run seed",
+        icon: "build",
+        runOnWorktreeCreate: false,
+      },
+    ]);
+
+    return Effect.gen(function* () {
+      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const result = yield* runner.runForThread({
+        threadId: "thread-1",
+        projectId: "project-1",
+        worktreePath: "/repo/worktrees/a",
+        scriptId: "seed",
+      });
+
+      expect(result).toEqual({
+        status: "started",
+        scriptId: "seed",
+        scriptName: "Seed",
+        terminalId: "setup-seed",
+        cwd: "/repo/worktrees/a",
+      });
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-seed",
+        data: "bun run seed\r",
+      });
+    }).pipe(Effect.provide(testLayer(project, { open, write })));
+  });
+
+  it.effect("runs nothing when the requested script no longer exists", () => {
+    const open = vi.fn(() => Effect.die("unexpected open"));
+    const write = vi.fn(() => Effect.die("unexpected write"));
+    const project = makeProject([
+      {
+        id: "setup",
+        name: "Setup",
+        command: "bun install",
+        icon: "configure",
+        runOnWorktreeCreate: true,
+      },
+    ]);
+
+    return Effect.gen(function* () {
+      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const result = yield* runner.runForThread({
+        threadId: "thread-1",
+        projectId: "project-1",
+        worktreePath: "/repo/worktrees/a",
+        scriptId: "deleted-script",
+      });
+
+      // Falling back to the flagged "Setup" script would run a command the
+      // caller never asked for.
+      expect(result).toEqual({ status: "no-script" });
+      expect(open).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(testLayer(project, { open, write })));
+  });
+
   it.effect("keeps terminal failures as the exact cause of a structured operation error", () => {
     const rootCause = new Error("stat failed");
     const terminalError = new TerminalManager.TerminalCwdStatError({

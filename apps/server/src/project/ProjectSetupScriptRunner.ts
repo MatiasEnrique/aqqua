@@ -1,5 +1,8 @@
 import { ProjectId } from "@t3tools/contracts";
-import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
+import {
+  projectScriptRuntimeEnv,
+  resolveWorktreeSetupScript,
+} from "@t3tools/shared/projectScripts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -31,6 +34,11 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
+  /**
+   * Run this specific project script instead of the one flagged with
+   * `runOnWorktreeCreate`. When the id no longer resolves nothing runs.
+   */
+  readonly scriptId?: string;
 }
 
 export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<ProjectSetupScriptOperationError>()(
@@ -124,8 +132,16 @@ export const make = Effect.gen(function* () {
       return yield* new ProjectSetupScriptProjectNotFoundError(errorContext);
     }
 
-    const script = setupProjectScript(project.scripts);
+    const script = resolveWorktreeSetupScript(project.scripts, input.scriptId);
     if (!script) {
+      if (input.scriptId) {
+        yield* Effect.logWarning("requested setup script is no longer defined on the project", {
+          threadId: input.threadId,
+          projectId: project.id,
+          scriptId: input.scriptId,
+          worktreePath: input.worktreePath,
+        });
+      }
       return {
         status: "no-script",
       } as const;

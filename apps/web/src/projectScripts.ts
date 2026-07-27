@@ -7,6 +7,16 @@ import {
 import * as Schema from "effect/Schema";
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
+/**
+ * Sentinel stored on a draft when the user explicitly chose to run nothing
+ * after the worktree is created, as opposed to `null`, which means "whatever
+ * the project's `runOnWorktreeCreate` script is at send time".
+ *
+ * Underscores are not reachable through `nextProjectScriptId`, so this cannot
+ * collide with an id the app generates.
+ */
+export const NO_WORKTREE_SETUP_SCRIPT_ID = "__none__";
+
 export interface ProjectScriptInput {
   readonly name: ProjectScript["name"];
   readonly command: ProjectScript["command"];

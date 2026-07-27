@@ -679,6 +679,12 @@ const ThreadTurnStartBootstrap = Schema.Struct({
   createThread: Schema.optional(ThreadTurnStartBootstrapCreateThread),
   prepareWorktree: Schema.optional(ThreadTurnStartBootstrapPrepareWorktree),
   runSetupScript: Schema.optional(Schema.Boolean),
+  /**
+   * Per-thread override for which project script runs after the worktree is
+   * created. Absent means "whichever script carries `runOnWorktreeCreate`".
+   * Ignored unless `runSetupScript` is set.
+   */
+  setupScriptId: Schema.optional(TrimmedNonEmptyString),
 });
 
 export type ThreadTurnStartBootstrap = typeof ThreadTurnStartBootstrap.Type;

@@ -14,6 +14,7 @@ import {
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
+  type ScopedProjectRef,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ import {
   CornerLeftUpIcon,
   FolderIcon,
   FolderPlusIcon,
+  GitBranchPlusIcon,
   LinkIcon,
   MessageSquareIcon,
   SettingsIcon,
@@ -46,7 +48,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useHandleNewThread, useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useClientSettings } from "../hooks/useSettings";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -106,6 +108,7 @@ import {
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteResults } from "./CommandPaletteResults";
+import { NewWorktreeThreadDialog } from "./NewWorktreeThreadDialog";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
@@ -376,11 +379,61 @@ function reduceCommandPaletteUiState(
   }
 }
 
+/**
+ * The worktree dialog is hosted here rather than inside the palette body
+ * because the palette body unmounts the moment an item runs — the dialog has
+ * to outlive the palette that launched it.
+ */
+function useNewWorktreeThreadDialog() {
+  const handleNewThread = useNewThreadHandler();
+  const [target, setTarget] = useState<{
+    readonly projectRef: ScopedProjectRef | null;
+  } | null>(null);
+
+  const open = useCallback((projectRef: ScopedProjectRef | null) => {
+    setTarget({ projectRef });
+  }, []);
+
+  const onCreate = useCallback(
+    async (input: {
+      projectRef: ScopedProjectRef;
+      baseBranch: string;
+      worktreeBranchName: string;
+      worktreeSetupScriptId: string;
+      startFromOrigin: boolean;
+    }) => {
+      await handleNewThread(input.projectRef, {
+        envMode: "worktree",
+        branch: input.baseBranch,
+        worktreePath: null,
+        startFromOrigin: input.startFromOrigin,
+        worktreeBranchName: input.worktreeBranchName,
+        worktreeSetupScriptId: input.worktreeSetupScriptId,
+      });
+    },
+    [handleNewThread],
+  );
+
+  const element = (
+    <NewWorktreeThreadDialog
+      open={target !== null}
+      initialProjectRef={target?.projectRef ?? null}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) setTarget(null);
+      }}
+      onCreate={onCreate}
+    />
+  );
+
+  return { element, open };
+}
+
 export function CommandPalette({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
     openIntent: null,
   });
+  const newWorktreeDialog = useNewWorktreeThreadDialog();
   const setOpen = useCallback((open: boolean) => dispatch({ _tag: "SetOpen", open }), []);
   const toggleOpen = useCallback(() => dispatch({ _tag: "Toggle" }), []);
   const openAddProject = useCallback(() => dispatch({ _tag: "OpenAddProject" }), []);
@@ -426,11 +479,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
+        } else if (detail.open === "new-worktree") {
+          newWorktreeDialog.open(null);
         } else {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [newWorktreeDialog.open, openAddProject, openNewThreadIn, setOpen],
   );
 
   return (
@@ -442,8 +497,10 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           openIntent={state.openIntent}
           setOpen={setOpen}
           clearOpenIntent={clearOpenIntent}
+          openNewWorktreeDialog={newWorktreeDialog.open}
         />
       </CommandDialog>
+      {newWorktreeDialog.element}
     </ComposerHandleContext>
   );
 }
@@ -453,6 +510,7 @@ function CommandPaletteDialog(props: {
   readonly openIntent: CommandPaletteOpenIntent | null;
   readonly setOpen: (open: boolean) => void;
   readonly clearOpenIntent: () => void;
+  readonly openNewWorktreeDialog: (projectRef: ScopedProjectRef | null) => void;
 }) {
   if (!props.open) {
     return null;
@@ -463,6 +521,7 @@ function CommandPaletteDialog(props: {
       openIntent={props.openIntent}
       setOpen={props.setOpen}
       clearOpenIntent={props.clearOpenIntent}
+      openNewWorktreeDialog={props.openNewWorktreeDialog}
     />
   );
 }
@@ -471,9 +530,10 @@ function OpenCommandPaletteDialog(props: {
   readonly openIntent: CommandPaletteOpenIntent | null;
   readonly setOpen: (open: boolean) => void;
   readonly clearOpenIntent: () => void;
+  readonly openNewWorktreeDialog: (projectRef: ScopedProjectRef | null) => void;
 }) {
   const navigate = useNavigate();
-  const { clearOpenIntent, openIntent, setOpen } = props;
+  const { clearOpenIntent, openIntent, openNewWorktreeDialog, setOpen } = props;
   const composerHandleRef = useComposerHandleContext();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -844,6 +904,22 @@ function OpenCommandPaletteDialog(props: {
     [contextualProjectRef, handleNewThread, pickerProjects, projectGroupByTargetKey],
   );
 
+  const newWorktreeThreadItem: CommandPaletteActionItem = useMemo(
+    () => ({
+      kind: "action",
+      value: "action:new-worktree-thread",
+      searchTerms: ["new worktree", "worktree", "branch", "isolated", "setup", "action", "thread"],
+      title: "New thread in a new worktree...",
+      description: "Name the branch and pick what runs once it exists",
+      icon: <GitBranchPlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "chat.newWorktree",
+      run: async () => {
+        openNewWorktreeDialog(contextualProjectRef);
+      },
+    }),
+    [contextualProjectRef, openNewWorktreeDialog],
+  );
+
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
@@ -1135,12 +1211,16 @@ function OpenCommandPaletteDialog(props: {
           label: "Projects",
           items: enumerateCommandPaletteItems(prioritized),
         },
+        // Not enumerated: the numeric quick-select shortcuts belong to the
+        // project list, and this item carries its own keybinding label.
+        { value: "worktree", label: "Worktree", items: [newWorktreeThreadItem] },
       ],
     });
   }, [
     clearOpenIntent,
     currentProjectEnvironmentId,
     currentProjectId,
+    newWorktreeThreadItem,
     openIntent,
     projectThreadItems,
   ]);
@@ -1175,6 +1255,8 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
+    actionItems.push(newWorktreeThreadItem);
+
     actionItems.push({
       kind: "submenu",
       value: "action:new-thread-in",
@@ -1182,7 +1264,12 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+      groups: [
+        { value: "projects", label: "Projects", items: projectThreadItems },
+        // Not enumerated: the numeric quick-select shortcuts belong to the
+        // project list, and this item carries its own keybinding label.
+        { value: "worktree", label: "Worktree", items: [newWorktreeThreadItem] },
+      ],
     });
   }
 

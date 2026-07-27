@@ -157,6 +157,7 @@ import {
   commandForProjectScript,
   nextProjectScriptId,
   projectScriptIdFromCommand,
+  NO_WORKTREE_SETUP_SCRIPT_ID,
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
@@ -3818,6 +3819,15 @@ function ChatViewContent(props: ChatViewProps) {
       ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
         primaryServerSettings.newWorktreesStartFromOrigin)
       : false;
+  // Only a draft seeded by the "New worktree..." command carries these; every
+  // other path leaves them null and keeps the generated branch name plus the
+  // project's own `runOnWorktreeCreate` script.
+  const draftWorktreeBranchName = isLocalDraftThread
+    ? (draftThread?.worktreeBranchName ?? null)
+    : null;
+  const draftWorktreeSetupScriptId = isLocalDraftThread
+    ? (draftThread?.worktreeSetupScriptId ?? null)
+    : null;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
     isGitRepo,
@@ -4740,10 +4750,15 @@ function ChatViewContent(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
+                      branch:
+                        draftWorktreeBranchName ?? buildTemporaryWorktreeBranchName(randomHex),
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
-                    runSetupScript: true,
+                    runSetupScript: draftWorktreeSetupScriptId !== NO_WORKTREE_SETUP_SCRIPT_ID,
+                    ...(draftWorktreeSetupScriptId !== null &&
+                    draftWorktreeSetupScriptId !== NO_WORKTREE_SETUP_SCRIPT_ID
+                      ? { setupScriptId: draftWorktreeSetupScriptId }
+                      : {}),
                   }
                 : {}),
             }

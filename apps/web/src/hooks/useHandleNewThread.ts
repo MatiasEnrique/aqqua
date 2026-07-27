@@ -50,6 +50,8 @@ export function useNewThreadHandler() {
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
+        worktreeBranchName?: string | null;
+        worktreeSetupScriptId?: string | null;
         replace?: boolean;
       },
     ): Promise<void> => {
@@ -112,6 +114,8 @@ export function useNewThreadHandler() {
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
+      const hasWorktreeBranchNameOption = options?.worktreeBranchName !== undefined;
+      const hasWorktreeSetupScriptIdOption = options?.worktreeSetupScriptId !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
@@ -137,7 +141,9 @@ export function useNewThreadHandler() {
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromOriginOption;
+            hasStartFromOriginOption ||
+            hasWorktreeBranchNameOption ||
+            hasWorktreeSetupScriptIdOption;
           // Resurrecting a stored draft must not resurrect its stale context:
           // explicit workspace options win outright; otherwise the env context
           // resets to the configured defaults so drafts seeded before a
@@ -153,6 +159,12 @@ export function useNewThreadHandler() {
                 ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
                 ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
                 ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+                ...(hasWorktreeBranchNameOption
+                  ? { worktreeBranchName: options?.worktreeBranchName ?? null }
+                  : {}),
+                ...(hasWorktreeSetupScriptIdOption
+                  ? { worktreeSetupScriptId: options?.worktreeSetupScriptId ?? null }
+                  : {}),
               }
             : isDraftAlreadyOpen
               ? null
@@ -164,6 +176,10 @@ export function useNewThreadHandler() {
                     envMode: defaultEnvMode,
                     newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
                   }),
+                  // A stale draft must not keep a worktree name the user picked
+                  // for an earlier "New worktree..." run they never sent.
+                  worktreeBranchName: null,
+                  worktreeSetupScriptId: null,
                 };
           if (workspaceContext) {
             setDraftThreadContext(reusableStoredDraftThread.draftId, {
@@ -216,28 +232,34 @@ export function useNewThreadHandler() {
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null
       ) {
+        const workspaceOptions = {
+          ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
+          ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+          ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+          ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+          ...(hasWorktreeBranchNameOption
+            ? { worktreeBranchName: options?.worktreeBranchName ?? null }
+            : {}),
+          ...(hasWorktreeSetupScriptIdOption
+            ? { worktreeSetupScriptId: options?.worktreeSetupScriptId ?? null }
+            : {}),
+        };
         if (
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromOriginOption
+          hasStartFromOriginOption ||
+          hasWorktreeBranchNameOption ||
+          hasWorktreeSetupScriptIdOption
         ) {
-          setDraftThreadContext(currentRouteTarget.draftId, {
-            ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-            ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-            ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
-            ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
-          });
+          setDraftThreadContext(currentRouteTarget.draftId, workspaceOptions);
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
           threadId: latestActiveDraftThread.threadId,
           createdAt: latestActiveDraftThread.createdAt,
           runtimeMode: latestActiveDraftThread.runtimeMode,
           interactionMode: latestActiveDraftThread.interactionMode,
-          ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-          ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-          ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
-          ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+          ...workspaceOptions,
         });
         return Promise.resolve();
       }
@@ -259,6 +281,8 @@ export function useNewThreadHandler() {
               envMode: initialEnvMode,
               newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
             }),
+          worktreeBranchName: options?.worktreeBranchName ?? null,
+          worktreeSetupScriptId: options?.worktreeSetupScriptId ?? null,
           runtimeMode: carryRuntimeMode ?? DEFAULT_RUNTIME_MODE,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });
