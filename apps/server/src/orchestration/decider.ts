@@ -11,6 +11,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  listThreadsByParentThreadId,
   listThreadsByProjectId,
   requireActiveProjectWorkspaceRootAbsent,
   requireProject,
@@ -309,10 +310,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       if (activeThreads.length > 0) {
+        // thread.delete cascades to sub-agent threads, so only dispatch deletes
+        // for threads whose parent is not itself in this batch — deleting a
+        // child here too would emit a second thread.deleted for it. A parent
+        // that is self-referencing or already deleted cannot cascade, so its
+        // children count as top-level.
+        const activeThreadIds = new Set(activeThreads.map((thread) => thread.id));
+        const topLevelThreads = activeThreads.filter((thread) => {
+          const parentThreadId = thread.parentThreadId ?? null;
+          return (
+            parentThreadId === null ||
+            parentThreadId === thread.id ||
+            !activeThreadIds.has(parentThreadId)
+          );
+        });
         return yield* decideCommandSequence({
           readModel,
           commands: [
-            ...activeThreads.map(
+            ...topLevelThreads.map(
               (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
                 type: "thread.delete",
                 commandId: command.commandId,
@@ -385,6 +400,33 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Deleting an orchestrator thread takes its sub-agent threads with it:
+      // each child is deleted through its own thread.delete so grandchildren
+      // cascade too and every descendant gets its own thread.deleted event
+      // (session shutdown, attachment cleanup, and client updates all key off
+      // per-thread events).
+      const activeChildThreads = listThreadsByParentThreadId(readModel, command.threadId).filter(
+        (thread) => thread.deletedAt === null,
+      );
+      if (activeChildThreads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...activeChildThreads.map(
+              (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
+                type: "thread.delete",
+                commandId: command.commandId,
+                threadId: thread.id,
+              }),
+            ),
+            {
+              type: "thread.delete",
+              commandId: command.commandId,
+              threadId: command.threadId,
+            },
+          ],
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({

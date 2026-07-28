@@ -102,6 +102,69 @@ const seedReadModel = Effect.gen(function* () {
   });
 });
 
+const threadCreatedEvent = (input: {
+  readonly sequence: number;
+  readonly threadId: string;
+  readonly title: string;
+  readonly parentThreadId?: string;
+}): OrchestrationEvent => {
+  const now = "2026-01-01T00:00:00.000Z";
+  return {
+    sequence: input.sequence,
+    eventId: asEventId(`evt-thread-create-${input.threadId}`),
+    aggregateKind: "thread",
+    aggregateId: asThreadId(input.threadId),
+    type: "thread.created",
+    occurredAt: now,
+    commandId: asCommandId(`cmd-thread-create-${input.threadId}`),
+    causationEventId: null,
+    correlationId: asCommandId(`cmd-thread-create-${input.threadId}`),
+    metadata: {},
+    payload: {
+      threadId: asThreadId(input.threadId),
+      projectId: asProjectId("project-delete"),
+      ...(input.parentThreadId !== undefined
+        ? { parentThreadId: asThreadId(input.parentThreadId) }
+        : {}),
+      title: input.title,
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      branch: null,
+      worktreePath: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+};
+
+// project-delete with orchestrator "thread-parent" owning "thread-child",
+// which in turn owns "thread-grandchild".
+const seedHierarchyReadModel = Effect.gen(function* () {
+  let readModel = yield* seedReadModel;
+  for (const event of [
+    threadCreatedEvent({ sequence: 4, threadId: "thread-parent", title: "Thread Parent" }),
+    threadCreatedEvent({
+      sequence: 5,
+      threadId: "thread-child",
+      title: "Thread Child",
+      parentThreadId: "thread-parent",
+    }),
+    threadCreatedEvent({
+      sequence: 6,
+      threadId: "thread-grandchild",
+      title: "Thread Grandchild",
+      parentThreadId: "thread-child",
+    }),
+  ]) {
+    readModel = yield* projectEvent(readModel, event);
+  }
+  return readModel;
+});
+
 type PlannedEvent = Omit<OrchestrationEvent, "sequence">;
 
 function normalizeDeleteEvent(event: PlannedEvent | ReadonlyArray<PlannedEvent>) {
@@ -213,5 +276,93 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
 
       expect(normalizeDeleteEvent(forcedResult)).toEqual(normalizeDeleteEvent(sequentialEvents));
     }),
+  );
+
+  it.effect("deleting a thread cascades to its sub-agent threads, deepest first", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.delete",
+          commandId: asCommandId("cmd-thread-delete-parent"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.deleted", aggregateId: asThreadId("thread-grandchild") },
+          { type: "thread.deleted", aggregateId: asThreadId("thread-child") },
+          { type: "thread.deleted", aggregateId: asThreadId("thread-parent") },
+        ],
+      );
+    }),
+  );
+
+  it.effect("deleting a thread skips sub-agent threads that are already deleted", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const withDeletedChild = yield* projectEvent(readModel, {
+        sequence: readModel.snapshotSequence + 1,
+        eventId: asEventId("evt-thread-child-deleted"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-child"),
+        type: "thread.deleted",
+        occurredAt: "2026-01-01T01:00:00.000Z",
+        commandId: asCommandId("cmd-thread-delete-child"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-thread-delete-child"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-child"),
+          deletedAt: "2026-01-01T01:00:00.000Z",
+        },
+      });
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.delete",
+          commandId: asCommandId("cmd-thread-delete-parent"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel: withDeletedChild,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [{ type: "thread.deleted", aggregateId: asThreadId("thread-parent") }],
+      );
+    }),
+  );
+
+  it.effect(
+    "force-deleting a project emits exactly one thread.deleted per thread in the hierarchy",
+    () =>
+      Effect.gen(function* () {
+        const readModel = yield* seedHierarchyReadModel;
+        const result = yield* decideOrchestrationCommand({
+          command: {
+            type: "project.delete",
+            commandId: asCommandId("cmd-project-delete-hierarchy"),
+            projectId: asProjectId("project-delete"),
+            force: true,
+          },
+          readModel,
+        });
+        const events = Array.isArray(result) ? result : [result];
+        const deletedThreadIds = events
+          .filter((event) => event.type === "thread.deleted")
+          .map((event) => event.aggregateId)
+          .sort();
+        expect(deletedThreadIds).toEqual(
+          [
+            "thread-delete-1",
+            "thread-delete-2",
+            "thread-parent",
+            "thread-child",
+            "thread-grandchild",
+          ].sort(),
+        );
+        expect(events.at(-1)?.type).toBe("project.deleted");
+      }),
   );
 });

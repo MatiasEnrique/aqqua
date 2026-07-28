@@ -39,6 +39,15 @@ export function listThreadsByProjectId(
   return readModel.threads.filter((thread) => thread.projectId === projectId);
 }
 
+export function listThreadsByParentThreadId(
+  readModel: OrchestrationReadModel,
+  parentThreadId: ThreadId,
+): ReadonlyArray<OrchestrationThread> {
+  return readModel.threads.filter(
+    (thread) => (thread.parentThreadId ?? null) === parentThreadId && thread.id !== parentThreadId,
+  );
+}
+
 export function requireProject(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
