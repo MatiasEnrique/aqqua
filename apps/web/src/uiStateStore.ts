@@ -298,9 +298,19 @@ export function setThreadChangedFilesExpanded(
   };
 }
 
+/**
+ * Resolve a thread's stored expansion preference.
+ *
+ * `fallback` is what an unrecorded thread means, and the two sidebars disagree:
+ * v1 is a project tree where a hidden branch would look like missing threads, so
+ * it opens by default, while v2 is an inbox where an unattended delegation
+ * fan-out would push the rest of the list off-screen, so it stays closed. The
+ * stored overrides are shared, so an explicit choice still carries across both.
+ */
 export function resolveThreadExpanded(
   threadExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
+  options?: { readonly fallback?: boolean },
 ): boolean {
   for (const key of preferenceKeys) {
     const expanded = threadExpandedById[key];
@@ -308,7 +318,7 @@ export function resolveThreadExpanded(
       return expanded;
     }
   }
-  return true;
+  return options?.fallback ?? true;
 }
 
 export function setThreadExpanded(

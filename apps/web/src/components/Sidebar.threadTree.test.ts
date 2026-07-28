@@ -6,9 +6,86 @@ import {
   buildSidebarThreadTree,
   filterVisibleSidebarThreadEntries,
   resolveCollapsedThreadSelectionTarget,
+  resolveSidebarThreadAncestorIds,
+  shouldReserveThreadExpandGutter,
   takeSidebarThreadFamilies,
   type SidebarThreadTreeEntry,
 } from "./Sidebar.threadTree";
+
+describe("resolveSidebarThreadAncestorIds", () => {
+  const entries: ReadonlyArray<SidebarThreadTreeEntry<{ id: string }>> = [
+    { thread: { id: "root" }, depth: 0, childCount: 2 },
+    { thread: { id: "child-a" }, depth: 1, childCount: 1 },
+    { thread: { id: "grandchild" }, depth: 2, childCount: 0 },
+    { thread: { id: "child-b" }, depth: 1, childCount: 0 },
+    { thread: { id: "other-root" }, depth: 0, childCount: 0 },
+  ];
+  const ancestorsOf = (threadId: string) =>
+    resolveSidebarThreadAncestorIds({ entries, threadId, getThreadId: (thread) => thread.id });
+
+  it("returns nothing for a root", () => {
+    expect(ancestorsOf("root")).toEqual([]);
+    expect(ancestorsOf("other-root")).toEqual([]);
+  });
+
+  it("returns the parent of a sub-agent", () => {
+    expect(ancestorsOf("child-b")).toEqual(["root"]);
+  });
+
+  it("returns the whole chain outermost first", () => {
+    expect(ancestorsOf("grandchild")).toEqual(["root", "child-a"]);
+  });
+
+  it("returns nothing for a thread the tree doesn't contain", () => {
+    expect(ancestorsOf("missing")).toEqual([]);
+  });
+});
+
+describe("shouldReserveThreadExpandGutter", () => {
+  it("stays closed for a list with no sub-agents at all", () => {
+    expect(
+      shouldReserveThreadExpandGutter([
+        { depth: 0, childCount: 0 },
+        { depth: 0, childCount: 0 },
+      ]),
+    ).toBe(false);
+  });
+
+  it("opens for every row once one of them owns a toggle", () => {
+    expect(
+      shouldReserveThreadExpandGutter([
+        { depth: 0, childCount: 0 },
+        { depth: 0, childCount: 3 },
+        { depth: 1, childCount: 0 },
+      ]),
+    ).toBe(true);
+  });
+
+  it("ignores toggles above minDepth", () => {
+    const rows = [
+      { depth: 0, childCount: 2 },
+      { depth: 1, childCount: 0 },
+    ];
+    expect(shouldReserveThreadExpandGutter(rows, { minDepth: 1 })).toBe(false);
+  });
+
+  it("opens at minDepth when a nested row owns a toggle", () => {
+    const rows = [
+      { depth: 0, childCount: 1 },
+      { depth: 1, childCount: 1 },
+      { depth: 2, childCount: 0 },
+    ];
+    expect(shouldReserveThreadExpandGutter(rows, { minDepth: 1 })).toBe(true);
+  });
+
+  it("accepts any iterable, including a Map's values", () => {
+    const meta = new Map([
+      ["a", { depth: 0, childCount: 0 }],
+      ["b", { depth: 0, childCount: 1 }],
+    ]);
+    expect(shouldReserveThreadExpandGutter(meta.values())).toBe(true);
+  });
+});
 
 describe("filterVisibleSidebarThreadEntries", () => {
   const entries: ReadonlyArray<SidebarThreadTreeEntry<{ id: string }>> = [

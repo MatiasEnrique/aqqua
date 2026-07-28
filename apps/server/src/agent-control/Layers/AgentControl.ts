@@ -4,8 +4,9 @@
  * @module agent-control/Layers/AgentControl
  */
 import {
-  type AgentProfileName,
+  AgentProfileName,
   CommandId,
+  DEFAULT_AGENT_PROFILE_NAME,
   EventId,
   type IsoDateTime,
   MessageId,
@@ -22,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -46,6 +48,7 @@ import {
   type AgentControlShape,
   type AgentHandle,
   type AgentRunResult,
+  type AgentProfileSummary,
   type AgentRunStatus,
   type AgentSummary,
 } from "../Services/AgentControl.ts";
@@ -670,12 +673,63 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const profiles: AgentControlShape["profiles"] = Effect.fn("AgentControl.profiles")(
+    function* (input) {
+      const parent = yield* requireOrchestrator(input.parentThreadId);
+      const serverSettings = yield* settings.getSettings.pipe(
+        Effect.catchCause(dispatchFailure("profiles")),
+      );
+      const project = yield* readProject("profiles", parent.projectId);
+      const instances = yield* instanceCandidates;
+      const configured = serverSettings.agentProfiles;
+
+      // The implicit default is spawnable whether or not it was written down, so
+      // listing only the configured map would hide a name that works.
+      const names = Object.keys(configured).toSorted();
+      if (!names.includes(DEFAULT_AGENT_PROFILE_NAME)) {
+        names.unshift(DEFAULT_AGENT_PROFILE_NAME);
+      }
+
+      return names.map((name): AgentProfileSummary => {
+        const profile = AgentProfileName.make(name);
+        const definition = configured[profile];
+        const resolved = resolveAgentProfile({
+          profile,
+          profiles: configured,
+          instances,
+          projectDefaultModelSelection: project?.defaultModelSelection ?? null,
+        });
+        const shared = {
+          name: profile,
+          driver: definition?.driver ?? null,
+          pinsModel: definition?.model !== undefined,
+          titlePrefix: definition?.titlePrefix ?? null,
+        };
+        return Result.isFailure(resolved)
+          ? {
+              ...shared,
+              runtime: definition?.runtime ?? "session",
+              model: null,
+              unavailable: resolved.failure.message,
+            }
+          : {
+              ...shared,
+              runtime: resolved.success.runtime,
+              model: resolved.success.modelSelection.model,
+              titlePrefix: resolved.success.titlePrefix,
+              unavailable: null,
+            };
+      });
+    },
+  );
+
   return {
     spawn,
     send,
     awaitTurn,
     interrupt,
     list,
+    profiles,
   } satisfies AgentControlShape;
 });
 

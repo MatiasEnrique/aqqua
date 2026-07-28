@@ -17,6 +17,7 @@ import {
   AgentInterruptResponse,
   AgentListResponse,
   AgentProfileName,
+  AgentProfilesResponse,
   AgentSendRequest,
   AgentSendResponse,
   AgentSpawnRequest,
@@ -70,15 +71,44 @@ const authenticate = Effect.fn("agentControl.authenticate")(function* () {
   return { _tag: "ok", parentThreadId: scope.threadId } as const;
 });
 
+const INVALID_PROFILE_NAME_TAG = "InvalidAgentProfileNameError";
+
+const failureStatus = (tag: string): number => {
+  if (tag === "AgentNotOwnedError") return 403;
+  if (tag === INVALID_PROFILE_NAME_TAG) return 400;
+  return 409;
+};
+
 /** Agent-control failures are the agent's to read, so they are shaped for a model. */
 const failureResponse = (error: { readonly _tag: string; readonly message: string }) =>
   response(
     AgentErrorResponse,
     { error: error._tag, message: error.message },
     {
-      status: error._tag === "AgentNotOwnedError" ? 403 : 409,
+      status: failureStatus(error._tag),
       headers: { "cache-control": "no-store" },
     },
+  );
+
+/**
+ * Validate the requested role name before it reaches profile resolution.
+ *
+ * `AgentProfileName.make` throws on a malformed name, which the catch-all below
+ * would flatten into "the request body was not understood" — true, but it names
+ * neither the offending field nor the rule. A caller that mistypes a profile
+ * should be told which of the two things went wrong: the name is not a legal
+ * name, or the name is legal but not configured.
+ */
+const decodeAgentProfileName = Schema.decodeUnknownEffect(AgentProfileName);
+
+const decodeProfileName = (value: string) =>
+  decodeAgentProfileName(value).pipe(
+    Effect.mapError(() => ({
+      _tag: INVALID_PROFILE_NAME_TAG,
+      message:
+        `'${value}' is not a valid agent profile name: it must start with a letter and ` +
+        "use only letters, digits, '-' or '_'. Run `3T agent profiles` to see the configured profiles.",
+    })),
   );
 
 const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
@@ -131,12 +161,16 @@ export const agentControlRouteLayer = Layer.unwrap(
           decodeBody(AgentSpawnRequest).pipe(
             Effect.orDie,
             Effect.flatMap((body) =>
-              agents.spawn({
-                parentThreadId,
-                profile: AgentProfileName.make(body.profile),
-                task: body.task,
-                ...(body.title === undefined ? {} : { title: body.title }),
-              }),
+              decodeProfileName(body.profile).pipe(
+                Effect.flatMap((profile) =>
+                  agents.spawn({
+                    parentThreadId,
+                    profile,
+                    task: body.task,
+                    ...(body.title === undefined ? {} : { title: body.title }),
+                  }),
+                ),
+              ),
             ),
           ),
         ),
@@ -186,6 +220,20 @@ export const agentControlRouteLayer = Layer.unwrap(
                 .interrupt({ parentThreadId, childThreadId: ThreadId.make(body.threadId) })
                 .pipe(Effect.as({ interrupted: body.threadId })),
             ),
+          ),
+        ),
+      ),
+      HttpRouter.route(
+        "GET",
+        `${AGENT_API_PREFIX}/profiles`,
+        route(AgentProfilesResponse, (parentThreadId) =>
+          agents.profiles({ parentThreadId }).pipe(
+            Effect.map((profiles) => ({
+              profiles: profiles.map((profile) => ({
+                ...profile,
+                name: profile.name as string,
+              })),
+            })),
           ),
         ),
       ),

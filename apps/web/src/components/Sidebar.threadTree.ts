@@ -95,6 +95,32 @@ export function buildSidebarThreadTree<T extends SidebarTreeThread>(input: {
   return entries;
 }
 
+/**
+ * Whether a list of rows should reserve the expand-toggle column.
+ *
+ * The column is a property of the list, not of the row that owns a toggle:
+ * reserving it only where a toggle exists gives sibling rows different title
+ * offsets, which reads as broken alignment rather than as hierarchy. Reserving
+ * it everywhere costs a column in the (common) list that has no sub-agents at
+ * all, so the rule is per rendered scope — a project's thread list in v1, the
+ * nested rows of the inbox in v2.
+ *
+ * `minDepth` restricts the question to a slice of the tree: v2's cards carry
+ * their toggle in the card body, so only rows at depth 1+ share a column.
+ */
+export function shouldReserveThreadExpandGutter(
+  rows: Iterable<{ readonly depth: number; readonly childCount: number }>,
+  options?: { minDepth?: number },
+): boolean {
+  const minDepth = options?.minDepth ?? 0;
+  for (const row of rows) {
+    if (row.depth >= minDepth && row.childCount > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function filterVisibleSidebarThreadEntries<T>(input: {
   entries: readonly SidebarThreadTreeEntry<T>[];
   isExpanded: (entry: SidebarThreadTreeEntry<T>) => boolean;
@@ -151,6 +177,41 @@ export function takeSidebarThreadFamilies<T>(input: {
   }
 
   return { rootCount, visible, hidden };
+}
+
+/**
+ * The ancestor chain of one row, outermost first.
+ *
+ * Reads the flattened tree backwards: in depth-first display order the nearest
+ * preceding entry with a smaller depth is the parent. Callers use this to keep
+ * the branch holding the open thread expanded — a sidebar that collapses
+ * sub-agents by default must still never hide the thread you are reading.
+ *
+ * Returns an empty array for a root, an unknown id, or an entry list that does
+ * not contain the thread.
+ */
+export function resolveSidebarThreadAncestorIds<T>(input: {
+  entries: readonly SidebarThreadTreeEntry<T>[];
+  threadId: string;
+  getThreadId: (thread: T) => string;
+}): string[] {
+  const { entries, getThreadId, threadId } = input;
+  const index = entries.findIndex((entry) => getThreadId(entry.thread) === threadId);
+  if (index < 0) {
+    return [];
+  }
+
+  const ancestors: string[] = [];
+  let depth = entries[index]!.depth;
+  for (let cursor = index - 1; cursor >= 0 && depth > 0; cursor -= 1) {
+    const entry = entries[cursor]!;
+    if (entry.depth < depth) {
+      ancestors.push(getThreadId(entry.thread));
+      depth = entry.depth;
+    }
+  }
+  // Collected nearest-first by walking backwards; callers want outermost first.
+  return ancestors.toReversed();
 }
 
 export function resolveCollapsedThreadSelectionTarget<T>(input: {

@@ -192,6 +192,7 @@ import {
   buildSidebarThreadTree,
   filterVisibleSidebarThreadEntries,
   resolveCollapsedThreadSelectionTarget,
+  shouldReserveThreadExpandGutter,
   takeSidebarThreadFamilies,
 } from "./Sidebar.threadTree";
 import { sortThreads } from "../lib/threadSort";
@@ -310,8 +311,12 @@ function buildThreadJumpLabelMap(input: {
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
 }
 
-/** Horizontal indent applied per nesting level of the orchestrator/sub-agent tree. */
-const THREAD_DEPTH_INDENT_PX = 10;
+/**
+ * Horizontal indent applied per nesting level of the orchestrator/sub-agent tree.
+ * Also the width of one indent guide, so a child's guide lands exactly under its
+ * parent's expand toggle.
+ */
+const THREAD_DEPTH_INDENT_PX = 12;
 
 interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
@@ -319,6 +324,12 @@ interface SidebarThreadRowProps {
   depth: number;
   /** Direct sub-agent count, shown on an orchestrator row. */
   childCount: number;
+  /**
+   * Whether this project's list reserves the expand-toggle column. Set for every
+   * row once any thread in the project has sub-agents, so titles keep a single
+   * left edge instead of jumping right on the one row that owns a toggle.
+   */
+  reserveExpandGutter: boolean;
   isExpanded: boolean;
   projectCwd: string | null;
   orderedProjectThreadKeys: readonly string[];
@@ -384,6 +395,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     thread,
     depth,
     childCount,
+    reserveExpandGutter,
     isExpanded,
     toggleExpanded,
   } = props;
@@ -698,12 +710,24 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       className="w-full"
       data-thread-item
       data-thread-depth={depth}
-      // Indent sub-agents under the orchestrator that spawned them. Padding (not
-      // margin) keeps the row's full width clickable at every depth.
-      style={depth > 0 ? { paddingInlineStart: depth * THREAD_DEPTH_INDENT_PX } : undefined}
       onMouseLeave={handleMouseLeave}
       onBlurCapture={handleBlurCapture}
     >
+      {/* One indent guide per ancestor level. Drawn over the row surface (the
+          hover/active background would otherwise cover it) and bled past the
+          row's edges so the line stays continuous across the list gap between
+          consecutive sub-agents. */}
+      {depth > 0 && (
+        <span aria-hidden className="pointer-events-none absolute -inset-y-0.5 left-4 z-10 flex">
+          {Array.from({ length: depth }, (_, level) => (
+            <span
+              key={level}
+              className="border-l border-sidebar-border/70"
+              style={{ width: THREAD_DEPTH_INDENT_PX }}
+            />
+          ))}
+        </span>
+      )}
       <SidebarMenuSubButton
         render={rowButtonRender}
         size="sm"
@@ -718,27 +742,38 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         onKeyDown={handleRowKeyDown}
         onContextMenu={handleRowContextMenu}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {childCount > 0 && (
-            <button
-              type="button"
-              data-thread-selection-safe
-              aria-label={
-                isExpanded
-                  ? `Collapse conversation ${thread.title}`
-                  : `Expand conversation ${thread.title}`
-              }
-              className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-hidden transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={handleToggleExpanded}
-              onKeyDown={handleToggleExpandedKeyDown}
-            >
-              {isExpanded ? (
-                <ChevronDownIcon className="size-3" />
-              ) : (
-                <ChevronRightIcon className="size-3" />
-              )}
-            </button>
-          )}
+        <div
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          // Indent sub-agents under the orchestrator that spawned them. Padding on
+          // the content (not the row) keeps the row's full width clickable and lets
+          // the hover surface stay full-bleed at every depth.
+          style={depth > 0 ? { paddingInlineStart: depth * THREAD_DEPTH_INDENT_PX } : undefined}
+        >
+          {reserveExpandGutter &&
+            (childCount > 0 ? (
+              <button
+                type="button"
+                data-thread-selection-safe
+                aria-label={
+                  isExpanded
+                    ? `Collapse conversation ${thread.title}`
+                    : `Expand conversation ${thread.title}`
+                }
+                className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-hidden transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={handleToggleExpanded}
+                onKeyDown={handleToggleExpandedKeyDown}
+              >
+                {isExpanded ? (
+                  <ChevronDownIcon className="size-3" />
+                ) : (
+                  <ChevronRightIcon className="size-3" />
+                )}
+              </button>
+            ) : (
+              // Leaf rows hold the column open so every title in the project
+              // shares one left edge.
+              <span aria-hidden className="size-4 shrink-0" />
+            ))}
           {prStatus && (
             <Tooltip>
               <TooltipTrigger
@@ -755,25 +790,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               />
               <TooltipPopup side="top">
                 <PrStatusTooltipContent status={prStatus} />
-              </TooltipPopup>
-            </Tooltip>
-          )}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {childCount > 0 && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-sidebar-muted-foreground/80 tabular-nums"
-                    data-testid={`thread-subagent-count-${thread.id}`}
-                  />
-                }
-              >
-                <NetworkIcon className="size-3" />
-                {childCount}
-              </TooltipTrigger>
-              <TooltipPopup side="top">
-                {childCount === 1 ? "1 sub-agent" : `${childCount} sub-agents`}
               </TooltipPopup>
             </Tooltip>
           )}
@@ -807,6 +823,27 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Only while collapsed: expanded, the toggle and the indented rows
+              below already say this row is an orchestrator, and the count would
+              just be another number competing with the row's status. */}
+          {childCount > 0 && !isExpanded && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-sidebar-muted-foreground/80 tabular-nums"
+                    data-testid={`thread-subagent-count-${thread.id}`}
+                  />
+                }
+              >
+                <NetworkIcon className="size-3" />
+                {childCount}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {childCount === 1 ? "1 sub-agent hidden" : `${childCount} sub-agents hidden`}
+              </TooltipPopup>
+            </Tooltip>
+          )}
           {discoveredPorts.length > 0 && (
             <Tooltip>
               <TooltipTrigger
@@ -933,6 +970,13 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                     </TooltipTrigger>
                     <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
                   </Tooltip>
+                ) : threadStatus ? (
+                  // Status takes the timestamp's place instead of sitting before
+                  // the title: label widths vary ("Working" vs "Pending
+                  // Approval"), and inline they pushed each row's title to a
+                  // different left edge. Here they stack into one scannable
+                  // column, and the time is the less urgent of the two anyway.
+                  <ThreadStatusLabel status={threadStatus} />
                 ) : (
                   <span
                     className={`text-[10px] tabular-nums ${
@@ -1051,6 +1095,10 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
+  const reserveExpandGutter = useMemo(
+    () => shouldReserveThreadExpandGutter(threadTreeMetaByKey.values()),
+    [threadTreeMetaByKey],
+  );
 
   return (
     <SidebarMenuSub
@@ -1077,6 +1125,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               thread={thread}
               depth={treeMeta?.depth ?? 0}
               childCount={treeMeta?.childCount ?? 0}
+              reserveExpandGutter={reserveExpandGutter}
               isExpanded={resolveThreadExpanded(threadExpandedById, [threadKey])}
               projectCwd={projectCwd}
               orderedProjectThreadKeys={orderedProjectThreadKeys}

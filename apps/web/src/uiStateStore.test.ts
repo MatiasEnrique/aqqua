@@ -150,6 +150,18 @@ describe("uiStateStore pure functions", () => {
     expect(resolveThreadExpanded({}, [threadKey])).toBe(true);
   });
 
+  it("applies the caller's fallback only when no preference is recorded", () => {
+    const threadKey = "environment-a:thread-1";
+
+    expect(resolveThreadExpanded({}, [threadKey], { fallback: false })).toBe(false);
+    expect(resolveThreadExpanded({ [threadKey]: true }, [threadKey], { fallback: false })).toBe(
+      true,
+    );
+    expect(resolveThreadExpanded({ [threadKey]: false }, [threadKey], { fallback: true })).toBe(
+      false,
+    );
+  });
+
   it("sets expansion for every stable key belonging to a thread", () => {
     const initialState = makeUiState();
     const keys = ["environment-a:thread-1", "environment-b:thread-1"];

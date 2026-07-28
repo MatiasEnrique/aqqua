@@ -63,6 +63,24 @@ export interface AgentSummary {
   readonly updatedAt: string;
 }
 
+/**
+ * A role name an orchestrator may spawn, with what it resolves to today.
+ *
+ * Resolution is reported rather than just the stored definition: a profile that
+ * omits `model` inherits the project default, so the configured shape and the
+ * model a spawn would actually use are different questions.
+ */
+export interface AgentProfileSummary {
+  readonly name: AgentProfileName;
+  readonly runtime: "session" | "terminal";
+  readonly driver: string | null;
+  readonly model: string | null;
+  readonly pinsModel: boolean;
+  readonly titlePrefix: string | null;
+  /** `null` when the profile is ready to spawn; otherwise why it is not. */
+  readonly unavailable: string | null;
+}
+
 export interface AgentControlShape {
   /**
    * Create a sub-agent thread under `parentThreadId` and start its first turn.
@@ -104,6 +122,17 @@ export interface AgentControlShape {
   readonly list: (input: {
     readonly parentThreadId: ThreadId;
   }) => Effect.Effect<ReadonlyArray<AgentSummary>, AgentControlError>;
+
+  /**
+   * Role names this parent may spawn, resolved against its own project.
+   *
+   * Exists so discovering the profiles is not done by spawning a wrong one and
+   * reading the error: the names live in machine-local settings the orchestrator
+   * cannot see.
+   */
+  readonly profiles: (input: {
+    readonly parentThreadId: ThreadId;
+  }) => Effect.Effect<ReadonlyArray<AgentProfileSummary>, AgentControlError>;
 }
 
 export class AgentControl extends Context.Service<AgentControl, AgentControlShape>()(

@@ -17,7 +17,7 @@ we may close it without merging it, or never review it.
 
 ## Why
 
-<!-- Explain the problem being solved and why this approach is the right one. -->
+<!-- Explain the problem being soalved and why this approach is the right one. -->
 
 ## UI Changes
 

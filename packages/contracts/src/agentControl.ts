@@ -64,6 +64,32 @@ export const AgentListResponse = Schema.Struct({
 });
 export type AgentListResponse = typeof AgentListResponse.Type;
 
+export const AgentProfileListItem = Schema.Struct({
+  name: Schema.String,
+  runtime: Schema.String,
+  driver: Schema.NullOr(Schema.String),
+  /**
+   * Model the profile resolves to right now — what a spawn would actually run.
+   * `null` when the profile cannot resolve, in which case `unavailable` says why.
+   */
+  model: Schema.NullOr(Schema.String),
+  /**
+   * Whether the profile pins `model` itself. A profile that inherits instead
+   * silently follows the project default, which is how a sub-agent ends up on a
+   * model nobody chose — worth seeing before spawning, not after.
+   */
+  pinsModel: Schema.Boolean,
+  titlePrefix: Schema.NullOr(Schema.String),
+  /** `null` when the profile is ready to spawn; otherwise why it is not. */
+  unavailable: Schema.NullOr(Schema.String),
+});
+export type AgentProfileListItem = typeof AgentProfileListItem.Type;
+
+export const AgentProfilesResponse = Schema.Struct({
+  profiles: Schema.Array(AgentProfileListItem),
+});
+export type AgentProfilesResponse = typeof AgentProfilesResponse.Type;
+
 export const AgentErrorResponse = Schema.Struct({
   error: Schema.String,
   message: Schema.String,

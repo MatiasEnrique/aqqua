@@ -18,6 +18,7 @@ import {
   AlarmClockOffIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -28,6 +29,7 @@ import {
   GitBranchIcon,
   EllipsisIcon,
   MessageSquareIcon,
+  NetworkIcon,
   PlusIcon,
   SearchIcon,
   ServerIcon,
@@ -79,7 +81,11 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveThreadExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -115,6 +121,13 @@ import {
   sortSettledThreadsForSidebarV2,
   sortThreadsForSidebarV2,
 } from "./Sidebar.logic";
+import {
+  buildSidebarThreadTree,
+  filterVisibleSidebarThreadEntries,
+  resolveCollapsedThreadSelectionTarget,
+  resolveSidebarThreadAncestorIds,
+  shouldReserveThreadExpandGutter,
+} from "./Sidebar.threadTree";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   prStatusIndicator,
@@ -158,6 +171,12 @@ import { useComposerDraftStore } from "../composerDraftStore";
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
+/**
+ * Indent and guide width per sub-agent nesting level. Matches the card's own
+ * horizontal padding so the first guide descends from the orchestrator card's
+ * left content edge.
+ */
+const SUB_AGENT_INDENT_PX = 16;
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
   repository_path: "Group by repository path",
@@ -354,7 +373,10 @@ function SnoozePopoverButton(props: {
 
 const SidebarV2Row = memo(function SidebarV2Row(props: {
   thread: SidebarThreadSummary;
-  variant: "card" | "slim";
+  // "sub" is a card's descendant: a compact row that trades the card's project
+  // and branch chrome for indentation, since the orchestrator above it already
+  // establishes both.
+  variant: "card" | "slim" | "sub";
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
@@ -368,6 +390,17 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // When a snooze ended (timer or early wake); drives the Woke pill until
   // the user visits the thread.
   wokeAt: string | null;
+  /** 0 for a root conversation, 1+ for a sub-agent spawned by an orchestrator. */
+  depth: number;
+  /** Direct sub-agent count among the rows this section renders. */
+  childCount: number;
+  /**
+   * Whether nested rows reserve the expand-toggle column. Set for every sub-agent
+   * row once any of them owns a toggle, so sibling titles keep one left edge.
+   */
+  reserveExpandGutter: boolean;
+  isExpanded: boolean;
+  onToggleExpanded: (threadRef: ScopedThreadRef, expanded: boolean) => void;
   isActive: boolean;
   jumpLabel: string | null;
   currentEnvironmentId: string | null;
@@ -391,6 +424,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   onChangeRequestState: (threadKey: string, state: "open" | "closed" | "merged" | null) => void;
 }) {
   const {
+    childCount,
+    depth,
+    isExpanded,
     isRenaming,
     onChangeRequestState,
     onCancelRename,
@@ -402,9 +438,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     onStartRename,
     onThreadActivate,
     onThreadClick,
+    onToggleExpanded,
     onUnsettle,
     onUnsnooze,
     renamingTitle,
+    reserveExpandGutter,
     thread,
     variant,
     variantAction,
@@ -541,9 +579,24 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
 
   const handleClick = useCallback(
     (event: ReactMouseEvent) => {
+      // A row with sub-agents doubles as its branch's disclosure control: since
+      // they are collapsed by default, opening the orchestrator is how you see
+      // what it delegated, and clicking it again puts them away. Modifier
+      // clicks are multi-select intent and never toggle; the count chip and the
+      // nested chevron stop propagation, so they toggle exactly once.
+      if (
+        childCount > 0 &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        useThreadSelectionStore.getState().selectedThreadKeys.size === 0
+      ) {
+        onToggleExpanded(threadRef, !isExpanded);
+      }
       onThreadClick(event, threadRef);
     },
-    [onThreadClick, threadRef],
+    [childCount, isExpanded, onThreadClick, onToggleExpanded, threadRef],
   );
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent) => {
@@ -648,6 +701,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     },
     [openPrLink, pr],
   );
+  const handleToggleExpanded = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleExpanded(threadRef, !isExpanded);
+    },
+    [isExpanded, onToggleExpanded, threadRef],
+  );
 
   // All Sidebar V2 rows share one surface model. Live threads used to look
   // like elevated cards while settled threads were plain rows, leaving neither
@@ -703,7 +764,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 ? "text-foreground"
                 : isUnread
                   ? "text-muted-foreground"
-                  : "text-muted-foreground/70",
+                  : // Sub-agents are live work, not history: they sit a step
+                    // above the settled tail's resting contrast.
+                    variant === "sub"
+                    ? "text-muted-foreground/85"
+                    : "text-muted-foreground/70",
             ),
       )}
     >
@@ -729,6 +794,124 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         #{pr.number}
       </button>
     ) : null;
+
+  // The chevron a nested orchestrator owns. Cards use the count chip in their
+  // meta line instead, so this is only rendered by the "sub" variant.
+  const expandToggle =
+    childCount > 0 ? (
+      <button
+        type="button"
+        data-thread-selection-safe
+        aria-expanded={isExpanded}
+        aria-label={
+          isExpanded
+            ? `Collapse sub-agents of ${thread.title}`
+            : `Expand sub-agents of ${thread.title}`
+        }
+        onClick={handleToggleExpanded}
+        className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {isExpanded ? (
+          <ChevronDownIcon className="size-3" />
+        ) : (
+          <ChevronRightIcon className="size-3" />
+        )}
+      </button>
+    ) : null;
+
+  if (variant === "sub") {
+    return (
+      <li data-thread-item className="relative list-none">
+        {/* One guide per ancestor level, descending from the orchestrator's left
+            content edge. The top bleeds into the row above to bridge the list
+            gap; the bottom stops flush so the last sub-agent closes the branch
+            instead of pointing at the next root. */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -top-1 bottom-0 left-2.5 z-10 flex"
+        >
+          {Array.from({ length: depth }, (_, level) => (
+            <span
+              key={level}
+              className="border-l border-sidebar-border/70"
+              style={{ width: SUB_AGENT_INDENT_PX }}
+            />
+          ))}
+        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                role="button"
+                tabIndex={0}
+                data-testid="sidebar-v2-row-sub"
+                className={cn(rowSurfaceClassName, "flex h-8 items-center gap-2 pr-2.5")}
+                style={{ paddingInlineStart: 10 + depth * SUB_AGENT_INDENT_PX }}
+                onClick={handleClick}
+                onDoubleClick={handleDoubleClick}
+                onKeyDown={handleKeyDown}
+                onContextMenu={handleContextMenu}
+              />
+            }
+          >
+            {reserveExpandGutter
+              ? (expandToggle ?? <span aria-hidden className="size-4 shrink-0" />)
+              : null}
+            {title}
+            {prBadge}
+            <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
+              <span
+                className={cn(
+                  "inline-flex justify-end text-xs tabular-nums transition-opacity",
+                  props.settlementSupported && "group-hover/v2-row:opacity-0",
+                )}
+              >
+                {topStatus ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 font-medium",
+                      topStatus.className,
+                    )}
+                  >
+                    {topStatus.icon === "working" ? (
+                      <CircleDashedIcon aria-hidden className="size-3.5 shrink-0" />
+                    ) : topStatus.icon === "done" ? (
+                      <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />
+                    ) : topStatus.icon === "woke" ? (
+                      <AlarmClockIcon aria-hidden className="size-3.5 shrink-0" />
+                    ) : null}
+                    {/* Word states (Approval/Input/Failed) carry no icon, so
+                        they keep their label; the icon states read on their own
+                        and give the working row room for its duration. */}
+                    {topStatus.icon === null ? <span role="status">{topStatus.label}</span> : null}
+                    {status === "working" ? (
+                      <span aria-hidden>
+                        <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/55">{threadTimeLabel(thread)}</span>
+                )}
+              </span>
+              {props.settlementSupported ? (
+                <button
+                  type="button"
+                  aria-label="Settle thread"
+                  onClick={handleSettleClick}
+                  className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+                >
+                  <CheckIcon className="size-3" />
+                </button>
+              ) : null}
+            </span>
+            {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
+          </TooltipTrigger>
+          {detailsTooltip}
+        </Tooltip>
+      </li>
+    );
+  }
 
   if (variant === "slim") {
     return (
@@ -945,6 +1128,31 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             </div>
             <div className="mt-1 flex min-w-0">{title}</div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
+              {/* The orchestrator's toggle lives in the meta line rather than a
+                  left gutter: a gutter would have to be reserved on every card
+                  to keep titles aligned, and most cards have no sub-agents. */}
+              {childCount > 0 ? (
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  data-testid={`sidebar-v2-subagent-toggle-${thread.id}`}
+                  aria-expanded={isExpanded}
+                  aria-label={
+                    isExpanded
+                      ? `Collapse sub-agents of ${thread.title}`
+                      : `Expand sub-agents of ${thread.title}`
+                  }
+                  onClick={handleToggleExpanded}
+                  className="-ml-0.5 inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 font-medium tabular-nums text-muted-foreground/85 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <NetworkIcon aria-hidden className="size-3" />
+                  {childCount}
+                  <ChevronDownIcon
+                    aria-hidden
+                    className={cn("size-3 transition-transform", !isExpanded && "-rotate-90")}
+                  />
+                </button>
+              ) : null}
               {thread.branch ? (
                 <span className="min-w-0 flex-1 truncate whitespace-nowrap">{thread.branch}</span>
               ) : (
@@ -1052,6 +1260,10 @@ export default function SidebarV2() {
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
+  // Shared with sidebar v1: collapsing an orchestrator in one sidebar keeps it
+  // collapsed in the other, and the preference survives a reload.
+  const threadExpandedById = useUiStateStore((s) => s.threadExpandedById);
+  const setThreadExpanded = useUiStateStore((s) => s.setThreadExpanded);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -1440,6 +1652,70 @@ export default function SidebarV2() {
     return () => window.clearTimeout(id);
   }, [snoozedThreads]);
 
+  // Sub-agents render nested under the orchestrator that spawned them, in the
+  // inbox only: the partition runs first, so a settled or snoozed orchestrator
+  // leaves its still-active sub-agents to render as roots rather than following
+  // it out of the inbox.
+  const activeThreadEntries = useMemo(
+    () => buildSidebarThreadTree({ threads: activeThreads }),
+    [activeThreads],
+  );
+  const { activeTreeMetaByKey, expandedThreadKeys, reserveSubAgentGutter, visibleActiveThreads } =
+    useMemo(() => {
+      const entryKey = (entry: { thread: EnvironmentThreadShell }) =>
+        scopedThreadKey(scopeThreadRef(entry.thread.environmentId, entry.thread.id));
+      // The branch holding the open thread stays open regardless of the default
+      // or of a stored collapse — same exception the settled tail and the
+      // snoozed shelf make. Reaching a sub-agent by deep link or by `3T agent`
+      // must not leave the sidebar with nothing highlighted.
+      const routeAncestors = new Set(
+        routeThreadKey === null
+          ? []
+          : resolveSidebarThreadAncestorIds({
+              entries: activeThreadEntries,
+              threadId: routeThreadKey,
+              getThreadId: (thread) =>
+                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            }),
+      );
+      const isEntryExpanded = (entry: { thread: EnvironmentThreadShell }) => {
+        const key = entryKey(entry);
+        return (
+          routeAncestors.has(key) ||
+          // Sub-agents start collapsed here: the inbox is a list of
+          // conversations, and one delegation fan-out shouldn't push everything
+          // else below the fold. Opening the orchestrator reveals them.
+          resolveThreadExpanded(threadExpandedById, [key], { fallback: false })
+        );
+      };
+      const visible = filterVisibleSidebarThreadEntries({
+        entries: activeThreadEntries,
+        isExpanded: isEntryExpanded,
+      });
+      return {
+        activeTreeMetaByKey: new Map(
+          visible.map((entry) => [
+            entryKey(entry),
+            { childCount: entry.childCount, depth: entry.depth },
+          ]),
+        ),
+        // Chevron direction has to match what actually rendered, not just the
+        // stored preference, or a route-forced branch shows a closed chevron.
+        expandedThreadKeys: new Set(
+          visible.filter((entry) => entry.childCount > 0 && isEntryExpanded(entry)).map(entryKey),
+        ),
+        // Cards carry their own toggle in the card body, so only the nested rows
+        // share a column — and only when one of them actually owns a toggle.
+        reserveSubAgentGutter: shouldReserveThreadExpandGutter(visible, { minDepth: 1 }),
+        visibleActiveThreads: visible.map((entry) => entry.thread),
+      };
+    }, [activeThreadEntries, routeThreadKey, threadExpandedById]);
+  // The collapse handler reads the tree through a ref: depending on the entry
+  // array directly would hand every row a fresh onToggleExpanded on each shell
+  // update and defeat row memoization while a thread streams.
+  const activeThreadEntriesRef = useRef(activeThreadEntries);
+  activeThreadEntriesRef.current = activeThreadEntries;
+
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
   // filter context changes so a scope/search flip never inherits a deep
@@ -1504,9 +1780,12 @@ export default function SidebarV2() {
     return routeThread === undefined ? [] : [routeThread];
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
+  // Visual order is the source of order everywhere else: jump hints, shift-range
+  // selection and up/down traversal all follow the nesting, and a collapsed
+  // sub-agent participates in none of them.
   const orderedThreads = useMemo(
-    () => [...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [...visibleActiveThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
+    [visibleActiveThreads, visibleSnoozedThreads, renderedSettledThreads],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -1593,6 +1872,28 @@ export default function SidebarV2() {
       });
     },
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+  );
+
+  const toggleThreadExpanded = useCallback(
+    (threadRef: ScopedThreadRef, expanded: boolean) => {
+      const threadKey = scopedThreadKey(threadRef);
+      // Collapsing the branch you are reading would leave the route pointing at
+      // a row that no longer renders, so the highlight moves up to the
+      // orchestrator that swallowed it.
+      if (!expanded && routeThreadKeyRef.current !== null) {
+        const selectionTargetKey = resolveCollapsedThreadSelectionTarget({
+          entries: activeThreadEntriesRef.current,
+          collapsedThreadId: threadKey,
+          selectedThreadId: routeThreadKeyRef.current,
+          getThreadId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        });
+        if (selectionTargetKey !== null && selectionTargetKey !== routeThreadKeyRef.current) {
+          navigateToThread(threadRef);
+        }
+      }
+      setThreadExpanded(threadKey, expanded);
+    },
+    [navigateToThread, setThreadExpanded],
   );
 
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
@@ -2374,12 +2675,15 @@ export default function SidebarV2() {
                   const threadKey = scopedThreadKey(
                     scopeThreadRef(thread.environmentId, thread.id),
                   );
-                  // Settled and snoozed are the ONLY things that collapse a
-                  // row: every other thread is a full card. Density comes
-                  // from users (or the auto rules) actually parking work,
-                  // not from the sidebar second-guessing what still matters.
-                  const isCard = section === "active";
-                  const rowVariant = isCard ? "card" : "slim";
+                  const treeMeta = activeTreeMetaByKey.get(threadKey);
+                  const depth = section === "active" ? (treeMeta?.depth ?? 0) : 0;
+                  // Settled, snoozed and sub-agent rows are the ONLY things
+                  // that collapse a row: every other thread is a full card.
+                  // Density comes from users (or the auto rules) actually
+                  // parking work, and from delegation nesting under its
+                  // orchestrator — not from the sidebar second-guessing what
+                  // still matters.
+                  const rowVariant = section !== "active" ? "slim" : depth > 0 ? "sub" : "card";
                   return (
                     <SidebarV2Row
                       // Keyed per variant on purpose: when a thread settles,
@@ -2391,6 +2695,11 @@ export default function SidebarV2() {
                       key={`${threadKey}:${rowVariant}`}
                       thread={thread}
                       variant={rowVariant}
+                      depth={depth}
+                      childCount={section === "active" ? (treeMeta?.childCount ?? 0) : 0}
+                      reserveExpandGutter={reserveSubAgentGutter}
+                      isExpanded={expandedThreadKeys.has(threadKey)}
+                      onToggleExpanded={toggleThreadExpanded}
                       // Snoozed rows wake; settled rows un-settle (explicit
                       // settles clear the override, auto-settled rows get
                       // pinned active); cards settle.
@@ -2449,7 +2758,7 @@ export default function SidebarV2() {
                     />
                   );
                 };
-                const items: ReactNode[] = activeThreads.map((thread) =>
+                const items: ReactNode[] = visibleActiveThreads.map((thread) =>
                   renderThreadRow(thread, "active"),
                 );
                 // Snoozed shelf: between the inbox and Settled — out of the

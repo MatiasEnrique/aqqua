@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { AgentListResponse } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -11,6 +11,7 @@ import {
   type AgentApi,
   agentCommand,
   decodeServerResponse,
+  formatProfileLine,
   formatServerFailure,
   resolveText,
   watchTransitions,
@@ -42,6 +43,39 @@ it.effect("reports one clear diagnostic for an undecodable server response", () 
   }),
 );
 
+const profile = (overrides: Partial<Parameters<typeof formatProfileLine>[0]> = {}) => ({
+  name: "codex",
+  runtime: "session",
+  driver: "codex",
+  model: "gpt-5.6-sol",
+  pinsModel: true,
+  titlePrefix: "codex",
+  unavailable: null,
+  ...overrides,
+});
+
+it("shows the model a pinned profile would actually run", () => {
+  assert.equal(formatProfileLine(profile()), "codex          gpt-5.6-sol            driver=codex");
+});
+
+it("flags a profile that inherits its model instead of pinning one", () => {
+  const line = formatProfileLine(profile({ name: "implementer", pinsModel: false, driver: null }));
+  assert.include(line, "inherits the project default model");
+});
+
+it("reports why an unusable profile cannot be spawned instead of naming a model", () => {
+  const line = formatProfileLine(
+    profile({
+      name: "fable",
+      model: null,
+      unavailable: "Agent profile 'fable' is not usable: no 'claudeAgent' provider is configured.",
+    }),
+  );
+  assert.include(line, "UNAVAILABLE");
+  assert.include(line, "no 'claudeAgent' provider is configured.");
+  assert.notInclude(line, "gpt-5.6-sol");
+});
+
 const unused = () => Effect.die("unused");
 const makeApi = (list: AgentApi["list"]): AgentApi => ({
   spawn: unused,
@@ -49,6 +83,7 @@ const makeApi = (list: AgentApi["list"]): AgentApi => ({
   await: unused,
   interrupt: unused,
   list,
+  profiles: unused,
 });
 
 it.effect("follow exits after an empty first snapshot", () =>

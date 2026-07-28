@@ -22,7 +22,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import {
   AgentAwaitRequest,
   AgentAwaitResponse,
@@ -33,6 +33,8 @@ import {
   AgentInterruptResponse,
   AgentListResponse,
   type AgentListResponse as AgentListResponseType,
+  AgentProfilesResponse,
+  type AgentProfilesResponse as AgentProfilesResponseType,
   AgentSendRequest,
   AgentSendResponse,
   AgentSpawnRequest,
@@ -66,6 +68,7 @@ export interface AgentApi {
     body: AgentInterruptRequest,
   ) => Effect.Effect<AgentInterruptResponse, AgentCliError>;
   readonly list: () => Effect.Effect<AgentListResponseType, AgentCliError>;
+  readonly profiles: () => Effect.Effect<AgentProfilesResponseType, AgentCliError>;
 }
 
 type ResponseDecoder<A, E> = (body: unknown) => Effect.Effect<A, E>;
@@ -75,6 +78,7 @@ const decodeAgentSendResponse = Schema.decodeUnknownEffect(AgentSendResponse);
 const decodeAgentAwaitResponse = Schema.decodeUnknownEffect(AgentAwaitResponse);
 const decodeAgentInterruptResponse = Schema.decodeUnknownEffect(AgentInterruptResponse);
 const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
+const decodeAgentProfilesResponse = Schema.decodeUnknownEffect(AgentProfilesResponse);
 
 const invalidServerResponse = (status: number, path: string) =>
   new AgentCliError({
@@ -163,6 +167,14 @@ const agentApi = Effect.fn("agentCli.api")(function* () {
         "/api/agents",
         decodeAgentListResponse,
       ),
+    profiles: () =>
+      send(
+        client.get(`${origin}/api/agents/profiles`, {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+        "/api/agents/profiles",
+        decodeAgentProfilesResponse,
+      ),
   } satisfies AgentApi;
 });
 
@@ -219,7 +231,9 @@ const cliRuntime = Layer.mergeAll(FetchHttpClient.layer, NodeFileSystem.layer);
 const spawnCommand = Command.make("spawn", {
   json: jsonFlag,
   profile: Flag.string("profile").pipe(
-    Flag.withDescription("Role to run the sub-agent as, e.g. implementer."),
+    Flag.withDescription(
+      "Role to run the sub-agent as, e.g. implementer. See `3T agent profiles`.",
+    ),
     Flag.withDefault("implementer"),
   ),
   task: Flag.string("task").pipe(
@@ -374,6 +388,42 @@ const listCommand = Command.make("list", { json: jsonFlag }).pipe(
 );
 
 /**
+ * One profile per line: the name to pass to `--profile`, then the model a spawn
+ * would actually run, then whatever is worth knowing before choosing it.
+ */
+export const formatProfileLine = (
+  profile: AgentProfilesResponseType["profiles"][number],
+): string => {
+  const model = profile.unavailable === null ? (profile.model ?? "?") : "-";
+  const notes = [
+    profile.driver === null ? undefined : `driver=${profile.driver}`,
+    profile.runtime === "session" ? undefined : `runtime=${profile.runtime}`,
+    profile.pinsModel ? undefined : "inherits the project default model",
+    profile.unavailable === null ? undefined : `UNAVAILABLE: ${profile.unavailable}`,
+  ].filter((note) => note !== undefined);
+  return `${profile.name.padEnd(14)} ${model.padEnd(22)} ${notes.join("  ")}`.trimEnd();
+};
+
+const profilesCommand = Command.make("profiles", { json: jsonFlag }).pipe(
+  Command.withDescription("List the agent profiles this session can spawn."),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const api = yield* agentApi();
+      const result = yield* api.profiles();
+      const { profiles } = result;
+      yield* emit({
+        json: flags.json,
+        value: result,
+        text:
+          profiles.length === 0
+            ? "No agent profiles are configured."
+            : profiles.map(formatProfileLine).join("\n"),
+      });
+    }).pipe(Effect.provide(cliRuntime)),
+  ),
+);
+
+/**
  * Emit sub-agent lifecycle transitions as NDJSON.
  *
  * Transitions are derived from real projected state rather than replayed from
@@ -467,6 +517,7 @@ export const agentCommand = Command.make("agent").pipe(
     awaitCommand,
     interruptCommand,
     listCommand,
+    profilesCommand,
     eventsCommand,
   ]),
 );

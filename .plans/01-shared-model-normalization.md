@@ -7,7 +7,7 @@ Move model alias/default normalization into `packages/contracts` so desktop and 
 ## Motivation
 
 - Removes duplicated logic between:
-  - `apps/desktop/src/codexAppServerManager.ts`
+  - `apps/desktop/dsrc/codexAppServerManager.ts`
   - `apps/renderer/src/model-logic.ts`
 - Prevents behavior drift when model aliases/defaults are updated.
 
