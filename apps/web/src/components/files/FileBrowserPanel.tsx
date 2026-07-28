@@ -98,6 +98,17 @@ export default function FileBrowserPanel({
   );
   const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
   const treePaths = useMemo(() => entries.map(treePath), [entries]);
+  // The explorer lists gitignored files rather than hiding them, so they need to
+  // read as de-emphasised instead of ordinary. The tree's own git lane already
+  // renders "ignored" that way, and propagates it from an ignored directory to
+  // everything beneath it, so marking each entry the server flagged is enough.
+  const treeGitStatus = useMemo(
+    () =>
+      entries
+        .filter((entry) => entry.ignored === true)
+        .map((entry) => ({ path: treePath(entry), status: "ignored" as const })),
+    [entries],
+  );
   const previousTreePathsRef = useRef<readonly string[]>([]);
   const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
   const pendingCreationsRef = useRef(new Map<string, ProjectEntry["kind"]>());
@@ -350,6 +361,13 @@ export default function FileBrowserPanel({
     previousTreePathsRef.current = treePaths;
     model.resetPaths(treePaths);
   }, [entryKinds, model, treePaths]);
+
+  // `useFileTree` captures its options once, so the ignored set has to be pushed
+  // imperatively — at construction time the query has not resolved and there are
+  // no entries to mark.
+  useEffect(() => {
+    model.setGitStatus(treeGitStatus);
+  }, [model, treeGitStatus]);
 
   const fileCount = useMemo(
     () => entries.reduce((count, entry) => count + (entry.kind === "file" ? 1 : 0), 0),

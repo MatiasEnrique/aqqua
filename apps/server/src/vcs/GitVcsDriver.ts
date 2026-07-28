@@ -327,6 +327,68 @@ function chunkPathsForGitCheckIgnore(relativePaths: ReadonlyArray<string>): stri
   return chunks;
 }
 
+const collectIgnoredPaths = Effect.fn("GitVcsDriver.collectIgnoredPaths")(function* (
+  vcsProcess: VcsProcess.VcsProcess["Service"],
+  cwd: string,
+  relativePaths: ReadonlyArray<string>,
+  options: {
+    readonly operation: string;
+    readonly nonRepositoryIsEmpty: boolean;
+  },
+) {
+  const ignoredPaths = new Set<string>();
+  for (const chunk of chunkPathsForGitCheckIgnore(relativePaths)) {
+    const result = yield* gitCommand(
+      vcsProcess,
+      options.operation,
+      cwd,
+      [...WORKSPACE_GIT_HARDENED_CONFIG_ARGS, "check-ignore", "--no-index", "-z", "--stdin"],
+      {
+        stdin: `${chunk.join("\0")}\0`,
+        allowNonZeroExit: true,
+        timeoutMs: 20_000,
+        maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: true,
+      },
+    );
+
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      if (
+        options.nonRepositoryIsEmpty &&
+        result.stderr.toLowerCase().includes("not a git repository")
+      ) {
+        return new Set<string>();
+      }
+      return yield* new VcsProcessExitError({
+        operation: options.operation,
+        command: "git check-ignore",
+        cwd,
+        exitCode: result.exitCode,
+        detail: result.stderr.trim() || "git check-ignore failed",
+      });
+    }
+
+    for (const ignoredPath of splitNullSeparatedPaths(result.stdout, result.stdoutTruncated)) {
+      ignoredPaths.add(ignoredPath);
+    }
+  }
+  return ignoredPaths;
+});
+
+export const findIgnoredPaths = Effect.fn("GitVcsDriver.findIgnoredPaths")(function* (
+  cwd: string,
+  relativePaths: ReadonlyArray<string>,
+) {
+  if (relativePaths.length === 0) {
+    return new Set<string>();
+  }
+  const vcsProcess = yield* VcsProcess.VcsProcess;
+  return yield* collectIgnoredPaths(vcsProcess, cwd, relativePaths, {
+    operation: "GitVcsDriver.findIgnoredPaths",
+    nonRepositoryIsEmpty: true,
+  });
+});
+
 function parseGitRemoteVerboseOutput(
   output: string,
 ): Map<string, { url?: string; pushUrl?: string }> {
@@ -550,38 +612,10 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return relativePaths;
     }
 
-    const ignoredPaths = new Set<string>();
-    const chunks = chunkPathsForGitCheckIgnore(relativePaths);
-
-    for (const chunk of chunks) {
-      const result = yield* gitCommand(
-        vcsProcess,
-        "GitVcsDriver.filterIgnoredPaths",
-        cwd,
-        [...WORKSPACE_GIT_HARDENED_CONFIG_ARGS, "check-ignore", "--no-index", "-z", "--stdin"],
-        {
-          stdin: `${chunk.join("\0")}\0`,
-          allowNonZeroExit: true,
-          timeoutMs: 20_000,
-          maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
-          appendTruncationMarker: true,
-        },
-      );
-
-      if (result.exitCode !== 0 && result.exitCode !== 1) {
-        return yield* new VcsProcessExitError({
-          operation: "GitVcsDriver.filterIgnoredPaths",
-          command: "git check-ignore",
-          cwd,
-          exitCode: result.exitCode,
-          detail: result.stderr.trim() || "git check-ignore failed",
-        });
-      }
-
-      for (const ignoredPath of splitNullSeparatedPaths(result.stdout, result.stdoutTruncated)) {
-        ignoredPaths.add(ignoredPath);
-      }
-    }
+    const ignoredPaths = yield* collectIgnoredPaths(vcsProcess, cwd, relativePaths, {
+      operation: "GitVcsDriver.filterIgnoredPaths",
+      nonRepositoryIsEmpty: false,
+    });
 
     if (ignoredPaths.size === 0) {
       return relativePaths;

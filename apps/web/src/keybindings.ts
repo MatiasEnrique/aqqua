@@ -8,6 +8,7 @@ import {
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
 } from "@t3tools/contracts";
+import { isFileEditorFocused } from "./lib/fileEditorFocus";
 import { isMacPlatform } from "./lib/utils";
 
 export interface ShortcutEventLike {
@@ -32,6 +33,7 @@ export interface ShortcutMatchContext {
   terminalOpen: boolean;
   previewFocus: boolean;
   previewOpen: boolean;
+  fileEditorFocus: boolean;
   [key: string]: boolean;
 }
 
@@ -120,6 +122,13 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     terminalOpen: false,
     previewFocus: false,
     previewOpen: false,
+    // Unlike the other flags this one defaults to the live answer rather than
+    // `false`. A dozen listeners across the app resolve shortcuts, several of
+    // them passing no context at all, and every one of them that fires while
+    // the caret sits in a file is a key stolen out of the editor. Deriving it
+    // here means a listener has to opt *out* to get that wrong, and a new one
+    // is safe by default. An explicit `context.fileEditorFocus` still wins.
+    fileEditorFocus: isFileEditorFocused(),
     ...options?.context,
   };
 }
@@ -393,6 +402,14 @@ export function isDiffToggleShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "diff.toggle", options);
+}
+
+export function isFileSaveShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "file.save", options);
 }
 
 export function isPreviewToggleShortcut(

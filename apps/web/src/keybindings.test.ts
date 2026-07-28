@@ -6,9 +6,11 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
   isChatNewShortcut,
+  isFileSaveShortcut,
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
   modelPickerJumpCommandForIndex,
@@ -774,6 +776,89 @@ describe("plus key parsing", () => {
       isTerminalToggleShortcut(event({ key: "+", ctrlKey: true }), plusBindings, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("file editor focus", () => {
+  const context = { fileEditorFocus: true } as const;
+  const macOptions = { platform: "MacIntel", context } as const;
+
+  it("resolves mod+s to file.save instead of composer.stash", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { fileEditorFocus: false },
+      }),
+      "composer.stash",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "s", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        macOptions,
+      ),
+      "file.save",
+    );
+    assert.isTrue(
+      isFileSaveShortcut(
+        event({ key: "s", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        macOptions,
+      ),
+    );
+  });
+
+  it("leaves mod+d to the editor's own find-next-match", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "d", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { fileEditorFocus: false },
+      }),
+      "diff.toggle",
+    );
+    assert.isNull(
+      resolveShortcutCommand(
+        event({ key: "d", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        macOptions,
+      ),
+    );
+  });
+
+  it("keeps the shortcuts the editor does not claim", () => {
+    for (const [key, command] of [
+      ["b", "sidebar.toggle"],
+      ["k", "commandPalette.toggle"],
+      ["o", "editor.openFavorite"],
+    ] as const) {
+      assert.strictEqual(
+        resolveShortcutCommand(
+          event({ key, metaKey: true }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          macOptions,
+        ),
+        command,
+      );
+    }
+  });
+
+  it("still prefers terminal bindings when the terminal owns focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "d", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      "terminal.split",
+    );
+  });
+
+  it("defaults the flag to false when nothing in the document has focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+      }),
+      "composer.stash",
     );
   });
 });

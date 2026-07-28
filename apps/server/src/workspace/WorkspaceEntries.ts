@@ -20,6 +20,7 @@ import type {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
 
+import * as WorkspaceDirectoryWalk from "./WorkspaceDirectoryWalk.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
 
@@ -135,6 +136,7 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+  const workspaceDirectoryWalk = yield* WorkspaceDirectoryWalk.WorkspaceDirectoryWalk;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
@@ -148,6 +150,7 @@ export const make = Effect.gen(function* () {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
         Effect.orElseSucceed(() => cwd),
       );
+      yield* workspaceDirectoryWalk.invalidate(normalizedCwd);
       if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, normalizedCwd))) {
         return;
       }
@@ -244,10 +247,7 @@ export const make = Effect.gen(function* () {
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
-      return yield* Effect.gen(function* () {
-        const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
-        return yield* searchIndex.list();
-      }).pipe(Effect.provide(workspaceSearchIndexes.get(normalizedCwd)));
+      return yield* workspaceDirectoryWalk.list(normalizedCwd);
     },
   );
 
@@ -255,5 +255,6 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(
+  Layer.provide(WorkspaceDirectoryWalk.layer),
   Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
 );

@@ -59,6 +59,14 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedCommandPalette.command, "commandPalette.toggle");
 
+    const parsedFileSave = yield* decode(KeybindingRule, {
+      key: "mod+s",
+      command: "file.save",
+      when: "fileEditorFocus",
+    });
+    assert.strictEqual(parsedFileSave.command, "file.save");
+    assert.strictEqual(parsedFileSave.when, "fileEditorFocus");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",

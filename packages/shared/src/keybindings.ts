@@ -26,7 +26,9 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
-  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  // The file editor already binds mod+d to "find next match", and toggling the
+  // diff view swaps the editor out from under the caret.
+  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus && !fileEditorFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },
   { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
   { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
@@ -35,7 +37,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
   { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
   { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
-  { key: "mod+s", command: "composer.stash", when: "!terminalFocus" },
+  { key: "mod+s", command: "composer.stash", when: "!terminalFocus && !fileEditorFocus" },
+  // Listed after `composer.stash` on purpose: resolution walks this array
+  // backwards and takes the first rule whose `when` holds, so the later rule
+  // wins mod+s whenever the file editor owns the caret.
+  { key: "mod+s", command: "file.save", when: "fileEditorFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },

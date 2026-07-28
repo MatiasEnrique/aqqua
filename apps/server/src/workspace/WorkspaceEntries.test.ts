@@ -12,6 +12,7 @@ import { vi } from "vite-plus/test";
 
 import * as ServerConfig from "../config.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
@@ -91,29 +92,83 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   });
 
   describe("list", () => {
-    it.effect("returns the complete cached workspace index", () =>
+    it.effect("lists gitignored files and annotates whether git ignores them", () =>
       Effect.gen(function* () {
-        const cwd = yield* makeTempDir();
+        const cwd = yield* makeTempDir({ git: true });
+        yield* writeTextFile(cwd, ".gitignore", ".env*\n!.env.example\n");
+        yield* writeTextFile(cwd, ".env", "SECRET=value\n");
+        yield* writeTextFile(cwd, ".env.local", "SECRET=local\n");
+        yield* writeTextFile(cwd, ".env.example", "SECRET=\n");
         yield* writeTextFile(cwd, "src/components/Composer.tsx");
         yield* writeTextFile(cwd, "README.md");
         yield* writeTextFile(cwd, "node_modules/pkg/index.js");
+
+        expect([
+          ...(yield* GitVcsDriver.findIgnoredPaths(cwd, [".env", ".env.local", ".env.example"])),
+        ]).toEqual([".env", ".env.local"]);
 
         const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
         const result = yield* workspaceEntries.list({ cwd });
 
         expect(result.entries).toEqual(
           expect.arrayContaining([
-            { path: "src", kind: "directory" },
-            { path: "src/components", kind: "directory" },
+            { path: ".env", kind: "file", ignored: true },
+            { path: ".env.local", kind: "file", ignored: true },
+            { path: ".env.example", kind: "file", ignored: false },
+            { path: "src", kind: "directory", ignored: false },
+            { path: "src/components", kind: "directory", ignored: false },
             {
               path: "src/components/Composer.tsx",
               kind: "file",
+              ignored: false,
             },
-            { path: "README.md", kind: "file" },
+            { path: "README.md", kind: "file", ignored: false },
           ]),
         );
+        expect(
+          result.entries.some((entry) => entry.path === ".git" || entry.path.startsWith(".git/")),
+        ).toBe(false);
         expect(result.entries.some((entry) => entry.path.startsWith("node_modules"))).toBe(false);
         expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("lists every path without ignored flags in a non-git directory", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        yield* writeTextFile(cwd, ".env", "SECRET=value\n");
+        yield* writeTextFile(cwd, "ignored-looking.log");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries.list({ cwd });
+
+        expect(result.entries).toEqual(
+          expect.arrayContaining([
+            { path: ".env", kind: "file", ignored: false },
+            { path: "ignored-looking.log", kind: "file", ignored: false },
+          ]),
+        );
+      }),
+    );
+
+    it.effect("invalidates the directory walk cache on refresh", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        yield* writeTextFile(cwd, "before.ts");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        expect((yield* workspaceEntries.list({ cwd })).entries).toEqual([
+          { path: "before.ts", kind: "file", ignored: false },
+        ]);
+
+        yield* writeTextFile(cwd, "after.ts");
+        expect((yield* workspaceEntries.list({ cwd })).entries).toHaveLength(1);
+
+        yield* workspaceEntries.refresh(cwd);
+        expect((yield* workspaceEntries.list({ cwd })).entries).toEqual([
+          { path: "after.ts", kind: "file", ignored: false },
+          { path: "before.ts", kind: "file", ignored: false },
+        ]);
       }),
     );
   });
@@ -277,7 +332,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
 
         const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
         const createSpy = vi.spyOn(FileFinder, "create");
-        yield* workspaceEntries.list({ cwd });
+        yield* workspaceEntries.search({ cwd, query: "", limit: 100 });
         expect(createSpy).toHaveBeenCalledTimes(1);
 
         vi.spyOn(FileFinder.prototype, "scanFiles").mockReturnValueOnce({
@@ -286,7 +341,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         });
         yield* workspaceEntries.refresh(cwd);
 
-        yield* workspaceEntries.list({ cwd });
+        yield* workspaceEntries.search({ cwd, query: "", limit: 100 });
         expect(createSpy).toHaveBeenCalledTimes(2);
       }),
     );

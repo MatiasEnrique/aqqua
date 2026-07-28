@@ -5,7 +5,12 @@ import type {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
-import { VirtualizedFile, type SelectedLineRange } from "@pierre/diffs";
+import {
+  VirtualizedFile,
+  type DiffLineAnnotation,
+  type FileContents,
+  type SelectedLineRange,
+} from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
 import { EditorProvider, File, type FileOptions, Virtualizer } from "@pierre/diffs/react";
 import {
@@ -14,7 +19,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useInsertionEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlState } from "~/assets/assetUrls";
@@ -25,6 +30,7 @@ import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
+import { isFileSaveShortcut } from "~/keybindings";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -52,10 +58,15 @@ import {
 } from "./fileCommentAnnotations";
 import { installFileEditorDismissal } from "./fileEditorDismissal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
-import { projectFileCacheKey } from "./fileContentRevision";
+import {
+  areFileCommentAnnotationsEqual,
+  beginFileEditingSession,
+  projectFileCacheKey,
+  resolveFileEditingSession,
+} from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
-import { FileSaveCoordinator } from "./fileSaveCoordinator";
+import { FileSaveCoordinator, type FileSaveFailure } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
@@ -114,6 +125,28 @@ const FILE_LINK_REVEAL_UNSAFE_CSS = `
   }
 `;
 type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
+
+/**
+ * A callback with a permanently stable identity that always calls the latest
+ * closure.
+ *
+ * `<File>` compares its `options` with `!==` per key, so a callback that is
+ * rebuilt whenever some unrelated piece of state changes marks the whole option
+ * set as different, which forces a full document rebuild. Everything we hand to
+ * `<File>` therefore either stays stable forever or changes only when the file
+ * genuinely has to be re-rendered.
+ *
+ * Insertion effects commit before any layout effect, including the one inside
+ * `useFileInstance` that drives `File.render`, so the ref is never stale by the
+ * time the library calls back into us.
+ */
+function useStableHandler<A extends unknown[], R>(handler: (...args: A) => R): (...args: A) => R {
+  const handlerRef = useRef(handler);
+  useInsertionEffect(() => {
+    handlerRef.current = handler;
+  });
+  return useCallback((...args: A) => handlerRef.current(...args), []);
+}
 
 function WorkspaceImagePreview(props: {
   readonly environmentId: EnvironmentId;
@@ -289,6 +322,7 @@ interface EditableFileSurfaceProps {
   resolvedTheme: "light" | "dark";
   revealRequestId: number;
   wordWrap: boolean;
+  keybindings: ResolvedKeybindingsConfig;
   onPostRender: FilePostRender;
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
@@ -308,25 +342,87 @@ function useFileSaveCoordinator({
   "environmentId" | "cwd" | "relativePath" | "onPendingChange"
 >): FileSaveCoordinator {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
+  // Only the identity of what is being saved belongs in the dependencies. The
+  // callbacks go through stable wrappers so an unstable `onPendingChange` from
+  // the parent cannot replace the coordinator mid-edit and throw away a
+  // debounced write that has not fired yet.
+  const notifyPendingChange = useStableHandler((pending: boolean) => {
+    onPendingChange(relativePath, pending);
+  });
+  const persistContents = useStableHandler((nextContents: string) =>
+    writeFile({
+      environmentId,
+      input: { cwd, relativePath, contents: nextContents },
+    }),
+  );
+  // Without this the file just stays dirty forever: the pending dot never
+  // clears, no toast appears, and the edit looks saved when it is not.
+  const reportSaveFailure = useStableHandler((failure: FileSaveFailure) => {
+    const error = squashAtomCommandFailure(failure);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: `Unable to save ${relativePath}`,
+        description:
+          error instanceof Error
+            ? error.message
+            : "The file is still unsaved. Editing it again retries the write.",
+      }),
+    );
+  });
   const coordinator = useMemo(
     () =>
       new FileSaveCoordinator({
         debounceMs: FILE_SAVE_DEBOUNCE_MS,
-        onPendingChange: (pending) => onPendingChange(relativePath, pending),
-        persist: (nextContents) =>
-          writeFile({
-            environmentId,
-            input: { cwd, relativePath, contents: nextContents },
-          }),
+        onPendingChange: notifyPendingChange,
+        persist: persistContents,
         onConfirmed: (confirmedContents) => {
           confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
         },
+        onError: reportSaveFailure,
       }),
-    [cwd, environmentId, onPendingChange, relativePath, writeFile],
+    [cwd, environmentId, notifyPendingChange, persistContents, relativePath, reportSaveFailure],
   );
 
   useEffect(() => () => coordinator.dispose(), [coordinator]);
   return coordinator;
+}
+
+/**
+ * Holds the document the editor was seeded with for the lifetime of an editing
+ * session.
+ *
+ * The optimistic store still receives every keystroke — it is the save buffer,
+ * and the rendered-markdown view and the dirty indicator read from it — but its
+ * value is no longer pushed back into `<File>`. React only re-seeds when the
+ * contents disagree with what the editor itself last produced, which is exactly
+ * the "someone else changed this file" case.
+ */
+function useFileEditingSession(cwd: string, relativePath: string, contents: string) {
+  const [session, setSession] = useState(() =>
+    beginFileEditingSession({ cwd, relativePath, contents }),
+  );
+  // A ref, not state: the optimistic atom can re-render this component before a
+  // queued state update lands, and reading a stale "last typed" value there
+  // would look like an external write and re-seed the editor mid-keystroke.
+  const editorContentsRef = useRef(session.document.contents);
+
+  const resolved = resolveFileEditingSession(session, {
+    cwd,
+    relativePath,
+    contents,
+    editorContents: editorContentsRef.current,
+  });
+  if (resolved !== session) {
+    editorContentsRef.current = resolved.document.contents;
+    setSession(resolved);
+  }
+
+  const recordEditorContents = useCallback((nextContents: string) => {
+    editorContentsRef.current = nextContents;
+  }, []);
+
+  return { document: resolved.document, recordEditorContents };
 }
 
 function EditableFileSurface({
@@ -338,6 +434,7 @@ function EditableFileSurface({
   resolvedTheme,
   revealRequestId,
   wordWrap,
+  keybindings,
   onPostRender,
   onPendingChange,
 }: EditableFileSurfaceProps) {
@@ -347,12 +444,9 @@ function EditableFileSurface({
   const [selectionOverride, setSelectionOverride] = useState<FileSelectionOverride | null>(null);
   const selectedRange =
     selectionOverride?.revealRequestId === revealRequestId ? selectionOverride.range : null;
-  const setSelectedRange = useCallback(
-    (range: SelectedLineRange | null) => {
-      setSelectionOverride({ revealRequestId, range });
-    },
-    [revealRequestId],
-  );
+  const setSelectedRange = useStableHandler((range: SelectedLineRange | null) => {
+    setSelectionOverride({ revealRequestId, range });
+  });
   const surfaceRef = useRef<HTMLDivElement>(null);
   const selectionFrameRef = useRef<number | null>(null);
   const saveCoordinator = useFileSaveCoordinator({
@@ -361,37 +455,54 @@ function EditableFileSurface({
     relativePath,
     onPendingChange,
   });
+  const { document: editableDocument, recordEditorContents } = useFileEditingSession(
+    cwd,
+    relativePath,
+    contents,
+  );
+  const handleEditorChange = useStableHandler(
+    (
+      file: FileContents,
+      nextLineAnnotations: DiffLineAnnotation<FileCommentAnnotationGroup>[] | undefined,
+    ) => {
+      // Read once: `contents` is a getter that re-serializes the whole document.
+      const nextContents = file.contents;
+      // Recorded before the store write so the re-render this triggers can tell
+      // the echo of our own keystroke from an external write.
+      recordEditorContents(nextContents);
+      setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+      saveCoordinator.change(nextContents);
+      if (!nextLineAnnotations) return;
+      const remapped = remapFileCommentAnnotations(
+        nextLineAnnotations as FileCommentLineAnnotation[],
+      );
+      setLineAnnotations((current) =>
+        areFileCommentAnnotationsEqual(current, remapped) ? current : remapped,
+      );
+      for (const annotation of remapped) {
+        for (const entry of annotation.metadata.entries) {
+          if (entry.kind !== "comment") continue;
+          addReviewComment(
+            composerDraftTarget,
+            buildFileReviewComment({
+              id: entry.id,
+              filePath: relativePath,
+              startLine: entry.startLine,
+              endLine: entry.endLine,
+              text: entry.text,
+              contents: nextContents,
+            }),
+          );
+        }
+      }
+    },
+  );
+  // One editor per mounted surface. `useFileInstance` only re-runs its attach
+  // effect when the editor instance changes, so recreating it here would
+  // detach the live editor from the DOM it is driving.
   const editor = useMemo(
-    () =>
-      new Editor<FileCommentAnnotationGroup>({
-        onChange: (file, nextLineAnnotations) => {
-          setProjectFileQueryData(environmentId, cwd, relativePath, file.contents);
-          saveCoordinator.change(file.contents);
-          if (nextLineAnnotations) {
-            const remapped = remapFileCommentAnnotations(
-              nextLineAnnotations as FileCommentLineAnnotation[],
-            );
-            setLineAnnotations(remapped);
-            for (const annotation of remapped) {
-              for (const entry of annotation.metadata.entries) {
-                if (entry.kind !== "comment") continue;
-                addReviewComment(
-                  composerDraftTarget,
-                  buildFileReviewComment({
-                    id: entry.id,
-                    filePath: relativePath,
-                    startLine: entry.startLine,
-                    endLine: entry.endLine,
-                    text: entry.text,
-                    contents: file.contents,
-                  }),
-                );
-              }
-            }
-          }
-        },
-      }),
-    [addReviewComment, composerDraftTarget, cwd, environmentId, relativePath, saveCoordinator],
+    () => new Editor<FileCommentAnnotationGroup>({ onChange: handleEditorChange }),
+    [handleEditorChange],
   );
 
   useEffect(
@@ -506,6 +617,23 @@ function EditableFileSurface({
       onDismiss: () => setSelectedRange(null),
     });
   }, [editor, hasOpenCommentForm, setSelectedRange]);
+  // Capture phase so the browser's own "Save Page As" never gets the chance.
+  // The event having travelled through this surface is a stronger claim than
+  // `document.activeElement`, so the context flag is asserted rather than
+  // re-derived — that also covers focus sitting in the editor's search panel.
+  useEffect(() => {
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      const root = surfaceRef.current;
+      if (event.defaultPrevented || !root || !event.composedPath().includes(root)) return;
+      if (!isFileSaveShortcut(event, keybindings, { context: { fileEditorFocus: true } })) return;
+      event.preventDefault();
+      event.stopPropagation();
+      saveCoordinator.flush();
+    };
+
+    document.addEventListener("keydown", handleSaveShortcut, true);
+    return () => document.removeEventListener("keydown", handleSaveShortcut, true);
+  }, [keybindings, saveCoordinator]);
   const handleLineSelectionEnd = useCallback(
     (range: SelectedLineRange | null) => {
       setSelectedRange(range);
@@ -516,23 +644,54 @@ function EditableFileSurface({
     [beginComment, setSelectedRange],
   );
 
+  // Stable, so a changed line selection no longer perturbs the option set.
+  const applySelectionAfterRender = useStableHandler((...args: Parameters<FilePostRender>) => {
+    const [fileContainer, instance, phase] = args;
+    if (selectionFrameRef.current !== null) {
+      cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = null;
+    }
+    if (phase === "unmount") return;
+
+    selectionFrameRef.current = requestAnimationFrame(() => {
+      selectionFrameRef.current = null;
+      if (!fileContainer.isConnected) return;
+      instance.setSelectedLines(selectedRange, { notify: false });
+    });
+  });
+  // Identity tracks `onPostRender` alone, which the panel rebuilds exactly when
+  // a line reveal is requested — that is what makes the reveal re-render happen
+  // while typing leaves the option set untouched.
   const handlePostRender = useCallback<FilePostRender>(
     (fileContainer, instance, phase) => {
       onPostRender(fileContainer, instance, phase);
-
-      if (selectionFrameRef.current !== null) {
-        cancelAnimationFrame(selectionFrameRef.current);
-        selectionFrameRef.current = null;
-      }
-      if (phase === "unmount") return;
-
-      selectionFrameRef.current = requestAnimationFrame(() => {
-        selectionFrameRef.current = null;
-        if (!fileContainer.isConnected) return;
-        instance.setSelectedLines(selectedRange, { notify: false });
-      });
+      applySelectionAfterRender(fileContainer, instance, phase);
     },
-    [onPostRender, selectedRange],
+    [applySelectionAfterRender, onPostRender],
+  );
+
+  const fileOptions = useMemo<FileOptions<FileCommentAnnotationGroup>>(
+    () => ({
+      disableFileHeader: true,
+      enableGutterUtility: !hasOpenCommentForm,
+      enableLineSelection: !hasOpenCommentForm,
+      onGutterUtilityClick: setSelectedRange,
+      onLineSelectionChange: setSelectedRange,
+      onLineSelectionEnd: handleLineSelectionEnd,
+      overflow: wordWrap ? "wrap" : "scroll",
+      theme: resolveDiffThemeName(resolvedTheme),
+      themeType: resolvedTheme,
+      unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+      onPostRender: handlePostRender,
+    }),
+    [
+      handleLineSelectionEnd,
+      handlePostRender,
+      hasOpenCommentForm,
+      resolvedTheme,
+      setSelectedRange,
+      wordWrap,
+    ],
   );
 
   return (
@@ -546,24 +705,8 @@ function EditableFileSurface({
           }}
         >
           <File<FileCommentAnnotationGroup>
-            file={{
-              name: relativePath,
-              contents,
-              cacheKey: projectFileCacheKey(cwd, relativePath, contents),
-            }}
-            options={{
-              disableFileHeader: true,
-              enableGutterUtility: !hasOpenCommentForm,
-              enableLineSelection: !hasOpenCommentForm,
-              onGutterUtilityClick: setSelectedRange,
-              onLineSelectionChange: setSelectedRange,
-              onLineSelectionEnd: handleLineSelectionEnd,
-              overflow: wordWrap ? "wrap" : "scroll",
-              theme: resolveDiffThemeName(resolvedTheme),
-              themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-              onPostRender: handlePostRender,
-            }}
+            file={editableDocument}
+            options={fileOptions}
             selectedLines={selectedRange}
             lineAnnotations={lineAnnotations}
             renderAnnotation={(annotation) => (
@@ -604,6 +747,7 @@ function RenderedMarkdownSurface({
   | "revealLine"
   | "revealRequestId"
   | "wordWrap"
+  | "keybindings"
   | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
@@ -921,6 +1065,7 @@ export default function FilePreviewPanel({
                 resolvedTheme={resolvedTheme}
                 revealRequestId={revealRequestId}
                 wordWrap={wordWrap}
+                keybindings={keybindings}
                 onPostRender={onFilePostRender}
                 onPendingChange={onPendingChange}
               />

@@ -206,6 +206,48 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("hands mod+s to the file editor and keeps mod+d out of it", () =>
+    Effect.sync(() => {
+      const rules = [...Keybindings.DEFAULT_KEYBINDINGS];
+      const ruleFor = (command: string) => rules.find((rule) => rule.command === command);
+
+      const stash = ruleFor("composer.stash");
+      const save = ruleFor("file.save");
+      assert.equal(stash?.key, "mod+s");
+      assert.equal(save?.key, "mod+s");
+      // Both claim mod+s, so the two `when` clauses must be exclusive and the
+      // file-editor rule must come last — resolution walks the list backwards.
+      assert.equal(stash?.when, "!terminalFocus && !fileEditorFocus");
+      assert.equal(save?.when, "fileEditorFocus");
+      assert.isAbove(rules.indexOf(save!), rules.indexOf(stash!));
+
+      // mod+d is the editor's own "find next match".
+      assert.equal(ruleFor("diff.toggle")?.when, "!terminalFocus && !fileEditorFocus");
+
+      // Deliberately still reachable while editing a file: none of these are
+      // keys the editor binds, and they are dismissible or non-destructive.
+      for (const command of ["sidebar.toggle", "commandPalette.toggle", "editor.openFavorite"]) {
+        assert.notInclude(ruleFor(command)?.when ?? "", "fileEditorFocus");
+      }
+    }),
+  );
+
+  it.effect("compiles every default rule, including the file-editor when clauses", () =>
+    Effect.sync(() => {
+      const compiled = Keybindings.compileResolvedKeybindingsConfig(
+        Keybindings.DEFAULT_KEYBINDINGS,
+      );
+
+      // `compileResolvedKeybindingsConfig` silently drops rules it cannot
+      // parse, so a typo in a `when` expression would otherwise vanish.
+      assert.equal(compiled.length, Keybindings.DEFAULT_KEYBINDINGS.length);
+      assert.deepEqual(compiled.find((rule) => rule.command === "file.save")?.whenAst, {
+        type: "identifier",
+        name: "fileEditorFocus",
+      });
+    }),
+  );
+
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

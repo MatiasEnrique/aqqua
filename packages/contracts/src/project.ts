@@ -18,6 +18,8 @@ const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export const ProjectEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
+  // Optional for wire compatibility with peers that predate ignored-path annotations.
+  ignored: Schema.optional(Schema.Boolean),
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
 
