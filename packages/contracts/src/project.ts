@@ -4,6 +4,7 @@ import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchema
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+const PROJECT_MUTATION_PATH_MAX_LENGTH = 512;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -148,6 +149,10 @@ export const ProjectFileOperation = Schema.Literals([
   "close",
   "make-directory",
   "write-file",
+  "realpath-existing-ancestor",
+  "create-file",
+  "rename",
+  "remove",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
 
@@ -220,6 +225,170 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectCreateEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_MUTATION_PATH_MAX_LENGTH)),
+  kind: ProjectEntryKind,
+});
+export type ProjectCreateEntryInput = typeof ProjectCreateEntryInput.Type;
+
+export const ProjectCreateEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  kind: ProjectEntryKind,
+});
+export type ProjectCreateEntryResult = typeof ProjectCreateEntryResult.Type;
+
+export const ProjectMoveEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  sourcePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_MUTATION_PATH_MAX_LENGTH)),
+  destinationPath: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROJECT_MUTATION_PATH_MAX_LENGTH),
+  ),
+});
+export type ProjectMoveEntryInput = typeof ProjectMoveEntryInput.Type;
+
+export const ProjectMoveEntryResult = Schema.Struct({
+  sourcePath: TrimmedNonEmptyString,
+  destinationPath: TrimmedNonEmptyString,
+});
+export type ProjectMoveEntryResult = typeof ProjectMoveEntryResult.Type;
+
+export const ProjectDeleteEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_MUTATION_PATH_MAX_LENGTH)),
+  recursive: Schema.Boolean,
+});
+export type ProjectDeleteEntryInput = typeof ProjectDeleteEntryInput.Type;
+
+export const ProjectDeleteEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectDeleteEntryResult = typeof ProjectDeleteEntryResult.Type;
+
+export const ProjectEntryMutationFailure = Schema.Literals([
+  "workspace_path_outside_root",
+  "resolved_path_outside_root",
+  "target_exists",
+  "directory_not_empty",
+  "operation_failed",
+]);
+export type ProjectEntryMutationFailure = typeof ProjectEntryMutationFailure.Type;
+
+export const ProjectEntryMutationOperation = Schema.Literals([
+  "realpath-workspace-root",
+  "realpath-target",
+  "realpath-existing-ancestor",
+  "make-directory",
+  "create-file",
+  "rename",
+  "stat",
+  "remove",
+]);
+export type ProjectEntryMutationOperation = typeof ProjectEntryMutationOperation.Type;
+
+type ProjectEntryMutationFailureContext = {
+  readonly cwd: string;
+  readonly failure: ProjectEntryMutationFailure;
+  readonly resolvedPath?: string;
+  readonly resolvedWorkspaceRoot?: string;
+  readonly operation?: ProjectEntryMutationOperation;
+  readonly operationPath?: string;
+  readonly cause?: unknown;
+};
+
+export class ProjectCreateEntryError extends Schema.TaggedErrorClass<ProjectCreateEntryError>()(
+  "ProjectCreateEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    kind: Schema.optional(ProjectEntryKind),
+    failure: Schema.optional(ProjectEntryMutationFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectEntryMutationOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(
+    props: ProjectEntryMutationFailureContext & {
+      readonly relativePath: string;
+      readonly kind: ProjectEntry["kind"];
+    },
+  ) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to create workspace ${props.kind} '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export class ProjectMoveEntryError extends Schema.TaggedErrorClass<ProjectMoveEntryError>()(
+  "ProjectMoveEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    sourcePath: Schema.optional(TrimmedNonEmptyString),
+    destinationPath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectEntryMutationFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectEntryMutationOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(
+    props: ProjectEntryMutationFailureContext & {
+      readonly sourcePath: string;
+      readonly destinationPath: string;
+    },
+  ) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to move workspace entry '${props.sourcePath}' to '${props.destinationPath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export class ProjectDeleteEntryError extends Schema.TaggedErrorClass<ProjectDeleteEntryError>()(
+  "ProjectDeleteEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    recursive: Schema.optional(Schema.Boolean),
+    failure: Schema.optional(ProjectEntryMutationFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectEntryMutationOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(
+    props: ProjectEntryMutationFailureContext & {
+      readonly relativePath: string;
+      readonly recursive: boolean;
+    },
+  ) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to delete workspace entry '${props.relativePath}' in '${props.cwd}'.`,
     } as any);
   }
 }

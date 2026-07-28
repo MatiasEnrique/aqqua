@@ -4,10 +4,21 @@ import type {
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree } from "@pierre/trees/react";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { RefreshCw, Search } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
+import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -15,6 +26,8 @@ import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { projectEnvironment } from "~/state/projects";
+import { useAtomCommand } from "~/state/use-atom-command";
 
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
@@ -42,6 +55,29 @@ function treePath(entry: ProjectEntry): string {
   return entry.kind === "directory" ? `${entry.path}/` : entry.path;
 }
 
+function withoutDirectorySuffix(path: string): string {
+  return path.replace(/\/$/, "");
+}
+
+function parentPath(path: string): string {
+  const separatorIndex = withoutDirectorySuffix(path).lastIndexOf("/");
+  return separatorIndex < 0 ? "" : path.slice(0, separatorIndex);
+}
+
+function joinRelativePath(parent: string, name: string): string {
+  return parent.length === 0 ? name : `${parent}/${name}`;
+}
+
+function mutationErrorDescription(result: Parameters<typeof squashAtomCommandFailure>[0]): string {
+  const error = squashAtomCommandFailure(result);
+  return error instanceof Error ? error.message : "An error occurred.";
+}
+
+interface PendingDelete {
+  readonly kind: ProjectEntry["kind"];
+  readonly path: string;
+}
+
 export default function FileBrowserPanel({
   environmentId,
   cwd,
@@ -51,6 +87,10 @@ export default function FileBrowserPanel({
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
   const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
+  const createEntry = useAtomCommand(projectEnvironment.createEntry, { reportFailure: false });
+  const moveEntry = useAtomCommand(projectEnvironment.moveEntry, { reportFailure: false });
+  const deleteEntry = useAtomCommand(projectEnvironment.deleteEntry, { reportFailure: false });
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
@@ -59,6 +99,99 @@ export default function FileBrowserPanel({
   const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
   const treePaths = useMemo(() => entries.map(treePath), [entries]);
   const previousTreePathsRef = useRef<readonly string[]>([]);
+  const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
+  const pendingCreationsRef = useRef(new Map<string, ProjectEntry["kind"]>());
+
+  const reportMutationFailure = (
+    title: string,
+    result: Parameters<typeof mutationErrorDescription>[0],
+  ) => {
+    toastManager.add({
+      type: "error",
+      title,
+      description: mutationErrorDescription(result),
+    });
+  };
+
+  const nextPlaceholderPath = (parent: string, kind: ProjectEntry["kind"]): string => {
+    const model = treeModelRef.current;
+    const baseName = kind === "directory" ? "New Folder" : "New File";
+    let suffix = 1;
+    while (true) {
+      const name = suffix === 1 ? baseName : `${baseName} ${suffix}`;
+      const relativePath = joinRelativePath(parent, name);
+      const candidate = kind === "directory" ? `${relativePath}/` : relativePath;
+      if (model?.getItem(candidate) === null) return candidate;
+      suffix += 1;
+    }
+  };
+
+  const beginCreate = (item: TreeContextMenuItem, kind: ProjectEntry["kind"]): void => {
+    const model = treeModelRef.current;
+    if (!model) return;
+    const targetParent =
+      item.kind === "directory" ? withoutDirectorySuffix(item.path) : parentPath(item.path);
+    const placeholderPath = nextPlaceholderPath(targetParent, kind);
+    pendingCreationsRef.current.set(placeholderPath, kind);
+    model.add(placeholderPath);
+    if (!model.startRenaming(placeholderPath, { removeIfCanceled: true })) {
+      pendingCreationsRef.current.delete(placeholderPath);
+      model.remove(placeholderPath, kind === "directory" ? { recursive: true } : undefined);
+    }
+  };
+
+  const handleRename = (event: {
+    readonly destinationPath: string;
+    readonly isFolder: boolean;
+    readonly sourcePath: string;
+  }): void => {
+    const sourcePath = withoutDirectorySuffix(event.sourcePath);
+    const destinationPath = withoutDirectorySuffix(event.destinationPath);
+    const sourceTreePath = event.isFolder ? `${sourcePath}/` : sourcePath;
+    const destinationTreePath = event.isFolder ? `${destinationPath}/` : destinationPath;
+    const pendingKind = pendingCreationsRef.current.get(sourceTreePath);
+    pendingCreationsRef.current.delete(sourceTreePath);
+
+    void (async () => {
+      if (pendingKind !== undefined) {
+        const result = await createEntry({
+          environmentId,
+          input: { cwd, relativePath: destinationPath, kind: pendingKind },
+        });
+        if (result._tag === "Success") {
+          entryKindsRef.current = new Map(entryKindsRef.current).set(destinationPath, pendingKind);
+          entriesQuery.refresh();
+          return;
+        }
+        treeModelRef.current?.remove(
+          destinationTreePath,
+          pendingKind === "directory" ? { recursive: true } : undefined,
+        );
+        reportMutationFailure(`Failed to create ${pendingKind}`, result);
+        return;
+      }
+
+      const result = await moveEntry({
+        environmentId,
+        input: { cwd, sourcePath, destinationPath },
+      });
+      if (result._tag === "Success") {
+        const nextKinds = new Map(entryKindsRef.current);
+        const kind = nextKinds.get(sourcePath);
+        nextKinds.delete(sourcePath);
+        if (kind !== undefined) nextKinds.set(destinationPath, kind);
+        entryKindsRef.current = nextKinds;
+        entriesQuery.refresh();
+        return;
+      }
+      try {
+        treeModelRef.current?.move(destinationTreePath, sourceTreePath, { collision: "error" });
+      } catch {
+        entriesQuery.refresh();
+      }
+      reportMutationFailure("Failed to rename entry", result);
+    })();
+  };
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -89,14 +222,35 @@ export default function FileBrowserPanel({
     const position = pointerIsFresh
       ? { x: pointer.x, y: pointer.y }
       : { x: anchorRect.left, y: anchorRect.bottom };
+    let focusTransferred = false;
     try {
       const clicked = await api.contextMenu.show(
         [
+          { id: "new-file", label: "New File" },
+          { id: "new-folder", label: "New Folder" },
+          { id: "rename", label: "Rename" },
+          { id: "delete", label: "Delete", destructive: true },
           { id: "copy-mention", label: "Copy mention" },
           { id: "add-to-chat", label: "Add to chat" },
         ],
         position,
       );
+      if (clicked === "new-file" || clicked === "new-folder" || clicked === "rename") {
+        focusTransferred = true;
+        context.close({ restoreFocus: false });
+        if (clicked === "rename") {
+          treeModelRef.current?.startRenaming(item.path);
+        } else {
+          beginCreate(item, clicked === "new-file" ? "file" : "directory");
+        }
+        return;
+      }
+      if (clicked === "delete") {
+        focusTransferred = true;
+        context.close({ restoreFocus: false });
+        setPendingDelete({ path: relativePath, kind: item.kind });
+        return;
+      }
       if (clicked === "copy-mention") {
         try {
           await writeTextToClipboard(mention);
@@ -130,7 +284,7 @@ export default function FileBrowserPanel({
         }
       }
     } finally {
-      context.close();
+      if (!focusTransferred) context.close();
     }
   };
   const showEntryContextMenuRef = useRef(showEntryContextMenu);
@@ -138,7 +292,6 @@ export default function FileBrowserPanel({
     showEntryContextMenuRef.current = showEntryContextMenu;
   });
 
-  const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
   const dragMention = useMemo(
     () =>
       createFileTreeDragMentionController({
@@ -146,6 +299,10 @@ export default function FileBrowserPanel({
       }),
     [],
   );
+  const handleRenameRef = useRef(handleRename);
+  useEffect(() => {
+    handleRenameRef.current = handleRename;
+  });
   const { model } = useFileTree({
     composition: {
       contextMenu: {
@@ -163,6 +320,13 @@ export default function FileBrowserPanel({
     flattenEmptyDirectories: true,
     initialExpansion: 1,
     icons: T3_PIERRE_ICONS,
+    renaming: {
+      canRename: () => true,
+      onError: (error) => {
+        toastManager.add({ type: "error", title: "Unable to rename entry", description: error });
+      },
+      onRename: (event) => handleRenameRef.current(event),
+    },
     onSelectionChange: (selectedPaths) => {
       dragMention.handleSelectionChange(selectedPaths);
       // Starting a drag selects the dragged row; that selection is a side
@@ -192,6 +356,35 @@ export default function FileBrowserPanel({
     [entries],
   );
 
+  const confirmDelete = (): void => {
+    const target = pendingDelete;
+    if (!target) return;
+    setPendingDelete(null);
+    void (async () => {
+      const result = await deleteEntry({
+        environmentId,
+        input: {
+          cwd,
+          relativePath: target.path,
+          recursive: target.kind === "directory",
+        },
+      });
+      if (result._tag !== "Success") {
+        reportMutationFailure("Failed to delete entry", result);
+        return;
+      }
+      const targetTreePath = target.kind === "directory" ? `${target.path}/` : target.path;
+      treeModelRef.current?.remove(
+        targetTreePath,
+        target.kind === "directory" ? { recursive: true } : undefined,
+      );
+      const nextKinds = new Map(entryKindsRef.current);
+      nextKinds.delete(target.path);
+      entryKindsRef.current = nextKinds;
+      entriesQuery.refresh();
+    })();
+  };
+
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
   // not depend on running after the tree's own dragstart handler; the drag
@@ -218,51 +411,78 @@ export default function FileBrowserPanel({
   }, [dragMention]);
 
   return (
-    <div
-      ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background"
-      data-file-browser-panel={`${environmentId}:${cwd}`}
-    >
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium text-foreground">{projectName}</div>
-          <div className="truncate text-[10px] leading-none text-muted-foreground">
-            {entriesQuery.isPending && entriesQuery.data === null
-              ? "Indexing…"
-              : `${fileCount.toLocaleString()} files`}
-            {entriesQuery.data?.truncated ? " · partial" : ""}
+    <>
+      <div
+        ref={panelRef}
+        className="flex min-h-0 flex-1 flex-col bg-background"
+        data-file-browser-panel={`${environmentId}:${cwd}`}
+      >
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium text-foreground">{projectName}</div>
+            <div className="truncate text-[10px] leading-none text-muted-foreground">
+              {entriesQuery.isPending && entriesQuery.data === null
+                ? "Indexing…"
+                : `${fileCount.toLocaleString()} files`}
+              {entriesQuery.data?.truncated ? " · partial" : ""}
+            </div>
           </div>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Search workspace files"
+            onClick={() => model.openSearch()}
+          >
+            <Search className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Refresh workspace files"
+            onClick={entriesQuery.refresh}
+          >
+            <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
+          </button>
         </div>
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Search workspace files"
-          onClick={() => model.openSearch()}
-        >
-          <Search className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Refresh workspace files"
-          onClick={entriesQuery.refresh}
-        >
-          <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
-        </button>
+        {entriesQuery.error && entriesQuery.data === null ? (
+          <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
+        ) : (
+          <FileTree
+            model={model}
+            aria-label={`${projectName} files`}
+            className="min-h-0 flex-1 overflow-hidden"
+            style={{
+              colorScheme: resolvedTheme,
+              ["--trees-fg-override" as string]: "var(--foreground)",
+            }}
+          />
+        )}
       </div>
-      {entriesQuery.error && entriesQuery.data === null ? (
-        <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
-      ) : (
-        <FileTree
-          model={model}
-          aria-label={`${projectName} files`}
-          className="min-h-0 flex-1 overflow-hidden"
-          style={{
-            colorScheme: resolvedTheme,
-            ["--trees-fg-override" as string]: "var(--foreground)",
-          }}
-        />
-      )}
-    </div>
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Permanently delete “{pendingDelete?.path ?? "this entry"}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.kind === "directory"
+                ? "This permanently deletes the folder and all of its contents from disk. This cannot be undone."
+                : "This permanently deletes the file from disk. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Permanently delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </>
   );
 }

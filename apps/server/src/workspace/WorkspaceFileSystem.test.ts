@@ -265,4 +265,304 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
   });
+
+  describe("createEntry", () => {
+    it.effect("creates an empty file and refreshes workspace entries", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const beforeCreate = yield* workspaceEntries.list({ cwd });
+        expect(beforeCreate.entries.some((entry) => entry.path === "notes/todo.md")).toBe(false);
+
+        const result = yield* workspaceFileSystem.createEntry({
+          cwd,
+          relativePath: "notes/todo.md",
+          kind: "file",
+        });
+        const contents = yield* fileSystem
+          .readFileString(path.join(cwd, "notes/todo.md"))
+          .pipe(Effect.orDie);
+
+        expect(result).toEqual({ relativePath: "notes/todo.md", kind: "file" });
+        expect(contents).toBe("");
+        const afterCreate = yield* workspaceEntries.list({ cwd });
+        expect(afterCreate.entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ path: "notes/todo.md", kind: "file" }),
+          ]),
+        );
+      }),
+    );
+
+    it.effect("creates nested folders", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+
+        const result = yield* workspaceFileSystem.createEntry({
+          cwd,
+          relativePath: "docs/guides/setup",
+          kind: "directory",
+        });
+        const stat = yield* fileSystem.stat(path.join(cwd, "docs/guides/setup")).pipe(Effect.orDie);
+
+        expect(result).toEqual({
+          relativePath: "docs/guides/setup",
+          kind: "directory",
+        });
+        expect(stat.type).toBe("Directory");
+      }),
+    );
+
+    it.effect("rejects collisions without changing the existing entry", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "notes.md", "keep me\n");
+
+        const error = yield* workspaceFileSystem
+          .createEntry({ cwd, relativePath: "notes.md", kind: "file" })
+          .pipe(Effect.flip);
+        const contents = yield* fileSystem
+          .readFileString(path.join(cwd, "notes.md"))
+          .pipe(Effect.orDie);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceEntryCollisionError);
+        expect(contents).toBe("keep me\n");
+      }),
+    );
+
+    it.effect("rejects traversal and symlink escapes before creating anything", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+
+        const traversalError = yield* workspaceFileSystem
+          .createEntry({ cwd, relativePath: "../escape.md", kind: "file" })
+          .pipe(Effect.flip);
+        expect(traversalError).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+
+        yield* fileSystem.symlink(outsideDir, path.join(cwd, "outside-link"));
+        const symlinkError = yield* workspaceFileSystem
+          .createEntry({
+            cwd,
+            relativePath: "outside-link/escape.md",
+            kind: "file",
+          })
+          .pipe(Effect.flip);
+
+        expect(symlinkError).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        const outsideStat = yield* fileSystem
+          .stat(path.join(outsideDir, "escape.md"))
+          .pipe(Effect.orElseSucceed(() => null));
+        expect(outsideStat).toBeNull();
+      }),
+    );
+  });
+
+  describe("moveEntry", () => {
+    it.effect("renames an entry and refreshes workspace entries", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "before.md", "contents\n");
+        yield* workspaceEntries.list({ cwd });
+
+        const result = yield* workspaceFileSystem.moveEntry({
+          cwd,
+          sourcePath: "before.md",
+          destinationPath: "after.md",
+        });
+
+        expect(result).toEqual({
+          sourcePath: "before.md",
+          destinationPath: "after.md",
+        });
+        const contents = yield* fileSystem
+          .readFileString(path.join(cwd, "after.md"))
+          .pipe(Effect.orDie);
+        expect(contents).toBe("contents\n");
+        const afterMove = yield* workspaceEntries.list({ cwd });
+        expect(afterMove.entries.some((entry) => entry.path === "before.md")).toBe(false);
+        expect(afterMove.entries).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: "after.md", kind: "file" })]),
+        );
+      }),
+    );
+
+    it.effect("renames directories with their contents", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "before/nested.md", "contents\n");
+
+        yield* workspaceFileSystem.moveEntry({
+          cwd,
+          sourcePath: "before",
+          destinationPath: "after",
+        });
+
+        expect(
+          yield* fileSystem.readFileString(path.join(cwd, "after/nested.md")).pipe(Effect.orDie),
+        ).toBe("contents\n");
+        const oldDirectory = yield* fileSystem
+          .stat(path.join(cwd, "before"))
+          .pipe(Effect.orElseSucceed(() => null));
+        expect(oldDirectory).toBeNull();
+      }),
+    );
+
+    it.effect("rejects destination collisions without overwriting either file", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "source.md", "source\n");
+        yield* writeTextFile(cwd, "destination.md", "destination\n");
+
+        const error = yield* workspaceFileSystem
+          .moveEntry({
+            cwd,
+            sourcePath: "source.md",
+            destinationPath: "destination.md",
+          })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceEntryCollisionError);
+        expect(
+          yield* fileSystem.readFileString(path.join(cwd, "source.md")).pipe(Effect.orDie),
+        ).toBe("source\n");
+        expect(
+          yield* fileSystem.readFileString(path.join(cwd, "destination.md")).pipe(Effect.orDie),
+        ).toBe("destination\n");
+      }),
+    );
+
+    it.effect("rejects traversal and symlink escapes", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(cwd, "source.md", "inside\n");
+
+        const traversalError = yield* workspaceFileSystem
+          .moveEntry({
+            cwd,
+            sourcePath: "source.md",
+            destinationPath: "../escape.md",
+          })
+          .pipe(Effect.flip);
+        expect(traversalError).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+
+        yield* fileSystem.symlink(outsideDir, path.join(cwd, "outside-link"));
+        const symlinkError = yield* workspaceFileSystem
+          .moveEntry({
+            cwd,
+            sourcePath: "source.md",
+            destinationPath: "outside-link/escape.md",
+          })
+          .pipe(Effect.flip);
+        expect(symlinkError).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+      }),
+    );
+  });
+
+  describe("deleteEntry", () => {
+    it.effect("deletes an entry and refreshes workspace entries", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "delete-me.md", "temporary\n");
+        yield* workspaceEntries.list({ cwd });
+
+        const result = yield* workspaceFileSystem.deleteEntry({
+          cwd,
+          relativePath: "delete-me.md",
+          recursive: false,
+        });
+
+        expect(result).toEqual({ relativePath: "delete-me.md" });
+        const stat = yield* fileSystem
+          .stat(path.join(cwd, "delete-me.md"))
+          .pipe(Effect.orElseSucceed(() => null));
+        expect(stat).toBeNull();
+        const afterDelete = yield* workspaceEntries.list({ cwd });
+        expect(afterDelete.entries.some((entry) => entry.path === "delete-me.md")).toBe(false);
+      }),
+    );
+
+    it.effect("requires recursive opt-in to delete a non-empty directory", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "folder/kept.md", "keep\n");
+
+        const error = yield* workspaceFileSystem
+          .deleteEntry({ cwd, relativePath: "folder", recursive: false })
+          .pipe(Effect.flip);
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceDirectoryNotEmptyError);
+
+        yield* workspaceFileSystem.deleteEntry({
+          cwd,
+          relativePath: "folder",
+          recursive: true,
+        });
+        const stat = yield* fileSystem
+          .stat(path.join(cwd, "folder"))
+          .pipe(Effect.orElseSucceed(() => null));
+        expect(stat).toBeNull();
+      }),
+    );
+
+    it.effect("rejects traversal and symlinks whose realpath escapes the root", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "keep.md", "outside\n");
+
+        const traversalError = yield* workspaceFileSystem
+          .deleteEntry({ cwd, relativePath: "../keep.md", recursive: false })
+          .pipe(Effect.flip);
+        expect(traversalError).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+
+        yield* fileSystem.symlink(
+          path.join(outsideDir, "keep.md"),
+          path.join(cwd, "outside-link.md"),
+        );
+        const symlinkError = yield* workspaceFileSystem
+          .deleteEntry({ cwd, relativePath: "outside-link.md", recursive: false })
+          .pipe(Effect.flip);
+        expect(symlinkError).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        expect(
+          yield* fileSystem.readFileString(path.join(outsideDir, "keep.md")).pipe(Effect.orDie),
+        ).toBe("outside\n");
+      }),
+    );
+  });
 });
