@@ -26,6 +26,8 @@ import {
   VcsInitInput,
   VcsGetCommitDetailsInput,
   VcsGetCommitDetailsResult,
+  VcsInspectWorktreeRemovalInput,
+  VcsInspectWorktreeRemovalResult,
   VcsListHistoryInput,
   VcsListHistoryResult,
   VcsListRefsInput,
@@ -191,6 +193,7 @@ export const WS_METHODS = {
   vcsGetCommitDetails: "vcs.getCommitDetails",
   vcsListRefs: "vcs.listRefs",
   vcsCreateWorktree: "vcs.createWorktree",
+  vcsInspectWorktreeRemoval: "vcs.inspectWorktreeRemoval",
   vcsRemoveWorktree: "vcs.removeWorktree",
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
@@ -528,6 +531,12 @@ export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsInspectWorktreeRemovalRpc = Rpc.make(WS_METHODS.vcsInspectWorktreeRemoval, {
+  payload: VcsInspectWorktreeRemovalInput,
+  success: VcsInspectWorktreeRemovalResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
   payload: VcsRemoveWorktreeInput,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
@@ -806,6 +815,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsGetCommitDetailsRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
+  WsVcsInspectWorktreeRemovalRpc,
   WsVcsRemoveWorktreeRpc,
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,

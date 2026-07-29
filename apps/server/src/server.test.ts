@@ -5005,6 +5005,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               Effect.succeed({
                 worktree: { path: "/tmp/wt", refName: "feature/demo" },
               }),
+            inspectWorktreeRemoval: () =>
+              Effect.succeed({
+                availability: "available",
+                refName: "feature/demo",
+                headCommit: "abc123",
+                baseRef: "main",
+                mergeStatus: "merged",
+                workingTreeStatus: "clean",
+              }),
             removeWorktree: () => Effect.void,
             createRef: (input) => Effect.succeed({ refName: input.refName }),
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
@@ -5124,6 +5133,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(worktree.worktree.refName, "feature/demo");
+
+      const removalInspection = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsInspectWorktreeRemoval]({
+            cwd: "/tmp/repo",
+            path: "/tmp/wt",
+          }),
+        ),
+      );
+      assert.equal(removalInspection.mergeStatus, "merged");
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

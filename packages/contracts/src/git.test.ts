@@ -5,6 +5,7 @@ import {
   GitObjectId,
   VcsCreateWorktreeInput,
   VcsGetCommitDetailsResult,
+  VcsInspectWorktreeRemovalResult,
   VcsListHistoryInput,
   VcsListHistoryResult,
   GitPreparePullRequestThreadInput,
@@ -18,6 +19,9 @@ const decodeGitObjectId = Schema.decodeUnknownSync(GitObjectId);
 const decodeListHistoryInput = Schema.decodeUnknownSync(VcsListHistoryInput);
 const decodeListHistoryResult = Schema.decodeUnknownSync(VcsListHistoryResult);
 const decodeCommitDetailsResult = Schema.decodeUnknownSync(VcsGetCommitDetailsResult);
+const decodeInspectWorktreeRemovalResult = Schema.decodeUnknownSync(
+  VcsInspectWorktreeRemovalResult,
+);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -120,6 +124,43 @@ describe("Git history contracts", () => {
         filesTruncated: false,
       }).files[0],
     ).toMatchObject({ kind: "added", binary: true, insertions: null, deletions: null });
+  });
+});
+
+describe("VcsInspectWorktreeRemovalResult", () => {
+  it("preserves conservative availability, merge, and working-tree states", () => {
+    const parsed = decodeInspectWorktreeRemovalResult({
+      availability: "available",
+      refName: "feature/delete-dialog",
+      headCommit: "0123456789abcdef",
+      baseRef: "origin/main",
+      mergeStatus: "unmerged",
+      workingTreeStatus: "dirty",
+    });
+
+    expect(parsed).toEqual({
+      availability: "available",
+      refName: "feature/delete-dialog",
+      headCommit: "0123456789abcdef",
+      baseRef: "origin/main",
+      mergeStatus: "unmerged",
+      workingTreeStatus: "dirty",
+    });
+  });
+
+  it("allows unverifiable and missing worktrees without inventing Git state", () => {
+    const parsed = decodeInspectWorktreeRemovalResult({
+      availability: "missing",
+      refName: null,
+      headCommit: null,
+      baseRef: null,
+      mergeStatus: "unknown",
+      workingTreeStatus: "unknown",
+    });
+
+    expect(parsed.availability).toBe("missing");
+    expect(parsed.mergeStatus).toBe("unknown");
+    expect(parsed.workingTreeStatus).toBe("unknown");
   });
 });
 

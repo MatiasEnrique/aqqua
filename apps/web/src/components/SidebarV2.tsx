@@ -1332,11 +1332,10 @@ export default function SidebarV2() {
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
-  const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const sidebarThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
-  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThread } =
+  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThreads } =
     useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -2420,51 +2419,32 @@ export default function SidebarV2() {
         return;
       }
       if (clicked.value !== "delete") return;
-      if (confirmThreadDelete) {
-        const confirmed = await settlePromise(() =>
-          api.dialogs.confirm(
-            [
-              `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-              "This permanently clears conversation history for these threads.",
-            ].join("\n"),
-          ),
-        );
-        if (confirmed._tag === "Failure" || !confirmed.value) return;
-      }
-      // Grown as deletions actually land, never seeded with the whole batch:
-      // orphaned-worktree detection must only discount threads that are
-      // really gone, or the first delete would treat still-alive batch mates
-      // as deleted and remove a worktree they still point at.
-      const deletedThreadKeys = new Set<string>();
-      for (const threadKey of threadKeys) {
+      const selectedThreads = threadKeys.flatMap((threadKey) => {
         const thread = threadByKeyRef.current.get(threadKey);
-        if (!thread) continue;
-        const result = await deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
-          deletedThreadKeys,
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Failed to delete threads",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-          }
-          return;
+        return thread ? [thread] : [];
+      });
+      const deletionResult = await deleteThreads(selectedThreads);
+      if (deletionResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(deletionResult)) {
+          const error = squashAtomCommandFailure(deletionResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to delete threads",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
         }
-        deletedThreadKeys.add(threadKey);
+        return;
       }
+      if (deletionResult.value === null) return;
       removeFromSelection(threadKeys);
     },
     [
       attemptSettle,
       attemptSnooze,
       clearSelection,
-      confirmThreadDelete,
-      deleteThread,
+      deleteThreads,
       markThreadUnread,
       removeFromSelection,
       serverConfigs,
@@ -2473,26 +2453,14 @@ export default function SidebarV2() {
 
   // One deletion path for every entry point (context menu, settled row's trash
   // button): the confirm setting and the worktree-orphan handling inside
-  // deleteThread must not drift between them.
+  // deleteThreads must not drift between them.
   const attemptDeleteThread = useCallback(
     (threadRef: ScopedThreadRef) => {
       void (async () => {
         const threadKey = scopedThreadKey(threadRef);
         const thread = threadByKeyRef.current.get(threadKey);
-        if (confirmThreadDelete) {
-          const api = readLocalApi();
-          if (!api) return;
-          const confirmed = await settlePromise(() =>
-            api.dialogs.confirm(
-              [
-                `Delete thread "${thread?.title ?? "Untitled"}"?`,
-                "This permanently clears conversation history for this thread.",
-              ].join("\n"),
-            ),
-          );
-          if (confirmed._tag === "Failure" || !confirmed.value) return;
-        }
-        const result = await deleteThread(threadRef);
+        if (!thread) return;
+        const result = await deleteThreads([thread]);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           toastManager.add(
@@ -2505,7 +2473,7 @@ export default function SidebarV2() {
         }
       })();
     },
-    [confirmThreadDelete, deleteThread],
+    [deleteThreads],
   );
 
   const handleThreadContextMenu = useCallback(

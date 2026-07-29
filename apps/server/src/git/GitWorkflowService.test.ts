@@ -283,4 +283,48 @@ describe("GitWorkflowService", () => {
       ),
     );
   });
+
+  it.effect("routes worktree-removal inspection through the Git driver", () => {
+    const inspectWorktreeRemoval = vi.fn(() =>
+      Effect.succeed({
+        availability: "available" as const,
+        refName: "feature/work",
+        headCommit: "abc123",
+        baseRef: "main",
+        mergeStatus: "merged" as const,
+        workingTreeStatus: "clean" as const,
+      }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: () =>
+            Effect.succeed({
+              kind: "git",
+            } as VcsDriverRegistry.VcsDriverHandle),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
+          inspectWorktreeRemoval,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({})),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.inspectWorktreeRemoval({
+        cwd: "/repo",
+        path: "/repo-worktree",
+      });
+
+      expect(result.mergeStatus).toBe("merged");
+      expect(inspectWorktreeRemoval).toHaveBeenCalledWith({
+        cwd: "/repo",
+        path: "/repo-worktree",
+      });
+    }).pipe(Effect.provide(layer));
+  });
 });

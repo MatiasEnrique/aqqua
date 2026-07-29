@@ -21,6 +21,8 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewResult,
   type VcsInitInput,
+  type VcsInspectWorktreeRemovalInput,
+  type VcsInspectWorktreeRemovalResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
   type VcsPullResult,
@@ -253,6 +255,9 @@ export class GitVcsDriver extends Context.Service<
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
+    readonly inspectWorktreeRemoval: (
+      input: VcsInspectWorktreeRemovalInput,
+    ) => Effect.Effect<VcsInspectWorktreeRemovalResult, GitCommandError>;
     readonly renameBranch: (
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;

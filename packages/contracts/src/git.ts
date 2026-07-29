@@ -231,6 +231,22 @@ export const VcsRemoveWorktreeInput = Schema.Struct({
 });
 export type VcsRemoveWorktreeInput = typeof VcsRemoveWorktreeInput.Type;
 
+export const VcsInspectWorktreeRemovalInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  path: TrimmedNonEmptyStringSchema,
+});
+export type VcsInspectWorktreeRemovalInput = typeof VcsInspectWorktreeRemovalInput.Type;
+
+export const VcsInspectWorktreeRemovalResult = Schema.Struct({
+  availability: Schema.Literals(["available", "missing", "not_worktree"]),
+  refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  headCommit: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  baseRef: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  mergeStatus: Schema.Literals(["merged", "unmerged", "unknown"]),
+  workingTreeStatus: Schema.Literals(["clean", "dirty", "unknown"]),
+});
+export type VcsInspectWorktreeRemovalResult = typeof VcsInspectWorktreeRemovalResult.Type;
+
 export const VcsCreateRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,

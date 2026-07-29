@@ -661,6 +661,138 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect("inspects a clean worktree whose HEAD is merged into its configured base", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "merged-worktree",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["branch", "configured-base"]);
+
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/merged-worktree",
+          baseRefName: "configured-base",
+        });
+
+        const result = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+
+        assert.deepStrictEqual(result, {
+          availability: "available",
+          refName: "feature/merged-worktree",
+          headCommit: yield* git(worktreePath, ["rev-parse", "HEAD"]),
+          baseRef: "configured-base",
+          mergeStatus: "merged",
+          workingTreeStatus: "clean",
+        });
+      }),
+    );
+
+    it.effect("keeps unmerged, dirty, missing, and unrelated paths conservative", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreeRoot = yield* makeTmpDir("git-worktrees-");
+        const worktreePath = pathService.join(worktreeRoot, "unmerged-worktree");
+        const unrelatedPath = pathService.join(worktreeRoot, "unrelated");
+        const missingPath = pathService.join(worktreeRoot, "missing");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/unmerged-worktree",
+          baseRefName: initialBranch,
+        });
+        yield* git(worktreePath, ["config", "user.email", "test@test.com"]);
+        yield* git(worktreePath, ["config", "user.name", "Test"]);
+        yield* writeTextFile(worktreePath, "committed.txt", "committed\n");
+        yield* writeTextFile(worktreePath, ".gitignore", "ignored.txt\n");
+        yield* git(worktreePath, ["add", "committed.txt"]);
+        yield* git(worktreePath, ["add", ".gitignore"]);
+        yield* git(worktreePath, ["commit", "-m", "feature commit"]);
+        yield* writeTextFile(worktreePath, "untracked.txt", "dirty\n");
+        const nestedPath = pathService.join(worktreePath, "nested");
+        yield* (yield* FileSystem.FileSystem).makeDirectory(unrelatedPath);
+
+        const inspected = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        yield* git(worktreePath, ["clean", "-fd"]);
+        yield* writeTextFile(worktreePath, "README.md", "tracked change\n");
+        const tracked = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        yield* git(worktreePath, ["add", "README.md"]);
+        const staged = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        yield* git(worktreePath, ["reset", "--hard", "HEAD"]);
+        yield* writeTextFile(worktreePath, "ignored.txt", "ignored local data\n");
+        const ignored = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        yield* (yield* FileSystem.FileSystem).makeDirectory(nestedPath);
+        const missing = yield* driver.inspectWorktreeRemoval({ cwd, path: missingPath });
+        const unrelated = yield* driver.inspectWorktreeRemoval({ cwd, path: unrelatedPath });
+        const nested = yield* driver.inspectWorktreeRemoval({ cwd, path: nestedPath });
+
+        assert.equal(inspected.mergeStatus, "unmerged");
+        assert.equal(inspected.workingTreeStatus, "dirty");
+        assert.equal(tracked.workingTreeStatus, "dirty");
+        assert.equal(staged.workingTreeStatus, "dirty");
+        assert.equal(ignored.workingTreeStatus, "dirty");
+        assert.equal(inspected.baseRef, initialBranch);
+        assert.deepStrictEqual(missing, {
+          availability: "missing",
+          refName: null,
+          headCommit: null,
+          baseRef: null,
+          mergeStatus: "unknown",
+          workingTreeStatus: "unknown",
+        });
+        assert.deepStrictEqual(unrelated, {
+          availability: "not_worktree",
+          refName: null,
+          headCommit: null,
+          baseRef: null,
+          mergeStatus: "unknown",
+          workingTreeStatus: "unknown",
+        });
+        assert.equal(nested.availability, "not_worktree");
+      }),
+    );
+
+    it.effect("keeps detached worktree merge status unknown", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "detached-worktree",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/detached-worktree",
+          baseRefName: initialBranch,
+        });
+        yield* git(worktreePath, ["checkout", "--detach"]);
+
+        const result = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+
+        assert.equal(result.availability, "available");
+        assert.equal(result.refName, null);
+        assert.isNotNull(result.headCommit);
+        assert.equal(result.baseRef, null);
+        assert.equal(result.mergeStatus, "unknown");
+        assert.equal(result.workingTreeStatus, "clean");
+      }),
+    );
+
     it.effect("creates and removes a worktree for a new refName", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

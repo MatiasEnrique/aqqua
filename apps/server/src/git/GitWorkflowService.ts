@@ -17,6 +17,8 @@ import {
   type VcsListHistoryResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
+  type VcsInspectWorktreeRemovalInput,
+  type VcsInspectWorktreeRemovalResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
@@ -91,6 +93,9 @@ export class GitWorkflowService extends Context.Service<
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
+    readonly inspectWorktreeRemoval: (
+      input: VcsInspectWorktreeRemovalInput,
+    ) => Effect.Effect<VcsInspectWorktreeRemovalResult, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;
@@ -352,6 +357,10 @@ export const make = Effect.gen(function* () {
     removeWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
         Effect.andThen(git.removeWorktree(input)),
+      ),
+    inspectWorktreeRemoval: (input) =>
+      ensureGitCommand("GitWorkflowService.inspectWorktreeRemoval", input.cwd).pipe(
+        Effect.andThen(git.inspectWorktreeRemoval(input)),
       ),
     createRef: (input) =>
       ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(

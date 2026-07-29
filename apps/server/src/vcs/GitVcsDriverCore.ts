@@ -2404,6 +2404,134 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     });
   });
 
+  const inspectWorktreeRemoval: GitVcsDriver.GitVcsDriver["Service"]["inspectWorktreeRemoval"] =
+    Effect.fn("inspectWorktreeRemoval")(function* (input) {
+      const worktreeCommonDir = yield* executeGit(
+        "GitVcsDriver.inspectWorktreeRemoval.worktreeCommonDir",
+        input.path,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        { timeoutMs: 5_000, allowNonZeroExit: true },
+      ).pipe(
+        Effect.catchTags({
+          GitCommandError: (error) =>
+            isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+        }),
+      );
+      if (worktreeCommonDir === null) {
+        return {
+          availability: "missing",
+          refName: null,
+          headCommit: null,
+          baseRef: null,
+          mergeStatus: "unknown",
+          workingTreeStatus: "unknown",
+        };
+      }
+
+      const repositoryCommonDir = yield* executeGit(
+        "GitVcsDriver.inspectWorktreeRemoval.repositoryCommonDir",
+        input.cwd,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        { timeoutMs: 5_000 },
+      );
+      const worktreeTopLevel = yield* executeGit(
+        "GitVcsDriver.inspectWorktreeRemoval.worktreeTopLevel",
+        input.path,
+        ["rev-parse", "--path-format=absolute", "--show-toplevel"],
+        { timeoutMs: 5_000, allowNonZeroExit: true },
+      );
+      const canonicalPath = (value: string) =>
+        fileSystem.realPath(value).pipe(Effect.orElseSucceed(() => path.resolve(value)));
+      const [candidatePath, candidateTopLevel, candidateCommonDir, repositoryCommonPath] =
+        yield* Effect.all([
+          canonicalPath(input.path),
+          canonicalPath(worktreeTopLevel.stdout.trim()),
+          canonicalPath(worktreeCommonDir.stdout.trim()),
+          canonicalPath(repositoryCommonDir.stdout.trim()),
+        ]);
+      const belongsToRepository =
+        worktreeCommonDir.exitCode === 0 &&
+        worktreeTopLevel.exitCode === 0 &&
+        candidateCommonDir === repositoryCommonPath &&
+        candidateTopLevel === candidatePath;
+      if (!belongsToRepository) {
+        return {
+          availability: "not_worktree",
+          refName: null,
+          headCommit: null,
+          baseRef: null,
+          mergeStatus: "unknown",
+          workingTreeStatus: "unknown",
+        };
+      }
+
+      const [branchResult, headResult, statusResult] = yield* Effect.all(
+        [
+          executeGit(
+            "GitVcsDriver.inspectWorktreeRemoval.branch",
+            input.path,
+            ["rev-parse", "--abbrev-ref", "HEAD"],
+            { timeoutMs: 5_000, allowNonZeroExit: true },
+          ),
+          executeGit(
+            "GitVcsDriver.inspectWorktreeRemoval.head",
+            input.path,
+            ["rev-parse", "HEAD"],
+            { timeoutMs: 5_000, allowNonZeroExit: true },
+          ),
+          executeGit(
+            "GitVcsDriver.inspectWorktreeRemoval.status",
+            input.path,
+            ["status", "--porcelain=2", "--untracked-files=all", "--ignored=matching"],
+            { timeoutMs: 5_000, allowNonZeroExit: true },
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
+
+      const branchValue = branchResult.exitCode === 0 ? branchResult.stdout.trim() : "";
+      const refName = branchValue.length > 0 && branchValue !== "HEAD" ? branchValue : null;
+      const headValue = headResult.exitCode === 0 ? headResult.stdout.trim() : "";
+      const headCommit = headValue.length > 0 ? headValue : null;
+      const workingTreeStatus =
+        statusResult.exitCode !== 0
+          ? ("unknown" as const)
+          : statusResult.stdout.trim().length > 0
+            ? ("dirty" as const)
+            : ("clean" as const);
+      const baseRef =
+        refName === null
+          ? null
+          : yield* resolveBaseBranchForNoUpstream(input.path, refName).pipe(
+              Effect.orElseSucceed(() => null),
+            );
+
+      let mergeStatus: "merged" | "unmerged" | "unknown" = "unknown";
+      if (headCommit !== null && baseRef !== null) {
+        const mergeResult = yield* executeGit(
+          "GitVcsDriver.inspectWorktreeRemoval.mergeBase",
+          input.path,
+          ["merge-base", "--is-ancestor", "HEAD", baseRef],
+          { timeoutMs: 5_000, allowNonZeroExit: true },
+        );
+        mergeStatus =
+          mergeResult.exitCode === 0
+            ? "merged"
+            : Number(mergeResult.exitCode) === 1
+              ? "unmerged"
+              : "unknown";
+      }
+
+      return {
+        availability: "available",
+        refName,
+        headCommit,
+        baseRef,
+        mergeStatus,
+        workingTreeStatus,
+      };
+    });
+
   const renameBranch: GitVcsDriver.GitVcsDriver["Service"]["renameBranch"] = Effect.fn(
     "renameBranch",
   )(function* (input) {
@@ -2572,6 +2700,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     fetchRemoteTrackingBranch,
     setBranchUpstream,
     removeWorktree,
+    inspectWorktreeRemoval,
     renameBranch,
     createRef,
     switchRef,

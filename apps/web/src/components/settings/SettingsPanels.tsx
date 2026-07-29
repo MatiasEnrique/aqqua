@@ -10,7 +10,6 @@ import {
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
-  type ScopedThreadRef,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -1640,7 +1639,11 @@ export function ArchivedThreadsPanel() {
   }, [archivedSnapshots]);
 
   const handleArchivedThreadContextMenu = useCallback(
-    async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
+    async (
+      thread: (typeof archivedGroups)[number]["threads"][number],
+      position: { x: number; y: number },
+    ) => {
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
       const api = readLocalApi();
       if (!api) return;
       const clicked = await api.contextMenu.show(
@@ -1669,7 +1672,7 @@ export function ArchivedThreadsPanel() {
       }
 
       if (clicked === "delete") {
-        const result = await confirmAndDeleteThread(threadRef);
+        const result = await confirmAndDeleteThread(thread);
         if (result._tag === "Success") {
           refreshArchivedThreads();
         } else if (!isAtomCommandInterrupted(result)) {
@@ -1727,13 +1730,10 @@ export function ArchivedThreadsPanel() {
                   event.preventDefault();
                   void (async () => {
                     const result = await settlePromise(() =>
-                      handleArchivedThreadContextMenu(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                        {
-                          x: event.clientX,
-                          y: event.clientY,
-                        },
-                      ),
+                      handleArchivedThreadContextMenu(thread, {
+                        x: event.clientX,
+                        y: event.clientY,
+                      }),
                     );
                     if (result._tag === "Failure") {
                       const error = squashAtomCommandFailure(result);
