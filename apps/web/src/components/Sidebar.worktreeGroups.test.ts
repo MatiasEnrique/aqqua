@@ -48,10 +48,11 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(new Set(groups.map((group) => group.key)).size).toBe(3);
   });
 
-  it("keeps active and snoozed conversations plus new worktree drafts inside each group", () => {
+  it("uses settled conversations for totals without exposing per-worktree settled rows", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [thread("active", "local", "/repo-wt", "feature", "2026-01-03T00:00:00.000Z")],
       snoozed: [thread("snoozed", "local", "/repo-wt", "feature", "2026-01-02T00:00:00.000Z")],
+      settled: [thread("settled", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
       drafts: [
         {
           draftId: "draft",
@@ -72,10 +73,35 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(groups.find((group) => group.label === "feature")).toMatchObject({
       active: [{ id: "active" }],
       snoozed: [{ id: "snoozed" }],
-      conversationCount: 2,
+      conversationCount: 3,
     });
     expect(groups.find((group) => group.label === "feature")).not.toHaveProperty("settled");
     expect(groups.find((group) => group.label.startsWith("New worktree"))?.drafts).toHaveLength(1);
+  });
+
+  it("retains a settled-only worktree group for its summary and delete control", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [],
+      snoozed: [],
+      settled: [thread("settled", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups).toEqual([
+      expect.objectContaining({
+        workspaceRoot: "/repo-wt",
+        projectRoot: "/repo",
+        isProjectCheckout: false,
+        label: "feature",
+        active: [],
+        snoozed: [],
+        conversationCount: 1,
+      }),
+    ]);
+    expect(groups[0]).not.toHaveProperty("settled");
   });
 
   it("places local drafts in the current checkout group", () => {
@@ -89,7 +115,7 @@ describe("buildSidebarWorktreeGroups", () => {
           projectId: "project",
           envMode: "local",
           title: "New conversation",
-          baseBranch: null,
+          baseBranch: "main",
           createdAt: "2026-01-04T00:00:00.000Z",
         },
       ],
@@ -101,13 +127,15 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(groups).toEqual([
       expect.objectContaining({
         workspaceRoot: "/repo",
+        projectRoot: "/repo",
         isProjectCheckout: true,
+        label: "main",
         drafts: [expect.objectContaining({ draftId: "local-draft" })],
       }),
     ]);
   });
 
-  it("summarizes every non-settled conversation while exposing only rendered active rows", () => {
+  it("summarizes every conversation while exposing only rendered active rows", () => {
     const visible = thread(
       "visible",
       "local",
@@ -130,7 +158,18 @@ describe("buildSidebarWorktreeGroups", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [visible, hiddenOngoing],
       renderedActive: [visible],
-      snoozed: [thread("snoozed", "local", "/repo-wt", "feature", "2026-01-02T00:00:00.000Z")],
+      snoozed: [
+        thread(
+          "snoozed",
+          "local",
+          "/repo-wt",
+          "feature",
+          "2026-01-02T00:00:00.000Z",
+          null,
+          "starting",
+        ),
+      ],
+      settled: [thread("settled", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
       drafts: [
         {
           draftId: "draft",
@@ -150,8 +189,8 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(groups).toEqual([
       expect.objectContaining({
         active: [expect.objectContaining({ id: "visible" })],
-        conversationCount: 4,
-        ongoingConversationCount: 1,
+        conversationCount: 5,
+        ongoingConversationCount: 2,
       }),
     ]);
   });

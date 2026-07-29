@@ -5,6 +5,8 @@ import type {
   VcsInspectWorktreeRemovalResult,
 } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { canSettle, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { ThreadShell } from "./types";
 
 export interface WorktreeDeletionThread {
@@ -39,6 +41,63 @@ function normalizeWorktreePath(path: string | null): string | null {
     return null;
   }
   return trimmed;
+}
+
+export function selectThreadsForWorktree<
+  T extends Pick<WorktreeDeletionThread, "environmentId" | "worktreePath">,
+>(input: {
+  readonly environmentId: EnvironmentId;
+  readonly worktreePath: string;
+  readonly threads: ReadonlyArray<T>;
+}): T[] {
+  const comparablePath = (path: string | null): string | null => {
+    const normalized = normalizeWorktreePath(path);
+    if (normalized === null) return null;
+    return normalized.replace(/[\\/]+$/, "") || normalized;
+  };
+  const targetPath = comparablePath(input.worktreePath);
+  if (targetPath === null) return [];
+  return input.threads.filter(
+    (thread) =>
+      thread.environmentId === input.environmentId &&
+      comparablePath(thread.worktreePath) === targetPath,
+  );
+}
+
+export interface WorktreeSettlementPlan {
+  readonly threadsToUnsnooze: ReadonlyArray<EnvironmentThreadShell>;
+  readonly threadsToSettle: ReadonlyArray<EnvironmentThreadShell>;
+  readonly blockedThreads: ReadonlyArray<EnvironmentThreadShell>;
+}
+
+export function buildWorktreeSettlementPlan(input: {
+  readonly environmentId: EnvironmentId;
+  readonly worktreePath: string;
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly now: string;
+  readonly settlementSupported: boolean;
+}): WorktreeSettlementPlan {
+  const worktreeThreads = selectThreadsForWorktree({
+    environmentId: input.environmentId,
+    worktreePath: input.worktreePath,
+    threads: input.threads.filter((thread) => thread.archivedAt === null),
+  });
+  const threadsToUnsnooze = worktreeThreads.filter((thread) =>
+    effectiveSnoozed(thread, { now: input.now }),
+  );
+  // Auto-settlement is only a derived classification. Pin every conversation
+  // durably before its worktree disappears so a later settings or PR-state
+  // change cannot reactivate it with a deleted path.
+  const threadsToSettle = worktreeThreads.filter(
+    (thread) => thread.settledOverride !== "settled" || thread.settledAt === null,
+  );
+  return {
+    threadsToUnsnooze,
+    threadsToSettle,
+    blockedThreads: threadsToSettle.filter(
+      (thread) => !input.settlementSupported || !canSettle(thread, { now: input.now }),
+    ),
+  };
 }
 
 export function getOrphanedWorktreePathForThread(

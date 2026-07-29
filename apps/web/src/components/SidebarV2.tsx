@@ -139,7 +139,7 @@ import {
   shouldReserveThreadExpandGutter,
 } from "./Sidebar.threadTree";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
-import { buildSidebarWorktreeGroups } from "./Sidebar.worktreeGroups";
+import { buildSidebarWorktreeGroups, type SidebarWorktreeGroup } from "./Sidebar.worktreeGroups";
 import {
   prStatusIndicator,
   resolveThreadPr,
@@ -159,6 +159,7 @@ import { primaryServerProvidersAtom } from "../state/server";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { CommandDialogTrigger } from "./ui/command";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -470,6 +471,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   const threadKey = scopedThreadKey(threadRef);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
+  const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const openPrLink = useOpenPrLink();
 
   // Same semantics as v1 (never-visited counts as read): flipping the beta
@@ -676,6 +678,12 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
       onDelete(threadRef);
     },
     [onDelete, threadRef],
+  );
+  const handleSelectionCheckedChange = useCallback(
+    (checked: boolean) => {
+      if (checked !== isSelected) toggleThreadSelection(threadKey);
+    },
+    [isSelected, threadKey, toggleThreadSelection],
   );
   const handleUnsnoozeClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -931,121 +939,132 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         data-thread-item
         className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]"
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div
-                role="button"
-                tabIndex={0}
-                data-testid="sidebar-v2-row-slim"
-                className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
-                onClick={handleClick}
-                onDoubleClick={handleDoubleClick}
-                onKeyDown={handleKeyDown}
-                onContextMenu={handleContextMenu}
-              />
-            }
-          >
-            {/* Settled history recedes: dimmed favicon at rest, restored on
-              hover so the tail stays scannable when you're hunting. */}
-            <span
-              className={cn(
-                "shrink-0 transition-opacity",
-                !props.isActive &&
-                  "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
-              )}
+        <div className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}>
+          {variantAction === "unsettle" ? (
+            <Checkbox
+              data-thread-selection-safe
+              aria-label={`Select ${thread.title}`}
+              checked={isSelected}
+              onCheckedChange={handleSelectionCheckedChange}
+              className="size-4 opacity-65 transition-opacity group-hover/v2-row:opacity-100 data-checked:opacity-100"
+            />
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div
+                  role="button"
+                  tabIndex={0}
+                  data-testid="sidebar-v2-row-slim"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2.5 outline-none"
+                  onClick={handleClick}
+                  onDoubleClick={handleDoubleClick}
+                  onKeyDown={handleKeyDown}
+                  onContextMenu={handleContextMenu}
+                />
+              }
             >
-              <ProjectFavicon
-                environmentId={thread.environmentId}
-                cwd={props.projectCwd ?? ""}
-                className="size-4"
-                fallbackIcon={MessageSquareIcon}
-              />
-            </span>
-            {title}
-            {/* The PR badge stays outside the hover-fading slot: it must
+              {/* Settled history recedes: dimmed favicon at rest, restored on
+              hover so the tail stays scannable when you're hunting. */}
+              <span
+                className={cn(
+                  "shrink-0 transition-opacity",
+                  !props.isActive &&
+                    "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
+                )}
+              >
+                <ProjectFavicon
+                  environmentId={thread.environmentId}
+                  cwd={props.projectCwd ?? ""}
+                  className="size-4"
+                  fallbackIcon={MessageSquareIcon}
+                />
+              </span>
+              {title}
+              {/* The PR badge stays outside the hover-fading slot: it must
               remain visible AND clickable while the row is hovered. Only
               the time/jump label yields to the settle affordance. */}
-            {prBadge}
-            <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
-              <span className="inline-flex justify-end tabular-nums text-muted-foreground/55 transition-opacity group-hover/v2-row:opacity-0">
-                {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
-                  // Snoozed rows show when they come BACK, not when they were
-                  // last touched — the return ticket is the row's whole story.
-                  <span className="text-xs text-blue-600 tabular-nums dark:text-blue-400">
-                    {props.snoozeWakeLabelText}
-                  </span>
-                ) : isWoke ? (
-                  // A wake can land straight in the settled tail (e.g. PR
-                  // merged while snoozed); the signal must survive the trip.
-                  <span
-                    role="status"
-                    aria-label="Woke from snooze"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
-                  >
-                    <AlarmClockIcon aria-hidden className="size-3" />
-                    Woke
-                  </span>
-                ) : (
-                  <span className="text-xs">
-                    {variantAction === "unsettle"
-                      ? settledTimeLabel(thread)
-                      : threadTimeLabel(thread)}
-                  </span>
-                )}
-              </span>
-              {variantAction === "unsnooze" ? (
-                !props.snoozeSupported ? null : (
-                  <button
-                    type="button"
-                    aria-label="Wake thread now"
-                    onClick={handleUnsnoozeClick}
-                    className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
-                  >
-                    <AlarmClockOffIcon className="size-3" />
-                  </button>
-                )
-              ) : variantAction === "unsettle" ? (
-                // Settled rows are history, so they are also where you prune:
-                // delete sits next to un-settle rather than only in the
-                // context menu. Deletion needs no server capability, so it
-                // renders even where settlement is unsupported.
-                <span className="absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:opacity-100 group-hover/v2-row:opacity-100">
-                  <button
-                    type="button"
-                    aria-label="Delete thread"
-                    onClick={handleDeleteClick}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                    className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-destructive-foreground"
-                  >
-                    <Trash2Icon className="size-3" />
-                  </button>
-                  {props.settlementSupported ? (
+              {prBadge}
+              <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
+                <span className="inline-flex justify-end tabular-nums text-muted-foreground/55 transition-opacity group-hover/v2-row:opacity-0">
+                  {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
+                    // Snoozed rows show when they come BACK, not when they were
+                    // last touched — the return ticket is the row's whole story.
+                    <span className="text-xs text-blue-600 tabular-nums dark:text-blue-400">
+                      {props.snoozeWakeLabelText}
+                    </span>
+                  ) : isWoke ? (
+                    // A wake can land straight in the settled tail (e.g. PR
+                    // merged while snoozed); the signal must survive the trip.
+                    <span
+                      role="status"
+                      aria-label="Woke from snooze"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                    >
+                      <AlarmClockIcon aria-hidden className="size-3" />
+                      Woke
+                    </span>
+                  ) : (
+                    <span className="text-xs">
+                      {variantAction === "unsettle"
+                        ? settledTimeLabel(thread)
+                        : threadTimeLabel(thread)}
+                    </span>
+                  )}
+                </span>
+                {variantAction === "unsnooze" ? (
+                  !props.snoozeSupported ? null : (
                     <button
                       type="button"
-                      aria-label="Un-settle thread"
-                      onClick={handleUnsettleClick}
-                      className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      aria-label="Wake thread now"
+                      onClick={handleUnsnoozeClick}
+                      className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
                     >
-                      <Undo2Icon className="size-3" />
+                      <AlarmClockOffIcon className="size-3" />
                     </button>
-                  ) : null}
-                </span>
-              ) : !props.settlementSupported ? null : (
-                <button
-                  type="button"
-                  aria-label="Settle thread"
-                  onClick={handleSettleClick}
-                  className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
-                >
-                  <CheckIcon className="size-3" />
-                </button>
-              )}
-            </span>
-            {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
-          </TooltipTrigger>
-          {detailsTooltip}
-        </Tooltip>
+                  )
+                ) : variantAction === "unsettle" ? (
+                  // Settled rows are history, so they are also where you prune:
+                  // delete sits next to un-settle rather than only in the
+                  // context menu. Deletion needs no server capability, so it
+                  // renders even where settlement is unsupported.
+                  <span className="absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:opacity-100 group-hover/v2-row:opacity-100">
+                    <button
+                      type="button"
+                      aria-label="Delete thread"
+                      onClick={handleDeleteClick}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                      className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-destructive-foreground"
+                    >
+                      <Trash2Icon className="size-3" />
+                    </button>
+                    {props.settlementSupported ? (
+                      <button
+                        type="button"
+                        aria-label="Un-settle thread"
+                        onClick={handleUnsettleClick}
+                        className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Undo2Icon className="size-3" />
+                      </button>
+                    ) : null}
+                  </span>
+                ) : !props.settlementSupported ? null : (
+                  <button
+                    type="button"
+                    aria-label="Settle thread"
+                    onClick={handleSettleClick}
+                    className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+                  >
+                    <CheckIcon className="size-3" />
+                  </button>
+                )}
+              </span>
+              {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
+            </TooltipTrigger>
+            {detailsTooltip}
+          </Tooltip>
+        </div>
       </li>
     );
   }
@@ -1345,8 +1364,14 @@ export default function SidebarV2() {
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const sidebarThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
-  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThreads } =
-    useThreadActions();
+  const {
+    settleThread,
+    settleAndRemoveWorktree,
+    unsettleThread,
+    snoozeThread,
+    unsnoozeThread,
+    deleteThreads,
+  } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1386,6 +1411,7 @@ export default function SidebarV2() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const selectedThreadKeys = useThreadSelectionStore((s) => s.selectedThreadKeys);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1397,6 +1423,8 @@ export default function SidebarV2() {
   const setThreadExpanded = useUiStateStore((s) => s.setThreadExpanded);
   const worktreeExpandedByKey = useUiStateStore((s) => s.worktreeExpandedByKey);
   const setWorktreeExpanded = useUiStateStore((s) => s.setWorktreeExpanded);
+  const [removingWorktreeKey, setRemovingWorktreeKey] = useState<string | null>(null);
+  const [deletingSettledSelection, setDeletingSettledSelection] = useState(false);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -1786,6 +1814,13 @@ export default function SidebarV2() {
     snoozeWakeTick,
     threads,
   ]);
+  const selectedSettledThreads = useMemo(
+    () =>
+      settledThreads.filter((thread) =>
+        selectedThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+      ),
+    [selectedThreadKeys, settledThreads],
+  );
 
   // Arm a timeout for the earliest upcoming wake so the shelf empties the
   // moment a snooze expires instead of on the next minute tick. Sorted
@@ -1970,10 +2005,18 @@ export default function SidebarV2() {
         active: activeThreads,
         renderedActive: visibleActiveThreads,
         snoozed: snoozedThreads,
+        settled: settledThreads,
         drafts: groupedDraftRows,
         projectsByKey: worktreeProjectsByKey,
       }),
-    [activeThreads, groupedDraftRows, snoozedThreads, visibleActiveThreads, worktreeProjectsByKey],
+    [
+      activeThreads,
+      groupedDraftRows,
+      settledThreads,
+      snoozedThreads,
+      visibleActiveThreads,
+      worktreeProjectsByKey,
+    ],
   );
 
   // Visual order is the source of order everywhere else: jump hints, shift-range
@@ -2342,6 +2385,41 @@ export default function SidebarV2() {
   );
 
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
+  const deleteThreadSelection = useCallback(
+    async (selectedThreads: readonly EnvironmentThreadShell[]) => {
+      if (selectedThreads.length === 0) return;
+      const threadKeys = selectedThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      );
+      const deletionResult = await deleteThreads(selectedThreads);
+      if (deletionResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(deletionResult)) {
+          const error = squashAtomCommandFailure(deletionResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to delete threads",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+        return;
+      }
+      if (deletionResult.value !== null) removeFromSelection(threadKeys);
+    },
+    [deleteThreads, removeFromSelection],
+  );
+  const deleteSelectedSettledThreads = useCallback(() => {
+    if (deletingSettledSelection || selectedSettledThreads.length === 0) return;
+    void (async () => {
+      setDeletingSettledSelection(true);
+      try {
+        await deleteThreadSelection(selectedSettledThreads);
+      } finally {
+        setDeletingSettledSelection(false);
+      }
+    })();
+  }, [deleteThreadSelection, deletingSettledSelection, selectedSettledThreads]);
   const handleMultiSelectContextMenu = useCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -2435,30 +2513,14 @@ export default function SidebarV2() {
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const deletionResult = await deleteThreads(selectedThreads);
-      if (deletionResult._tag === "Failure") {
-        if (!isAtomCommandInterrupted(deletionResult)) {
-          const error = squashAtomCommandFailure(deletionResult);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to delete threads",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-        return;
-      }
-      if (deletionResult.value === null) return;
-      removeFromSelection(threadKeys);
+      await deleteThreadSelection(selectedThreads);
     },
     [
       attemptSettle,
       attemptSnooze,
       clearSelection,
-      deleteThreads,
+      deleteThreadSelection,
       markThreadUnread,
-      removeFromSelection,
       serverConfigs,
     ],
   );
@@ -2486,6 +2548,37 @@ export default function SidebarV2() {
       })();
     },
     [deleteThreads],
+  );
+
+  const attemptDeleteWorktree = useCallback(
+    (group: SidebarWorktreeGroup) => {
+      if (
+        group.isProjectCheckout ||
+        group.workspaceRoot === null ||
+        group.projectRoot === null ||
+        removingWorktreeKey !== null
+      ) {
+        return;
+      }
+      const workspaceRoot = group.workspaceRoot;
+      const projectRoot = group.projectRoot;
+
+      void (async () => {
+        setRemovingWorktreeKey(group.key);
+        try {
+          await settleAndRemoveWorktree({
+            environmentId: group.environmentId as EnvironmentId,
+            projectCwd: projectRoot,
+            worktreePath: workspaceRoot,
+            label: group.label,
+            threads,
+          });
+        } finally {
+          setRemovingWorktreeKey(null);
+        }
+      })();
+    },
+    [removingWorktreeKey, settleAndRemoveWorktree, threads],
   );
 
   const handleThreadContextMenu = useCallback(
@@ -3010,41 +3103,60 @@ export default function SidebarV2() {
                         data-thread-selection-safe
                         className="list-none"
                       >
-                        <button
-                          type="button"
-                          aria-expanded={expanded}
-                          title={group.tooltip}
-                          onClick={() => setWorktreeExpanded(group.key, !expanded)}
-                          className="mb-1 mt-2 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
-                        >
-                          {expanded ? (
-                            <ChevronDownIcon className="size-3 shrink-0" />
-                          ) : (
-                            <ChevronRightIcon className="size-3 shrink-0" />
-                          )}
-                          <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{group.label}</span>
-                          {!expanded ? (
-                            <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-muted-foreground/65">
-                              {group.ongoingConversationCount > 0 ? (
+                        <div className="mb-1 mt-2 flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            title={group.tooltip}
+                            onClick={() => setWorktreeExpanded(group.key, !expanded)}
+                            className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
+                          >
+                            {expanded ? (
+                              <ChevronDownIcon className="size-3 shrink-0" />
+                            ) : (
+                              <ChevronRightIcon className="size-3 shrink-0" />
+                            )}
+                            <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="truncate">{group.label}</span>
+                            {!expanded ? (
+                              <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-muted-foreground/65">
+                                {group.ongoingConversationCount > 0 ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
+                                    title={`${group.ongoingConversationCount} ongoing conversation${group.ongoingConversationCount === 1 ? "" : "s"}`}
+                                  >
+                                    <span
+                                      aria-hidden
+                                      className="size-1.5 rounded-full bg-current"
+                                    />
+                                    {group.ongoingConversationCount} ongoing
+                                  </span>
+                                ) : null}
                                 <span
-                                  className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
-                                  title={`${group.ongoingConversationCount} ongoing conversation${group.ongoingConversationCount === 1 ? "" : "s"}`}
+                                  className="inline-flex items-center gap-1"
+                                  title={`${group.conversationCount} conversation${group.conversationCount === 1 ? "" : "s"}`}
                                 >
-                                  <span aria-hidden className="size-1.5 rounded-full bg-current" />
-                                  {group.ongoingConversationCount} ongoing
+                                  <MessageSquareIcon aria-hidden className="size-3" />
+                                  {group.conversationCount}
                                 </span>
-                              ) : null}
-                              <span
-                                className="inline-flex items-center gap-1"
-                                title={`${group.conversationCount} conversation${group.conversationCount === 1 ? "" : "s"}`}
-                              >
-                                <MessageSquareIcon aria-hidden className="size-3" />
-                                {group.conversationCount}
                               </span>
-                            </span>
+                            ) : null}
+                          </button>
+                          {!group.isProjectCheckout &&
+                          group.workspaceRoot !== null &&
+                          group.projectRoot !== null ? (
+                            <button
+                              type="button"
+                              aria-label={`Delete worktree ${group.label}`}
+                              title={`Delete worktree ${group.label}`}
+                              disabled={removingWorktreeKey !== null}
+                              onClick={() => attemptDeleteWorktree(group)}
+                              className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-sidebar-row-hover hover:text-destructive-foreground disabled:cursor-wait disabled:opacity-40"
+                            >
+                              <Trash2Icon aria-hidden className="size-3.5" />
+                            </button>
                           ) : null}
-                        </button>
+                        </div>
                       </li>,
                     );
                     if (!expanded) continue;
@@ -3136,25 +3248,43 @@ export default function SidebarV2() {
                 if (settledThreads.length > 0) {
                   items.push(
                     <li key="settled-shelf-header" data-thread-selection-safe className="list-none">
-                      <button
-                        type="button"
-                        onClick={toggleSettledShelf}
-                        aria-expanded={settledShelfExpanded}
-                        data-testid="sidebar-v2-settled-shelf-toggle"
-                        className="mb-1 mt-3 flex w-full cursor-pointer items-center gap-2 px-2.5 text-left"
-                      >
-                        <span className="text-xs font-medium text-muted-foreground/50">
-                          {settledShelfExpanded ? "Settled" : `Settled (${settledThreads.length})`}
-                        </span>
-                        <span className="h-px flex-1 bg-sidebar-border/60" />
-                        <ChevronDownIcon
-                          aria-hidden
-                          className={cn(
-                            "size-3 text-muted-foreground/50 transition-transform",
-                            settledShelfExpanded && "rotate-180",
-                          )}
-                        />
-                      </button>
+                      <div className="mb-1 mt-3 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={toggleSettledShelf}
+                          aria-expanded={settledShelfExpanded}
+                          data-testid="sidebar-v2-settled-shelf-toggle"
+                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2.5 text-left"
+                        >
+                          <span className="text-xs font-medium text-muted-foreground/50">
+                            {settledShelfExpanded
+                              ? "Settled"
+                              : `Settled (${settledThreads.length})`}
+                          </span>
+                          <span className="h-px flex-1 bg-sidebar-border/60" />
+                          <ChevronDownIcon
+                            aria-hidden
+                            className={cn(
+                              "size-3 text-muted-foreground/50 transition-transform",
+                              settledShelfExpanded && "rotate-180",
+                            )}
+                          />
+                        </button>
+                        {selectedSettledThreads.length > 0 ? (
+                          <button
+                            type="button"
+                            disabled={deletingSettledSelection}
+                            onClick={deleteSelectedSettledThreads}
+                            className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-[11px] font-medium text-destructive-foreground transition-colors hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-50"
+                            aria-label={`Delete ${selectedSettledThreads.length} selected settled conversation${selectedSettledThreads.length === 1 ? "" : "s"}`}
+                          >
+                            <Trash2Icon aria-hidden className="size-3" />
+                            <span className="tabular-nums">
+                              Delete {selectedSettledThreads.length}
+                            </span>
+                          </button>
+                        ) : null}
+                      </div>
                     </li>,
                   );
                 }

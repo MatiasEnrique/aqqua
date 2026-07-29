@@ -1,12 +1,16 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import {
+  buildWorktreeSettlementPlan,
   buildWorktreeDeletionPlan,
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
   isFinalWorktreeReferenceAfterDeletion,
+  selectThreadsForWorktree,
   worktreeRemovalInspectionUnchanged,
 } from "./worktreeCleanup";
 
@@ -39,6 +43,16 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     ...overrides,
+  };
+}
+
+function asShell(thread: Thread): EnvironmentThreadShell {
+  return {
+    ...thread,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
   };
 }
 
@@ -114,6 +128,138 @@ describe("formatWorktreePathForDisplay", () => {
   it("ignores trailing slashes", () => {
     const result = formatWorktreePathForDisplay("/tmp/custom-worktrees/my-worktree/");
     expect(result).toBe("my-worktree");
+  });
+});
+
+describe("selectThreadsForWorktree", () => {
+  it("selects every conversation for one environment and worktree path", () => {
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+    const matching = makeThread({
+      id: ThreadId.make("matching"),
+      worktreePath: "/tmp/worktrees/feature-a",
+    });
+    const anotherConversation = makeThread({
+      id: ThreadId.make("another-conversation"),
+      worktreePath: "/tmp/worktrees/feature-a/",
+    });
+    const anotherWorktree = makeThread({
+      id: ThreadId.make("another-worktree"),
+      worktreePath: "/tmp/worktrees/feature-b",
+    });
+    const anotherEnvironment = makeThread({
+      id: ThreadId.make("another-environment"),
+      environmentId: remoteEnvironmentId,
+      worktreePath: "/tmp/worktrees/feature-a",
+    });
+
+    expect(
+      selectThreadsForWorktree({
+        environmentId: localEnvironmentId,
+        worktreePath: "/tmp/worktrees/feature-a",
+        threads: [matching, anotherConversation, anotherWorktree, anotherEnvironment],
+      }).map((thread) => thread.id),
+    ).toEqual([ThreadId.make("matching"), ThreadId.make("another-conversation")]);
+  });
+});
+
+describe("buildWorktreeSettlementPlan", () => {
+  it("unsnoozes and settles quiet conversations while blocking a running conversation", () => {
+    const worktreePath = "/tmp/worktrees/feature-a";
+    const ready = makeThread({
+      id: ThreadId.make("ready"),
+      worktreePath,
+    });
+    const snoozed = makeThread({
+      id: ThreadId.make("snoozed"),
+      worktreePath,
+      snoozedAt: "2026-02-13T00:00:00.000Z",
+      snoozedUntil: "2026-02-20T00:00:00.000Z",
+    });
+    const settled = makeThread({
+      id: ThreadId.make("settled"),
+      worktreePath,
+      settledOverride: "settled",
+      settledAt: "2026-02-13T00:00:00.000Z",
+    });
+    const running = makeThread({
+      id: ThreadId.make("running"),
+      worktreePath,
+      session: {
+        threadId: ThreadId.make("running"),
+        status: "running",
+        providerName: "Codex",
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: "2026-02-14T00:00:00.000Z",
+      },
+    });
+
+    const plan = buildWorktreeSettlementPlan({
+      environmentId: localEnvironmentId,
+      worktreePath,
+      threads: [ready, snoozed, settled, running].map(asShell),
+      now: "2026-02-14T00:00:00.000Z",
+      settlementSupported: true,
+    });
+
+    expect(plan.threadsToUnsnooze.map((thread) => thread.id)).toEqual([ThreadId.make("snoozed")]);
+    expect(plan.threadsToSettle.map((thread) => thread.id)).toEqual([
+      ThreadId.make("ready"),
+      ThreadId.make("snoozed"),
+      ThreadId.make("running"),
+    ]);
+    expect(plan.blockedThreads.map((thread) => thread.id)).toEqual([ThreadId.make("running")]);
+  });
+
+  it("blocks removal when the environment cannot settle an unsettled conversation", () => {
+    const ready = asShell(
+      makeThread({
+        id: ThreadId.make("ready"),
+        worktreePath: "/tmp/worktrees/feature-a",
+      }),
+    );
+
+    const plan = buildWorktreeSettlementPlan({
+      environmentId: localEnvironmentId,
+      worktreePath: "/tmp/worktrees/feature-a",
+      threads: [ready],
+      now: "2026-02-14T00:00:00.000Z",
+      settlementSupported: false,
+    });
+
+    expect(plan.threadsToSettle).toEqual([ready]);
+    expect(plan.blockedThreads).toEqual([ready]);
+  });
+
+  it("pins an auto-settled conversation explicitly before removing its worktree", () => {
+    const autoSettled = {
+      ...asShell(
+        makeThread({
+          id: ThreadId.make("auto-settled"),
+          worktreePath: "/tmp/worktrees/feature-a",
+        }),
+      ),
+      latestUserMessageAt: "2026-02-01T00:00:00.000Z",
+    };
+    expect(
+      effectiveSettled(autoSettled, {
+        now: "2026-02-14T00:00:00.000Z",
+        autoSettleAfterDays: 1,
+        changeRequestState: null,
+      }),
+    ).toBe(true);
+
+    const plan = buildWorktreeSettlementPlan({
+      environmentId: localEnvironmentId,
+      worktreePath: "/tmp/worktrees/feature-a",
+      threads: [autoSettled],
+      now: "2026-02-14T00:00:00.000Z",
+      settlementSupported: true,
+    });
+
+    expect(plan.threadsToSettle).toEqual([autoSettled]);
+    expect(plan.blockedThreads).toEqual([]);
   });
 });
 
