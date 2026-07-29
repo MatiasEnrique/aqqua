@@ -34,6 +34,7 @@ import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffRenderKey,
   getDiffCollapseIconClassName,
+  getDiffLineStat,
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
@@ -45,6 +46,7 @@ import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffCommitBar } from "./diffs/DiffCommitBar";
 import {
@@ -534,6 +536,7 @@ export default function DiffPanel({
   );
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
+  const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);
 
   const gitActionCwd = branchDiffPreview.data?.cwd ?? activeCwd ?? null;
   const commitFiles = useMemo<DiffCommitFile[]>(
@@ -1009,6 +1012,14 @@ export default function DiffPanel({
               {isPulling ? "Pulling..." : "Pull the current branch"}
             </TooltipPopup>
           </Tooltip>
+        )}
+        {codeViewFiles.length > 0 && (
+          <DiffStatLabel
+            additions={diffLineStat.additions}
+            deletions={diffLineStat.deletions}
+            className="mr-1 text-[11px]"
+            layout="inline"
+          />
         )}
         {codeViewFiles.length > 0 && (
           <Tooltip>
