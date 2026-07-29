@@ -22,7 +22,8 @@ export interface SidebarWorktreeGroup {
   readonly drafts: readonly WorktreeDraftRow[];
   readonly active: readonly EnvironmentThreadShell[];
   readonly snoozed: readonly EnvironmentThreadShell[];
-  readonly settled: readonly EnvironmentThreadShell[];
+  readonly conversationCount: number;
+  readonly ongoingConversationCount: number;
 }
 
 interface ProjectWorkspace {
@@ -46,8 +47,8 @@ function timestamp(value: string): number {
 
 export function buildSidebarWorktreeGroups(input: {
   readonly active: readonly EnvironmentThreadShell[];
+  readonly renderedActive?: readonly EnvironmentThreadShell[];
   readonly snoozed: readonly EnvironmentThreadShell[];
-  readonly settled: readonly EnvironmentThreadShell[];
   readonly drafts: readonly WorktreeDraftRow[];
   readonly projectsByKey: ReadonlyMap<string, ProjectWorkspace>;
 }): SidebarWorktreeGroup[] {
@@ -64,11 +65,10 @@ export function buildSidebarWorktreeGroups(input: {
       drafts: WorktreeDraftRow[];
       active: EnvironmentThreadShell[];
       snoozed: EnvironmentThreadShell[];
-      settled: EnvironmentThreadShell[];
     }
   >();
 
-  const addThread = (thread: EnvironmentThreadShell, bucket: "active" | "snoozed" | "settled") => {
+  const addThread = (thread: EnvironmentThreadShell, bucket: "active" | "snoozed") => {
     const project = input.projectsByKey.get(`${thread.environmentId}:${thread.projectId}`);
     if (!project) return;
     const workspaceRoot = thread.worktreePath ?? project.workspaceRoot;
@@ -86,7 +86,6 @@ export function buildSidebarWorktreeGroups(input: {
       drafts: [],
       active: [],
       snoozed: [],
-      settled: [],
     };
     current[bucket].push(thread);
     const nextUpdatedAt = timestamp(thread.updatedAt);
@@ -99,7 +98,6 @@ export function buildSidebarWorktreeGroups(input: {
 
   for (const thread of input.active) addThread(thread, "active");
   for (const thread of input.snoozed) addThread(thread, "snoozed");
-  for (const thread of input.settled) addThread(thread, "settled");
 
   for (const draft of input.drafts) {
     const project = input.projectsByKey.get(`${draft.environmentId}:${draft.projectId}`);
@@ -117,7 +115,6 @@ export function buildSidebarWorktreeGroups(input: {
         drafts: [],
         active: [],
         snoozed: [],
-        settled: [],
       };
       current.drafts.push(draft);
       current.updatedAt = Math.max(current.updatedAt, timestamp(draft.createdAt));
@@ -136,9 +133,13 @@ export function buildSidebarWorktreeGroups(input: {
       drafts: [draft],
       active: [],
       snoozed: [],
-      settled: [],
     });
   }
+
+  const renderedActiveKeys =
+    input.renderedActive === undefined
+      ? null
+      : new Set(input.renderedActive.map((thread) => `${thread.environmentId}:${thread.id}`));
 
   return [...groups.entries()]
     .map(
@@ -153,9 +154,17 @@ export function buildSidebarWorktreeGroups(input: {
         isProjectCheckout: group.isProjectCheckout,
         updatedAt: group.updatedAt,
         drafts: group.drafts,
-        active: group.active,
+        active:
+          renderedActiveKeys === null
+            ? group.active
+            : group.active.filter((thread) =>
+                renderedActiveKeys.has(`${thread.environmentId}:${thread.id}`),
+              ),
         snoozed: group.snoozed,
-        settled: group.settled,
+        conversationCount: group.drafts.length + group.active.length + group.snoozed.length,
+        ongoingConversationCount: group.active.filter(
+          (thread) => thread.session?.status === "running" || thread.session?.status === "starting",
+        ).length,
       }),
     )
     .toSorted(

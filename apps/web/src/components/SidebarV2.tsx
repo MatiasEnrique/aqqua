@@ -1815,7 +1815,6 @@ export default function SidebarV2() {
         ? buildSidebarWorktreeGroups({
             active: activeThreads,
             snoozed: [],
-            settled: [],
             drafts: [],
             projectsByKey: worktreeProjectsByKey,
           }).flatMap((group) => buildSidebarThreadTree({ threads: group.active }))
@@ -1968,17 +1967,14 @@ export default function SidebarV2() {
   const worktreeGroups = useMemo(
     () =>
       buildSidebarWorktreeGroups({
-        active: visibleActiveThreads,
+        active: activeThreads,
+        renderedActive: visibleActiveThreads,
         snoozed: snoozedThreads,
-        settled: settledThreads,
         drafts: groupedDraftRows,
         projectsByKey: worktreeProjectsByKey,
       }),
-    [groupedDraftRows, settledThreads, snoozedThreads, visibleActiveThreads, worktreeProjectsByKey],
+    [activeThreads, groupedDraftRows, snoozedThreads, visibleActiveThreads, worktreeProjectsByKey],
   );
-  const [settledVisibleCountByWorktree, setSettledVisibleCountByWorktree] = useState<
-    Readonly<Record<string, number>>
-  >({});
 
   // Visual order is the source of order everywhere else: jump hints, shift-range
   // selection and up/down traversal all follow the nesting, and a collapsed
@@ -2995,14 +2991,14 @@ export default function SidebarV2() {
                     />
                   );
                 };
+                const items: ReactNode[] = [];
                 if (sidebarThreadGroupingMode === "worktree") {
-                  const items: ReactNode[] = [];
                   for (const group of worktreeGroups) {
                     const routeInsideGroup =
                       (routeDraftId !== null &&
                         group.drafts.some((draft) => draft.draftId === routeDraftId)) ||
                       (routeThreadKey !== null &&
-                        [...group.active, ...group.snoozed, ...group.settled].some(
+                        [...group.active, ...group.snoozed].some(
                           (thread) =>
                             scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
                             routeThreadKey,
@@ -3028,12 +3024,26 @@ export default function SidebarV2() {
                           )}
                           <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
                           <span className="truncate">{group.label}</span>
-                          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground/60">
-                            {group.drafts.length +
-                              group.active.length +
-                              group.snoozed.length +
-                              group.settled.length}
-                          </span>
+                          {!expanded ? (
+                            <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-muted-foreground/65">
+                              {group.ongoingConversationCount > 0 ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
+                                  title={`${group.ongoingConversationCount} ongoing conversation${group.ongoingConversationCount === 1 ? "" : "s"}`}
+                                >
+                                  <span aria-hidden className="size-1.5 rounded-full bg-current" />
+                                  {group.ongoingConversationCount} ongoing
+                                </span>
+                              ) : null}
+                              <span
+                                className="inline-flex items-center gap-1"
+                                title={`${group.conversationCount} conversation${group.conversationCount === 1 ? "" : "s"}`}
+                              >
+                                <MessageSquareIcon aria-hidden className="size-3" />
+                                {group.conversationCount}
+                              </span>
+                            </span>
+                          ) : null}
                         </button>
                       </li>,
                     );
@@ -3077,107 +3087,50 @@ export default function SidebarV2() {
                     for (const thread of visibleGroupSnoozed) {
                       items.push(renderThreadRow(thread, "snoozed"));
                     }
-                    const groupSettledVisibleCount =
-                      settledVisibleCountByWorktree[group.key] ?? SETTLED_TAIL_INITIAL_COUNT;
-                    const visibleGroupSettled = group.settled.slice(0, groupSettledVisibleCount);
-                    const routedSettled = group.settled
-                      .slice(groupSettledVisibleCount)
-                      .find(
-                        (thread) =>
-                          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                          routeThreadKey,
-                      );
-                    if (routedSettled) visibleGroupSettled.push(routedSettled);
-                    const renderedGroupSettled = settledShelfExpanded
-                      ? visibleGroupSettled
-                      : visibleGroupSettled.filter(
-                          (thread) =>
-                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                            routeThreadKey,
-                        );
-                    if (group.settled.length > 0) {
-                      items.push(
-                        <li
-                          key={`${group.key}:settled`}
-                          data-thread-selection-safe
-                          className="list-none"
-                        >
-                          <button
-                            type="button"
-                            onClick={toggleSettledShelf}
-                            aria-expanded={settledShelfExpanded}
-                            className="mb-1 mt-2 flex w-full items-center gap-2 px-2.5 text-left"
-                          >
-                            <span className="text-[11px] font-medium text-muted-foreground/55">
-                              {settledShelfExpanded
-                                ? "Settled"
-                                : `Settled (${group.settled.length})`}
-                            </span>
-                            <span className="h-px flex-1 bg-sidebar-border/60" />
-                          </button>
-                        </li>,
-                      );
-                    }
-                    for (const thread of renderedGroupSettled) {
-                      items.push(renderThreadRow(thread, "settled"));
-                    }
-                    const hiddenGroupSettled = group.settled.length - visibleGroupSettled.length;
-                    if (settledShelfExpanded && hiddenGroupSettled > 0) {
-                      items.push(
-                        <li key={`${group.key}:more-settled`} className="list-none">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSettledVisibleCountByWorktree((current) => ({
-                                ...current,
-                                [group.key]: groupSettledVisibleCount + SETTLED_TAIL_PAGE_COUNT,
-                              }))
-                            }
-                            className="mt-1 flex h-7 w-full items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground"
-                          >
-                            Show {Math.min(hiddenGroupSettled, SETTLED_TAIL_PAGE_COUNT)} more
-                          </button>
-                        </li>,
-                      );
-                    }
                   }
-                  return items;
-                }
-                const items: ReactNode[] = draftRows.map(renderDraftRow);
-                items.push(
-                  ...visibleActiveThreads.map((thread) => renderThreadRow(thread, "active")),
-                );
-                // Snoozed shelf: between the inbox and Settled — out of the
-                // way, never gone. The header always renders while anything
-                // is snoozed (the count is the whole footprint when
-                // collapsed); rows only when expanded. Vanishes entirely at
-                // count 0.
-                if (snoozedThreads.length > 0) {
+                } else {
                   items.push(
-                    <li key="snoozed-shelf-header" data-thread-selection-safe className="list-none">
-                      <button
-                        type="button"
-                        onClick={toggleSnoozedShelf}
-                        aria-expanded={snoozedShelfExpanded}
-                        data-testid="sidebar-v2-snoozed-shelf-toggle"
-                        className="mb-1 mt-3 flex w-full cursor-pointer items-center gap-2 px-2.5 text-left"
-                      >
-                        <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                          {snoozedShelfExpanded ? "Snoozed" : `Snoozed (${snoozedThreads.length})`}
-                        </span>
-                        <span className="h-px flex-1 bg-blue-500/20 dark:bg-blue-400/15" />
-                        <ChevronDownIcon
-                          aria-hidden
-                          className={cn(
-                            "size-3 text-blue-600 transition-transform dark:text-blue-400",
-                            snoozedShelfExpanded && "rotate-180",
-                          )}
-                        />
-                      </button>
-                    </li>,
+                    ...draftRows.map(renderDraftRow),
+                    ...visibleActiveThreads.map((thread) => renderThreadRow(thread, "active")),
                   );
-                  for (const thread of visibleSnoozedThreads) {
-                    items.push(renderThreadRow(thread, "snoozed"));
+                  // Snoozed shelf: between the inbox and Settled — out of the
+                  // way, never gone. The header always renders while anything
+                  // is snoozed (the count is the whole footprint when
+                  // collapsed); rows only when expanded. Vanishes entirely at
+                  // count 0.
+                  if (snoozedThreads.length > 0) {
+                    items.push(
+                      <li
+                        key="snoozed-shelf-header"
+                        data-thread-selection-safe
+                        className="list-none"
+                      >
+                        <button
+                          type="button"
+                          onClick={toggleSnoozedShelf}
+                          aria-expanded={snoozedShelfExpanded}
+                          data-testid="sidebar-v2-snoozed-shelf-toggle"
+                          className="mb-1 mt-3 flex w-full cursor-pointer items-center gap-2 px-2.5 text-left"
+                        >
+                          <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                            {snoozedShelfExpanded
+                              ? "Snoozed"
+                              : `Snoozed (${snoozedThreads.length})`}
+                          </span>
+                          <span className="h-px flex-1 bg-blue-500/20 dark:bg-blue-400/15" />
+                          <ChevronDownIcon
+                            aria-hidden
+                            className={cn(
+                              "size-3 text-blue-600 transition-transform dark:text-blue-400",
+                              snoozedShelfExpanded && "rotate-180",
+                            )}
+                          />
+                        </button>
+                      </li>,
+                    );
+                    for (const thread of visibleSnoozedThreads) {
+                      items.push(renderThreadRow(thread, "snoozed"));
+                    }
                   }
                 }
                 if (settledThreads.length > 0) {
@@ -3210,9 +3163,7 @@ export default function SidebarV2() {
                 }
                 return items;
               })()}
-              {sidebarThreadGroupingMode === "flat" &&
-              settledShelfExpanded &&
-              hiddenSettledCount > 0 ? (
+              {settledShelfExpanded && hiddenSettledCount > 0 ? (
                 <li className="list-none">
                   <button
                     type="button"
