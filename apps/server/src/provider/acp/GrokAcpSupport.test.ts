@@ -91,6 +91,36 @@ describe("applyGrokAcpModelSelection", () => {
     }),
   );
 
+  it.effect("skips set_model when the requested model is not advertised by the CLI", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-4.5",
+        requestedModelId: "grok-build",
+        availableModelIds: ["grok-4.5"],
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toBe("grok-4.5");
+    }),
+  );
+
+  it.effect("switches when the requested model is advertised by the CLI", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-4.5",
+        requestedModelId: "grok-mock-alt",
+        availableModelIds: ["grok-4.5", "grok-mock-alt"],
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual(["grok-mock-alt"]);
+      expect(result).toBe("grok-mock-alt");
+    }),
+  );
+
   it.effect("propagates session/set_model failures via mapError", () =>
     Effect.gen(function* () {
       const failure = EffectAcpErrors.AcpRequestError.invalidParams("session id not known");

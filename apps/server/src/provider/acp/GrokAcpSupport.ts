@@ -91,14 +91,45 @@ export function currentGrokModelIdFromSessionSetup(
   return sessionSetupResult.models?.currentModelId?.trim() || undefined;
 }
 
+export function availableGrokModelIdsFromSessionSetup(
+  sessionSetupResult:
+    | EffectAcpSchema.LoadSessionResponse
+    | EffectAcpSchema.NewSessionResponse
+    | EffectAcpSchema.ResumeSessionResponse,
+): ReadonlyArray<string> | undefined {
+  const models = sessionSetupResult.models?.availableModels;
+  if (!models) {
+    return undefined;
+  }
+  return models.flatMap((model) => {
+    const id = model?.modelId?.trim();
+    return id ? [id] : [];
+  });
+}
+
 export function applyGrokAcpModelSelection<E>(input: {
   readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel">;
   readonly currentModelId: string | undefined;
   readonly requestedModelId: string | undefined;
+  /**
+   * Model ids the CLI advertised in its session setup response. When present,
+   * a requested id outside this list skips `session/set_model` and keeps the
+   * CLI's current model: the CLI rejects unknown ids with a fatal
+   * "Invalid params" (e.g. a stored default like "grok-build" that a newer CLI
+   * no longer serves), and a stale slug must not prevent the session from
+   * starting. Omit to force the switch attempt (explicit user selection paths).
+   */
+  readonly availableModelIds?: ReadonlyArray<string>;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
+  const requestedIsAvailable =
+    input.availableModelIds === undefined ||
+    (input.requestedModelId !== undefined &&
+      input.availableModelIds.includes(input.requestedModelId));
   const shouldSwitchModel =
-    input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
+    input.requestedModelId !== undefined &&
+    input.requestedModelId !== input.currentModelId &&
+    requestedIsAvailable;
   if (!shouldSwitchModel) {
     return Effect.succeed(input.currentModelId);
   }

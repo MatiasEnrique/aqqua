@@ -56,6 +56,7 @@ import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import {
   applyGrokAcpModelSelection,
+  availableGrokModelIdsFromSessionSetup,
   currentGrokModelIdFromSessionSetup,
   makeGrokAcpRuntime,
   resolveGrokAcpBaseModelId,
@@ -767,10 +768,16 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           const requestedStartModelId = grokModelSelection?.model
             ? resolveGrokAcpBaseModelId(grokModelSelection.model)
             : undefined;
+          const startAvailableModelIds = availableGrokModelIdsFromSessionSetup(
+            started.sessionSetupResult,
+          );
           const boundModelId = yield* applyGrokAcpModelSelection({
             runtime: acp,
             currentModelId: currentGrokModelIdFromSessionSetup(started.sessionSetupResult),
             requestedModelId: requestedStartModelId,
+            ...(startAvailableModelIds !== undefined
+              ? { availableModelIds: startAvailableModelIds }
+              : {}),
             mapError: (cause) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
           });
