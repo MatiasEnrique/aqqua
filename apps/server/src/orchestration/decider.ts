@@ -526,6 +526,41 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
+      // Settling an orchestrator takes its sub-agent threads with it: each
+      // not-yet-settled child is settled through its own thread.settle so
+      // grandchildren cascade too and every descendant gets its own
+      // thread.settled event. Already-settled children are skipped (parent
+      // settle stays a silent no-op for them). If any descendant would be
+      // rejected by the settle guards above, decideCommandSequence fails
+      // the whole command — never a partial cascade.
+      // Archived children are excluded rather than cascaded: they are out of
+      // the inbox entirely, and their requireThreadNotArchived guard would
+      // otherwise veto the parent's settle over an invisible row.
+      const unsettledChildThreads = listThreadsByParentThreadId(readModel, command.threadId).filter(
+        (child) =>
+          child.deletedAt === null &&
+          child.archivedAt === null &&
+          !(child.settledOverride === "settled" && child.settledAt !== null),
+      );
+      if (unsettledChildThreads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...unsettledChildThreads.map(
+              (child): Extract<OrchestrationCommand, { type: "thread.settle" }> => ({
+                type: "thread.settle",
+                commandId: command.commandId,
+                threadId: child.id,
+              }),
+            ),
+            {
+              type: "thread.settle",
+              commandId: command.commandId,
+              threadId: command.threadId,
+            },
+          ],
+        });
+      }
       // Settling an already-settled thread re-emits with the original
       // settledAt: the engine rejects zero-event commands, and bulk-settle /
       // double-click must stay silent no-ops rather than surface errors.
