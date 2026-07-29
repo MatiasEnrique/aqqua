@@ -400,13 +400,15 @@ function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 font-medium",
+        "inline-flex h-4 shrink-0 items-center gap-1 font-medium leading-none",
         presentation.className,
         props.className,
       )}
     >
       {presentation.icon}
-      <span role="status">{presentation.label}</span>
+      <span role="status" className="leading-none">
+        {presentation.label}
+      </span>
     </span>
   );
 }
@@ -1115,12 +1117,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               {title}
               {prBadge}
+            </div>
+            <div className="ml-auto flex h-7 shrink-0 items-center gap-2.5 text-[11px] leading-none">
               {driverKind ? (
                 <span
                   role="img"
                   aria-label={`${thread.session?.providerName ?? modelInstanceId}, ${modelLabel}`}
                   title={`${thread.session?.providerName ?? modelInstanceId}, ${modelLabel}`}
-                  className="inline-flex shrink-0 items-center opacity-60"
+                  className="inline-flex size-4 shrink-0 items-center justify-center self-center leading-none opacity-60"
                 >
                   <ProviderInstanceIcon
                     driverKind={driverKind}
@@ -1129,46 +1133,46 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   />
                 </span>
               ) : null}
-              <span className="shrink-0 text-[11px] text-muted-foreground/45 @max-[300px]/sidebar-conversations:hidden">
+              <span className="shrink-0 leading-none text-muted-foreground/45 tabular-nums @max-[300px]/sidebar-conversations:hidden">
                 Updated {threadTimeLabel(thread)}
               </span>
-            </div>
-            <span className="group/v2-status-slot relative flex h-7 min-w-14 shrink-0 items-center justify-end text-[11px]">
-              <span
-                className={cn(
-                  "transition-opacity group-focus-within/v2-status-slot:absolute group-focus-within/v2-status-slot:right-0 group-hover/v2-row:absolute group-hover/v2-row:right-0 group-hover/v2-row:opacity-0",
-                  snoozeMenuOpen && "absolute right-0 opacity-0",
-                )}
-              >
-                <SidebarSummaryStateLabel state={summaryState} />
-              </span>
-              {props.settlementSupported || showSnoozeButton ? (
+              <span className="group/v2-status-slot relative flex h-7 min-w-14 shrink-0 items-center justify-end">
                 <span
                   className={cn(
-                    "absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:static focus-within:opacity-100 group-hover/v2-row:static group-hover/v2-row:opacity-100",
-                    snoozeMenuOpen && "static opacity-100",
+                    "inline-flex items-center transition-opacity group-focus-within/v2-status-slot:absolute group-focus-within/v2-status-slot:right-0 group-hover/v2-row:absolute group-hover/v2-row:right-0 group-hover/v2-row:opacity-0",
+                    snoozeMenuOpen && "absolute right-0 opacity-0",
                   )}
                 >
-                  {showSnoozeButton ? (
-                    <SnoozePopoverButton
-                      open={snoozeMenuOpen}
-                      onOpenChange={setSnoozeMenuOpen}
-                      onSnooze={handleSnoozePreset}
-                    />
-                  ) : null}
-                  {props.settlementSupported ? (
-                    <button
-                      type="button"
-                      aria-label="Settle thread"
-                      onClick={handleSettleClick}
-                      className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <CheckIcon className="size-3.5" />
-                    </button>
-                  ) : null}
+                  <SidebarSummaryStateLabel state={summaryState} />
                 </span>
-              ) : null}
-            </span>
+                {props.settlementSupported || showSnoozeButton ? (
+                  <span
+                    className={cn(
+                      "absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:static focus-within:opacity-100 group-hover/v2-row:static group-hover/v2-row:opacity-100",
+                      snoozeMenuOpen && "static opacity-100",
+                    )}
+                  >
+                    {showSnoozeButton ? (
+                      <SnoozePopoverButton
+                        open={snoozeMenuOpen}
+                        onOpenChange={setSnoozeMenuOpen}
+                        onSnooze={handleSnoozePreset}
+                      />
+                    ) : null}
+                    {props.settlementSupported ? (
+                      <button
+                        type="button"
+                        aria-label="Settle thread"
+                        onClick={handleSettleClick}
+                        className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <CheckIcon className="size-3.5" />
+                      </button>
+                    ) : null}
+                  </span>
+                ) : null}
+              </span>
+            </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
         </TooltipTrigger>
