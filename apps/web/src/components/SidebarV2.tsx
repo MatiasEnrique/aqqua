@@ -88,6 +88,7 @@ import {
 } from "../sidebarProjectGrouping";
 import {
   legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
   resolveThreadExpanded,
   useUiStateStore,
 } from "../uiStateStore";
@@ -139,7 +140,11 @@ import {
   shouldReserveThreadExpandGutter,
 } from "./Sidebar.threadTree";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
-import { buildSidebarWorktreeGroups, type SidebarWorktreeGroup } from "./Sidebar.worktreeGroups";
+import {
+  buildSidebarRepositoryGroups,
+  buildSidebarWorktreeGroups,
+  type SidebarWorktreeGroup,
+} from "./Sidebar.worktreeGroups";
 import {
   prStatusIndicator,
   resolveThreadPr,
@@ -422,6 +427,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   environmentLabel: string | null;
   projectCwd: string | null;
   projectTitle: string | null;
+  showProjectIdentity: boolean;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
   onThreadActivate: (threadRef: ScopedThreadRef) => void;
@@ -966,20 +972,22 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             >
               {/* Settled history recedes: dimmed favicon at rest, restored on
               hover so the tail stays scannable when you're hunting. */}
-              <span
-                className={cn(
-                  "shrink-0 transition-opacity",
-                  !props.isActive &&
-                    "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
-                )}
-              >
-                <ProjectFavicon
-                  environmentId={thread.environmentId}
-                  cwd={props.projectCwd ?? ""}
-                  className="size-4"
-                  fallbackIcon={MessageSquareIcon}
-                />
-              </span>
+              {props.showProjectIdentity ? (
+                <span
+                  className={cn(
+                    "shrink-0 transition-opacity",
+                    !props.isActive &&
+                      "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
+                  )}
+                >
+                  <ProjectFavicon
+                    environmentId={thread.environmentId}
+                    cwd={props.projectCwd ?? ""}
+                    className="size-4"
+                    fallbackIcon={MessageSquareIcon}
+                  />
+                </span>
+              ) : null}
               {title}
               {/* The PR badge stays outside the hover-fading slot: it must
               remain visible AND clickable while the row is hovered. Only
@@ -1093,20 +1101,26 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         >
           <div className="relative z-10 h-[4.875rem] px-2.5 py-2">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
-              <ProjectFavicon
-                environmentId={thread.environmentId}
-                cwd={props.projectCwd ?? ""}
-                className="size-4 shrink-0"
-              />
-              {props.projectTitle ? (
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
-                    shouldRecede ? "font-normal" : "font-medium",
+              {props.showProjectIdentity ? (
+                <>
+                  <ProjectFavicon
+                    environmentId={thread.environmentId}
+                    cwd={props.projectCwd ?? ""}
+                    className="size-4 shrink-0"
+                  />
+                  {props.projectTitle ? (
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
+                        shouldRecede ? "font-normal" : "font-medium",
+                      )}
+                    >
+                      {props.projectTitle}
+                    </span>
+                  ) : (
+                    <span className="flex-1" />
                   )}
-                >
-                  {props.projectTitle}
-                </span>
+                </>
               ) : (
                 <span className="flex-1" />
               )}
@@ -1260,6 +1274,7 @@ const SidebarV2DraftRow = memo(function SidebarV2DraftRow(props: {
   environmentId: EnvironmentId;
   projectCwd: string | null;
   projectTitle: string | null;
+  showProjectIdentity: boolean;
   isActive: boolean;
   onClick: (draftId: string) => void;
   onDiscard: (draftId: string) => void;
@@ -1300,15 +1315,21 @@ const SidebarV2DraftRow = memo(function SidebarV2DraftRow(props: {
       >
         <div className="relative z-10 px-2.5 py-2">
           <div className="flex h-5 min-w-0 items-center gap-1.5">
-            <ProjectFavicon
-              environmentId={props.environmentId}
-              cwd={props.projectCwd ?? ""}
-              className="size-4 shrink-0"
-            />
-            {props.projectTitle ? (
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground/85">
-                {props.projectTitle}
-              </span>
+            {props.showProjectIdentity ? (
+              <>
+                <ProjectFavicon
+                  environmentId={props.environmentId}
+                  cwd={props.projectCwd ?? ""}
+                  className="size-4 shrink-0"
+                />
+                {props.projectTitle ? (
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground/85">
+                    {props.projectTitle}
+                  </span>
+                ) : (
+                  <span className="flex-1" />
+                )}
+              </>
             ) : (
               <span className="flex-1" />
             )}
@@ -1421,6 +1442,8 @@ export default function SidebarV2() {
   // collapsed in the other, and the preference survives a reload.
   const threadExpandedById = useUiStateStore((s) => s.threadExpandedById);
   const setThreadExpanded = useUiStateStore((s) => s.setThreadExpanded);
+  const projectExpandedById = useUiStateStore((s) => s.projectExpandedById);
+  const setProjectExpanded = useUiStateStore((s) => s.setProjectExpanded);
   const worktreeExpandedByKey = useUiStateStore((s) => s.worktreeExpandedByKey);
   const setWorktreeExpanded = useUiStateStore((s) => s.setWorktreeExpanded);
   const [removingWorktreeKey, setRemovingWorktreeKey] = useState<string | null>(null);
@@ -2018,6 +2041,14 @@ export default function SidebarV2() {
       worktreeProjectsByKey,
     ],
   );
+  const repositoryGroups = useMemo(
+    () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
+    [projectGroups, worktreeGroups],
+  );
+  const repositoryHierarchyVisible =
+    sidebarThreadGroupingMode === "worktree" &&
+    projectScopeKey === null &&
+    repositoryGroups.length > 1;
 
   // Visual order is the source of order everywhere else: jump hints, shift-range
   // selection and up/down traversal all follow the nesting, and a collapsed
@@ -3047,6 +3078,7 @@ export default function SidebarV2() {
                           `${thread.environmentId}:${thread.projectId}`,
                         ) ?? null
                       }
+                      showProjectIdentity={section === "settled" || !repositoryHierarchyVisible}
                       providerEntryByInstanceId={providerEntryByInstanceId}
                       onThreadClick={handleThreadClick}
                       onThreadActivate={navigateToThread}
@@ -3078,6 +3110,7 @@ export default function SidebarV2() {
                       environmentId={row.environmentId as EnvironmentId}
                       projectCwd={projectCwdByKey.get(projectKey) ?? null}
                       projectTitle={projectDisplayNameByKey.get(projectKey) ?? null}
+                      showProjectIdentity={!repositoryHierarchyVisible}
                       isActive={routeDraftId === row.draftId}
                       onClick={navigateToDraft}
                       onDiscard={discardDraft}
@@ -3086,61 +3119,76 @@ export default function SidebarV2() {
                 };
                 const items: ReactNode[] = [];
                 if (sidebarThreadGroupingMode === "worktree") {
-                  for (const group of worktreeGroups) {
-                    const routeInsideGroup =
-                      (routeDraftId !== null &&
-                        group.drafts.some((draft) => draft.draftId === routeDraftId)) ||
-                      (routeThreadKey !== null &&
-                        [...group.active, ...group.snoozed].some(
-                          (thread) =>
-                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                            routeThreadKey,
-                        ));
-                    const expanded = routeInsideGroup || worktreeExpandedByKey[group.key] !== false;
-                    items.push(
+                  const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode[] => {
+                    const groupItems: ReactNode[] = [];
+                    // A routed descendant does not override the user's collapse:
+                    // the conversation remains open in chat while its sidebar
+                    // container is allowed to stay closed.
+                    const expanded = worktreeExpandedByKey[group.key] !== false;
+                    const status =
+                      group.status === "working"
+                        ? {
+                            label: "Working",
+                            icon: <CircleDashedIcon aria-hidden className="size-3.5" />,
+                            className: "text-sky-600 dark:text-sky-400",
+                          }
+                        : group.status === "done"
+                          ? {
+                              label: "Done",
+                              icon: <CircleCheckIcon aria-hidden className="size-3.5" />,
+                              className: "text-emerald-700 dark:text-emerald-300",
+                            }
+                          : {
+                              label: "Stale",
+                              icon: <ClockIcon aria-hidden className="size-3.5" />,
+                              className: "text-muted-foreground/60",
+                            };
+                    groupItems.push(
                       <li
                         key={`worktree:${group.key}`}
                         data-thread-selection-safe
                         className="list-none"
                       >
-                        <div className="mb-1 mt-2 flex items-center gap-1">
+                        <div className="mb-1 mt-1 flex items-center gap-1 rounded-lg bg-sidebar-row-hover/35">
                           <button
                             type="button"
                             aria-expanded={expanded}
                             title={group.tooltip}
                             onClick={() => setWorktreeExpanded(group.key, !expanded)}
-                            className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
+                            className="flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover active:scale-[0.96] motion-reduce:transform-none"
                           >
                             {expanded ? (
-                              <ChevronDownIcon className="size-3 shrink-0" />
+                              <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
                             ) : (
-                              <ChevronRightIcon className="size-3 shrink-0" />
+                              <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
                             )}
-                            <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{group.label}</span>
-                            {!expanded ? (
-                              <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-muted-foreground/65">
-                                {group.ongoingConversationCount > 0 ? (
-                                  <span
-                                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
-                                    title={`${group.ongoingConversationCount} ongoing conversation${group.ongoingConversationCount === 1 ? "" : "s"}`}
-                                  >
-                                    <span
-                                      aria-hidden
-                                      className="size-1.5 rounded-full bg-current"
-                                    />
-                                    {group.ongoingConversationCount} ongoing
-                                  </span>
-                                ) : null}
+                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {group.label}
+                              </span>
+                              <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
                                 <span
-                                  className="inline-flex items-center gap-1"
-                                  title={`${group.conversationCount} conversation${group.conversationCount === 1 ? "" : "s"}`}
+                                  className={cn(
+                                    "inline-flex shrink-0 items-center gap-1 font-medium",
+                                    status.className,
+                                  )}
                                 >
-                                  <MessageSquareIcon aria-hidden className="size-3" />
-                                  {group.conversationCount}
+                                  {status.icon}
+                                  {status.label}
+                                </span>
+                                <span aria-hidden>·</span>
+                                <span className="inline-flex min-w-0 items-center gap-1">
+                                  <MessageSquareIcon aria-hidden className="size-3 shrink-0" />
+                                  {group.conversationCount} conversation
+                                  {group.conversationCount === 1 ? "" : "s"}
+                                </span>
+                                <span aria-hidden>·</span>
+                                <span className="truncate">
+                                  {group.isProjectCheckout ? "Current checkout" : "Worktree"}
                                 </span>
                               </span>
-                            ) : null}
+                            </span>
                           </button>
                           {!group.isProjectCheckout &&
                           group.workspaceRoot !== null &&
@@ -3151,7 +3199,7 @@ export default function SidebarV2() {
                               title={`Delete worktree ${group.label}`}
                               disabled={removingWorktreeKey !== null}
                               onClick={() => attemptDeleteWorktree(group)}
-                              className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-sidebar-row-hover hover:text-destructive-foreground disabled:cursor-wait disabled:opacity-40"
+                              className="mr-1 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-destructive-foreground active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transform-none"
                             >
                               <Trash2Icon aria-hidden className="size-3.5" />
                             </button>
@@ -3159,12 +3207,12 @@ export default function SidebarV2() {
                         </div>
                       </li>,
                     );
-                    if (!expanded) continue;
+                    if (!expanded) return groupItems;
                     for (const draft of group.drafts) {
-                      items.push(renderDraftRow(draft));
+                      groupItems.push(renderDraftRow(draft));
                     }
                     for (const thread of group.active) {
-                      items.push(renderThreadRow(thread, "active"));
+                      groupItems.push(renderThreadRow(thread, "active"));
                     }
                     const visibleGroupSnoozed = snoozedShelfExpanded
                       ? group.snoozed
@@ -3174,7 +3222,7 @@ export default function SidebarV2() {
                             routeThreadKey,
                         );
                     if (group.snoozed.length > 0) {
-                      items.push(
+                      groupItems.push(
                         <li
                           key={`${group.key}:snoozed`}
                           data-thread-selection-safe
@@ -3197,7 +3245,72 @@ export default function SidebarV2() {
                       );
                     }
                     for (const thread of visibleGroupSnoozed) {
-                      items.push(renderThreadRow(thread, "snoozed"));
+                      groupItems.push(renderThreadRow(thread, "snoozed"));
+                    }
+                    return groupItems;
+                  };
+
+                  if (repositoryHierarchyVisible) {
+                    for (const repository of repositoryGroups) {
+                      const expanded = resolveProjectExpanded(projectExpandedById, [
+                        repository.project.projectKey,
+                      ]);
+                      items.push(
+                        <li
+                          key={`repository:${repository.project.projectKey}`}
+                          data-thread-selection-safe
+                          className="list-none"
+                        >
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? "Collapse" : "Expand"} repository ${repository.project.displayName}`}
+                            onClick={() =>
+                              setProjectExpanded(repository.project.projectKey, !expanded)
+                            }
+                            className="mt-2 flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover active:scale-[0.96] motion-reduce:transform-none"
+                          >
+                            {expanded ? (
+                              <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+                            ) : (
+                              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+                            )}
+                            <ProjectFavicon
+                              environmentId={repository.project.environmentId}
+                              cwd={repository.project.workspaceRoot}
+                              className="size-4 shrink-0"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {repository.project.displayName}
+                            </span>
+                            <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-normal tabular-nums text-muted-foreground/60">
+                              <span>
+                                {repository.worktrees.length} branch
+                                {repository.worktrees.length === 1 ? "" : "es"}
+                              </span>
+                              {!expanded ? (
+                                <>
+                                  <span aria-hidden>·</span>
+                                  <MessageSquareIcon aria-hidden className="size-3" />
+                                  <span>{repository.conversationCount}</span>
+                                </>
+                              ) : null}
+                            </span>
+                          </button>
+                          {expanded ? (
+                            <ul
+                              role="list"
+                              className="ml-2 border-l border-sidebar-border/60 pl-1.5"
+                            >
+                              {repository.worktrees.flatMap(renderWorktreeGroup)}
+                            </ul>
+                          ) : null}
+                        </li>,
+                      );
+                    }
+                  } else {
+                    for (const group of worktreeGroups) {
+                      items.push(...renderWorktreeGroup(group));
                     }
                   }
                 } else {

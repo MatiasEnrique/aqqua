@@ -14,15 +14,32 @@ export interface WorktreeDraftRow {
 export interface SidebarWorktreeGroup {
   readonly key: string;
   readonly environmentId: string;
+  readonly projectId: string;
   readonly workspaceRoot: string | null;
   readonly projectRoot: string | null;
   readonly label: string;
   readonly tooltip: string;
   readonly isProjectCheckout: boolean;
+  readonly status: "working" | "done" | "stale";
   readonly updatedAt: number;
   readonly drafts: readonly WorktreeDraftRow[];
   readonly active: readonly EnvironmentThreadShell[];
   readonly snoozed: readonly EnvironmentThreadShell[];
+  readonly conversationCount: number;
+  readonly ongoingConversationCount: number;
+}
+
+export interface SidebarRepositoryGroup<
+  TProject extends {
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  },
+> {
+  readonly project: TProject;
+  readonly worktrees: readonly SidebarWorktreeGroup[];
   readonly conversationCount: number;
   readonly ongoingConversationCount: number;
 }
@@ -58,6 +75,7 @@ export function buildSidebarWorktreeGroups(input: {
     string,
     {
       environmentId: string;
+      projectId: string;
       workspaceRoot: string | null;
       projectRoot: string | null;
       environmentLabel: string | null;
@@ -78,6 +96,7 @@ export function buildSidebarWorktreeGroups(input: {
     const key = sidebarWorkspaceKey(thread.environmentId, workspaceRoot);
     const current = groups.get(key) ?? {
       environmentId: thread.environmentId,
+      projectId: thread.projectId,
       workspaceRoot,
       projectRoot: project.workspaceRoot,
       environmentLabel: project.environmentLabel,
@@ -115,6 +134,7 @@ export function buildSidebarWorktreeGroups(input: {
       const key = sidebarWorkspaceKey(draft.environmentId, project.workspaceRoot);
       const current = groups.get(key) ?? {
         environmentId: draft.environmentId,
+        projectId: draft.projectId,
         workspaceRoot: project.workspaceRoot,
         projectRoot: project.workspaceRoot,
         environmentLabel: project.environmentLabel,
@@ -134,6 +154,7 @@ export function buildSidebarWorktreeGroups(input: {
     const key = `new-worktree:${draft.environmentId}:${draft.projectId}:${draft.draftId}`;
     groups.set(key, {
       environmentId: draft.environmentId,
+      projectId: draft.projectId,
       workspaceRoot: null,
       projectRoot: project.workspaceRoot,
       environmentLabel: project.environmentLabel,
@@ -153,10 +174,17 @@ export function buildSidebarWorktreeGroups(input: {
       : new Set(input.renderedActive.map((thread) => `${thread.environmentId}:${thread.id}`));
 
   return [...groups.entries()]
-    .map(
-      ([key, group]): SidebarWorktreeGroup => ({
+    .map(([key, group]): SidebarWorktreeGroup => {
+      const ongoingConversationCount = [...group.active, ...group.snoozed].filter(
+        (thread) => thread.session?.status === "running" || thread.session?.status === "starting",
+      ).length;
+      const unsettledConversationCount =
+        group.drafts.length + group.active.length + group.snoozed.length;
+      const liveConversationCount = group.active.length + group.snoozed.length;
+      return {
         key,
         environmentId: group.environmentId,
+        projectId: group.projectId,
         workspaceRoot: group.workspaceRoot,
         projectRoot: group.projectRoot,
         label: group.label,
@@ -164,6 +192,8 @@ export function buildSidebarWorktreeGroups(input: {
           group.environmentLabel ? ` · ${group.environmentLabel}` : ""
         }`,
         isProjectCheckout: group.isProjectCheckout,
+        status:
+          ongoingConversationCount > 0 ? "working" : liveConversationCount > 0 ? "done" : "stale",
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:
@@ -173,17 +203,68 @@ export function buildSidebarWorktreeGroups(input: {
                 renderedActiveKeys.has(`${thread.environmentId}:${thread.id}`),
               ),
         snoozed: group.snoozed,
-        conversationCount:
-          group.drafts.length + group.active.length + group.snoozed.length + group.settledCount,
-        ongoingConversationCount: [...group.active, ...group.snoozed].filter(
-          (thread) => thread.session?.status === "running" || thread.session?.status === "starting",
-        ).length,
-      }),
-    )
+        conversationCount: unsettledConversationCount + group.settledCount,
+        ongoingConversationCount,
+      };
+    })
     .toSorted(
       (left, right) =>
         Number(right.isProjectCheckout) - Number(left.isProjectCheckout) ||
         right.updatedAt - left.updatedAt ||
         left.label.localeCompare(right.label),
     );
+}
+
+export function buildSidebarRepositoryGroups<
+  TProject extends {
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  },
+>(input: {
+  readonly projects: readonly TProject[];
+  readonly worktrees: readonly SidebarWorktreeGroup[];
+}): SidebarRepositoryGroup<TProject>[] {
+  const repositoryKeyByProjectRef = new Map(
+    input.projects.flatMap((project) =>
+      project.memberProjectRefs.map(
+        (projectRef) =>
+          [`${projectRef.environmentId}:${projectRef.projectId}`, project.projectKey] as const,
+      ),
+    ),
+  );
+  const worktreesByRepositoryKey = new Map<string, SidebarWorktreeGroup[]>();
+  for (const worktree of input.worktrees) {
+    const repositoryKey = repositoryKeyByProjectRef.get(
+      `${worktree.environmentId}:${worktree.projectId}`,
+    );
+    if (repositoryKey === undefined) continue;
+    const repositoryWorktrees = worktreesByRepositoryKey.get(repositoryKey);
+    if (repositoryWorktrees) {
+      repositoryWorktrees.push(worktree);
+    } else {
+      worktreesByRepositoryKey.set(repositoryKey, [worktree]);
+    }
+  }
+
+  return input.projects.flatMap((project) => {
+    const worktrees = worktreesByRepositoryKey.get(project.projectKey);
+    if (worktrees === undefined || worktrees.length === 0) return [];
+    return [
+      {
+        project,
+        worktrees,
+        conversationCount: worktrees.reduce(
+          (total, worktree) => total + worktree.conversationCount,
+          0,
+        ),
+        ongoingConversationCount: worktrees.reduce(
+          (total, worktree) => total + worktree.ongoingConversationCount,
+          0,
+        ),
+      },
+    ];
+  });
 }

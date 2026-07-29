@@ -5,8 +5,14 @@ The left sidebar can show conversations as a flat list or group them by worktree
 In worktree mode:
 
 - Empty conversation groups use the selected base branch as their label.
-- A collapsed worktree shows its total conversation count and, when applicable, the number of
-  ongoing conversations.
+- When **All projects** is selected and more than one repository has conversations, each
+  repository gets its own collapsible section above its worktrees. Conversation cards inside
+  these sections omit the repeated project folder label.
+- Worktrees use summary cards with a branch name, conversation total, checkout type, and state:
+  **Working** while a conversation is running, **Done** when conversations are idle but still
+  active, and **Stale** when only drafts or settled history remain.
+- Repository and worktree sections can stay collapsed even when the open conversation is inside
+  them. Collapsing affects only the sidebar; it does not navigate away from the conversation.
 - Settled conversations live in one shared **Settled** section below every worktree rather than
   inside individual worktree groups.
 
