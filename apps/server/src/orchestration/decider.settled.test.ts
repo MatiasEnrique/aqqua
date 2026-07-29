@@ -56,14 +56,85 @@ function makeReadModel(
   };
 }
 
-function makeSession(status: OrchestrationSession["status"]): OrchestrationSession {
+function makeSession(
+  status: OrchestrationSession["status"],
+  threadId: string = "thread-1",
+): OrchestrationSession {
   return {
-    threadId: ThreadId.make("thread-1"),
+    threadId: ThreadId.make(threadId),
     status,
     providerName: "Codex",
     runtimeMode: "full-access",
     activeTurnId: null,
     lastError: null,
+    updatedAt: NOW,
+  };
+}
+
+function makeThread(input: {
+  readonly id: string;
+  readonly parentThreadId?: string | null;
+  readonly settledOverride?: OrchestrationThread["settledOverride"];
+  readonly archivedAt?: string | null;
+  readonly deletedAt?: string | null;
+  readonly session?: OrchestrationSession | null;
+  readonly activities?: OrchestrationThread["activities"];
+}): OrchestrationThread {
+  const settledOverride = input.settledOverride ?? null;
+  return {
+    id: ThreadId.make(input.id),
+    projectId: ProjectId.make("project-1"),
+    ...(input.parentThreadId !== undefined
+      ? {
+          parentThreadId:
+            input.parentThreadId === null ? null : ThreadId.make(input.parentThreadId),
+        }
+      : {}),
+    title: input.id,
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    latestTurn: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    archivedAt: input.archivedAt ?? null,
+    settledOverride,
+    settledAt: settledOverride === "settled" ? SETTLED_AT : null,
+    deletedAt: input.deletedAt ?? null,
+    messages: [],
+    proposedPlans: [],
+    activities: input.activities ?? [],
+    checkpoints: [],
+    session: input.session ?? null,
+  };
+}
+
+/** Parent → child → grandchild hierarchy for cascade settle tests. */
+function makeHierarchyReadModel(
+  overrides: {
+    readonly parent?: Partial<Parameters<typeof makeThread>[0]>;
+    readonly child?: Partial<Parameters<typeof makeThread>[0]>;
+    readonly grandchild?: Partial<Parameters<typeof makeThread>[0]>;
+  } = {},
+): OrchestrationReadModel {
+  return {
+    snapshotSequence: 0,
+    projects: [],
+    threads: [
+      makeThread({ id: "thread-parent", ...overrides.parent }),
+      makeThread({
+        id: "thread-child",
+        parentThreadId: "thread-parent",
+        ...overrides.child,
+      }),
+      makeThread({
+        id: "thread-grandchild",
+        parentThreadId: "thread-child",
+        ...overrides.grandchild,
+      }),
+    ],
     updatedAt: NOW,
   };
 }
@@ -516,6 +587,162 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       });
       const routineEvents = Array.isArray(routineResult) ? routineResult : [routineResult];
       expect(routineEvents.map((event) => event.type)).toEqual(["thread.activity-appended"]);
+    }),
+  );
+
+  it.effect("settling a thread cascades to its sub-agent threads, deepest first", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel(),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-grandchild") },
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-child") },
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-parent") },
+        ],
+      );
+    }),
+  );
+
+  it.effect("settling a thread skips sub-agent threads that are already settled", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-skip"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel({
+          child: { settledOverride: "settled" },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      // Child already settled → skipped (and its grandchild is not reached
+      // through the child cascade). Parent settles alone.
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [{ type: "thread.settled", aggregateId: ThreadId.make("thread-parent") }],
+      );
+    }),
+  );
+
+  it.effect("settling a thread skips deleted sub-agent threads", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-deleted"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel({
+          child: { deletedAt: NOW },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [{ type: "thread.settled", aggregateId: ThreadId.make("thread-parent") }],
+      );
+    }),
+  );
+
+  it.effect("settling a thread skips archived sub-agent threads", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-archived"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel({
+          child: { archivedAt: NOW },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      // An archived child is out of the inbox; it must neither be settled nor
+      // veto the parent through its not-archived guard.
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [{ type: "thread.settled", aggregateId: ThreadId.make("thread-parent") }],
+      );
+    }),
+  );
+
+  it.effect("rejects parent settle when a descendant has a live session", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-blocked-child"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel({
+          grandchild: { session: makeSession("running", "thread-grandchild") },
+        }),
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+      if (error._tag === "OrchestrationCommandInvariantError") {
+        expect(error.detail).toContain("thread-grandchild");
+        expect(error.detail).toMatch(/active session/i);
+      }
+    }),
+  );
+
+  it.effect("rejects parent settle when a descendant has an open approval request", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-blocked-approval"),
+          threadId: ThreadId.make("thread-parent"),
+        },
+        readModel: makeHierarchyReadModel({
+          child: {
+            activities: [
+              {
+                id: EventId.make("activity-child-approval"),
+                tone: "approval",
+                kind: "approval.requested",
+                summary: "approval.requested",
+                payload: { requestId: "req-child" },
+                turnId: null,
+                createdAt: NOW,
+              },
+            ],
+          },
+        }),
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+      if (error._tag === "OrchestrationCommandInvariantError") {
+        expect(error.detail).toContain("thread-child");
+        expect(error.detail).toMatch(/pending approval or user-input/i);
+      }
+    }),
+  );
+
+  it.effect("unsettling a thread does not cascade to sub-agent threads", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.unsettle",
+          commandId: CommandId.make("cmd-unsettle-parent"),
+          threadId: ThreadId.make("thread-parent"),
+          reason: "user",
+        },
+        readModel: makeHierarchyReadModel({
+          parent: { settledOverride: "settled" },
+          child: { settledOverride: "settled" },
+          grandchild: { settledOverride: "settled" },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [{ type: "thread.unsettled", aggregateId: ThreadId.make("thread-parent") }],
+      );
     }),
   );
 });
