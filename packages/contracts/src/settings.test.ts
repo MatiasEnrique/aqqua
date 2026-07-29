@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
+  AgentProfileName,
   ClientSettingsSchema,
   ClientSettingsPatch,
   DEFAULT_SERVER_SETTINGS,
@@ -173,6 +174,40 @@ describe("ServerSettingsPatch.providerInstances", () => {
     });
     const ollamaId = ProviderInstanceId.make("ollama_local");
     expect(patch.providerInstances?.[ollamaId]?.driver).toBe("ollama");
+  });
+});
+
+describe("ServerSettingsPatch.agentProfiles", () => {
+  it("treats agentProfiles as an optional whole-map replacement", () => {
+    const patch = decodeServerSettingsPatch({});
+    expect(patch.agentProfiles).toBeUndefined();
+
+    const replacement = decodeServerSettingsPatch({
+      agentProfiles: {
+        implementer: {
+          driver: "codex",
+          model: "gpt-5.4",
+        },
+      },
+    });
+    expect(replacement.agentProfiles).toBeDefined();
+    const implementer = replacement.agentProfiles?.[AgentProfileName.make("implementer")];
+    expect(implementer?.driver).toBe("codex");
+    expect(implementer?.model).toBe("gpt-5.4");
+    // Defaults applied by AgentProfile decoding.
+    expect(implementer?.runtime).toBe("session");
+    expect(implementer?.runtimeMode).toBe("full-access");
+    expect(implementer?.interactionMode).toBe("default");
+  });
+
+  it("rejects an invalid agent profile name", () => {
+    expect(() =>
+      decodeServerSettingsPatch({
+        agentProfiles: {
+          "1bad": { driver: "codex" },
+        },
+      }),
+    ).toThrow();
   });
 });
 

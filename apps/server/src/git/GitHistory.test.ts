@@ -4,14 +4,25 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError } from "@t3tools/contracts";
+import { GitCommandError, GitObjectId, NonNegativeInt } from "@t3tools/contracts";
 
+import { base64UrlEncode } from "../auth/utils.ts";
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as GitHistory from "./GitHistory.ts";
+
+const HistoryCursorPayloadJson = Schema.fromJsonString(
+  Schema.Struct({
+    v: Schema.Literal(1),
+    tips: Schema.Array(GitObjectId).check(Schema.isMinLength(1)),
+    skip: NonNegativeInt,
+  }),
+);
+const encodeTestHistoryCursor = Schema.encodeSync(HistoryCursorPayloadJson);
 
 const ServerConfigLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-history-test-",
@@ -124,12 +135,112 @@ it.layer(TestLayer)("GitHistory", (it) => {
 
         const history = yield* GitHistory.GitHistory;
         const firstPage = yield* history.list({ cwd });
-        const secondPage = yield* history.list({ cwd, cursor: firstPage.nextCursor ?? 0 });
-
         assert.equal(firstPage.commits.length, 100);
-        assert.equal(firstPage.nextCursor, 100);
+        assert.notEqual(firstPage.nextCursor, null);
+        assert.equal(typeof firstPage.nextCursor, "string");
+
+        const secondPage = yield* history.list({
+          cwd,
+          cursor: firstPage.nextCursor ?? undefined,
+        });
+
         assert.equal(secondPage.commits.length, 1);
         assert.equal(secondPage.nextCursor, null);
+        assert.notEqual(secondPage.commits[0]?.id, firstPage.commits[0]?.id);
+      }),
+    );
+
+    it.effect(
+      "keeps page-two stable when new commits land after page one (no dupes or omissions)",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepo(cwd);
+          const commitIds: string[] = [];
+          for (let index = 0; index < 5; index += 1) {
+            yield* git(cwd, ["commit", "--allow-empty", "-m", `Commit ${index}`]);
+            commitIds.push(yield* git(cwd, ["rev-parse", "HEAD"]));
+          }
+          // Newest-first topo order from a single linear branch.
+          const originalNewestFirst = commitIds.toReversed();
+
+          const history = yield* GitHistory.GitHistory;
+          const snapshot = yield* history.list({ cwd, limit: 10 });
+          assert.deepStrictEqual(
+            snapshot.commits.map((commit) => commit.id),
+            originalNewestFirst,
+          );
+
+          const pageOne = yield* history.list({ cwd, limit: 2 });
+          assert.deepStrictEqual(
+            pageOne.commits.map((commit) => commit.id),
+            originalNewestFirst.slice(0, 2),
+          );
+          assert.notEqual(pageOne.nextCursor, null);
+
+          // Insert a ref-visible commit that would shift a numeric offset.
+          yield* git(cwd, ["commit", "--allow-empty", "-m", "Inserted after page one"]);
+          const inserted = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+          const pageTwo = yield* history.list({
+            cwd,
+            cursor: pageOne.nextCursor ?? undefined,
+            limit: 2,
+          });
+          assert.deepStrictEqual(
+            pageTwo.commits.map((commit) => commit.id),
+            originalNewestFirst.slice(2, 4),
+          );
+          assert.notEqual(pageTwo.nextCursor, null);
+
+          const pageThree = yield* history.list({
+            cwd,
+            cursor: pageTwo.nextCursor ?? undefined,
+            limit: 2,
+          });
+          assert.deepStrictEqual(
+            pageThree.commits.map((commit) => commit.id),
+            originalNewestFirst.slice(4),
+          );
+          assert.equal(pageThree.nextCursor, null);
+
+          const continued = [...pageOne.commits, ...pageTwo.commits, ...pageThree.commits].map(
+            (commit) => commit.id,
+          );
+          assert.deepStrictEqual(continued, originalNewestFirst);
+          assert.equal(continued.includes(inserted), false);
+          assert.equal(new Set(continued).size, continued.length);
+
+          // A fresh first page sees the inserted tip; the old continuation does not.
+          const refreshed = yield* history.list({ cwd, limit: 1 });
+          assert.equal(refreshed.commits[0]?.id, inserted);
+        }),
+    );
+
+    it.effect("rejects malformed and unusable history cursors", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepo(cwd);
+        yield* git(cwd, ["commit", "--allow-empty", "-m", "Only commit"]);
+
+        const history = yield* GitHistory.GitHistory;
+
+        const malformed = yield* Effect.flip(history.list({ cwd, cursor: "not-a-cursor" }));
+        assert.equal(malformed._tag, "GitCommandError");
+        assert.equal(malformed.operation, "GitHistory.list.cursor");
+        assert.equal(malformed.detail, "Git history cursor is invalid.");
+
+        const numeric = yield* Effect.flip(history.list({ cwd, cursor: "100" }));
+        assert.equal(numeric._tag, "GitCommandError");
+        assert.equal(numeric.detail, "Git history cursor is invalid.");
+
+        const missingTips = base64UrlEncode(
+          encodeTestHistoryCursor({ v: 1, tips: ["f".repeat(40)], skip: 0 }),
+        );
+        const unusable = yield* Effect.flip(history.list({ cwd, cursor: missingTips }));
+        assert.equal(unusable._tag, "GitCommandError");
+        assert.equal(unusable.operation, "GitHistory.list.cursor");
+        assert.equal(unusable.detail, "Git history cursor is unusable.");
       }),
     );
 
@@ -164,7 +275,8 @@ it.layer(TestLayer)("GitHistory", (it) => {
         assert.equal(result.commits.length, 1);
         assert.equal(result.commits[0]?.id, latest);
         assert.equal(result.commits[0]?.isHead, true);
-        assert.equal(result.nextCursor, 1);
+        assert.notEqual(result.nextCursor, null);
+        assert.equal(typeof result.nextCursor, "string");
         assert.equal(
           result.commits[0]?.refs.some(
             (ref) => ref.kind === "local_branch" && ref.name === "main" && ref.current,
@@ -178,7 +290,11 @@ it.layer(TestLayer)("GitHistory", (it) => {
           true,
         );
 
-        const older = yield* history.list({ cwd, cursor: 1, limit: 10 });
+        const older = yield* history.list({
+          cwd,
+          cursor: result.nextCursor ?? undefined,
+          limit: 10,
+        });
         assert.deepStrictEqual(
           older.commits.map((commit) => commit.id),
           [initial],
@@ -478,6 +594,47 @@ describe("GitHistory bounded-output parsing", () => {
       assert.equal(error._tag, "GitCommandError");
       assert.equal(error.operation, "GitHistory.list.parseLog");
       assert.equal(error.detail, "Git history output was incomplete.");
+    }).pipe(Effect.provide(gitLayer));
+  });
+
+  it.effect("walks pinned tip object ids from the cursor instead of live ref names", () => {
+    const tipA = "a".repeat(40);
+    const tipB = "b".repeat(40);
+    const cursor = base64UrlEncode(encodeTestHistoryCursor({ v: 1, tips: [tipA, tipB], skip: 2 }));
+    let logArgs: ReadonlyArray<string> | undefined;
+    const gitLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
+      execute: (input) => {
+        switch (input.operation) {
+          case "GitHistory.list.head":
+            return Effect.succeed(executeResult(`${tipA}\n`));
+          case "GitHistory.list.currentRef":
+            return Effect.succeed(executeResult("refs/heads/main\n"));
+          case "GitHistory.list.refs":
+            return Effect.succeed(
+              executeResult(["refs/heads/main", tipA, "commit", "", "", "", "\n"].join("\0")),
+            );
+          case "GitHistory.list.log":
+            logArgs = input.args;
+            return Effect.succeed(executeResult(""));
+          default:
+            return Effect.die(`Unexpected Git operation: ${input.operation}`);
+        }
+      },
+    });
+
+    return Effect.gen(function* () {
+      const history = yield* GitHistory.make;
+      const result = yield* history.list({ cwd: "/repo", cursor, limit: 5 });
+
+      assert.deepStrictEqual(result.commits, []);
+      assert.equal(result.nextCursor, null);
+      assert.ok(logArgs?.includes(`--skip=2`));
+      assert.ok(logArgs?.includes(`--max-count=6`));
+      assert.ok(logArgs?.includes(tipA));
+      assert.ok(logArgs?.includes(tipB));
+      assert.equal(logArgs?.includes("--branches"), false);
+      assert.equal(logArgs?.includes("--remotes"), false);
+      assert.equal(logArgs?.includes("--tags"), false);
     }).pipe(Effect.provide(gitLayer));
   });
 });

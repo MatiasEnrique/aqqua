@@ -188,9 +188,13 @@ export const VcsListRefsInput = Schema.Struct({
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
 
+/** Opaque continuation token for stable Git history pagination. Clients must not interpret it. */
+export const VcsListHistoryCursor = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(65_536));
+export type VcsListHistoryCursor = typeof VcsListHistoryCursor.Type;
+
 export const VcsListHistoryInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
-  cursor: Schema.optional(NonNegativeInt),
+  cursor: Schema.optional(VcsListHistoryCursor),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_HISTORY_MAX_LIMIT))),
 });
 export type VcsListHistoryInput = typeof VcsListHistoryInput.Type;
@@ -348,7 +352,7 @@ export type VcsListRefsResult = typeof VcsListRefsResult.Type;
 export const VcsListHistoryResult = Schema.Struct({
   commits: Schema.Array(GitHistoryCommitSummary),
   isRepo: Schema.Boolean,
-  nextCursor: Schema.NullOr(NonNegativeInt),
+  nextCursor: Schema.NullOr(VcsListHistoryCursor),
   referencesTruncated: Schema.Boolean,
 });
 export type VcsListHistoryResult = typeof VcsListHistoryResult.Type;

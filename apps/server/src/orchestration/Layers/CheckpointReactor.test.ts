@@ -28,7 +28,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
@@ -330,6 +330,10 @@ describe("CheckpointReactor", () => {
           refName: runGit(cwd, ["branch", "--show-current"]).trim() || null,
           hasWorkingTreeChanges: false,
           workingTree: { files: [], insertions: 0, deletions: 0 },
+          hasUpstream: false,
+          aheadCount: 0,
+          behindCount: 0,
+          pr: null,
         }),
       streamStatus: () => Stream.empty,
     });
@@ -1273,27 +1277,29 @@ describe("CheckpointReactor", () => {
     });
   });
 
-  it("appends an error activity when revert is requested without an active session", async () => {
-    const harness = await createHarness({ hasSession: false });
-    const createdAt = "2026-01-01T00:00:00.000Z";
+  it.effect("appends an error activity when revert is requested without an active session", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness({ hasSession: false }));
+      const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-revert-no-session"),
         threadId: ThreadId.make("thread-1"),
         turnCount: 1,
         createdAt,
-      }),
-    );
+      });
 
-    const thread = await waitForThread(harness.readModel, (entry) =>
-      entry.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
-    );
+      const thread = yield* Effect.promise(() =>
+        waitForThread(harness.readModel, (entry) =>
+          entry.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+        ),
+      );
 
-    expect(thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed")).toBe(
-      true,
-    );
-    expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
-  });
+      expect(
+        thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+      ).toBe(true);
+      expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+    }),
+  );
 });

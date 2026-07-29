@@ -13,7 +13,8 @@ import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { vcsEnvironment } from "../../state/vcs";
 
 const HISTORY_PAGE_SIZE = 100;
-const INITIAL_CURSORS = [undefined] as const;
+/** First page has no cursor; later pages carry opaque server-issued tokens. */
+const INITIAL_CURSORS: ReadonlyArray<string | undefined> = [undefined];
 
 function errorMessage(
   result: AsyncResult.AsyncResult<unknown, unknown> | undefined,
@@ -54,7 +55,8 @@ export function usePaginatedGitHistory(target: {
   const targetKey = JSON.stringify([target.environmentId, target.cwd]);
   const [pagination, setPagination] = useState<{
     readonly targetKey: string;
-    readonly cursors: ReadonlyArray<number | undefined>;
+    /** Opaque cursors only — never interpret server tokens as offsets. */
+    readonly cursors: ReadonlyArray<string | undefined>;
   }>({ targetKey, cursors: INITIAL_CURSORS });
   const cursors = pagination.targetKey === targetKey ? pagination.cursors : INITIAL_CURSORS;
   const pageAtoms = useMemo(

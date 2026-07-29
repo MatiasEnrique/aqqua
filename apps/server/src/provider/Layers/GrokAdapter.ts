@@ -60,6 +60,7 @@ import {
   availableGrokModelIdsFromSessionSetup,
   currentGrokModelIdFromSessionSetup,
   currentGrokReasoningEffortFromSessionSetup,
+  grokReasoningEffortRequestFromSelection,
   makeGrokAcpRuntime,
   resolveGrokAcpBaseModelId,
 } from "../acp/GrokAcpSupport.ts";
@@ -131,8 +132,13 @@ interface GrokSessionContext {
    * continues it, and only the last remaining prompt settles the turn. */
   promptsInFlight: number;
   currentModelId: string | undefined;
-  /** Effort the session runs at; `undefined` means the model's own default. */
-  currentReasoningEffort: string | undefined;
+  /**
+   * Last reasoning effort requested of this session via set_model meta (or
+   * seeded from session setup). Not CLI-confirmed — the CLI may silently
+   * ignore unsupported efforts. `undefined` means no override is currently
+   * requested (session left at / reset to the model default).
+   */
+  lastRequestedReasoningEffort: string | undefined;
   stopped: boolean;
 }
 
@@ -782,11 +788,11 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             ...(startAvailableModelIds !== undefined
               ? { availableModelIds: startAvailableModelIds }
               : {}),
-            requestedReasoningEffort: getModelSelectionStringOptionValue(
-              grokModelSelection,
-              "reasoningEffort",
-            ),
-            currentReasoningEffort: currentGrokReasoningEffortFromSessionSetup(
+            requestedReasoningEffort: grokReasoningEffortRequestFromSelection({
+              selectionPresent: grokModelSelection !== undefined,
+              rawOption: getModelSelectionStringOptionValue(grokModelSelection, "reasoningEffort"),
+            }),
+            lastRequestedReasoningEffort: currentGrokReasoningEffortFromSessionSetup(
               started.sessionSetupResult,
             ),
             mapError: (cause) =>
@@ -827,7 +833,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             lastAcpEventAtMillis: 0,
             promptsInFlight: 0,
             currentModelId: boundModelId,
-            currentReasoningEffort: boundSelection.reasoningEffort,
+            lastRequestedReasoningEffort: boundSelection.lastRequestedReasoningEffort,
             stopped: false,
           };
 
@@ -1008,11 +1014,14 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 runtime: ctx.acp,
                 currentModelId: ctx.currentModelId,
                 requestedModelId: requestedTurnModelId,
-                requestedReasoningEffort: getModelSelectionStringOptionValue(
-                  turnModelSelection,
-                  "reasoningEffort",
-                ),
-                currentReasoningEffort: ctx.currentReasoningEffort,
+                requestedReasoningEffort: grokReasoningEffortRequestFromSelection({
+                  selectionPresent: turnModelSelection !== undefined,
+                  rawOption: getModelSelectionStringOptionValue(
+                    turnModelSelection,
+                    "reasoningEffort",
+                  ),
+                }),
+                lastRequestedReasoningEffort: ctx.lastRequestedReasoningEffort,
                 mapError: (cause) =>
                   mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
               });
@@ -1066,7 +1075,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               }
 
               ctx.currentModelId = currentModelId;
-              ctx.currentReasoningEffort = turnSelection.reasoningEffort;
+              ctx.lastRequestedReasoningEffort = turnSelection.lastRequestedReasoningEffort;
               const displayModel = currentModelId
                 ? resolveGrokAcpBaseModelId(currentModelId)
                 : undefined;

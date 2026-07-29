@@ -6,7 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, type WorkspacePanelRef } from "@t3tools/client-runtime/environment";
 import {
   ArrowDownToLineIcon,
   ArrowRightIcon,
@@ -29,6 +29,7 @@ import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
+import { workspacePanelOwner } from "../panelOwner";
 import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffRenderKey,
@@ -228,7 +229,8 @@ interface DiffPanelProps {
    * thread on the draft route (`/draft/$draftId`).
    */
   threadRef?: ScopedThreadRef | null;
-  workspaceRef?: ScopedThreadRef | null;
+  /** Workspace-scoped git selection owner (diff/history shared across threads). */
+  workspaceRef?: WorkspacePanelRef | null;
   /**
    * Repository to diff when the thread resolves no checkout of its own — a
    * conversation that has never been sent has no server thread, and a worktree
@@ -269,6 +271,7 @@ export default function DiffPanel({
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadRef = threadRefProp ?? paramsThreadRef;
+  const workspaceOwner = workspacePanelOwner(workspaceRef);
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useThread(routeThreadRef);
   const activeProjectId = activeThread?.projectId ?? null;
@@ -318,7 +321,7 @@ export default function DiffPanel({
     }
     return selectThreadDiffPanelSelection(
       state.byThreadKey,
-      workspaceRef ?? routeThreadRef,
+      workspaceOwner ?? routeThreadRef,
       initialGitScope === "unstaged",
     );
   });
@@ -762,14 +765,14 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectTurn(routeThreadRef, turnId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
-    const targetRef = workspaceRef ?? routeThreadRef;
-    if (!targetRef) return;
-    useDiffPanelStore.getState().selectGitScope(targetRef, scope);
+    const targetOwner = workspaceOwner ?? routeThreadRef;
+    if (!targetOwner) return;
+    useDiffPanelStore.getState().selectGitScope(targetOwner, scope);
   };
   const selectBranchBaseRef = (baseRef: string | null) => {
-    const targetRef = workspaceRef ?? routeThreadRef;
-    if (!targetRef) return;
-    useDiffPanelStore.getState().selectBranchBaseRef(targetRef, baseRef);
+    const targetOwner = workspaceOwner ?? routeThreadRef;
+    if (!targetOwner) return;
+    useDiffPanelStore.getState().selectBranchBaseRef(targetOwner, baseRef);
   };
 
   const headerRow = (

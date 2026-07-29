@@ -733,7 +733,64 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         assert.deepStrictEqual(afterFailure.models, [authoritativeProvider.models[0]!]);
       });
 
-      it("fills missing capabilities from the previous provider snapshot", () => {
+      it("fills missing capabilities from a partial provider snapshot", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("cursor"),
+          driver: ProviderDriverKind.make("cursor"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-04-14T00:00:00.000Z",
+          version: "2026.04.09-f2b0fcd",
+          models: [
+            {
+              slug: "claude-opus-4-6",
+              name: "Opus 4.6",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [
+                  selectDescriptor("reasoning", "Reasoning", [
+                    { id: "high", label: "High", isDefault: true },
+                  ]),
+                  booleanDescriptor("fastMode", "Fast Mode"),
+                  booleanDescriptor("thinking", "Thinking"),
+                ],
+              }),
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        // Installed probe failure is partial: inventory/capabilities may be
+        // incomplete, so previous non-empty descriptors are retained.
+        const refreshedProvider = {
+          ...previousProvider,
+          status: "error",
+          auth: { status: "unknown" },
+          checkedAt: "2026-04-14T00:01:00.000Z",
+          message: "Failed to refresh Cursor models.",
+          models: [
+            {
+              slug: "claude-opus-4-6",
+              name: "Opus 4.6",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [],
+              }),
+            },
+          ],
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          {
+            ...refreshedProvider.models[0]!,
+            capabilities: previousProvider.models[0]!.capabilities,
+          },
+        ]);
+      });
+
+      it("clears model capabilities on an authoritative snapshot with empty descriptors", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("cursor"),
           driver: ProviderDriverKind.make("cursor"),
@@ -778,8 +835,65 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         } satisfies ServerProvider;
 
         assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
-          ...previousProvider.models,
+          ...refreshedProvider.models,
         ]);
+      });
+
+      it("clears built-in Grok reasoning capabilities after authoritative discovery without reasoning meta", () => {
+        const builtInReasoningCapabilities = createModelCapabilities({
+          optionDescriptors: [
+            selectDescriptor("reasoningEffort", "Reasoning", [
+              { id: "high", label: "High", isDefault: true },
+              { id: "medium", label: "Medium" },
+              { id: "low", label: "Low" },
+            ]),
+          ],
+        });
+        // Built-in fallback before live ACP discovery (matches GrokProvider).
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("grok"),
+          driver: ProviderDriverKind.make("grok"),
+          status: "warning",
+          enabled: true,
+          installed: true,
+          auth: { status: "unknown" },
+          checkedAt: "2026-07-29T00:00:00.000Z",
+          version: null,
+          message: "Checking Grok CLI availability...",
+          models: [
+            {
+              slug: "grok-build",
+              name: "Grok Build",
+              isCustom: false,
+              capabilities: builtInReasoningCapabilities,
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        // Successful discovery: same slug, CLI does not advertise reasoning.
+        const discoveredProvider = {
+          ...previousProvider,
+          status: "ready",
+          auth: { status: "authenticated" },
+          checkedAt: "2026-07-29T00:01:00.000Z",
+          version: "1.2.3",
+          message: undefined,
+          models: [
+            {
+              slug: "grok-build",
+              name: "Grok Build",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [],
+              }),
+            },
+          ],
+        } satisfies ServerProvider;
+
+        const merged = mergeProviderSnapshot(previousProvider, discoveredProvider);
+        assert.deepStrictEqual(merged.models, [...discoveredProvider.models]);
+        assert.deepStrictEqual(merged.models[0]?.capabilities?.optionDescriptors ?? [], []);
       });
 
       it.effect("does not run provider probes during layer construction", () =>

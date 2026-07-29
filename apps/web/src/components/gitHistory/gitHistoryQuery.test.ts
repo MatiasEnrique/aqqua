@@ -22,7 +22,7 @@ const makeCommit = (value: string): GitHistoryCommitSummary => ({
 
 function page(
   commits: GitHistoryCommitSummary[],
-  nextCursor: number | null,
+  nextCursor: string | null,
   referencesTruncated = false,
 ): VcsListHistoryResult {
   return {
@@ -39,7 +39,7 @@ describe("combineHistoryPages", () => {
     const b = makeCommit("b");
     const c = makeCommit("c");
 
-    expect(combineHistoryPages([page([a, b], 2), page([b, c], null)])).toEqual({
+    expect(combineHistoryPages([page([a, b], "cursor-page-2"), page([b, c], null)])).toEqual({
       commits: [a, b, c],
       isRepo: true,
       nextCursor: null,
@@ -47,13 +47,15 @@ describe("combineHistoryPages", () => {
     });
   });
 
-  it("keeps the latest cursor and aggregates ref truncation", () => {
+  it("keeps the latest opaque cursor and aggregates ref truncation", () => {
     const a = makeCommit("a");
     const b = makeCommit("b");
 
-    expect(combineHistoryPages([page([a], 1, true), page([b], 2)])).toMatchObject({
-      nextCursor: 2,
-      referencesTruncated: true,
-    });
+    expect(combineHistoryPages([page([a], "cursor-1", true), page([b], "cursor-2")])).toMatchObject(
+      {
+        nextCursor: "cursor-2",
+        referencesTruncated: true,
+      },
+    );
   });
 });

@@ -13,10 +13,8 @@ import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -36,8 +34,8 @@ import type { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import type { OrchestrationDispatchError } from "../Errors.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
-import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
+import { makeTurnWorkspace } from "./TurnWorkspace.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -88,144 +86,7 @@ const make = Effect.gen(function* () {
   const receiptBus = yield* RuntimeReceiptBus;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
-  const vcsDriverRegistry = yield* VcsDriverRegistry;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const commandCwdsByTurn = new Map<string, string[]>();
-  const commandCwdKey = (threadId: ThreadId, turnId: TurnId | undefined) =>
-    `${threadId}\u0000${turnId ?? ""}`;
-  const clearCommandCwds = (threadId: ThreadId, turnId: TurnId | undefined) =>
-    Effect.sync(() => {
-      commandCwdsByTurn.delete(commandCwdKey(threadId, turnId));
-      commandCwdsByTurn.delete(commandCwdKey(threadId, undefined));
-    });
-
-  const canonicalPath = Effect.fn("CheckpointReactor.canonicalPath")(function* (value: string) {
-    return yield* fileSystem.realPath(value).pipe(Effect.orElseSucceed(() => path.resolve(value)));
-  });
-
-  const repositoryMetadataPath = Effect.fn("CheckpointReactor.repositoryMetadataPath")(
-    function* (input: { readonly rootPath: string; readonly metadataPath: string | null }) {
-      const value =
-        input.metadataPath === null
-          ? input.rootPath
-          : path.isAbsolute(input.metadataPath)
-            ? input.metadataPath
-            : path.resolve(input.rootPath, input.metadataPath);
-      return yield* canonicalPath(value);
-    },
-  );
-
-  const recordCommandCwd = (event: ProviderRuntimeEvent) =>
-    Effect.sync(() => {
-      if (
-        (event.type !== "item.started" &&
-          event.type !== "item.updated" &&
-          event.type !== "item.completed") ||
-        event.payload.itemType !== "command_execution" ||
-        !event.payload.cwd
-      ) {
-        return;
-      }
-      const key = commandCwdKey(event.threadId, event.turnId);
-      const current = commandCwdsByTurn.get(key) ?? [];
-      if (current.at(-1) === event.payload.cwd) {
-        return;
-      }
-      commandCwdsByTurn.set(key, [...current.slice(-31), event.payload.cwd]);
-    });
-
-  interface ResolvedTurnWorkspace {
-    readonly cwd: string;
-    readonly rootPath: string;
-    readonly worktreePath: string | null;
-    readonly branch: string | null;
-  }
-
-  const resolveTurnWorkspace = Effect.fn("CheckpointReactor.resolveTurnWorkspace")(function* (
-    event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>,
-  ) {
-    const thread = yield* resolveThreadDetail(event.threadId);
-    if (!thread) return undefined;
-    const projects = yield* resolveThreadProjects(thread.projectId);
-    const project = projects[0];
-    if (!project) return undefined;
-
-    const projectRepository = yield* vcsDriverRegistry
-      .detect({ cwd: project.workspaceRoot })
-      .pipe(Effect.orElseSucceed(() => null));
-    if (!projectRepository) return undefined;
-    const projectMetadataPath = yield* repositoryMetadataPath(projectRepository.repository);
-    const sessionRuntime = yield* resolveSessionRuntimeForThread(event.threadId);
-    const persistedCwd = resolveThreadWorkspaceCwd({ thread, projects });
-    const commandCwds = [
-      ...(commandCwdsByTurn.get(commandCwdKey(event.threadId, event.turnId)) ?? []),
-      ...(commandCwdsByTurn.get(commandCwdKey(event.threadId, undefined)) ?? []),
-    ];
-    const candidates = [
-      ...commandCwds.toReversed(),
-      ...Option.match(sessionRuntime, {
-        onNone: () => [],
-        onSome: (runtime) => [runtime.cwd],
-      }),
-      ...(persistedCwd ? [persistedCwd] : []),
-    ];
-
-    for (const candidate of candidates) {
-      const detected = yield* vcsDriverRegistry
-        .detect({ cwd: candidate })
-        .pipe(Effect.orElseSucceed(() => null));
-      if (!detected || detected.kind !== projectRepository.kind) continue;
-      const candidateMetadataPath = yield* repositoryMetadataPath(detected.repository);
-      if (candidateMetadataPath !== projectMetadataPath) continue;
-
-      const rootPath = yield* canonicalPath(detected.repository.rootPath);
-      const projectRoot = yield* canonicalPath(project.workspaceRoot);
-      const status = yield* vcsStatusBroadcaster.refreshLocalStatus(rootPath);
-      return {
-        cwd: rootPath,
-        rootPath,
-        worktreePath: rootPath === projectRoot ? null : rootPath,
-        branch: status.refName,
-      };
-    }
-    return undefined;
-  });
-
-  const reconcileTurnWorkspace = Effect.fn("CheckpointReactor.reconcileTurnWorkspace")(function* (
-    event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>,
-    resolved: ResolvedTurnWorkspace,
-  ) {
-    const thread = yield* resolveThreadDetail(event.threadId);
-    if (!thread) return;
-    const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-    const project = shell.projects.find((entry) => entry.id === thread.projectId);
-    if (!project) return;
-
-    for (const candidate of shell.threads) {
-      if (candidate.projectId !== thread.projectId) continue;
-      const isCompletingThread = candidate.id === event.threadId;
-      const candidateRoot = yield* canonicalPath(candidate.worktreePath ?? project.workspaceRoot);
-      const sharesResolvedWorkspace = candidateRoot === resolved.rootPath;
-      if (!isCompletingThread && !sharesResolvedWorkspace) continue;
-
-      const nextWorktreePath = isCompletingThread ? resolved.worktreePath : candidate.worktreePath;
-      if (candidate.branch === resolved.branch && candidate.worktreePath === nextWorktreePath) {
-        continue;
-      }
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: yield* serverCommandId("workspace-context-reconciled"),
-        threadId: candidate.id,
-        branch: resolved.branch,
-        expectedBranch: candidate.branch,
-        ...(isCompletingThread ? { worktreePath: resolved.worktreePath } : {}),
-      });
-    }
-
-    yield* workspaceEntries.refresh(resolved.rootPath);
-    yield* vcsStatusBroadcaster.refreshStatus(resolved.rootPath);
-  });
+  const turnWorkspace = yield* makeTurnWorkspace;
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -905,11 +766,12 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    // When ProviderRuntimeIngestion creates a placeholder checkpoint (status "missing")
-    // from a turn.diff.updated runtime event, capture the real git checkpoint to
-    // replace it. The providerService.streamEvents PubSub does not reliably deliver
-    // turn.completed runtime events to this reactor (shared subscription), so
-    // reacting to the domain event is the reliable path.
+    // ProviderRuntimeIngestion may insert placeholder checkpoints (status "missing")
+    // from turn.diff.updated runtime events. Materialize a real git checkpoint for
+    // those placeholders when one does not already exist. turn.completed also drives
+    // capture; both paths are idempotent against an existing non-missing checkpoint.
+    // (streamEvents is a fresh PubSub subscription per consumer, so delivery of
+    // turn.completed is not the reason this domain path exists.)
     if (event.type === "thread.turn-diff-completed") {
       yield* captureCheckpointFromPlaceholder(event).pipe(
         Effect.catch((error) =>
@@ -934,7 +796,7 @@ const make = Effect.gen(function* () {
       event.type === "item.updated" ||
       event.type === "item.completed"
     ) {
-      yield* recordCommandCwd(event);
+      yield* turnWorkspace.recordCommandCwd(event);
       return;
     }
 
@@ -944,13 +806,13 @@ const make = Effect.gen(function* () {
     }
 
     if (event.type === "turn.aborted") {
-      yield* clearCommandCwds(event.threadId, event.turnId);
+      yield* turnWorkspace.clearCommandCwds(event.threadId, event.turnId);
       return;
     }
 
     if (event.type === "turn.completed") {
       const turnId = toTurnId(event.turnId);
-      const resolvedWorkspace = yield* resolveTurnWorkspace(event).pipe(
+      const resolvedWorkspace = yield* turnWorkspace.resolveForTurnCompletion(event).pipe(
         Effect.catch((error) =>
           Effect.logWarning("failed to resolve workspace context after turn completion", {
             threadId: event.threadId,
@@ -975,7 +837,7 @@ const make = Effect.gen(function* () {
         ),
       );
       if (resolvedWorkspace) {
-        yield* reconcileTurnWorkspace(event, resolvedWorkspace).pipe(
+        yield* turnWorkspace.reconcileAfterTurnCompletion(event, resolvedWorkspace).pipe(
           Effect.catch((error) =>
             Effect.logWarning("failed to synchronize workspace context after turn completion", {
               threadId: event.threadId,
@@ -985,7 +847,7 @@ const make = Effect.gen(function* () {
           ),
         );
       }
-      yield* clearCommandCwds(event.threadId, event.turnId);
+      yield* turnWorkspace.clearCommandCwds(event.threadId, event.turnId);
       return;
     }
   });

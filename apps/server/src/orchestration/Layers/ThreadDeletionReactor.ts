@@ -15,6 +15,15 @@ import {
 
 type ThreadDeletedEvent = Extract<OrchestrationEvent, { type: "thread.deleted" }>;
 
+/**
+ * Canonical post-delete runtime cleanup.
+ *
+ * This reactor is the sole owner of provider-session stop and thread-terminal
+ * close (with history deletion) after `thread.deleted`. Clients and the
+ * WebSocket dispatch path must not duplicate those steps. Cleanup is
+ * best-effort: ordinary failures are logged and swallowed so one bad session
+ * or terminal does not block the other, while interrupts still propagate.
+ */
 export const logCleanupCauseUnlessInterrupted = <R, E>({
   effect,
   message,

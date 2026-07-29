@@ -1,10 +1,24 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopeThreadRef,
+  scopedThreadKey,
+  scopedWorkspaceKey,
+} from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
+import {
+  migratePersistedDiffPanelState,
+  selectThreadDiffPanelSelection,
+  useDiffPanelStore,
+} from "./diffPanelStore";
+import { panelOwnerKey, workspacePanelOwner } from "./panelOwner";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
+const WORKSPACE_REF = {
+  environmentId: EnvironmentId.make("environment-1"),
+  workspaceRoot: "/repo",
+};
+const WORKSPACE_OWNER = workspacePanelOwner(WORKSPACE_REF)!;
 
 describe("diffPanelStore", () => {
   beforeEach(() =>
@@ -87,17 +101,13 @@ describe("diffPanelStore", () => {
   });
 
   it("migrates live scope into a workspace bucket while remembering a turn per thread", () => {
-    const workspaceRef = scopeThreadRef(
-      EnvironmentId.make("environment-1"),
-      ThreadId.make("workspace-root:/repo"),
-    );
     const turnId = TurnId.make("turn-1");
     useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
-    useDiffPanelStore.getState().migrateLegacyWorkspaceSelection(THREAD_REF, workspaceRef);
+    useDiffPanelStore.getState().migrateLegacyWorkspaceSelection(THREAD_REF, WORKSPACE_REF);
     useDiffPanelStore.getState().selectTurn(THREAD_REF, turnId);
 
     expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, workspaceRef),
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, WORKSPACE_OWNER),
     ).toEqual({ kind: "branch", baseRef: "origin/main" });
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
@@ -105,5 +115,54 @@ describe("diffPanelStore", () => {
     expect(useDiffPanelStore.getState().visibleTurnThreadKey).toBe(
       `${THREAD_REF.environmentId}:${THREAD_REF.threadId}`,
     );
+  });
+
+  it("uses distinct canonical keys for thread and workspace owners", () => {
+    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
+    useDiffPanelStore.getState().selectGitScope(WORKSPACE_OWNER, "unstaged");
+
+    const byThreadKey = useDiffPanelStore.getState().byThreadKey;
+    const threadKey = panelOwnerKey(THREAD_REF);
+    const workspaceKey = panelOwnerKey(WORKSPACE_OWNER);
+
+    expect(threadKey).toBe(scopedThreadKey(THREAD_REF));
+    expect(workspaceKey).toBe(scopedWorkspaceKey(WORKSPACE_REF));
+    expect(threadKey).not.toBe(workspaceKey);
+    expect(Object.keys(byThreadKey).sort()).toEqual([threadKey, workspaceKey].sort());
+    expect(byThreadKey[threadKey]).toEqual({ kind: "branch", baseRef: "origin/main" });
+    expect(byThreadKey[workspaceKey]).toEqual({ kind: "unstaged" });
+    // Workspace ownership never fabricates a ThreadId / ScopedThreadRef.
+    expect(WORKSPACE_OWNER).toEqual({ type: "workspace", workspaceRef: WORKSPACE_REF });
+    expect(WORKSPACE_OWNER).not.toHaveProperty("threadId");
+    expect(WORKSPACE_OWNER).not.toHaveProperty("threadRef");
+  });
+
+  it("migrates legacy synthetic workspace ThreadId keys to workspace owner keys", () => {
+    const legacyWorkspaceKey = `${WORKSPACE_REF.environmentId}:workspace-root:${WORKSPACE_REF.workspaceRoot}`;
+    const migrated = migratePersistedDiffPanelState({
+      byThreadKey: {
+        [legacyWorkspaceKey]: { kind: "branch", baseRef: "origin/main" },
+        [scopedThreadKey(THREAD_REF)]: {
+          kind: "turn",
+          turnId: TurnId.make("turn-1"),
+          filePath: null,
+          revealRequestId: 1,
+        },
+      },
+      branchBaseRefByThreadKey: {
+        [legacyWorkspaceKey]: "origin/main",
+      },
+    });
+
+    const expectedWorkspaceKey = panelOwnerKey(WORKSPACE_OWNER);
+    expect(Object.keys(migrated.byThreadKey).sort()).toEqual(
+      [expectedWorkspaceKey, scopedThreadKey(THREAD_REF)].sort(),
+    );
+    expect(migrated.byThreadKey[expectedWorkspaceKey]).toEqual({
+      kind: "branch",
+      baseRef: "origin/main",
+    });
+    expect(migrated.branchBaseRefByThreadKey[expectedWorkspaceKey]).toBe("origin/main");
+    expect(migrated.byThreadKey[scopedThreadKey(THREAD_REF)]).toMatchObject({ kind: "turn" });
   });
 });

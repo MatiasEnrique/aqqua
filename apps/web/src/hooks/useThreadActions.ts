@@ -23,7 +23,6 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { getFallbackThreadIdAfterDelete } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
@@ -117,8 +116,23 @@ export interface ThreadDeletionExecutionPlan {
   readonly decision: ThreadDeleteDecision;
 }
 
+/**
+ * Ownership boundary for thread deletion.
+ *
+ * Conversation delete is a single server command. Provider session stop and
+ * terminal close (with history deletion) are owned solely by the server
+ * `ThreadDeletionReactor` reacting to `thread.deleted` — best-effort and not
+ * awaited by the client. Optional worktree removal is client-owned after a
+ * successful delete and may fail without rolling the conversation back.
+ */
+export const THREAD_DELETION_CLEANUP_BOUNDARY = {
+  conversationDelete: "server-command",
+  providerSessionStop: "thread-deletion-reactor",
+  terminalCloseWithHistory: "thread-deletion-reactor",
+  worktreeRemoval: "client-best-effort-after-delete",
+} as const;
+
 export function useThreadActions() {
-  const closeTerminal = useAtomCommand(terminalEnvironment.close);
   const archiveThreadMutation = useAtomCommand(threadEnvironment.archive, {
     reportFailure: false,
   });
@@ -140,7 +154,6 @@ export function useThreadActions() {
   const unsnoozeThreadMutation = useAtomCommand(threadEnvironment.unsnooze, {
     reportFailure: false,
   });
-  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession);
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
   });
@@ -349,6 +362,11 @@ export function useThreadActions() {
     [confirmThreadDelete],
   );
 
+  // Client delete flow: confirm → dispatch `thread.delete` → local UI cleanup →
+  // optional worktree removal. Provider session stop and terminal close are
+  // deliberately not issued here; ThreadDeletionReactor owns those after
+  // `thread.deleted`. Worktree removal is best-effort after a successful delete
+  // and never rolls the conversation back (see THREAD_DELETION_CLEANUP_BOUNDARY).
   const deleteThread = useCallback(
     async (
       target: EnvironmentThreadShell,
@@ -374,18 +392,6 @@ export function useThreadActions() {
           return deleted ? [deleted.id] : [];
         }),
       );
-
-      if (thread.session && thread.session.status !== "stopped") {
-        await stopThreadSession({
-          environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId },
-        });
-      }
-
-      await closeTerminal({
-        environmentId: threadRef.environmentId,
-        input: { threadId: threadRef.threadId, deleteHistory: true },
-      });
 
       const currentRouteThreadRef = getCurrentRouteThreadRef();
       const shouldNavigateToFallback =
@@ -538,7 +544,6 @@ export function useThreadActions() {
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
       clearTerminalUiState,
-      closeTerminal,
       deleteThreadMutation,
       getCurrentRouteThreadRef,
       inspectWorktreeRemoval,
@@ -546,7 +551,6 @@ export function useThreadActions() {
       removeWorktree,
       router,
       sidebarThreadSortOrder,
-      stopThreadSession,
     ],
   );
 

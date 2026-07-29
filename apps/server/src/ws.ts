@@ -1202,11 +1202,12 @@ const makeWsRpcLayer = (
                       )
                   : false;
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
-              if (
-                normalizedCommand.type === "thread.archive" ||
-                normalizedCommand.type === "thread.delete"
-              ) {
-                if (normalizedCommand.type === "thread.archive" && shouldStopSessionAfterArchive) {
+              // Archive keeps its own inline cleanup (optional session stop +
+              // terminal close). Delete must not: ThreadDeletionReactor is the
+              // sole owner of provider-session stop and terminal close after
+              // `thread.deleted` (including deleteHistory).
+              if (normalizedCommand.type === "thread.archive") {
+                if (shouldStopSessionAfterArchive) {
                   yield* Effect.gen(function* () {
                     const stopCommand = yield* normalizeDispatchCommand({
                       type: "thread.session.stop",

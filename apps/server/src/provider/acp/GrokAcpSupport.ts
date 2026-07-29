@@ -92,8 +92,9 @@ export function currentGrokModelIdFromSessionSetup(
 }
 
 /**
- * Reasoning effort the session is currently running at, read from the current
- * model's `_meta.reasoningEffort` in the CLI's session setup response.
+ * CLI-advertised reasoning effort for the current model at session setup
+ * (`ModelInfo._meta.reasoningEffort`). Used only to seed the adapter's
+ * last-requested effort tracker; it is not re-read after later set_model calls.
  */
 export function currentGrokReasoningEffortFromSessionSetup(
   sessionSetupResult:
@@ -130,11 +131,96 @@ export function availableGrokModelIdsFromSessionSetup(
 export interface GrokAcpModelSelectionResult {
   readonly modelId: string | undefined;
   /**
-   * Reasoning effort the session runs at after this call, when known.
-   * `undefined` means the model's own default: `session/set_model` without a
-   * `reasoningEffort` in `_meta` resets the session to that default.
+   * Last reasoning effort requested of this session via `session/set_model`
+   * `_meta.reasoningEffort` (or seeded from session setup). Not CLI-confirmed:
+   * the CLI silently ignores unsupported efforts while still succeeding the RPC.
+   * `undefined` means the model default is currently requested — either none was
+   * ever sent as an override, or the last `set_model` omitted the meta (which
+   * resets the CLI to the model default). A no-op with an `unchanged` request
+   * preserves the previous last-requested value.
    */
-  readonly reasoningEffort: string | undefined;
+  readonly lastRequestedReasoningEffort: string | undefined;
+}
+
+/**
+ * Intent for the next reasoning-effort selection. Makes "use the model default",
+ * "set an explicit override", and "leave the tracked override alone" distinct so
+ * a bare `undefined` cannot mean both reset and no-op.
+ */
+export type GrokReasoningEffortRequest =
+  | { readonly _tag: "unchanged" }
+  | { readonly _tag: "default" }
+  | { readonly _tag: "explicit"; readonly value: string };
+
+/**
+ * Map a model-selection option into an effort request.
+ *
+ * - No model selection for this instance → leave the tracker alone.
+ * - Selection present without a non-empty effort option → model default.
+ * - Non-empty effort option → explicit override.
+ */
+export function grokReasoningEffortRequestFromSelection(input: {
+  readonly selectionPresent: boolean;
+  readonly rawOption: string | null | undefined;
+}): GrokReasoningEffortRequest {
+  if (!input.selectionPresent) {
+    return { _tag: "unchanged" };
+  }
+  const trimmed = input.rawOption?.trim();
+  if (!trimmed) {
+    return { _tag: "default" };
+  }
+  return { _tag: "explicit", value: trimmed };
+}
+
+/**
+ * Resolve whether effort alone requires `session/set_model`, which meta to send
+ * when the RPC runs, and the next tracked last-requested value.
+ *
+ * Tracked state uses `undefined` for the model default (no override). Model
+ * switches without an explicit effort omit meta so the CLI resets to that
+ * model's default, and the tracker becomes unset.
+ */
+export function resolveGrokReasoningEffortTransition(input: {
+  readonly request: GrokReasoningEffortRequest;
+  readonly lastRequested: string | undefined;
+  readonly modelSwitching: boolean;
+}): {
+  readonly effortRequiresSetModel: boolean;
+  readonly setModelMeta: { readonly reasoningEffort: string } | undefined;
+  readonly nextLastRequested: string | undefined;
+} {
+  switch (input.request._tag) {
+    case "unchanged": {
+      if (input.modelSwitching) {
+        return {
+          effortRequiresSetModel: false,
+          setModelMeta: undefined,
+          nextLastRequested: undefined,
+        };
+      }
+      return {
+        effortRequiresSetModel: false,
+        setModelMeta: undefined,
+        nextLastRequested: input.lastRequested,
+      };
+    }
+    case "default": {
+      return {
+        effortRequiresSetModel: input.lastRequested !== undefined,
+        setModelMeta: undefined,
+        nextLastRequested: undefined,
+      };
+    }
+    case "explicit": {
+      const value = input.request.value;
+      return {
+        effortRequiresSetModel: value !== input.lastRequested,
+        setModelMeta: { reasoningEffort: value },
+        nextLastRequested: value,
+      };
+    }
+  }
 }
 
 export function applyGrokAcpModelSelection<E>(input: {
@@ -151,14 +237,21 @@ export function applyGrokAcpModelSelection<E>(input: {
    */
   readonly availableModelIds?: ReadonlyArray<string>;
   /**
-   * Reasoning effort selected for the thread, forwarded to the CLI as
-   * `_meta.reasoningEffort` on `session/set_model`. The CLI applies it only
-   * when the model supports it, so an unsupported value is silently ignored
-   * rather than failing the session. Omit to run at the model's default.
+   * Reasoning effort intent for this selection. Explicit values are forwarded
+   * as `_meta.reasoningEffort` on `session/set_model`. `default` omits that
+   * meta so the CLI resets to the model default. `unchanged` (or omit) leaves
+   * the tracked override alone on effort-only paths; a model switch without an
+   * explicit effort still omits meta so Grok resets to the new model's default.
+   * Unsupported explicit values are silently ignored by the CLI and the RPC
+   * still succeeds.
    */
-  readonly requestedReasoningEffort?: string | undefined;
-  /** Effort the session currently runs at, used to skip redundant calls. */
-  readonly currentReasoningEffort?: string | undefined;
+  readonly requestedReasoningEffort?: GrokReasoningEffortRequest;
+  /**
+   * Last effort this session requested (not CLI-confirmed). `undefined` means
+   * the model default / no override. Used to skip redundant effort-only
+   * `set_model` calls.
+   */
+  readonly lastRequestedReasoningEffort?: string | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<GrokAcpModelSelectionResult, E> {
   const requestedIsAvailable =
@@ -169,23 +262,27 @@ export function applyGrokAcpModelSelection<E>(input: {
     input.requestedModelId !== undefined &&
     input.requestedModelId !== input.currentModelId &&
     requestedIsAvailable;
-  const requestedEffort = input.requestedReasoningEffort?.trim() || undefined;
-  const shouldApplyEffort =
-    requestedEffort !== undefined && requestedEffort !== input.currentReasoningEffort;
+  const effortTransition = resolveGrokReasoningEffortTransition({
+    request: input.requestedReasoningEffort ?? { _tag: "unchanged" },
+    lastRequested: input.lastRequestedReasoningEffort,
+    modelSwitching: shouldSwitchModel,
+  });
   const targetModelId = shouldSwitchModel ? input.requestedModelId : input.currentModelId;
-  if ((!shouldSwitchModel && !shouldApplyEffort) || targetModelId === undefined) {
+  if (
+    (!shouldSwitchModel && !effortTransition.effortRequiresSetModel) ||
+    targetModelId === undefined
+  ) {
     return Effect.succeed({
       modelId: input.currentModelId,
-      reasoningEffort: input.currentReasoningEffort,
+      lastRequestedReasoningEffort: effortTransition.nextLastRequested,
     });
   }
-  return input.runtime
-    .setSessionModel(
-      targetModelId,
-      requestedEffort === undefined ? undefined : { reasoningEffort: requestedEffort },
-    )
-    .pipe(
-      Effect.mapError(input.mapError),
-      Effect.as({ modelId: targetModelId, reasoningEffort: requestedEffort }),
-    );
+  return input.runtime.setSessionModel(targetModelId, effortTransition.setModelMeta).pipe(
+    Effect.mapError(input.mapError),
+    Effect.as({
+      modelId: targetModelId,
+      // Record what we asked for — not what the CLI necessarily applied.
+      lastRequestedReasoningEffort: effortTransition.nextLastRequested,
+    }),
+  );
 }

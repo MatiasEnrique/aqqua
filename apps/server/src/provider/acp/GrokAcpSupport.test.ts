@@ -6,7 +6,9 @@ import {
   applyGrokAcpModelSelection,
   buildGrokAcpSpawnInput,
   currentGrokReasoningEffortFromSessionSetup,
+  grokReasoningEffortRequestFromSelection,
   resolveGrokAcpBaseModelId,
+  resolveGrokReasoningEffortTransition,
 } from "./GrokAcpSupport.ts";
 
 describe("resolveGrokAcpBaseModelId", () => {
@@ -69,6 +71,85 @@ describe("currentGrokReasoningEffortFromSessionSetup", () => {
   });
 });
 
+describe("grokReasoningEffortRequestFromSelection", () => {
+  it("returns unchanged when no model selection is present", () => {
+    expect(
+      grokReasoningEffortRequestFromSelection({
+        selectionPresent: false,
+        rawOption: "high",
+      }),
+    ).toEqual({ _tag: "unchanged" });
+  });
+
+  it("returns default when selection is present without an effort option", () => {
+    expect(
+      grokReasoningEffortRequestFromSelection({
+        selectionPresent: true,
+        rawOption: undefined,
+      }),
+    ).toEqual({ _tag: "default" });
+    expect(
+      grokReasoningEffortRequestFromSelection({
+        selectionPresent: true,
+        rawOption: "   ",
+      }),
+    ).toEqual({ _tag: "default" });
+  });
+
+  it("returns an explicit value when selection includes a non-empty effort", () => {
+    expect(
+      grokReasoningEffortRequestFromSelection({
+        selectionPresent: true,
+        rawOption: "  low  ",
+      }),
+    ).toEqual({ _tag: "explicit", value: "low" });
+  });
+});
+
+describe("resolveGrokReasoningEffortTransition", () => {
+  it("treats default as a reset of an explicit override", () => {
+    expect(
+      resolveGrokReasoningEffortTransition({
+        request: { _tag: "default" },
+        lastRequested: "high",
+        modelSwitching: false,
+      }),
+    ).toEqual({
+      effortRequiresSetModel: true,
+      setModelMeta: undefined,
+      nextLastRequested: undefined,
+    });
+  });
+
+  it("does not re-apply default when the tracker is already unset", () => {
+    expect(
+      resolveGrokReasoningEffortTransition({
+        request: { _tag: "default" },
+        lastRequested: undefined,
+        modelSwitching: false,
+      }),
+    ).toEqual({
+      effortRequiresSetModel: false,
+      setModelMeta: undefined,
+      nextLastRequested: undefined,
+    });
+  });
+
+  it("clears the tracker on model switch without an explicit effort", () => {
+    expect(
+      resolveGrokReasoningEffortTransition({
+        request: { _tag: "unchanged" },
+        lastRequested: "high",
+        modelSwitching: true,
+      }),
+    ).toEqual({
+      effortRequiresSetModel: false,
+      setModelMeta: undefined,
+      nextLastRequested: undefined,
+    });
+  });
+});
+
 describe("applyGrokAcpModelSelection", () => {
   const makeRecordingRuntime = (failure?: EffectAcpErrors.AcpError) => {
     const modelCalls: Array<{
@@ -96,7 +177,10 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([{ modelId: "grok-mock-alt", meta: undefined }]);
-      expect(result).toEqual({ modelId: "grok-mock-alt", reasoningEffort: undefined });
+      expect(result).toEqual({
+        modelId: "grok-mock-alt",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
@@ -110,7 +194,10 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([]);
-      expect(result).toEqual({ modelId: "grok-build", reasoningEffort: undefined });
+      expect(result).toEqual({
+        modelId: "grok-build",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
@@ -124,7 +211,10 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([]);
-      expect(result).toEqual({ modelId: "grok-build", reasoningEffort: undefined });
+      expect(result).toEqual({
+        modelId: "grok-build",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
@@ -139,7 +229,10 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([]);
-      expect(result).toEqual({ modelId: "grok-4.5", reasoningEffort: undefined });
+      expect(result).toEqual({
+        modelId: "grok-4.5",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
@@ -154,60 +247,155 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([{ modelId: "grok-mock-alt", meta: undefined }]);
-      expect(result).toEqual({ modelId: "grok-mock-alt", reasoningEffort: undefined });
+      expect(result).toEqual({
+        modelId: "grok-mock-alt",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
-  it.effect("sends the requested effort as set_model meta when it differs from current", () =>
+  it.effect(
+    "sends the requested effort as set_model meta when it differs from last requested",
+    () =>
+      Effect.gen(function* () {
+        const { runtime, modelCalls } = makeRecordingRuntime();
+        const result = yield* applyGrokAcpModelSelection({
+          runtime,
+          currentModelId: "grok-4.5",
+          requestedModelId: "grok-4.5",
+          requestedReasoningEffort: { _tag: "explicit", value: "low" },
+          lastRequestedReasoningEffort: "high",
+          mapError: (cause) => cause.message,
+        });
+        expect(modelCalls).toEqual([{ modelId: "grok-4.5", meta: { reasoningEffort: "low" } }]);
+        expect(result).toEqual({
+          modelId: "grok-4.5",
+          lastRequestedReasoningEffort: "low",
+        });
+      }),
+  );
+
+  it.effect(
+    "skips set_model when the requested effort already matches the last requested effort",
+    () =>
+      Effect.gen(function* () {
+        const { runtime, modelCalls } = makeRecordingRuntime();
+        const result = yield* applyGrokAcpModelSelection({
+          runtime,
+          currentModelId: "grok-4.5",
+          requestedModelId: "grok-4.5",
+          requestedReasoningEffort: { _tag: "explicit", value: "high" },
+          lastRequestedReasoningEffort: "high",
+          mapError: (cause) => cause.message,
+        });
+        expect(modelCalls).toEqual([]);
+        expect(result).toEqual({
+          modelId: "grok-4.5",
+          lastRequestedReasoningEffort: "high",
+        });
+      }),
+  );
+
+  it.effect("resets to model default when default is requested over an explicit last effort", () =>
     Effect.gen(function* () {
+      // Concrete missing transition: explicit high → default on the same
+      // model must call set_model without reasoningEffort meta so the CLI
+      // drops the override, and the tracker must become unset.
       const { runtime, modelCalls } = makeRecordingRuntime();
       const result = yield* applyGrokAcpModelSelection({
         runtime,
         currentModelId: "grok-4.5",
         requestedModelId: "grok-4.5",
-        requestedReasoningEffort: "low",
-        currentReasoningEffort: "high",
+        requestedReasoningEffort: { _tag: "default" },
+        lastRequestedReasoningEffort: "high",
         mapError: (cause) => cause.message,
       });
-      expect(modelCalls).toEqual([{ modelId: "grok-4.5", meta: { reasoningEffort: "low" } }]);
-      expect(result).toEqual({ modelId: "grok-4.5", reasoningEffort: "low" });
+      expect(modelCalls).toEqual([{ modelId: "grok-4.5", meta: undefined }]);
+      expect(result).toEqual({
+        modelId: "grok-4.5",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
-  it.effect("skips set_model when the requested effort already matches the session", () =>
+  it.effect("skips set_model when default is requested and the tracker is already unset", () =>
     Effect.gen(function* () {
       const { runtime, modelCalls } = makeRecordingRuntime();
       const result = yield* applyGrokAcpModelSelection({
         runtime,
         currentModelId: "grok-4.5",
         requestedModelId: "grok-4.5",
-        requestedReasoningEffort: "high",
-        currentReasoningEffort: "high",
+        requestedReasoningEffort: { _tag: "default" },
+        lastRequestedReasoningEffort: undefined,
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([]);
-      expect(result).toEqual({ modelId: "grok-4.5", reasoningEffort: "high" });
+      expect(result).toEqual({
+        modelId: "grok-4.5",
+        lastRequestedReasoningEffort: undefined,
+      });
+    }),
+  );
+
+  it.effect("preserves an explicit override when the effort request is unchanged", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-4.5",
+        requestedModelId: "grok-4.5",
+        requestedReasoningEffort: { _tag: "unchanged" },
+        lastRequestedReasoningEffort: "high",
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toEqual({
+        modelId: "grok-4.5",
+        lastRequestedReasoningEffort: "high",
+      });
     }),
   );
 
   it.effect("carries the requested effort along with a model switch", () =>
     Effect.gen(function* () {
       // set_model without a reasoningEffort meta resets the session to the
-      // model's default, so an unchanged effort selection must still ride
+      // model's default, so an explicit effort selection must still ride
       // along when the model itself switches.
       const { runtime, modelCalls } = makeRecordingRuntime();
       const result = yield* applyGrokAcpModelSelection({
         runtime,
         currentModelId: "grok-4.5",
         requestedModelId: "grok-mock-alt",
-        requestedReasoningEffort: "medium",
-        currentReasoningEffort: "medium",
+        requestedReasoningEffort: { _tag: "explicit", value: "medium" },
+        lastRequestedReasoningEffort: "medium",
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([
         { modelId: "grok-mock-alt", meta: { reasoningEffort: "medium" } },
       ]);
-      expect(result).toEqual({ modelId: "grok-mock-alt", reasoningEffort: "medium" });
+      expect(result).toEqual({
+        modelId: "grok-mock-alt",
+        lastRequestedReasoningEffort: "medium",
+      });
+    }),
+  );
+
+  it.effect("clears the effort override on model switch when no explicit effort is requested", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-4.5",
+        requestedModelId: "grok-mock-alt",
+        requestedReasoningEffort: { _tag: "unchanged" },
+        lastRequestedReasoningEffort: "high",
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([{ modelId: "grok-mock-alt", meta: undefined }]);
+      expect(result).toEqual({
+        modelId: "grok-mock-alt",
+        lastRequestedReasoningEffort: undefined,
+      });
     }),
   );
 
@@ -219,11 +407,14 @@ describe("applyGrokAcpModelSelection", () => {
         currentModelId: "grok-4.5",
         requestedModelId: "grok-build",
         availableModelIds: ["grok-4.5"],
-        requestedReasoningEffort: "low",
+        requestedReasoningEffort: { _tag: "explicit", value: "low" },
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([{ modelId: "grok-4.5", meta: { reasoningEffort: "low" } }]);
-      expect(result).toEqual({ modelId: "grok-4.5", reasoningEffort: "low" });
+      expect(result).toEqual({
+        modelId: "grok-4.5",
+        lastRequestedReasoningEffort: "low",
+      });
     }),
   );
 

@@ -78,6 +78,19 @@ const makeManualProviderMaintenanceCapabilities = (provider: ProviderDriverKind)
 const hasModelCapabilities = (model: ServerProvider["models"][number]): boolean =>
   (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 
+/**
+ * Partial snapshots could not establish a complete inventory: the provider is
+ * still pending its first probe, or an installed CLI/server probe errored.
+ * Authoritative snapshots (successful ready/warning inventories, disabled, or
+ * missing-CLI) win for both model inventory and per-model capabilities.
+ */
+const isPartialProviderSnapshot = (provider: ServerProvider): boolean => {
+  const isPendingInitialProbe =
+    provider.enabled && !provider.installed && provider.status === "warning";
+  const didInstalledProviderProbeFail = provider.installed && provider.status === "error";
+  return isPendingInitialProbe || didInstalledProviderProbeFail;
+};
+
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
   if (provider.driver !== ProviderDriverKind.make("opencode")) {
     return true;
@@ -89,10 +102,7 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
   // Conversely, disabled and missing-CLI snapshots are authoritative removals,
   // as are successful ready/warning inventories (including an empty one after
   // logout or plugin removal).
-  const isPendingInitialProbe =
-    provider.enabled && !provider.installed && provider.status === "warning";
-  const didInstalledProviderProbeFail = provider.installed && provider.status === "error";
-  return isPendingInitialProbe || didInstalledProviderProbeFail;
+  return isPartialProviderSnapshot(provider);
 };
 
 const mergeProviderModels = (
@@ -109,7 +119,15 @@ const mergeProviderModels = (
   const previousBySlug = new Map(previousModels.map((model) => [model.slug, model] as const));
   const mergedModels = nextModels.map((model) => {
     const previousModel = previousBySlug.get(model.slug);
-    if (!previousModel || hasModelCapabilities(model) || !hasModelCapabilities(previousModel)) {
+    // Fill missing option descriptors only for partial snapshots. Authoritative
+    // inventories may clear previously advertised capabilities (e.g. a Grok CLI
+    // that stops advertising reasoningEffort after a built-in fallback).
+    if (
+      !isPartialProviderSnapshot(provider) ||
+      !previousModel ||
+      hasModelCapabilities(model) ||
+      !hasModelCapabilities(previousModel)
+    ) {
       return model;
     }
     return {

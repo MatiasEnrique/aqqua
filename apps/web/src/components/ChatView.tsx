@@ -117,15 +117,14 @@ import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import { workspacePanelOwner } from "../panelOwner";
 import {
-  rightPanelRefForKind,
-  selectActiveRightPanelContextSurface,
+  rightPanelOwnerForKind,
   selectActiveRightPanelSurface,
   selectRightPanelContextState,
   selectThreadRightPanelState,
   type RightPanelSurface,
   useRightPanelStore,
-  workspaceRightPanelRef,
 } from "../rightPanelStore";
 import {
   isPreviewSupportedInRuntime,
@@ -1511,8 +1510,8 @@ function ChatViewContent(props: ChatViewProps) {
         : null,
     [activeThreadRef, activeWorkspacePanelRef],
   );
-  const rightPanelWorkspaceStoreRef = useMemo(
-    () => workspaceRightPanelRef(activeWorkspacePanelRef),
+  const rightPanelWorkspaceOwner = useMemo(
+    () => workspacePanelOwner(activeWorkspacePanelRef),
     [activeWorkspacePanelRef],
   );
   const [timelineAnchor, setTimelineAnchor] = useState<{
@@ -1523,12 +1522,20 @@ function ChatViewContent(props: ChatViewProps) {
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }
   const timelineAnchorMessageId = timelineAnchor.messageId;
-  const rightPanelState = useRightPanelStore((state) =>
-    selectRightPanelContextState(state.byThreadKey, rightPanelContext),
+  // Subscribe to the stable record only — selectors that allocate aggregate
+  // objects re-trigger useSyncExternalStore forever ("Maximum update depth exceeded").
+  const rightPanelByThreadKey = useRightPanelStore((state) => state.byThreadKey);
+  const rightPanelState = useMemo(
+    () => selectRightPanelContextState(rightPanelByThreadKey, rightPanelContext),
+    [rightPanelByThreadKey, rightPanelContext],
   );
-  const activeRightPanelSurface = useRightPanelStore((state) =>
-    selectActiveRightPanelContextSurface(state.byThreadKey, rightPanelContext),
-  );
+  const activeRightPanelSurface = useMemo(() => {
+    if (!rightPanelState.isOpen) return null;
+    return (
+      rightPanelState.surfaces.find((surface) => surface.id === rightPanelState.activeSurfaceId) ??
+      null
+    );
+  }, [rightPanelState]);
   const activeRightPanelKind = activeRightPanelSurface?.kind ?? null;
   const diffOpen = activeRightPanelKind === "diff";
   const activeFileSurface =
@@ -1559,12 +1566,10 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     if (!rightPanelContext?.workspaceRef) return;
     useRightPanelStore.getState().migrateLegacyWorkspaceSurfaces(rightPanelContext);
-    if (rightPanelWorkspaceStoreRef) {
-      useDiffPanelStore
-        .getState()
-        .migrateLegacyWorkspaceSelection(rightPanelContext.threadRef, rightPanelWorkspaceStoreRef);
-    }
-  }, [rightPanelContext, rightPanelWorkspaceStoreRef]);
+    useDiffPanelStore
+      .getState()
+      .migrateLegacyWorkspaceSelection(rightPanelContext.threadRef, rightPanelContext.workspaceRef);
+  }, [rightPanelContext]);
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -1674,11 +1679,11 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   useEffect(() => {
-    if (!rightPanelWorkspaceStoreRef || !activeEnvironmentBootstrapComplete) return;
+    if (!rightPanelWorkspaceOwner || !activeEnvironmentBootstrapComplete) return;
     useRightPanelStore
       .getState()
-      .reconcileFileSurfaces(rightPanelWorkspaceStoreRef, activeProject !== null);
-  }, [activeEnvironmentBootstrapComplete, activeProject, rightPanelWorkspaceStoreRef]);
+      .reconcileFileSurfaces(rightPanelWorkspaceOwner, activeProject !== null);
+  }, [activeEnvironmentBootstrapComplete, activeProject, rightPanelWorkspaceOwner]);
 
   // Compute the list of environments this logical project spans, used to
   // drive the environment picker in BranchToolbar.
@@ -1698,7 +1703,7 @@ function ChatViewContent(props: ChatViewProps) {
           ThreadId.make(activeRightPanelSurface.originThreadId),
         )
       : activeThreadRef;
-  const rightPanelTerminalStoreRef = rightPanelWorkspaceStoreRef ?? activeThreadRef;
+  const rightPanelTerminalStoreOwner = rightPanelWorkspaceOwner ?? activeThreadRef;
   const activeEnvironmentConnectionPhase = activeEnvironment?.connection.phase ?? "available";
   const activeEnvironmentUnavailable =
     activeEnvironment !== null && activeEnvironmentConnectionPhase !== "connected";
@@ -2522,10 +2527,10 @@ function ChatViewContent(props: ChatViewProps) {
     if (!diffOpen) {
       onDiffPanelOpen?.();
     }
-    if (rightPanelWorkspaceStoreRef) {
-      useRightPanelStore.getState().toggle(rightPanelWorkspaceStoreRef, "diff");
+    if (rightPanelWorkspaceOwner) {
+      useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "diff");
     }
-  }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceStoreRef]);
+  }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceOwner]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3097,13 +3102,13 @@ function ChatViewContent(props: ChatViewProps) {
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !diffSurfaceAvailable) return;
+    if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
     const store = useRightPanelStore.getState();
     store.close(activeThreadRef);
-    store.open(rightPanelWorkspaceStoreRef, "diff");
+    store.open(rightPanelWorkspaceOwner, "diff");
     onDiffPanelOpen?.();
   }, [
     activeThreadRef,
@@ -3111,37 +3116,37 @@ function ChatViewContent(props: ChatViewProps) {
     dismissPlanSidebarForCurrentTurn,
     onDiffPanelOpen,
     planSidebarOpen,
-    rightPanelWorkspaceStoreRef,
+    rightPanelWorkspaceOwner,
   ]);
   const addHistorySurface = useCallback(() => {
-    if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !diffSurfaceAvailable) return;
+    if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
     const store = useRightPanelStore.getState();
     store.close(activeThreadRef);
-    store.open(rightPanelWorkspaceStoreRef, "history");
+    store.open(rightPanelWorkspaceOwner, "history");
   }, [
     activeThreadRef,
     diffSurfaceAvailable,
     dismissPlanSidebarForCurrentTurn,
     planSidebarOpen,
-    rightPanelWorkspaceStoreRef,
+    rightPanelWorkspaceOwner,
   ]);
   const addFilesSurface = useCallback(() => {
-    if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !activeProject) return;
+    if (!activeThreadRef || !rightPanelWorkspaceOwner || !activeProject) return;
     const store = useRightPanelStore.getState();
     store.close(activeThreadRef);
-    store.open(rightPanelWorkspaceStoreRef, "files");
-  }, [activeProject, activeThreadRef, rightPanelWorkspaceStoreRef]);
+    store.open(rightPanelWorkspaceOwner, "files");
+  }, [activeProject, activeThreadRef, rightPanelWorkspaceOwner]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
-      if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !activeProject) return;
+      if (!activeThreadRef || !rightPanelWorkspaceOwner || !activeProject) return;
       const store = useRightPanelStore.getState();
       store.close(activeThreadRef);
-      store.openFile(rightPanelWorkspaceStoreRef, relativePath);
+      store.openFile(rightPanelWorkspaceOwner, relativePath);
     },
-    [activeProject, activeThreadRef, rightPanelWorkspaceStoreRef],
+    [activeProject, activeThreadRef, rightPanelWorkspaceOwner],
   );
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
@@ -3167,7 +3172,7 @@ function ChatViewContent(props: ChatViewProps) {
       !activeThreadId ||
       !activeProject ||
       !panelTerminalThreadRef ||
-      !rightPanelTerminalStoreRef
+      !rightPanelTerminalStoreOwner
     ) {
       return;
     }
@@ -3176,7 +3181,7 @@ function ChatViewContent(props: ChatViewProps) {
     const panelStore = useRightPanelStore.getState();
     panelStore.close(activeThreadRef);
     panelStore.openTerminal(
-      rightPanelTerminalStoreRef,
+      rightPanelTerminalStoreOwner,
       terminalId,
       activeThreadRef.threadId,
       activeWorkspacePanelRef?.workspaceRoot,
@@ -3208,7 +3213,7 @@ function ChatViewContent(props: ChatViewProps) {
     openTerminal,
     panelTerminalIds,
     panelTerminalThreadRef,
-    rightPanelTerminalStoreRef,
+    rightPanelTerminalStoreOwner,
     supportsWorkspaceTerminalSessions,
     activeWorkspacePanelRef,
   ]);
@@ -3219,7 +3224,7 @@ function ChatViewContent(props: ChatViewProps) {
         !activeThreadId ||
         !activeProject ||
         !panelTerminalThreadRef ||
-        !rightPanelTerminalStoreRef ||
+        !rightPanelTerminalStoreOwner ||
         activeRightPanelSurface?.kind !== "terminal" ||
         activeRightPanelSurface.terminalIds.length >= MAX_TERMINALS_PER_GROUP
       ) {
@@ -3230,7 +3235,7 @@ function ChatViewContent(props: ChatViewProps) {
       useRightPanelStore
         .getState()
         .splitTerminal(
-          rightPanelTerminalStoreRef,
+          rightPanelTerminalStoreOwner,
           activeRightPanelSurface.id,
           terminalId,
           direction,
@@ -3266,7 +3271,7 @@ function ChatViewContent(props: ChatViewProps) {
       openTerminal,
       panelTerminalIds,
       panelTerminalThreadRef,
-      rightPanelTerminalStoreRef,
+      rightPanelTerminalStoreOwner,
       supportsWorkspaceTerminalSessions,
       activeWorkspacePanelRef,
     ],
@@ -3276,20 +3281,20 @@ function ChatViewContent(props: ChatViewProps) {
   }, [splitPanelTerminal]);
   const activatePanelTerminal = useCallback(
     (terminalId: string) => {
-      if (!rightPanelTerminalStoreRef || activeRightPanelSurface?.kind !== "terminal") return;
+      if (!rightPanelTerminalStoreOwner || activeRightPanelSurface?.kind !== "terminal") return;
       useRightPanelStore
         .getState()
-        .activateTerminal(rightPanelTerminalStoreRef, activeRightPanelSurface.id, terminalId);
+        .activateTerminal(rightPanelTerminalStoreOwner, activeRightPanelSurface.id, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeRightPanelSurface, rightPanelTerminalStoreRef],
+    [activeRightPanelSurface, rightPanelTerminalStoreOwner],
   );
   const closePanelTerminal = useCallback(
     (terminalId: string) => {
       if (
         !activeThreadRef ||
         !panelTerminalThreadRef ||
-        !rightPanelTerminalStoreRef ||
+        !rightPanelTerminalStoreOwner ||
         activeRightPanelSurface?.kind !== "terminal"
       ) {
         return;
@@ -3308,7 +3313,7 @@ function ChatViewContent(props: ChatViewProps) {
       storeCloseTerminal(panelTerminalThreadRef, terminalId);
       useRightPanelStore
         .getState()
-        .closeTerminal(rightPanelTerminalStoreRef, activeRightPanelSurface.id, terminalId);
+        .closeTerminal(rightPanelTerminalStoreOwner, activeRightPanelSurface.id, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
     [
@@ -3317,7 +3322,7 @@ function ChatViewContent(props: ChatViewProps) {
       activeWorkspacePanelRef,
       closeTerminalMutation,
       panelTerminalThreadRef,
-      rightPanelTerminalStoreRef,
+      rightPanelTerminalStoreOwner,
       storeCloseTerminal,
       supportsWorkspaceTerminalSessions,
     ],
@@ -3331,14 +3336,14 @@ function ChatViewContent(props: ChatViewProps) {
         dismissPlanSidebarForCurrentTurn();
       }
       const store = useRightPanelStore.getState();
-      const targetRef = rightPanelRefForKind(rightPanelContext, surface.kind);
-      if (targetRef === rightPanelContext.threadRef) {
-        const workspaceRef = workspaceRightPanelRef(rightPanelContext.workspaceRef);
-        if (workspaceRef) store.close(workspaceRef);
+      const targetOwner = rightPanelOwnerForKind(rightPanelContext, surface.kind);
+      if (targetOwner.type === "thread") {
+        const workspaceOwner = workspacePanelOwner(rightPanelContext.workspaceRef);
+        if (workspaceOwner) store.close(workspaceOwner);
       } else {
         store.close(rightPanelContext.threadRef);
       }
-      store.activateSurface(targetRef, surface.id);
+      store.activateSurface(targetOwner, surface.id);
       if (surface.kind === "preview" && surface.resourceId) {
         setActivePreviewTab(activeThreadRef, surface.resourceId);
       }
@@ -3498,7 +3503,7 @@ function ChatViewContent(props: ChatViewProps) {
       cleanupRightPanelSurfaces([surface]);
       useRightPanelStore
         .getState()
-        .closeSurface(rightPanelRefForKind(rightPanelContext, surface.kind), surface.id);
+        .closeSurface(rightPanelOwnerForKind(rightPanelContext, surface.kind), surface.id);
       syncActivePreviewSurface();
     },
     [cleanupRightPanelSurfaces, rightPanelContext, syncActivePreviewSurface],
@@ -3510,9 +3515,9 @@ function ChatViewContent(props: ChatViewProps) {
       cleanupRightPanelSurfaces(surfaces);
       const store = useRightPanelStore.getState();
       for (const entry of surfaces) {
-        store.closeSurface(rightPanelRefForKind(rightPanelContext, entry.kind), entry.id);
+        store.closeSurface(rightPanelOwnerForKind(rightPanelContext, entry.kind), entry.id);
       }
-      store.activateSurface(rightPanelRefForKind(rightPanelContext, surface.kind), surface.id);
+      store.activateSurface(rightPanelOwnerForKind(rightPanelContext, surface.kind), surface.id);
       syncActivePreviewSurface();
     },
     [
@@ -3531,7 +3536,7 @@ function ChatViewContent(props: ChatViewProps) {
       cleanupRightPanelSurfaces(surfaces);
       const store = useRightPanelStore.getState();
       for (const entry of surfaces) {
-        store.closeSurface(rightPanelRefForKind(rightPanelContext, entry.kind), entry.id);
+        store.closeSurface(rightPanelOwnerForKind(rightPanelContext, entry.kind), entry.id);
       }
       syncActivePreviewSurface();
     },
@@ -3547,9 +3552,9 @@ function ChatViewContent(props: ChatViewProps) {
     cleanupRightPanelSurfaces(rightPanelState.surfaces);
     const store = useRightPanelStore.getState();
     store.closeAllSurfaces(rightPanelContext.threadRef);
-    const workspaceRef = workspaceRightPanelRef(rightPanelContext.workspaceRef);
-    if (workspaceRef) {
-      store.closeAllSurfaces(workspaceRef);
+    const workspaceOwner = workspacePanelOwner(rightPanelContext.workspaceRef);
+    if (workspaceOwner) {
+      store.closeAllSurfaces(workspaceOwner);
     }
   }, [cleanupRightPanelSurfaces, rightPanelContext, rightPanelState.surfaces]);
   const copyRightPanelFilePath = useCallback((relativePath: string) => {
@@ -5785,10 +5790,10 @@ function ChatViewContent(props: ChatViewProps) {
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
       useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
-      useRightPanelStore.getState().open(rightPanelWorkspaceStoreRef ?? activeThreadRef, "diff");
+      useRightPanelStore.getState().open(rightPanelWorkspaceOwner ?? activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, isServerThread, onDiffPanelOpen, rightPanelWorkspaceStoreRef],
+    [activeThreadRef, isServerThread, onDiffPanelOpen, rightPanelWorkspaceOwner],
   );
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.
@@ -5884,7 +5889,7 @@ function ChatViewContent(props: ChatViewProps) {
           // The draft route has no thread params, and a draft has no server
           // thread to resolve a checkout from, so both are handed over here.
           threadRef={activeThreadRef}
-          workspaceRef={rightPanelWorkspaceStoreRef}
+          workspaceRef={activeWorkspacePanelRef}
           fallbackCwd={gitCwd}
         />
       </Suspense>

@@ -1,20 +1,26 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import {
   GitCommandError,
+  GitObjectId,
+  NonNegativeInt,
   type GitHistoryCommitSummary,
   type GitHistoryFileChange,
   type GitHistoryFileChangeKind,
   type GitHistoryRef,
-  type GitObjectId,
+  type GitObjectId as GitObjectIdType,
   type VcsGetCommitDetailsInput,
   type VcsGetCommitDetailsResult,
+  type VcsListHistoryCursor,
   type VcsListHistoryInput,
   type VcsListHistoryResult,
 } from "@t3tools/contracts";
 
+import { base64UrlDecodeUtf8, base64UrlEncode } from "../auth/utils.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 const DEFAULT_HISTORY_LIMIT = 100;
@@ -23,11 +29,31 @@ const HISTORY_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const HISTORY_REFS_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const HISTORY_BODY_MAX_OUTPUT_BYTES = 256 * 1024;
 const HISTORY_FILES_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const HISTORY_CURSOR_VERSION = 1;
 const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const GIT_ENV = Object.freeze({
   GIT_PAGER: "cat",
   LC_ALL: "C",
 } satisfies NodeJS.ProcessEnv);
+
+/**
+ * Opaque cursor payload for stable history pagination.
+ *
+ * - `tips`: sorted unique commit object ids of the ref tips (+ HEAD) from the
+ *   first page. Continuations always walk that fixed tip set so later ref
+ *   advances cannot insert or drop commits mid-pagination.
+ * - `skip`: deterministic topo-order offset within that frozen walk.
+ */
+const HistoryCursorPayload = Schema.Struct({
+  v: Schema.Literal(HISTORY_CURSOR_VERSION),
+  tips: Schema.Array(GitObjectId).check(Schema.isMinLength(1)),
+  skip: NonNegativeInt,
+});
+type HistoryCursorPayload = typeof HistoryCursorPayload.Type;
+
+const HistoryCursorPayloadJson = Schema.fromJsonString(HistoryCursorPayload);
+const encodeHistoryCursorPayloadJson = Schema.encodeSync(HistoryCursorPayloadJson);
+const decodeHistoryCursorPayloadJson = Schema.decodeUnknownOption(HistoryCursorPayloadJson);
 
 export class GitHistory extends Context.Service<
   GitHistory,
@@ -56,8 +82,52 @@ function historyError(
   });
 }
 
-function parseObjectId(value: string): GitObjectId | null {
-  return GIT_OBJECT_ID_PATTERN.test(value) ? (value as GitObjectId) : null;
+function parseObjectId(value: string): GitObjectIdType | null {
+  return GIT_OBJECT_ID_PATTERN.test(value) ? (value as GitObjectIdType) : null;
+}
+
+function encodeHistoryCursor(payload: {
+  readonly tips: ReadonlyArray<GitObjectIdType>;
+  readonly skip: number;
+}): VcsListHistoryCursor {
+  return base64UrlEncode(
+    encodeHistoryCursorPayloadJson({
+      v: HISTORY_CURSOR_VERSION,
+      tips: payload.tips,
+      skip: payload.skip,
+    }),
+  ) as VcsListHistoryCursor;
+}
+
+function decodeHistoryCursor(
+  cursor: string,
+  cwd: string,
+): Effect.Effect<HistoryCursorPayload, GitCommandError> {
+  try {
+    const decoded = decodeHistoryCursorPayloadJson(base64UrlDecodeUtf8(cursor));
+    if (Option.isNone(decoded)) {
+      return Effect.fail(
+        historyError("GitHistory.list.cursor", cwd, "Git history cursor is invalid."),
+      );
+    }
+    return Effect.succeed(decoded.value);
+  } catch (cause) {
+    return Effect.fail(
+      historyError("GitHistory.list.cursor", cwd, "Git history cursor is invalid.", cause),
+    );
+  }
+}
+
+function collectHistoryTips(
+  headId: GitObjectIdType | null,
+  refsByCommit: ReadonlyMap<GitObjectIdType, ReadonlyArray<GitHistoryRef>>,
+): GitObjectIdType[] {
+  const tips = new Set<GitObjectIdType>();
+  if (headId) tips.add(headId);
+  for (const objectId of refsByCommit.keys()) {
+    tips.add(objectId);
+  }
+  return [...tips].sort((left, right) => left.localeCompare(right));
 }
 
 function parseCommitLog(
@@ -93,7 +163,7 @@ function parseCommitLog(
     }
     commits.push({
       id,
-      parentIds: parentIds as GitObjectId[],
+      parentIds: parentIds as GitObjectIdType[],
       authorName: fields[index + 2] ?? "",
       authorEmail: fields[index + 3] ?? "",
       authoredAt: fields[index + 4] ?? "",
@@ -126,10 +196,10 @@ function parseRefs(
   stdout: string,
   currentRef: string | null,
   truncated: boolean,
-): ReadonlyMap<GitObjectId, ReadonlyArray<GitHistoryRef>> {
+): ReadonlyMap<GitObjectIdType, ReadonlyArray<GitHistoryRef>> {
   const fields = stdout.split("\0");
   if (truncated && !stdout.endsWith("\0")) fields.pop();
-  const refsByCommit = new Map<GitObjectId, GitHistoryRef[]>();
+  const refsByCommit = new Map<GitObjectIdType, GitHistoryRef[]>();
 
   for (let index = 0; index + 6 < fields.length; index += 6) {
     const fullName = (fields[index] ?? "").replace(/^\r?\n/, "");
@@ -350,9 +420,23 @@ export const make = Effect.gen(function* () {
         ? currentRefResult.stdout.trim()
         : null;
     const limit = input.limit ?? DEFAULT_HISTORY_LIMIT;
-    const cursor = input.cursor ?? 0;
     const refsByCommit = parseRefs(refsResult.stdout, currentRef, refsResult.stdoutTruncated);
-    if (!headId && refsByCommit.size === 0 && !refsResult.stdoutTruncated) {
+    const liveTips = collectHistoryTips(headId, refsByCommit);
+
+    let tips: ReadonlyArray<GitObjectIdType>;
+    let skip: number;
+    if (input.cursor === undefined) {
+      tips = liveTips;
+      skip = 0;
+    } else {
+      const decoded = yield* decodeHistoryCursor(input.cursor, input.cwd);
+      tips = decoded.tips;
+      skip = decoded.skip;
+    }
+
+    if (tips.length === 0) {
+      // First page with no visible tips (and no HEAD): empty repository history.
+      // Continuations never encode empty tips; malformed empty is rejected above.
       return {
         commits: [],
         isRepo: true,
@@ -360,6 +444,7 @@ export const make = Effect.gen(function* () {
         referencesTruncated: refsResult.stdoutTruncated,
       };
     }
+
     const logResult = yield* execute(
       "GitHistory.list.log",
       input.cwd,
@@ -367,18 +452,25 @@ export const make = Effect.gen(function* () {
         "log",
         "-z",
         "--topo-order",
-        `--skip=${cursor}`,
+        `--skip=${skip}`,
         `--max-count=${limit + 1}`,
-        "--branches",
-        "--remotes",
-        "--tags",
+        // Walk only the tip object ids captured for this pagination sequence.
+        // Using live --branches/--remotes/--tags would re-read moving refs and
+        // make numeric skips unstable when commits land between page requests.
         "--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%cI%x00%s",
-        ...(headId ? ["HEAD"] : []),
+        ...tips,
       ],
       { allowNonZeroExit: true },
     );
 
     if (logResult.exitCode !== 0) {
+      if (input.cursor !== undefined) {
+        return yield* historyError(
+          "GitHistory.list.cursor",
+          input.cwd,
+          "Git history cursor is unusable.",
+        );
+      }
       return yield* historyError("GitHistory.list", input.cwd, "Git history could not be listed.");
     }
     if (logResult.stdoutTruncated) {
@@ -399,7 +491,7 @@ export const make = Effect.gen(function* () {
     return {
       commits,
       isRepo: true,
-      nextCursor: hasMore ? cursor + limit : null,
+      nextCursor: hasMore ? encodeHistoryCursor({ tips, skip: skip + limit }) : null,
       referencesTruncated: refsResult.stdoutTruncated,
     };
   });
@@ -457,7 +549,7 @@ export const make = Effect.gen(function* () {
           "Git commit metadata contained an invalid parent id.",
         );
       }
-      const comparisonParentId = (parentIds[0] ?? null) as GitObjectId | null;
+      const comparisonParentId = (parentIds[0] ?? null) as GitObjectIdType | null;
       const diffBaseArgs = comparisonParentId
         ? ["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--find-copies-harder"]
         : [

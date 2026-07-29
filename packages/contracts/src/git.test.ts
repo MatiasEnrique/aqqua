@@ -69,18 +69,46 @@ describe("Git history contracts", () => {
     }
   });
 
-  it("enforces history pagination limits", () => {
+  it("enforces history pagination limits and opaque cursors", () => {
+    const opaqueCursor = "v1.eyJ2IjoxLCJ0aXBzIjpbXSwic2tpcCI6MH0";
     expect(decodeListHistoryInput({ cwd: "/repo" })).toEqual({ cwd: "/repo" });
-    expect(decodeListHistoryInput({ cwd: "/repo", cursor: 100, limit: 200 })).toEqual({
+    expect(decodeListHistoryInput({ cwd: "/repo", cursor: opaqueCursor, limit: 200 })).toEqual({
       cwd: "/repo",
-      cursor: 100,
+      cursor: opaqueCursor,
       limit: 200,
     });
     expect(() => decodeListHistoryInput({ cwd: "/repo", limit: 201 })).toThrow();
-    expect(() => decodeListHistoryInput({ cwd: "/repo", cursor: -1 })).toThrow();
+    expect(() => decodeListHistoryInput({ cwd: "/repo", cursor: 100 })).toThrow();
+    expect(() => decodeListHistoryInput({ cwd: "/repo", cursor: "" })).toThrow();
+    expect(() => decodeListHistoryInput({ cwd: "/repo", cursor: " ".repeat(3) })).toThrow();
   });
 
   it("decodes commit summaries and file details", () => {
+    const opaqueCursor = "v1.next-page-token";
+    expect(
+      decodeListHistoryResult({
+        commits: [
+          {
+            id: sha1,
+            parentIds: [],
+            subject: "Initial commit",
+            authorName: "Ada",
+            authorEmail: "ada@example.com",
+            authoredAt: "2026-07-29T12:00:00Z",
+            committedAt: "2026-07-29T12:01:00Z",
+            isHead: true,
+            refs: [{ name: "main", kind: "local_branch", current: true }],
+          },
+        ],
+        isRepo: true,
+        nextCursor: opaqueCursor,
+        referencesTruncated: false,
+      }),
+    ).toMatchObject({
+      nextCursor: opaqueCursor,
+      commits: [{ refs: [{ name: "main", kind: "local_branch", current: true }] }],
+    });
+
     expect(
       decodeListHistoryResult({
         commits: [

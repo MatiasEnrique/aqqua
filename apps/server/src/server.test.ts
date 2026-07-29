@@ -5192,6 +5192,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const commitId = "a".repeat(40) as GitObjectId;
       const parentId = "b".repeat(40) as GitObjectId;
+      // Opaque continuation token; routing must pass it through without interpreting it.
+      const historyCursor =
+        "eyJ2IjoxLCJ0aXBzIjpbImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiXSwic2tpcCI6MTAwfQ";
       const listInputs: unknown[] = [];
       const detailInputs: unknown[] = [];
       let refreshCalls = 0;
@@ -5261,7 +5264,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsListHistory]({
             cwd: "/tmp/repo",
-            cursor: 100,
+            cursor: historyCursor,
             limit: 50,
           }),
         ),
@@ -5277,7 +5280,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(listed.commits[0]?.id, commitId);
       assert.equal(details.files[0]?.path, "README.md");
-      assert.deepStrictEqual(listInputs, [{ cwd: "/tmp/repo", cursor: 100, limit: 50 }]);
+      assert.deepStrictEqual(listInputs, [{ cwd: "/tmp/repo", cursor: historyCursor, limit: 50 }]);
       assert.deepStrictEqual(detailInputs, [{ cwd: "/tmp/repo", commitId }]);
       assert.equal(refreshCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -6908,6 +6911,78 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ["thread.archive", "thread.session.stop"],
       );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "deletes without websocket-owned session stop or terminal close (reactor owns cleanup)",
+    () =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread-delete-no-ws-cleanup");
+        const effects: string[] = [];
+        const dispatchedCommands: Array<OrchestrationCommand> = [];
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* buildAppUnderTest({
+          layers: {
+            terminalManager: {
+              close: (input) =>
+                Effect.sync(() => {
+                  effects.push(
+                    `terminal.close:${input.threadId}:deleteHistory=${String(input.deleteHistory === true)}`,
+                  );
+                }),
+            },
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  dispatchedCommands.push(command);
+                  effects.push(`dispatch:${command.type}`);
+                  return { sequence: dispatchedCommands.length };
+                }),
+            },
+            projectionSnapshotQuery: {
+              getThreadShellById: () =>
+                Effect.succeed(
+                  Option.some(
+                    makeDefaultOrchestrationThreadShell({
+                      id: threadId,
+                      updatedAt: now,
+                      session: {
+                        threadId,
+                        status: "ready",
+                        providerName: "claudeAgent",
+                        runtimeMode: "full-access",
+                        activeTurnId: null,
+                        lastError: null,
+                        updatedAt: now,
+                      },
+                    }),
+                  ),
+                ),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const dispatchResult = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+              type: "thread.delete",
+              commandId: CommandId.make("cmd-thread-delete-no-ws-cleanup"),
+              threadId,
+            }),
+          ),
+        );
+
+        assert.equal(dispatchResult.sequence, 1);
+        // Only the delete command itself. Session stop + terminal close with
+        // history deletion are owned by ThreadDeletionReactor after thread.deleted.
+        assert.deepEqual(effects, ["dispatch:thread.delete"]);
+        assert.deepEqual(
+          dispatchedCommands.map((command) => command.type),
+          ["thread.delete"],
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect(

@@ -639,6 +639,10 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Whole-map replacement for agent profiles. Patching individual entries is
+  // intentionally out of scope: the map is small, and the web UI sends a
+  // fully-formed map every time it edits this field.
+  agentProfiles: Schema.optionalKey(AgentProfileMap),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

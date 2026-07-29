@@ -1,4 +1,5 @@
 import {
+  AgentProfileName,
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -193,5 +194,75 @@ describe("serverSettings helpers", () => {
       enabled: true,
       config: { homePath: "~/.codex" },
     });
+  });
+
+  it("replaces agentProfiles maps as a whole", () => {
+    const implementer = AgentProfileName.make("implementer");
+    const reviewer = AgentProfileName.make("reviewer");
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      agentProfiles: {
+        [implementer]: {
+          runtime: "session" as const,
+          driver: "codex",
+          model: "gpt-5.4",
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+        },
+        [reviewer]: {
+          runtime: "terminal" as const,
+          driver: "claudeAgent",
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+        },
+      },
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      agentProfiles: {
+        [implementer]: {
+          runtime: "session",
+          driver: "codex",
+          model: "gpt-5.4-mini",
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        },
+      },
+    });
+
+    expect(next.agentProfiles).toEqual({
+      [implementer]: {
+        runtime: "session",
+        driver: "codex",
+        model: "gpt-5.4-mini",
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      },
+    });
+    expect(next.agentProfiles[reviewer]).toBeUndefined();
+  });
+
+  it("leaves agentProfiles untouched when the patch omits them", () => {
+    const implementer = AgentProfileName.make("implementer");
+    const currentProfiles = {
+      [implementer]: {
+        runtime: "session" as const,
+        driver: "codex",
+        model: "gpt-5.4",
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+      },
+    };
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      agentProfiles: currentProfiles,
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      enableAssistantStreaming: true,
+    });
+
+    expect(next.agentProfiles).toEqual(currentProfiles);
+    expect(next.enableAssistantStreaming).toBe(true);
   });
 });
