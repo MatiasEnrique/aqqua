@@ -12,7 +12,12 @@ import {
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ScopedThreadRef,
+  SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -116,6 +121,7 @@ import {
   resolveSettledTimestamp,
   resolveSidebarV2Status,
   resolveWorkingStartedAt,
+  selectSidebarDraftRows,
   shouldNavigateAfterProjectRemoval,
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebarV2,
@@ -165,7 +171,7 @@ import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./u
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -421,6 +427,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   onUnsettle: (threadRef: ScopedThreadRef) => void;
   onSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
+  onDelete: (threadRef: ScopedThreadRef) => void;
   onChangeRequestState: (threadKey: string, state: "open" | "closed" | "merged" | null) => void;
 }) {
   const {
@@ -432,6 +439,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     onCancelRename,
     onCommitRename,
     onContextMenu,
+    onDelete,
     onRenameTitleChange,
     onSettle,
     onSnooze,
@@ -577,26 +585,15 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     />
   );
 
+  // Clicking a row only ever opens it. Expanding a branch is a separate,
+  // explicit act: the row's own chevron affordance (the card's count chip,
+  // the nested row's gutter chevron) owns it, so navigating into an
+  // orchestrator never reshuffles the list under the pointer.
   const handleClick = useCallback(
     (event: ReactMouseEvent) => {
-      // A row with sub-agents doubles as its branch's disclosure control: since
-      // they are collapsed by default, opening the orchestrator is how you see
-      // what it delegated, and clicking it again puts them away. Modifier
-      // clicks are multi-select intent and never toggle; the count chip and the
-      // nested chevron stop propagation, so they toggle exactly once.
-      if (
-        childCount > 0 &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.shiftKey &&
-        !event.altKey &&
-        useThreadSelectionStore.getState().selectedThreadKeys.size === 0
-      ) {
-        onToggleExpanded(threadRef, !isExpanded);
-      }
       onThreadClick(event, threadRef);
     },
-    [childCount, isExpanded, onThreadClick, onToggleExpanded, threadRef],
+    [onThreadClick, threadRef],
   );
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent) => {
@@ -664,6 +661,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
       onUnsettle(threadRef);
     },
     [onUnsettle, threadRef],
+  );
+  const handleDeleteClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onDelete(threadRef);
+    },
+    [onDelete, threadRef],
   );
   const handleUnsnoozeClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -993,16 +998,33 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <AlarmClockOffIcon className="size-3" />
                   </button>
                 )
-              ) : !props.settlementSupported ? null : variantAction === "unsettle" ? (
-                <button
-                  type="button"
-                  aria-label="Un-settle thread"
-                  onClick={handleUnsettleClick}
-                  className="absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
-                >
-                  <Undo2Icon className="size-3" />
-                </button>
-              ) : (
+              ) : variantAction === "unsettle" ? (
+                // Settled rows are history, so they are also where you prune:
+                // delete sits next to un-settle rather than only in the
+                // context menu. Deletion needs no server capability, so it
+                // renders even where settlement is unsupported.
+                <span className="absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:opacity-100 group-hover/v2-row:opacity-100">
+                  <button
+                    type="button"
+                    aria-label="Delete thread"
+                    onClick={handleDeleteClick}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-destructive-foreground"
+                  >
+                    <Trash2Icon className="size-3" />
+                  </button>
+                  {props.settlementSupported ? (
+                    <button
+                      type="button"
+                      aria-label="Un-settle thread"
+                      onClick={handleUnsettleClick}
+                      className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <Undo2Icon className="size-3" />
+                    </button>
+                  ) : null}
+                </span>
+              ) : !props.settlementSupported ? null : (
                 <button
                   type="button"
                   aria-label="Settle thread"
@@ -1143,7 +1165,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                       : `Expand sub-agents of ${thread.title}`
                   }
                   onClick={handleToggleExpanded}
-                  className="-ml-0.5 inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 font-medium tabular-nums text-muted-foreground/85 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="-ml-0.5 inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-1 font-medium tabular-nums text-muted-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <NetworkIcon aria-hidden className="size-3" />
                   {childCount}
@@ -1190,6 +1212,104 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+    </li>
+  );
+});
+
+/**
+ * A new worktree conversation that exists only on this client until its first
+ * message creates the server thread. Without a row it is invisible the moment
+ * you navigate away, so it renders as a card-shaped placeholder in the active
+ * section — routing only, none of the thread chrome (status, settle, snooze,
+ * sub-agents) it has no data for.
+ */
+const SidebarV2DraftRow = memo(function SidebarV2DraftRow(props: {
+  draftId: string;
+  title: string;
+  baseBranch: string | null;
+  environmentId: EnvironmentId;
+  projectCwd: string | null;
+  projectTitle: string | null;
+  isActive: boolean;
+  onClick: (draftId: string) => void;
+  onDiscard: (draftId: string) => void;
+}) {
+  const { draftId, onClick, onDiscard } = props;
+  const handleClick = useCallback(() => onClick(draftId), [draftId, onClick]);
+  const handleDiscardClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onDiscard(draftId);
+    },
+    [draftId, onDiscard],
+  );
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      onClick(draftId);
+    },
+    [draftId, onClick],
+  );
+  return (
+    <li data-thread-selection-safe className="list-none py-0.5">
+      <div
+        role="button"
+        tabIndex={0}
+        data-testid={`sidebar-v2-row-draft-${draftId}`}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          "group/v2-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
+          props.isActive
+            ? "bg-sidebar-row-active text-sidebar-foreground"
+            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+        )}
+      >
+        <div className="relative z-10 px-2.5 py-2">
+          <div className="flex h-5 min-w-0 items-center gap-1.5">
+            <ProjectFavicon
+              environmentId={props.environmentId}
+              cwd={props.projectCwd ?? ""}
+              className="size-4 shrink-0"
+            />
+            {props.projectTitle ? (
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground/85">
+                {props.projectTitle}
+              </span>
+            ) : (
+              <span className="flex-1" />
+            )}
+            <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground/65 transition-opacity group-hover/v2-row:opacity-0">
+              Draft
+            </span>
+            <button
+              type="button"
+              aria-label="Discard draft"
+              onClick={handleDiscardClick}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="absolute top-1.5 right-1.5 inline-flex cursor-pointer items-center rounded-md bg-transparent p-1 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-destructive-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+            >
+              <Trash2Icon className="size-3" />
+            </button>
+          </div>
+          <div className="mt-1 flex min-w-0">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">
+              {props.title}
+            </span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
+            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+            <span className="min-w-0 flex-1 truncate whitespace-nowrap">
+              {props.baseBranch === null
+                ? "New worktree — not started yet"
+                : `from ${props.baseBranch}`}
+            </span>
+          </div>
+        </div>
+      </div>
     </li>
   );
 });
@@ -1270,6 +1390,7 @@ export default function SidebarV2() {
   });
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const routeTargetRef = useRef(routeTarget);
   routeTargetRef.current = routeTarget;
   // Post-settle navigation validates against the CURRENT route, not the one
@@ -1716,6 +1837,25 @@ export default function SidebarV2() {
   const activeThreadEntriesRef = useRef(activeThreadEntries);
   activeThreadEntriesRef.current = activeThreadEntries;
 
+  // New worktree conversations are client-local until the first message
+  // creates the server thread, so the shell stream can't show them. They
+  // render from the draft store instead, above the inbox, and disappear the
+  // moment their real shell arrives.
+  const draftThreadsByDraftId = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const shellThreadIdKeys = useMemo(
+    () => new Set(threads.map((thread) => `${thread.environmentId}:${thread.id}`)),
+    [threads],
+  );
+  const draftRows = useMemo(
+    () =>
+      selectSidebarDraftRows({
+        draftsByDraftId: draftThreadsByDraftId,
+        existingThreadKeys: shellThreadIdKeys,
+        scopedProjectKeys,
+      }),
+    [draftThreadsByDraftId, scopedProjectKeys, shellThreadIdKeys],
+  );
+
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
   // filter context changes so a scope/search flip never inherits a deep
@@ -1872,6 +2012,35 @@ export default function SidebarV2() {
       });
     },
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+  );
+
+  const navigateToDraft = useCallback(
+    (draftId: string) => {
+      if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
+        clearSelection();
+      }
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void router.navigate({
+        to: "/draft/$draftId",
+        params: { draftId },
+      });
+    },
+    [clearSelection, isMobile, router, setOpenMobile],
+  );
+
+  // Drafts are client-local, so discarding is a plain store removal — no
+  // server command, no confirm. Leaving the routed draft's page after its
+  // state is gone would strand the composer, so navigation falls back home.
+  const discardDraft = useCallback(
+    (draftId: string) => {
+      useComposerDraftStore.getState().clearDraftThread(DraftId.make(draftId));
+      if (routeDraftId === draftId) {
+        void router.navigate({ to: "/" });
+      }
+    },
+    [routeDraftId, router],
   );
 
   const toggleThreadExpanded = useCallback(
@@ -2257,6 +2426,43 @@ export default function SidebarV2() {
     ],
   );
 
+  // One deletion path for every entry point (context menu, settled row's trash
+  // button): the confirm setting and the worktree-orphan handling inside
+  // deleteThread must not drift between them.
+  const attemptDeleteThread = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const threadKey = scopedThreadKey(threadRef);
+        const thread = threadByKeyRef.current.get(threadKey);
+        if (confirmThreadDelete) {
+          const api = readLocalApi();
+          if (!api) return;
+          const confirmed = await settlePromise(() =>
+            api.dialogs.confirm(
+              [
+                `Delete thread "${thread?.title ?? "Untitled"}"?`,
+                "This permanently clears conversation history for this thread.",
+              ].join("\n"),
+            ),
+          );
+          if (confirmed._tag === "Failure" || !confirmed.value) return;
+        }
+        const result = await deleteThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to delete thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [confirmThreadDelete, deleteThread],
+  );
+
   const handleThreadContextMenu = useCallback(
     (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
       void (async () => {
@@ -2370,44 +2576,20 @@ export default function SidebarV2() {
           case "mark-unread":
             markThreadUnread(threadKey, thread.latestTurn?.completedAt);
             return;
-          case "delete": {
-            if (confirmThreadDelete) {
-              const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(
-                  [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
-                  ].join("\n"),
-                ),
-              );
-              if (confirmed._tag === "Failure" || !confirmed.value) return;
-            }
-            const result = await deleteThread(threadRef);
-            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Failed to delete thread",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                }),
-              );
-              return;
-            }
+          case "delete":
+            attemptDeleteThread(threadRef);
             return;
-          }
           default:
             return;
         }
       })();
     },
     [
+      attemptDeleteThread,
       attemptSettle,
       attemptSnooze,
       attemptUnsettle,
       attemptUnsnooze,
-      confirmThreadDelete,
-      deleteThread,
       handleMultiSelectContextMenu,
       markThreadUnread,
       serverConfigs,
@@ -2754,12 +2936,31 @@ export default function SidebarV2() {
                       onUnsettle={attemptUnsettle}
                       onSnooze={attemptSnooze}
                       onUnsnooze={attemptUnsnooze}
+                      onDelete={attemptDeleteThread}
                       onChangeRequestState={handleChangeRequestState}
                     />
                   );
                 };
-                const items: ReactNode[] = visibleActiveThreads.map((thread) =>
-                  renderThreadRow(thread, "active"),
+                const items: ReactNode[] = draftRows.map((row) => {
+                  const projectKey =
+                    `${row.environmentId}:${row.projectId}` as `${EnvironmentId}:${ProjectId}`;
+                  return (
+                    <SidebarV2DraftRow
+                      key={`draft:${row.draftId}`}
+                      draftId={row.draftId}
+                      title={row.title}
+                      baseBranch={row.baseBranch}
+                      environmentId={row.environmentId as EnvironmentId}
+                      projectCwd={projectCwdByKey.get(projectKey) ?? null}
+                      projectTitle={projectDisplayNameByKey.get(projectKey) ?? null}
+                      isActive={routeDraftId === row.draftId}
+                      onClick={navigateToDraft}
+                      onDiscard={discardDraft}
+                    />
+                  );
+                });
+                items.push(
+                  ...visibleActiveThreads.map((thread) => renderThreadRow(thread, "active")),
                 );
                 // Snoozed shelf: between the inbox and Settled — out of the
                 // way, never gone. The header always renders while anything

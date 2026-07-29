@@ -20,6 +20,8 @@ import {
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   formatWorkingDurationLabel,
+  selectSidebarDraftRows,
+  SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
   shouldNavigateAfterProjectRemoval,
   shouldClearThreadSelectionOnMouseDown,
   sortLogicalProjectsForSidebar,
@@ -677,6 +679,108 @@ describe("sortThreadsForSidebarV2", () => {
     ]);
 
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("selectSidebarDraftRows", () => {
+  const draft = (input: {
+    threadId: string;
+    envMode?: string;
+    projectId?: string;
+    environmentId?: string;
+    createdAt?: string;
+    branch?: string | null;
+    worktreeBranchName?: string | null;
+    promotedTo?: { environmentId: string; threadId: string } | null;
+  }) => ({
+    threadId: input.threadId,
+    environmentId: input.environmentId ?? "local",
+    projectId: input.projectId ?? "project-a",
+    createdAt: input.createdAt ?? "2026-03-09T10:00:00.000Z",
+    envMode: input.envMode ?? "worktree",
+    branch: input.branch ?? null,
+    worktreeBranchName: input.worktreeBranchName ?? null,
+    promotedTo: input.promotedTo ?? null,
+  });
+
+  it("projects unpromoted worktree drafts, newest first", () => {
+    const rows = selectSidebarDraftRows({
+      draftsByDraftId: {
+        older: draft({
+          threadId: "thread-older",
+          createdAt: "2026-03-09T10:00:00.000Z",
+          worktreeBranchName: "feature/older",
+          branch: "main",
+        }),
+        newer: draft({
+          threadId: "thread-newer",
+          createdAt: "2026-03-09T11:00:00.000Z",
+        }),
+      },
+      existingThreadKeys: new Set(),
+      scopedProjectKeys: null,
+    });
+
+    expect(rows).toEqual([
+      {
+        draftId: "newer",
+        environmentId: "local",
+        projectId: "project-a",
+        title: SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
+        baseBranch: null,
+        createdAt: "2026-03-09T11:00:00.000Z",
+      },
+      {
+        draftId: "older",
+        environmentId: "local",
+        projectId: "project-a",
+        title: "feature/older",
+        baseBranch: "main",
+        createdAt: "2026-03-09T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("drops local-mode drafts so every project doesn't grow a permanent row", () => {
+    const rows = selectSidebarDraftRows({
+      draftsByDraftId: { local: draft({ threadId: "thread-local", envMode: "local" }) },
+      existingThreadKeys: new Set(),
+      scopedProjectKeys: null,
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("drops promoted drafts and drafts whose thread already has a server shell", () => {
+    const rows = selectSidebarDraftRows({
+      draftsByDraftId: {
+        promoted: draft({
+          threadId: "thread-promoted",
+          promotedTo: { environmentId: "local", threadId: "thread-promoted" },
+        }),
+        // Promotion flags can lag the shell arriving; the shell still wins so
+        // the real row and the synthetic one never render together.
+        shelled: draft({ threadId: "thread-shelled" }),
+        pending: draft({ threadId: "thread-pending" }),
+      },
+      existingThreadKeys: new Set(["local:thread-shelled"]),
+      scopedProjectKeys: null,
+    });
+
+    expect(rows.map((row) => row.draftId)).toEqual(["pending"]);
+  });
+
+  it("honours the project scope filter", () => {
+    const rows = selectSidebarDraftRows({
+      draftsByDraftId: {
+        inScope: draft({ threadId: "thread-in", projectId: "project-a" }),
+        outOfScope: draft({ threadId: "thread-out", projectId: "project-b" }),
+      },
+      existingThreadKeys: new Set(),
+      scopedProjectKeys: new Set(["local:project-a"]),
+    });
+
+    expect(rows.map((row) => row.draftId)).toEqual(["inScope"]);
   });
 });
 

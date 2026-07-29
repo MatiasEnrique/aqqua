@@ -516,6 +516,80 @@ export function sortSettledThreadsForSidebarV2<
   );
 }
 
+/**
+ * A client-local draft conversation, projected into the shape a sidebar row
+ * needs. Drafts have no server thread yet, so they carry no status, no
+ * settlement and no children — only enough identity to render and route.
+ */
+export type SidebarDraftRow = {
+  readonly draftId: string;
+  readonly environmentId: string;
+  readonly projectId: string;
+  /** Worktree branch the user named, or a generic label until they name one. */
+  readonly title: string;
+  /** Base branch the worktree will fork from, when the draft pinned one. */
+  readonly baseBranch: string | null;
+  readonly createdAt: string;
+};
+
+type SidebarDraftInput = {
+  readonly threadId: string;
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly createdAt: string;
+  readonly envMode: string;
+  readonly branch: string | null;
+  readonly worktreeBranchName: string | null;
+  readonly promotedTo?: { readonly environmentId: string; readonly threadId: string } | null;
+};
+
+export const SIDEBAR_DRAFT_ROW_FALLBACK_TITLE = "New worktree conversation";
+
+/**
+ * Picks the client-local drafts that deserve a sidebar row: new worktree
+ * conversations, before the first message promotes them into a server thread.
+ *
+ * Local-mode drafts are deliberately excluded — every project keeps one
+ * around permanently, so rendering them would add a row per project that
+ * never goes away. Promoted drafts drop out too, and so do drafts whose
+ * thread id already has a server shell: the real row takes over and a
+ * duplicate would flicker through the promotion.
+ */
+export function selectSidebarDraftRows(input: {
+  readonly draftsByDraftId: Readonly<Record<string, SidebarDraftInput>>;
+  /** `environmentId:threadId` for every thread the sidebar already renders. */
+  readonly existingThreadKeys: ReadonlySet<string>;
+  /** `environmentId:projectId` scope filter, or null for "all projects". */
+  readonly scopedProjectKeys: ReadonlySet<string> | null;
+}): SidebarDraftRow[] {
+  const rows: SidebarDraftRow[] = [];
+  for (const [draftId, draft] of Object.entries(input.draftsByDraftId)) {
+    if (draft.envMode !== "worktree") continue;
+    if (draft.promotedTo != null) continue;
+    if (input.existingThreadKeys.has(`${draft.environmentId}:${draft.threadId}`)) continue;
+    if (
+      input.scopedProjectKeys !== null &&
+      !input.scopedProjectKeys.has(`${draft.environmentId}:${draft.projectId}`)
+    ) {
+      continue;
+    }
+    rows.push({
+      draftId,
+      environmentId: draft.environmentId,
+      projectId: draft.projectId,
+      title: draft.worktreeBranchName ?? SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
+      baseBranch: draft.branch,
+      createdAt: draft.createdAt,
+    });
+  }
+  // Newest first: a draft you just created is the one you are about to use.
+  return rows.toSorted(
+    (left, right) =>
+      firstValidTimestampMs(right.createdAt) - firstValidTimestampMs(left.createdAt) ||
+      left.draftId.localeCompare(right.draftId),
+  );
+}
+
 /** The timestamp a working thread's elapsed label counts from: the running
     turn's start (request time until adoption), falling back to the session's
     last transition when the turn projection lags behind. Malformed
