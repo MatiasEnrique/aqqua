@@ -12,6 +12,7 @@ import {
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -74,6 +75,13 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJ
 const PROVIDER = ProviderDriverKind.make("grok");
 const GROK_RESUME_VERSION = 1 as const;
 
+/** Quiesce bounds for xAI-fallback completions: trailing chunks the CLI wrote
+ * after prompt_complete must land while the turn is still active, but Stop and
+ * the cap must keep the wait bounded. */
+const XAI_COMPLETION_QUIESCE_IDLE_GAP_MILLIS = 150;
+const XAI_COMPLETION_QUIESCE_POLL_INTERVAL_MILLIS = 25;
+const XAI_COMPLETION_QUIESCE_MAX_WAIT_MILLIS = 1500;
+
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -112,6 +120,9 @@ interface GrokSessionContext {
   activeTurnId: TurnId | undefined;
   /** Turns already interrupted; late prompt RPCs must not resurrect them. */
   interruptedTurnIds: Set<TurnId>;
+  /** Arrival time of the latest turn-output ACP event; the xAI completion
+   * quiesce settles the turn only after this has been idle for a gap. */
+  lastAcpEventAtMillis: number;
   /** Number of sendTurn prompts currently in flight or being prepared.
    * >0 means a turn is actively running, so a new sendTurn is a steer that
    * continues it, and only the last remaining prompt settles the turn. */
@@ -200,6 +211,18 @@ function selectAutoApprovedPermissionOption(
     selectPermissionOptionId(request, "acceptForSession") ??
     selectPermissionOptionId(request, "accept")
   );
+}
+
+/** Fallback prompt responses are synthesized from the private prompt_complete
+ * notification, so the CLI may still be flushing turn output when they
+ * resolve. The fallback is recognizable by the missing-stop-reason marker or
+ * the agentResult meta it always carries. */
+function promptResponseLooksLikeXAiFallback(response: EffectAcpSchema.PromptResponse): boolean {
+  if (promptResponseHasMissingXAiStopReason(response)) {
+    return true;
+  }
+  const meta = response._meta;
+  return meta !== null && typeof meta === "object" && "agentResult" in meta;
 }
 
 function completedStopReasonFromPromptResponse(
@@ -782,6 +805,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             lastPlanFingerprint: undefined,
             activeTurnId: undefined,
             interruptedTurnIds: new Set(),
+            lastAcpEventAtMillis: 0,
             promptsInFlight: 0,
             currentModelId: boundModelId,
             stopped: false,
@@ -804,6 +828,18 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
                 if (event._tag === "ModeChanged") {
                   return;
+                }
+
+                // Turn output must refresh the completion quiesce gap even
+                // when it cannot be attributed to a turn below.
+                if (
+                  event._tag === "AssistantItemStarted" ||
+                  event._tag === "AssistantItemCompleted" ||
+                  event._tag === "PlanUpdated" ||
+                  event._tag === "ToolCallUpdated" ||
+                  event._tag === "ContentDelta"
+                ) {
+                  ctx.lastAcpEventAtMillis = yield* Clock.currentTimeMillis;
                 }
 
                 const notificationTurnId = resolveNotificationTurnId(ctx);
@@ -1097,6 +1133,36 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
               ),
             );
+
+          if (promptResponseLooksLikeXAiFallback(result)) {
+            // The xAI fallback resolves the prompt while the CLI may still be
+            // streaming trailing chunks; those must be emitted while the turn
+            // is still active. Stop, session replacement, and the cap all cut
+            // the wait short, and the thread lock stays free while waiting.
+            const quiesceStartedAtMillis = yield* Clock.currentTimeMillis;
+            while (true) {
+              const liveCtx = sessions.get(input.threadId);
+              if (
+                liveCtx === undefined ||
+                liveCtx.stopped ||
+                liveCtx.acpSessionId !== prepared.acpSessionId ||
+                liveCtx.activeTurnId !== prepared.turnId ||
+                liveCtx.interruptedTurnIds.has(prepared.turnId)
+              ) {
+                break;
+              }
+              yield* prepared.acp.drainEvents;
+              const nowMillis = yield* Clock.currentTimeMillis;
+              if (
+                nowMillis - liveCtx.lastAcpEventAtMillis >=
+                  XAI_COMPLETION_QUIESCE_IDLE_GAP_MILLIS ||
+                nowMillis - quiesceStartedAtMillis >= XAI_COMPLETION_QUIESCE_MAX_WAIT_MILLIS
+              ) {
+                break;
+              }
+              yield* Effect.sleep(XAI_COMPLETION_QUIESCE_POLL_INTERVAL_MILLIS);
+            }
+          }
 
           return yield* withThreadLock(
             input.threadId,

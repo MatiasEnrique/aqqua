@@ -415,7 +415,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
 
       yield* Fiber.interrupt(runtimeEventsFiber);
       yield* adapter.stopSession(threadId);
-    }),
+    }).pipe(TestClock.withLive),
   );
 
   it.effect("retains turn transcript when sendTurn is interrupted after prompt success", () =>
@@ -516,7 +516,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
 
       yield* Fiber.interrupt(runtimeEventsFiber);
       yield* adapter.stopSession(threadId);
-    }),
+    }).pipe(TestClock.withLive),
   );
 
   it.effect("lets Stop unblock a fully silent Grok prompt and accept a follow-up turn", () =>
@@ -826,7 +826,80 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
 
       yield* Fiber.interrupt(runtimeEventsFiber);
       yield* adapter.stopSession(threadId);
-    }),
+    }).pipe(TestClock.withLive),
+  );
+
+  it.effect(
+    "emits trailing chunks streamed after xAI prompt completion before the turn settles",
+    () =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("grok-trailing-chunk-after-xai-completion");
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockGrokWrapper({
+            T3_ACP_EMIT_XAI_TRAILING_CHUNK_AFTER_PROMPT_COMPLETE: "1",
+          }),
+        );
+        const adapter = yield* makeTestAdapter(wrapperPath);
+
+        const runtimeEvents: ProviderRuntimeEvent[] = [];
+        const turnCompleted = yield* Deferred.make<void>();
+        const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }).pipe(
+            Effect.andThen(
+              event.type === "turn.completed" && String(event.threadId) === String(threadId)
+                ? Deferred.succeed(turnCompleted, undefined)
+                : Effect.void,
+            ),
+          ),
+        ).pipe(Effect.forkChild);
+
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("grok"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+          modelSelection: { instanceId: ProviderInstanceId.make("grok"), model: "grok-build" },
+        });
+
+        const sendTurnResult = yield* adapter.sendTurn({
+          threadId,
+          input: "keep trailing output",
+          attachments: [],
+        });
+        yield* Deferred.await(turnCompleted).pipe(Effect.timeout("5 seconds"));
+
+        const trailingDeltaIndex = runtimeEvents.findIndex(
+          (event) =>
+            event.type === "content.delta" &&
+            String(event.threadId) === String(threadId) &&
+            event.payload.delta === "trailing chunk after prompt_complete",
+        );
+        const trailingDelta = runtimeEvents[trailingDeltaIndex];
+        const completedIndex = runtimeEvents.findIndex(
+          (event) => event.type === "turn.completed" && String(event.threadId) === String(threadId),
+        );
+        const turnCompletedEvent = runtimeEvents[completedIndex];
+
+        assert.isAtLeast(trailingDeltaIndex, 0);
+        assert.isAtLeast(completedIndex, 0);
+        assert.isBelow(trailingDeltaIndex, completedIndex);
+        if (trailingDelta?.type === "content.delta") {
+          assert.equal(String(trailingDelta.turnId), String(sendTurnResult.turnId));
+        } else {
+          assert.fail("Expected a content.delta runtime event for the trailing chunk.");
+        }
+        if (turnCompletedEvent?.type === "turn.completed") {
+          assert.equal(turnCompletedEvent.payload.state, "completed");
+          assert.equal(String(turnCompletedEvent.turnId), String(sendTurnResult.turnId));
+        } else {
+          assert.fail("Expected a turn.completed runtime event.");
+        }
+
+        yield* Fiber.interrupt(runtimeEventsFiber);
+        yield* adapter.stopSession(threadId);
+      }).pipe(TestClock.withLive),
   );
 
   it.effect("settles the in-flight prompt before emitting completion", () =>

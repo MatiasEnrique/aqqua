@@ -747,12 +747,14 @@ export const make = (
                 Effect.gen(function* () {
                   yield* Fiber.interrupt(promptRpcFiber).pipe(Effect.ignore);
                   yield* Ref.set(activePromptFiberRef, Option.none());
-                }),
-              ),
-              Effect.tap(() =>
-                closeActiveAssistantSegment({
-                  queue: eventQueue,
-                  assistantSegmentRef,
+                  // The segment close must run on every exit (success, failure,
+                  // interruption): racing prompt completions interrupt this
+                  // prompt yet still require AssistantItemCompleted for the
+                  // open segment before the event stream is drained.
+                  yield* closeActiveAssistantSegment({
+                    queue: eventQueue,
+                    assistantSegmentRef,
+                  });
                 }),
               ),
             );

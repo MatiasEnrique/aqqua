@@ -2538,6 +2538,95 @@ describe("ProviderRuntimeIngestion", () => {
     expect(completionEvents).toHaveLength(1);
   });
 
+  it("finalizes leftover assistant messages before committing the turn-completed session as ready", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-finalize-order"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-finalize-order"),
+    });
+    await waitForThread(
+      harness.readModel,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-finalize-order",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-finalize-order"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-finalize-order"),
+      itemId: asItemId("item-finalize-order"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial answer",
+      },
+    });
+    // No item.completed for the segment: the turn.completed fallback owns the
+    // finalization of the leftover assistant message.
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-finalize-order"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-finalize-order"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await waitForThread(
+      harness.readModel,
+      (thread) =>
+        thread.session?.status === "ready" &&
+        thread.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-finalize-order" &&
+            !message.streaming &&
+            message.text === "partial answer",
+        ),
+    );
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const finalizeIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === "assistant:item-finalize-order" &&
+        event.payload.streaming === false,
+    );
+    const runningIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "running" &&
+        event.payload.session.activeTurnId === "turn-finalize-order",
+    );
+    const readyIndex = events.findIndex(
+      (event, index) =>
+        index > runningIndex &&
+        event.type === "thread.session-set" &&
+        event.payload.session.status === "ready",
+    );
+    // Turn awaiters wake on the ready session-set and must already observe the
+    // finalized assistant message.
+    expect(finalizeIndex).toBeGreaterThan(-1);
+    expect(runningIndex).toBeGreaterThan(-1);
+    expect(readyIndex).toBeGreaterThan(-1);
+    expect(finalizeIndex).toBeLessThan(readyIndex);
+  });
+
   it("maps canonical request events into approval activities with requestKind", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
