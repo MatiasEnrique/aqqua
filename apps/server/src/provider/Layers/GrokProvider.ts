@@ -1,6 +1,7 @@
 import {
   type GrokSettings,
   type ModelCapabilities,
+  type ProviderOptionChoice,
   type ServerProvider,
   type ServerProviderModel,
 } from "@t3tools/contracts";
@@ -44,12 +45,34 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const GROK_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
+/**
+ * Static reasoning-effort choices for the built-in model, used until ACP
+ * discovery replaces them with what the CLI actually advertises. Mirrors the
+ * levels the Grok CLI serves today so the option is selectable even when the
+ * provider snapshot was built without a live CLI session.
+ */
+const GROK_BUILT_IN_REASONING_CAPABILITIES: ModelCapabilities = createModelCapabilities({
+  optionDescriptors: [
+    {
+      id: "reasoningEffort",
+      label: "Reasoning",
+      type: "select",
+      options: [
+        { id: "high", label: "High", isDefault: true },
+        { id: "medium", label: "Medium" },
+        { id: "low", label: "Low" },
+      ],
+      currentValue: "high",
+    },
+  ],
+});
+
 const GROK_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: "grok-build",
     name: "Grok Build",
     isCustom: false,
-    capabilities: EMPTY_CAPABILITIES,
+    capabilities: GROK_BUILT_IN_REASONING_CAPABILITIES,
   },
 ];
 
@@ -99,6 +122,68 @@ function grokModelsFromSettings(
   return providerModelsFromSettings(builtInModels, customModels ?? [], EMPTY_CAPABILITIES);
 }
 
+/**
+ * Reasoning-effort capabilities the Grok CLI advertises per model through ACP
+ * `ModelInfo._meta` (`supportsReasoningEffort` / `reasoningEfforts` /
+ * `reasoningEffort`). A selected choice is applied back through
+ * `session/set_model` with `_meta.reasoningEffort`.
+ */
+export function grokModelCapabilitiesFromAcpMeta(
+  meta: { readonly [key: string]: unknown } | null | undefined,
+): ModelCapabilities {
+  if (!meta || meta["supportsReasoningEffort"] !== true) {
+    return EMPTY_CAPABILITIES;
+  }
+  const rawEfforts = meta["reasoningEfforts"];
+  if (!Array.isArray(rawEfforts)) {
+    return EMPTY_CAPABILITIES;
+  }
+  const options = rawEfforts.flatMap((entry): Array<ProviderOptionChoice> => {
+    if (typeof entry !== "object" || entry === null) {
+      return [];
+    }
+    const record = entry as { readonly [key: string]: unknown };
+    const rawId = typeof record["id"] === "string" ? record["id"] : record["value"];
+    const id = typeof rawId === "string" ? rawId.trim() : "";
+    if (!id) {
+      return [];
+    }
+    const label =
+      typeof record["label"] === "string" && record["label"].trim() ? record["label"].trim() : id;
+    const description =
+      typeof record["description"] === "string" && record["description"].trim()
+        ? record["description"].trim()
+        : undefined;
+    return [
+      {
+        id,
+        label,
+        ...(description !== undefined ? { description } : {}),
+        ...(record["default"] === true ? { isDefault: true } : {}),
+      },
+    ];
+  });
+  if (options.length === 0) {
+    return EMPTY_CAPABILITIES;
+  }
+  const rawCurrent = meta["reasoningEffort"];
+  const currentValue =
+    typeof rawCurrent === "string" && options.some((option) => option.id === rawCurrent.trim())
+      ? rawCurrent.trim()
+      : options.find((option) => option.isDefault)?.id;
+  return createModelCapabilities({
+    optionDescriptors: [
+      {
+        id: "reasoningEffort",
+        label: "Reasoning",
+        type: "select",
+        options,
+        ...(currentValue !== undefined ? { currentValue } : {}),
+      },
+    ],
+  });
+}
+
 function buildGrokDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
 ): ReadonlyArray<ServerProviderModel> {
@@ -117,7 +202,7 @@ function buildGrokDiscoveredModelsFromSessionModelState(
         slug,
         name: model.name.trim() || slug,
         isCustom: false,
-        capabilities: EMPTY_CAPABILITIES,
+        capabilities: grokModelCapabilitiesFromAcpMeta(model._meta),
       };
     })
     .filter((model): model is ServerProviderModel => model !== undefined);

@@ -91,6 +91,26 @@ export function currentGrokModelIdFromSessionSetup(
   return sessionSetupResult.models?.currentModelId?.trim() || undefined;
 }
 
+/**
+ * Reasoning effort the session is currently running at, read from the current
+ * model's `_meta.reasoningEffort` in the CLI's session setup response.
+ */
+export function currentGrokReasoningEffortFromSessionSetup(
+  sessionSetupResult:
+    | EffectAcpSchema.LoadSessionResponse
+    | EffectAcpSchema.NewSessionResponse
+    | EffectAcpSchema.ResumeSessionResponse,
+): string | undefined {
+  const models = sessionSetupResult.models;
+  const currentModelId = models?.currentModelId?.trim();
+  if (!currentModelId) {
+    return undefined;
+  }
+  const currentModel = models?.availableModels?.find((model) => model.modelId === currentModelId);
+  const effort = currentModel?._meta?.["reasoningEffort"];
+  return typeof effort === "string" && effort.trim() ? effort.trim() : undefined;
+}
+
 export function availableGrokModelIdsFromSessionSetup(
   sessionSetupResult:
     | EffectAcpSchema.LoadSessionResponse
@@ -107,6 +127,16 @@ export function availableGrokModelIdsFromSessionSetup(
   });
 }
 
+export interface GrokAcpModelSelectionResult {
+  readonly modelId: string | undefined;
+  /**
+   * Reasoning effort the session runs at after this call, when known.
+   * `undefined` means the model's own default: `session/set_model` without a
+   * `reasoningEffort` in `_meta` resets the session to that default.
+   */
+  readonly reasoningEffort: string | undefined;
+}
+
 export function applyGrokAcpModelSelection<E>(input: {
   readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel">;
   readonly currentModelId: string | undefined;
@@ -120,8 +150,17 @@ export function applyGrokAcpModelSelection<E>(input: {
    * starting. Omit to force the switch attempt (explicit user selection paths).
    */
   readonly availableModelIds?: ReadonlyArray<string>;
+  /**
+   * Reasoning effort selected for the thread, forwarded to the CLI as
+   * `_meta.reasoningEffort` on `session/set_model`. The CLI applies it only
+   * when the model supports it, so an unsupported value is silently ignored
+   * rather than failing the session. Omit to run at the model's default.
+   */
+  readonly requestedReasoningEffort?: string | undefined;
+  /** Effort the session currently runs at, used to skip redundant calls. */
+  readonly currentReasoningEffort?: string | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
-}): Effect.Effect<string | undefined, E> {
+}): Effect.Effect<GrokAcpModelSelectionResult, E> {
   const requestedIsAvailable =
     input.availableModelIds === undefined ||
     (input.requestedModelId !== undefined &&
@@ -130,10 +169,23 @@ export function applyGrokAcpModelSelection<E>(input: {
     input.requestedModelId !== undefined &&
     input.requestedModelId !== input.currentModelId &&
     requestedIsAvailable;
-  if (!shouldSwitchModel) {
-    return Effect.succeed(input.currentModelId);
+  const requestedEffort = input.requestedReasoningEffort?.trim() || undefined;
+  const shouldApplyEffort =
+    requestedEffort !== undefined && requestedEffort !== input.currentReasoningEffort;
+  const targetModelId = shouldSwitchModel ? input.requestedModelId : input.currentModelId;
+  if ((!shouldSwitchModel && !shouldApplyEffort) || targetModelId === undefined) {
+    return Effect.succeed({
+      modelId: input.currentModelId,
+      reasoningEffort: input.currentReasoningEffort,
+    });
   }
   return input.runtime
-    .setSessionModel(input.requestedModelId)
-    .pipe(Effect.mapError(input.mapError), Effect.as(input.requestedModelId));
+    .setSessionModel(
+      targetModelId,
+      requestedEffort === undefined ? undefined : { reasoningEffort: requestedEffort },
+    )
+    .pipe(
+      Effect.mapError(input.mapError),
+      Effect.as({ modelId: targetModelId, reasoningEffort: requestedEffort }),
+    );
 }

@@ -6,9 +6,84 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { GrokSettings } from "@t3tools/contracts";
 
-import { buildInitialGrokProviderSnapshot, checkGrokProviderStatus } from "./GrokProvider.ts";
+import {
+  buildInitialGrokProviderSnapshot,
+  checkGrokProviderStatus,
+  grokModelCapabilitiesFromAcpMeta,
+} from "./GrokProvider.ts";
 
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
+
+describe("grokModelCapabilitiesFromAcpMeta", () => {
+  it("maps advertised reasoning efforts to a reasoningEffort select descriptor", () => {
+    const capabilities = grokModelCapabilitiesFromAcpMeta({
+      totalContextTokens: 500000,
+      supportsReasoningEffort: true,
+      reasoningEffort: "high",
+      reasoningEfforts: [
+        {
+          id: "high",
+          value: "high",
+          label: "High Effort",
+          description: "Highest implementation quality with extensive reasoning",
+          default: true,
+        },
+        { id: "medium", value: "medium", label: "Medium Effort", default: false },
+        { id: "low", value: "low", label: "Low Effort", default: false },
+      ],
+    });
+    expect(capabilities.optionDescriptors).toEqual([
+      {
+        id: "reasoningEffort",
+        label: "Reasoning",
+        type: "select",
+        options: [
+          {
+            id: "high",
+            label: "High Effort",
+            description: "Highest implementation quality with extensive reasoning",
+            isDefault: true,
+          },
+          { id: "medium", label: "Medium Effort" },
+          { id: "low", label: "Low Effort" },
+        ],
+        currentValue: "high",
+      },
+    ]);
+  });
+
+  it("returns empty capabilities when the model does not support reasoning effort", () => {
+    expect(grokModelCapabilitiesFromAcpMeta(undefined).optionDescriptors ?? []).toEqual([]);
+    expect(
+      grokModelCapabilitiesFromAcpMeta({ supportsReasoningEffort: false }).optionDescriptors ?? [],
+    ).toEqual([]);
+    expect(
+      grokModelCapabilitiesFromAcpMeta({ supportsReasoningEffort: true, reasoningEfforts: [] })
+        .optionDescriptors ?? [],
+    ).toEqual([]);
+  });
+
+  it("drops malformed effort entries and falls back to the advertised default", () => {
+    const capabilities = grokModelCapabilitiesFromAcpMeta({
+      supportsReasoningEffort: true,
+      reasoningEffort: "not-a-known-value",
+      reasoningEfforts: [
+        "not-an-object",
+        { label: "No id" },
+        { value: "medium", label: "Medium Effort", default: true },
+      ],
+    });
+    expect(capabilities.optionDescriptors).toEqual([
+      {
+        id: "reasoningEffort",
+        label: "Reasoning",
+        type: "select",
+        options: [{ id: "medium", label: "Medium Effort", isDefault: true }],
+        currentValue: "medium",
+      },
+    ]);
+  });
+});
 
 describe("buildInitialGrokProviderSnapshot", () => {
   it.effect("returns a disabled snapshot when settings.enabled is false", () =>

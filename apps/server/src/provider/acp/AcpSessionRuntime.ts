@@ -222,10 +222,13 @@ export class AcpSessionRuntime extends Context.Service<
     readonly setModel: (model: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
     /**
      * Selects the active model through the unstable ACP `session/set_model` capability.
+     * `meta` rides along as the request's `_meta` for agent-specific extensions
+     * (e.g. the Grok CLI reads `reasoningEffort` from it).
      * @see https://agentclientprotocol.com/protocol/schema#session/set_model
      */
     readonly setSessionModel: (
       modelId: string,
+      meta?: Readonly<Record<string, unknown>>,
     ) => Effect.Effect<EffectAcpSchema.SetSessionModelResponse, EffectAcpErrors.AcpError>;
     /**
      * Sends a generic ACP extension request and records it through the request logger.
@@ -791,12 +794,13 @@ export const make = (
           Effect.flatMap((started) => setConfigOption(started.modelConfigId ?? "model", model)),
           Effect.asVoid,
         ),
-      setSessionModel: (modelId) =>
+      setSessionModel: (modelId, meta) =>
         getStartedState.pipe(
           Effect.flatMap((started) => {
             const requestPayload = {
               sessionId: started.sessionId,
               modelId,
+              ...(meta === undefined ? {} : { _meta: meta }),
             } satisfies EffectAcpSchema.SetSessionModelRequest;
             return runLoggedRequest(
               "session/set_model",
