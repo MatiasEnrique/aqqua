@@ -135,6 +135,7 @@ import {
   shouldReserveThreadExpandGutter,
 } from "./Sidebar.threadTree";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
+import { buildSidebarWorktreeGroups } from "./Sidebar.worktreeGroups";
 import {
   prStatusIndicator,
   resolveThreadPr,
@@ -1334,6 +1335,7 @@ export default function SidebarV2() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const sidebarThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThread } =
     useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -1384,6 +1386,8 @@ export default function SidebarV2() {
   // collapsed in the other, and the preference survives a reload.
   const threadExpandedById = useUiStateStore((s) => s.threadExpandedById);
   const setThreadExpanded = useUiStateStore((s) => s.setThreadExpanded);
+  const worktreeExpandedByKey = useUiStateStore((s) => s.worktreeExpandedByKey);
+  const setWorktreeExpanded = useUiStateStore((s) => s.setWorktreeExpanded);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -1459,6 +1463,19 @@ export default function SidebarV2() {
         ]),
       ),
     [projects],
+  );
+  const worktreeProjectsByKey = useMemo(
+    () =>
+      new Map(
+        projects.map((project) => [
+          `${project.environmentId}:${project.id}`,
+          {
+            workspaceRoot: project.workspaceRoot,
+            environmentLabel: environmentLabelById.get(project.environmentId) ?? null,
+          },
+        ]),
+      ),
+    [environmentLabelById, projects],
   );
   const projectDisplayNameByKey = useMemo(
     () =>
@@ -1778,8 +1795,17 @@ export default function SidebarV2() {
   // leaves its still-active sub-agents to render as roots rather than following
   // it out of the inbox.
   const activeThreadEntries = useMemo(
-    () => buildSidebarThreadTree({ threads: activeThreads }),
-    [activeThreads],
+    () =>
+      sidebarThreadGroupingMode === "worktree"
+        ? buildSidebarWorktreeGroups({
+            active: activeThreads,
+            snoozed: [],
+            settled: [],
+            drafts: [],
+            projectsByKey: worktreeProjectsByKey,
+          }).flatMap((group) => buildSidebarThreadTree({ threads: group.active }))
+        : buildSidebarThreadTree({ threads: activeThreads }),
+    [activeThreads, sidebarThreadGroupingMode, worktreeProjectsByKey],
   );
   const { activeTreeMetaByKey, expandedThreadKeys, reserveSubAgentGutter, visibleActiveThreads } =
     useMemo(() => {
@@ -1846,14 +1872,19 @@ export default function SidebarV2() {
     () => new Set(threads.map((thread) => `${thread.environmentId}:${thread.id}`)),
     [threads],
   );
-  const draftRows = useMemo(
+  const groupedDraftRows = useMemo(
     () =>
       selectSidebarDraftRows({
         draftsByDraftId: draftThreadsByDraftId,
         existingThreadKeys: shellThreadIdKeys,
         scopedProjectKeys,
+        includeLocal: true,
       }),
     [draftThreadsByDraftId, scopedProjectKeys, shellThreadIdKeys],
+  );
+  const draftRows = useMemo(
+    () => groupedDraftRows.filter((draft) => draft.envMode === "worktree"),
+    [groupedDraftRows],
   );
 
   // The settled tail renders in pages: history shouldn't dominate the
@@ -1919,6 +1950,20 @@ export default function SidebarV2() {
     );
     return routeThread === undefined ? [] : [routeThread];
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
+  const worktreeGroups = useMemo(
+    () =>
+      buildSidebarWorktreeGroups({
+        active: visibleActiveThreads,
+        snoozed: snoozedThreads,
+        settled: settledThreads,
+        drafts: groupedDraftRows,
+        projectsByKey: worktreeProjectsByKey,
+      }),
+    [groupedDraftRows, settledThreads, snoozedThreads, visibleActiveThreads, worktreeProjectsByKey],
+  );
+  const [settledVisibleCountByWorktree, setSettledVisibleCountByWorktree] = useState<
+    Readonly<Record<string, number>>
+  >({});
 
   // Visual order is the source of order everywhere else: jump hints, shift-range
   // selection and up/down traversal all follow the nesting, and a collapsed
@@ -2941,7 +2986,7 @@ export default function SidebarV2() {
                     />
                   );
                 };
-                const items: ReactNode[] = draftRows.map((row) => {
+                const renderDraftRow = (row: (typeof groupedDraftRows)[number]) => {
                   const projectKey =
                     `${row.environmentId}:${row.projectId}` as `${EnvironmentId}:${ProjectId}`;
                   return (
@@ -2958,7 +3003,156 @@ export default function SidebarV2() {
                       onDiscard={discardDraft}
                     />
                   );
-                });
+                };
+                if (sidebarThreadGroupingMode === "worktree") {
+                  const items: ReactNode[] = [];
+                  for (const group of worktreeGroups) {
+                    const routeInsideGroup =
+                      (routeDraftId !== null &&
+                        group.drafts.some((draft) => draft.draftId === routeDraftId)) ||
+                      (routeThreadKey !== null &&
+                        [...group.active, ...group.snoozed, ...group.settled].some(
+                          (thread) =>
+                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                            routeThreadKey,
+                        ));
+                    const expanded = routeInsideGroup || worktreeExpandedByKey[group.key] !== false;
+                    items.push(
+                      <li
+                        key={`worktree:${group.key}`}
+                        data-thread-selection-safe
+                        className="list-none"
+                      >
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          title={group.tooltip}
+                          onClick={() => setWorktreeExpanded(group.key, !expanded)}
+                          className="mb-1 mt-2 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
+                        >
+                          {expanded ? (
+                            <ChevronDownIcon className="size-3 shrink-0" />
+                          ) : (
+                            <ChevronRightIcon className="size-3 shrink-0" />
+                          )}
+                          <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{group.label}</span>
+                          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground/60">
+                            {group.drafts.length +
+                              group.active.length +
+                              group.snoozed.length +
+                              group.settled.length}
+                          </span>
+                        </button>
+                      </li>,
+                    );
+                    if (!expanded) continue;
+                    for (const draft of group.drafts) {
+                      items.push(renderDraftRow(draft));
+                    }
+                    for (const thread of group.active) {
+                      items.push(renderThreadRow(thread, "active"));
+                    }
+                    const visibleGroupSnoozed = snoozedShelfExpanded
+                      ? group.snoozed
+                      : group.snoozed.filter(
+                          (thread) =>
+                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                            routeThreadKey,
+                        );
+                    if (group.snoozed.length > 0) {
+                      items.push(
+                        <li
+                          key={`${group.key}:snoozed`}
+                          data-thread-selection-safe
+                          className="list-none"
+                        >
+                          <button
+                            type="button"
+                            onClick={toggleSnoozedShelf}
+                            aria-expanded={snoozedShelfExpanded}
+                            className="mb-1 mt-2 flex w-full items-center gap-2 px-2.5 text-left"
+                          >
+                            <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                              {snoozedShelfExpanded
+                                ? "Snoozed"
+                                : `Snoozed (${group.snoozed.length})`}
+                            </span>
+                            <span className="h-px flex-1 bg-blue-500/20" />
+                          </button>
+                        </li>,
+                      );
+                    }
+                    for (const thread of visibleGroupSnoozed) {
+                      items.push(renderThreadRow(thread, "snoozed"));
+                    }
+                    const groupSettledVisibleCount =
+                      settledVisibleCountByWorktree[group.key] ?? SETTLED_TAIL_INITIAL_COUNT;
+                    const visibleGroupSettled = group.settled.slice(0, groupSettledVisibleCount);
+                    const routedSettled = group.settled
+                      .slice(groupSettledVisibleCount)
+                      .find(
+                        (thread) =>
+                          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                          routeThreadKey,
+                      );
+                    if (routedSettled) visibleGroupSettled.push(routedSettled);
+                    const renderedGroupSettled = settledShelfExpanded
+                      ? visibleGroupSettled
+                      : visibleGroupSettled.filter(
+                          (thread) =>
+                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                            routeThreadKey,
+                        );
+                    if (group.settled.length > 0) {
+                      items.push(
+                        <li
+                          key={`${group.key}:settled`}
+                          data-thread-selection-safe
+                          className="list-none"
+                        >
+                          <button
+                            type="button"
+                            onClick={toggleSettledShelf}
+                            aria-expanded={settledShelfExpanded}
+                            className="mb-1 mt-2 flex w-full items-center gap-2 px-2.5 text-left"
+                          >
+                            <span className="text-[11px] font-medium text-muted-foreground/55">
+                              {settledShelfExpanded
+                                ? "Settled"
+                                : `Settled (${group.settled.length})`}
+                            </span>
+                            <span className="h-px flex-1 bg-sidebar-border/60" />
+                          </button>
+                        </li>,
+                      );
+                    }
+                    for (const thread of renderedGroupSettled) {
+                      items.push(renderThreadRow(thread, "settled"));
+                    }
+                    const hiddenGroupSettled = group.settled.length - visibleGroupSettled.length;
+                    if (settledShelfExpanded && hiddenGroupSettled > 0) {
+                      items.push(
+                        <li key={`${group.key}:more-settled`} className="list-none">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettledVisibleCountByWorktree((current) => ({
+                                ...current,
+                                [group.key]: groupSettledVisibleCount + SETTLED_TAIL_PAGE_COUNT,
+                              }))
+                            }
+                            className="mt-1 flex h-7 w-full items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground"
+                          >
+                            Show {Math.min(hiddenGroupSettled, SETTLED_TAIL_PAGE_COUNT)} more
+                          </button>
+                        </li>,
+                      );
+                    }
+                  }
+                  return items;
+                }
+                const items: ReactNode[] = draftRows.map(renderDraftRow);
                 items.push(
                   ...visibleActiveThreads.map((thread) => renderThreadRow(thread, "active")),
                 );
@@ -3025,7 +3219,9 @@ export default function SidebarV2() {
                 }
                 return items;
               })()}
-              {settledShelfExpanded && hiddenSettledCount > 0 ? (
+              {sidebarThreadGroupingMode === "flat" &&
+              settledShelfExpanded &&
+              hiddenSettledCount > 0 ? (
                 <li className="list-none">
                   <button
                     type="button"

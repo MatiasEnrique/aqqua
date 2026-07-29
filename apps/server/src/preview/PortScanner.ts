@@ -15,6 +15,7 @@ import { ThreadId, type DiscoveredLocalServer } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Net from "@t3tools/shared/Net";
 import { LSOF_LOCAL_HOST_TOKENS } from "@t3tools/shared/preview";
+import { workspaceTerminalOwnerThreadId } from "@t3tools/shared/terminalOwner";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -37,11 +38,13 @@ export class PortDiscovery extends Context.Service<
     readonly registerTerminalProcesses: (input: {
       readonly threadId: string;
       readonly terminalId: string;
+      readonly workspaceRoot?: string;
       readonly processIds: ReadonlyArray<number>;
     }) => Effect.Effect<void>;
     readonly unregisterTerminal: (input: {
       readonly threadId: string;
       readonly terminalId: string;
+      readonly workspaceRoot?: string;
     }) => Effect.Effect<void>;
   }
 >()("t3/preview/PortScanner/PortDiscovery") {}
@@ -72,12 +75,15 @@ interface ScannerState {
 interface TerminalProcessOwner {
   readonly threadId: ThreadId;
   readonly terminalId: string;
+  readonly workspaceRoot?: string;
 }
 
 const terminalOwnerKey = (owner: {
   readonly threadId: string;
   readonly terminalId: string;
-}): string => `${owner.threadId}\u0000${owner.terminalId}`;
+  readonly workspaceRoot?: string;
+}): string =>
+  `${owner.workspaceRoot ? workspaceTerminalOwnerThreadId(owner.workspaceRoot) : owner.threadId}\u0000${owner.terminalId}`;
 
 const parseLsofOutput = (
   raw: string,
@@ -178,7 +184,8 @@ const serversEqual = (
       a.processName !== b.processName ||
       a.pid !== b.pid ||
       a.terminal?.threadId !== b.terminal?.threadId ||
-      a.terminal?.terminalId !== b.terminal?.terminalId
+      a.terminal?.terminalId !== b.terminal?.terminalId ||
+      a.terminal?.workspaceRoot !== b.terminal?.workspaceRoot
     ) {
       return false;
     }
@@ -352,6 +359,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       const owner = {
         threadId: ThreadId.make(input.threadId),
         terminalId: input.terminalId,
+        ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
       };
       const processIds = new Set(
         input.processIds.filter((processId) => Number.isInteger(processId) && processId > 0),

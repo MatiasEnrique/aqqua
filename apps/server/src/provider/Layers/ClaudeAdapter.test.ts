@@ -877,6 +877,7 @@ describe("ClaudeAdapterLive", () => {
             name: "Bash",
             input: {
               command: "ls",
+              workdir: "/tmp/linked-worktree",
             },
           },
         },
@@ -947,6 +948,7 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(toolStarted?.type, "item.started");
       if (toolStarted?.type === "item.started") {
         assert.equal(toolStarted.payload.itemType, "command_execution");
+        assert.equal(toolStarted.payload.cwd, "/tmp/linked-worktree");
       }
 
       const assistantCompletedIndex = runtimeEvents.findIndex(

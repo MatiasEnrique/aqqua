@@ -3,8 +3,10 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -361,6 +363,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.sourceControlCloneRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
+  [WS_METHODS.projectsRefreshEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
@@ -457,6 +460,8 @@ const makeWsRpcLayer = (
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const crypto = yield* Crypto.Crypto;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -497,6 +502,20 @@ const makeWsRpcLayer = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
+      const canonicalizeTerminalInput = <T extends object>(
+        input: T,
+        workspaceRoot: string | undefined,
+      ): Effect.Effect<T> => {
+        if (!workspaceRoot) return Effect.succeed(input);
+        const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+        return fileSystem.realPath(resolvedWorkspaceRoot).pipe(
+          Effect.orElseSucceed(() => resolvedWorkspaceRoot),
+          Effect.map((canonicalWorkspaceRoot) => ({
+            ...input,
+            workspaceRoot: canonicalWorkspaceRoot,
+          })),
+        );
+      };
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const relayClient = yield* RelayClient.RelayClient;
@@ -1180,8 +1199,11 @@ const makeWsRpcLayer = (
                       )
                   : false;
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
-              if (normalizedCommand.type === "thread.archive") {
-                if (shouldStopSessionAfterArchive) {
+              if (
+                normalizedCommand.type === "thread.archive" ||
+                normalizedCommand.type === "thread.delete"
+              ) {
+                if (normalizedCommand.type === "thread.archive" && shouldStopSessionAfterArchive) {
                   yield* Effect.gen(function* () {
                     const stopCommand = yield* normalizeDispatchCommand({
                       type: "thread.session.stop",
@@ -1205,8 +1227,9 @@ const makeWsRpcLayer = (
 
                 yield* terminalManager.close({ threadId: normalizedCommand.threadId }).pipe(
                   Effect.catch((error) =>
-                    Effect.logWarning("failed to close thread terminals after archive", {
+                    Effect.logWarning("failed to close thread terminals after cleanup", {
                       threadId: normalizedCommand.threadId,
+                      commandType: normalizedCommand.type,
                       error: error.message,
                     }),
                   ),
@@ -1720,6 +1743,10 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsRefreshEntries]: (input) =>
+          observeRpcEffect(WS_METHODS.projectsRefreshEntries, workspaceEntries.refresh(input.cwd), {
+            "rpc.aggregate": "workspace",
+          }),
         [WS_METHODS.projectsReadFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsReadFile,
@@ -1949,7 +1976,28 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            Effect.gen(function* () {
+              const terminalOwner = yield* canonicalizeTerminalInput(
+                { workspaceRoot: input.path },
+                input.path,
+              );
+              const result = yield* gitWorkflow.removeWorktree(input);
+              yield* terminalManager
+                .close({
+                  threadId: "workspace-cleanup",
+                  workspaceRoot: terminalOwner.workspaceRoot,
+                })
+                .pipe(
+                  Effect.catch((error) =>
+                    Effect.logWarning("failed to close removed worktree terminals", {
+                      workspaceRoot: terminalOwner.workspaceRoot,
+                      error: error.message,
+                    }),
+                  ),
+                );
+              yield* refreshGitStatus(input.cwd);
+              return result;
+            }),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
@@ -1977,40 +2025,82 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "review",
           }),
         [WS_METHODS.terminalOpen]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalOpen,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.open(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalAttach]: (input) =>
           observeRpcStream(
             WS_METHODS.terminalAttach,
             Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
               Effect.acquireRelease(
-                terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
+                canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+                  Effect.flatMap((canonicalInput) =>
+                    terminalManager.attachStream(canonicalInput, (event) =>
+                      Queue.offer(queue, event),
+                    ),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
             { "rpc.aggregate": "terminal" },
           ),
         [WS_METHODS.terminalWrite]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalWrite, terminalManager.write(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalWrite,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.write(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalResize]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalResize, terminalManager.resize(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalResize,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.resize(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalClear]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalClear, terminalManager.clear(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalClear,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.clear(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalRestart]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalRestart,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.restart(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalClose]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalClose,
+            canonicalizeTerminalInput(input, input.workspaceRoot).pipe(
+              Effect.flatMap((canonicalInput) => terminalManager.close(canonicalInput)),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.subscribeTerminalEvents]: (_input) =>
           observeRpcStream(
             WS_METHODS.subscribeTerminalEvents,

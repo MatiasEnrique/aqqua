@@ -474,6 +474,13 @@ function mapItemLifecycle(
   }
 
   const detail = itemDetail(itemType, item);
+  const cwd =
+    itemType === "command_execution" &&
+    "cwd" in item &&
+    typeof item.cwd === "string" &&
+    item.cwd.trim().length > 0
+      ? item.cwd
+      : undefined;
   const status =
     lifecycle === "item.started"
       ? "inProgress"
@@ -489,6 +496,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(itemTitle(itemType, item) ? { title: itemTitle(itemType, item) } : {}),
       ...(detail ? { detail } : {}),
+      ...(cwd ? { cwd } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };

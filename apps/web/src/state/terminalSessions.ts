@@ -40,7 +40,9 @@ export function useAttachedTerminalSession(input: {
     const summary =
       metadata.data?.find(
         (terminal) =>
-          terminal.threadId === input.terminal?.threadId &&
+          (input.terminal?.workspaceRoot
+            ? terminal.workspaceRoot === input.terminal.workspaceRoot
+            : terminal.threadId === input.terminal?.threadId) &&
           terminal.terminalId === input.terminal?.terminalId,
       ) ?? null;
     const state = combineTerminalSessionState(summary, attach.data ?? EMPTY_TERMINAL_BUFFER_STATE);

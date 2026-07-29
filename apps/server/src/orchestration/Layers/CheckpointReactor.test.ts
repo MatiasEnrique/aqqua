@@ -310,17 +310,27 @@ describe("CheckpointReactor", () => {
       refreshLocalStatus: (cwd: string) =>
         Effect.sync(() => {
           options?.gitStatusRefreshCalls?.push(cwd);
+          const refName = runGit(cwd, ["branch", "--show-current"]).trim() || null;
+          return refName;
         }).pipe(
-          Effect.as({
+          Effect.map((refName) => ({
             isRepo: true,
             hasPrimaryRemote: false,
             isDefaultRef: true,
-            refName: "main",
+            refName,
             hasWorkingTreeChanges: false,
             workingTree: { files: [], insertions: 0, deletions: 0 },
-          }),
+          })),
         ),
-      refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
+      refreshStatus: (cwd: string) =>
+        Effect.succeed({
+          isRepo: true,
+          hasPrimaryRemote: false,
+          isDefaultRef: true,
+          refName: runGit(cwd, ["branch", "--show-current"]).trim() || null,
+          hasWorkingTreeChanges: false,
+          workingTree: { files: [], insertions: 0, deletions: 0 },
+        }),
       streamStatus: () => Stream.empty,
     });
 
@@ -515,7 +525,149 @@ describe("CheckpointReactor", () => {
 
     await harness.drain();
 
-    expect(gitStatusRefreshCalls).toEqual([harness.cwd]);
+    expect(gitStatusRefreshCalls).toEqual([NodeFS.realpathSync(harness.cwd)]);
+  });
+
+  it("adopts the last same-repository command cwd after turn completion", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-worktree-"));
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    tempDirs.push(worktree);
+    runGit(harness.cwd, ["worktree", "add", "-b", "feature/workspace-sync", worktree]);
+    NodeFS.mkdirSync(NodePath.join(worktree, "nested"));
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-peer-create"),
+        threadId: ThreadId.make("thread-peer"),
+        projectId: asProjectId("project-1"),
+        title: "Peer",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: "stale-branch",
+        worktreePath: worktree,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    harness.provider.emit({
+      type: "item.completed",
+      eventId: EventId.make("evt-command-worktree-cwd"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-worktree-sync"),
+      itemId: "command-worktree-sync",
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        cwd: NodePath.join(worktree, "nested"),
+      },
+    });
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-worktree-sync"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-worktree-sync"),
+      payload: { state: "completed" },
+    });
+
+    await harness.drain();
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    const peer = (await harness.readModel()).threads.find((entry) => entry.id === "thread-peer");
+    expect(thread?.branch).toBe("feature/workspace-sync");
+    expect(thread?.worktreePath).toBe(NodeFS.realpathSync(worktree));
+    expect(peer?.branch).toBe("feature/workspace-sync");
+    expect(peer?.worktreePath).toBe(worktree);
+  });
+
+  it("clears branch metadata when the adopted worktree has detached HEAD", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-detached-"));
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    tempDirs.push(worktree);
+    runGit(harness.cwd, ["worktree", "add", "--detach", worktree]);
+
+    harness.provider.emit({
+      type: "item.completed",
+      eventId: EventId.make("evt-command-detached-cwd"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-detached-sync"),
+      itemId: "command-detached-sync",
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        cwd: worktree,
+      },
+    });
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-detached-sync"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-detached-sync"),
+      payload: { state: "completed" },
+    });
+
+    await harness.drain();
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.branch).toBeNull();
+    expect(thread?.worktreePath).toBe(NodeFS.realpathSync(worktree));
+  });
+
+  it("does not reuse a command cwd from an aborted turn", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-aborted-"));
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    tempDirs.push(worktree);
+    runGit(harness.cwd, ["worktree", "add", "-b", "feature/aborted", worktree]);
+
+    harness.provider.emit({
+      type: "item.completed",
+      eventId: EventId.make("evt-command-aborted-cwd"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-aborted"),
+      itemId: "command-aborted",
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        cwd: worktree,
+      },
+    });
+    harness.provider.emit({
+      type: "turn.aborted",
+      eventId: EventId.make("evt-turn-aborted"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-aborted"),
+      payload: { reason: "interrupted" },
+    });
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-after-abort"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-after-abort"),
+      payload: { state: "completed" },
+    });
+
+    await harness.drain();
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.branch).toBe("main");
+    expect(thread?.worktreePath).toBeNull();
   });
 
   it("ignores auxiliary thread turn completion while primary turn is active", async () => {
@@ -828,7 +980,7 @@ describe("CheckpointReactor", () => {
     );
   });
 
-  it("continues processing runtime events after a single checkpoint runtime failure", async () => {
+  it("falls back to the persisted workspace when the provider session cwd is not a repository", async () => {
     const nonRepositorySessionCwd = NodeFS.mkdtempSync(
       NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-runtime-non-repo-"),
     );
@@ -881,10 +1033,10 @@ describe("CheckpointReactor", () => {
 
     await waitForGitRefExists(
       harness.cwd,
-      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0),
+      checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1),
     );
     expect(
-      gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0)),
+      gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1)),
     ).toBe(true);
   });
 

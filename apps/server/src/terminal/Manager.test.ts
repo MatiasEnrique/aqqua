@@ -296,6 +296,31 @@ it.layer(
     }),
   );
 
+  it.effect("keeps workspace terminals alive across originating thread cleanup", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const workspaceRoot = "/tmp/shared-worktree/";
+      const normalizedWorkspaceRoot = "/tmp/shared-worktree";
+      const created = yield* manager.open(openInput({ workspaceRoot }));
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const attachedFromPeer = yield* manager.open(
+        openInput({ threadId: "thread-2", workspaceRoot: normalizedWorkspaceRoot }),
+      );
+      assert.equal(created.threadId, "thread-1");
+      assert.equal(created.workspaceRoot, normalizedWorkspaceRoot);
+      assert.equal(attachedFromPeer.threadId, "thread-1");
+      assert.equal(attachedFromPeer.workspaceRoot, normalizedWorkspaceRoot);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+
+      yield* manager.close({ threadId: "thread-2", workspaceRoot: normalizedWorkspaceRoot });
+      const recreated = yield* manager.open(openInput({ threadId: "thread-2", workspaceRoot }));
+      assert.equal(recreated.threadId, "thread-2");
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+    }),
+  );
+
   it.effect("hosts a requested program instead of an interactive shell", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

@@ -39,6 +39,13 @@ interface FileBrowserPanelProps {
   onOpenFile: (relativePath: string) => void;
 }
 
+interface ExplorerWorkspaceState {
+  expandedPaths: readonly string[];
+  searchQuery: string | null;
+}
+
+const explorerStateByWorkspace = new Map<string, ExplorerWorkspaceState>();
+
 const TREE_UNSAFE_CSS = `
   :host {
     --trees-bg-override: transparent;
@@ -86,6 +93,8 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
+  const explorerWorkspaceKey = `${environmentId}:${cwd}`;
+  const restoredExplorerState = explorerStateByWorkspace.get(explorerWorkspaceKey);
   const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
   const createEntry = useAtomCommand(projectEnvironment.createEntry, { reportFailure: false });
   const moveEntry = useAtomCommand(projectEnvironment.moveEntry, { reportFailure: false });
@@ -329,7 +338,13 @@ export default function FileBrowserPanel({
     density: "compact",
     fileTreeSearchMode: "hide-non-matches",
     flattenEmptyDirectories: true,
-    initialExpansion: 1,
+    initialExpansion: restoredExplorerState ? "closed" : 1,
+    ...(restoredExplorerState?.expandedPaths
+      ? { initialExpandedPaths: restoredExplorerState.expandedPaths }
+      : {}),
+    ...(restoredExplorerState?.searchQuery
+      ? { initialSearchQuery: restoredExplorerState.searchQuery }
+      : {}),
     icons: T3_PIERRE_ICONS,
     renaming: {
       canRename: () => true,
@@ -350,6 +365,13 @@ export default function FileBrowserPanel({
         onOpenFile(selectedPath);
       }
     },
+    onSearchChange: (searchQuery) => {
+      const current = explorerStateByWorkspace.get(explorerWorkspaceKey);
+      explorerStateByWorkspace.set(explorerWorkspaceKey, {
+        expandedPaths: current?.expandedPaths ?? [],
+        searchQuery,
+      });
+    },
     paths: [],
     search: true,
     unsafeCSS: TREE_UNSAFE_CSS,
@@ -368,6 +390,21 @@ export default function FileBrowserPanel({
   useEffect(() => {
     model.setGitStatus(treeGitStatus);
   }, [model, treeGitStatus]);
+
+  useEffect(
+    () =>
+      model.subscribe(() => {
+        const expandedPaths = treePaths.filter((path) => {
+          const item = model.getItem(path);
+          return item?.isDirectory() === true && "isExpanded" in item && item.isExpanded();
+        });
+        explorerStateByWorkspace.set(explorerWorkspaceKey, {
+          expandedPaths,
+          searchQuery: model.getSearchValue() || null,
+        });
+      }),
+    [explorerWorkspaceKey, model, treePaths],
+  );
 
   const fileCount = useMemo(
     () => entries.reduce((count, entry) => count + (entry.kind === "file" ? 1 : 0), 0),
@@ -457,7 +494,16 @@ export default function FileBrowserPanel({
             type="button"
             className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Refresh workspace files"
-            onClick={entriesQuery.refresh}
+            disabled={entriesQuery.isPending}
+            onClick={() => {
+              void entriesQuery.refresh().catch((error: unknown) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Could not refresh workspace files",
+                  description: error instanceof Error ? error.message : "Workspace refresh failed.",
+                });
+              });
+            }}
           >
             <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
           </button>

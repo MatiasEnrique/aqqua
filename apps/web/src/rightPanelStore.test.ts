@@ -5,9 +5,12 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   migratePersistedRightPanelState,
   selectActiveRightPanel,
+  selectActiveRightPanelContextSurface,
   selectActiveRightPanelSurface,
+  selectRightPanelContextState,
   selectThreadRightPanelState,
   useRightPanelStore,
+  workspaceRightPanelRef,
 } from "./rightPanelStore";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
@@ -65,6 +68,8 @@ describe("rightPanelStore", () => {
               resourceId: "term-1",
               terminalIds: ["term-1"],
               activeTerminalId: "term-1",
+              originThreadId: "thread-A",
+              terminalPanes: [{ terminalId: "term-1", originThreadId: "thread-A" }],
             },
           ],
         },
@@ -97,6 +102,28 @@ describe("rightPanelStore", () => {
               revealRequestId: 0,
             },
           ],
+        },
+      },
+    });
+  });
+
+  it("drops malformed persisted descriptors without discarding valid surfaces", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "diff",
+            surfaces: [null, { id: "mystery", kind: "unknown" }, { id: "diff", kind: "diff" }],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "diff",
+          surfaces: [{ id: "diff", kind: "diff" }],
         },
       },
     });
@@ -304,6 +331,8 @@ describe("rightPanelStore", () => {
         resourceId: "term-1",
         terminalIds: ["term-1"],
         activeTerminalId: "term-1",
+        originThreadId: "thread-A",
+        terminalPanes: [{ terminalId: "term-1", originThreadId: "thread-A" }],
       },
       {
         id: "terminal:term-2",
@@ -311,9 +340,28 @@ describe("rightPanelStore", () => {
         resourceId: "term-2",
         terminalIds: ["term-2"],
         activeTerminalId: "term-2",
+        originThreadId: "thread-A",
+        terminalPanes: [{ terminalId: "term-2", originThreadId: "thread-A" }],
       },
     ]);
     expect(state.activeSurfaceId).toBe("terminal:term-2");
+  });
+
+  it("keeps the real origin thread when a terminal is stored in a workspace bucket", () => {
+    const workspaceStoreRef = workspaceRightPanelRef({
+      environmentId: refA.environmentId,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    })!;
+
+    useRightPanelStore.getState().openTerminal(workspaceStoreRef, "term-1", refA.threadId);
+
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, workspaceStoreRef),
+    ).toMatchObject({
+      kind: "terminal",
+      originThreadId: "thread-A",
+      terminalPanes: [{ terminalId: "term-1", originThreadId: "thread-A" }],
+    });
   });
 
   it("tracks split panes and the active pane within a terminal surface", () => {
@@ -326,6 +374,11 @@ describe("rightPanelStore", () => {
       resourceId: "term-1",
       terminalIds: ["term-1", "term-2"],
       activeTerminalId: "term-2",
+      originThreadId: "thread-A",
+      terminalPanes: [
+        { terminalId: "term-1", originThreadId: "thread-A" },
+        { terminalId: "term-2", originThreadId: "thread-A" },
+      ],
     });
 
     useRightPanelStore.getState().activateTerminal(refA, "terminal:term-1", "term-1");
@@ -336,6 +389,8 @@ describe("rightPanelStore", () => {
       resourceId: "term-1",
       terminalIds: ["term-2"],
       activeTerminalId: "term-2",
+      originThreadId: "thread-A",
+      terminalPanes: [{ terminalId: "term-2", originThreadId: "thread-A" }],
     });
   });
 
@@ -350,6 +405,11 @@ describe("rightPanelStore", () => {
       terminalIds: ["term-1", "term-2"],
       activeTerminalId: "term-2",
       splitDirection: "vertical",
+      originThreadId: "thread-A",
+      terminalPanes: [
+        { terminalId: "term-1", originThreadId: "thread-A" },
+        { terminalId: "term-2", originThreadId: "thread-A" },
+      ],
     });
   });
 
@@ -445,5 +505,120 @@ describe("rightPanelStore", () => {
         (surface) => surface.id,
       ),
     ).toEqual(["terminal:term-1", "browser:tab-b", "browser:tab-c"]);
+  });
+
+  it("shares workspace surfaces while keeping plan and browser surfaces per thread", () => {
+    const workspaceRef = {
+      environmentId: refA.environmentId,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    };
+    const workspaceStoreRef = workspaceRightPanelRef(workspaceRef)!;
+    useRightPanelStore.getState().open(workspaceStoreRef, "diff");
+    useRightPanelStore.getState().openFile(workspaceStoreRef, "src/index.ts");
+    useRightPanelStore.getState().open(refA, "plan");
+
+    const stateA = selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, {
+      threadRef: refA,
+      workspaceRef,
+    });
+    const stateB = selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, {
+      threadRef: refB,
+      workspaceRef,
+    });
+
+    expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff", "file"]);
+    expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["diff", "file"]);
+    expect(stateB.activeSurfaceId).toBe("file:src/index.ts");
+  });
+
+  it("lazily migrates legacy workspace surfaces and hiding keeps their resources", () => {
+    const workspaceRef = {
+      environmentId: refA.environmentId,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    };
+    const workspaceStoreRef = workspaceRightPanelRef(workspaceRef)!;
+    const store = useRightPanelStore.getState();
+    store.open(refA, "plan");
+    store.open(refA, "diff");
+    store.openTerminal(refA, "term-1");
+    store.migrateLegacyWorkspaceSurfaces({ threadRef: refA, workspaceRef });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.map(
+        (surface) => surface.kind,
+      ),
+    ).toEqual(["plan"]);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceStoreRef)
+        .surfaces,
+    ).toMatchObject([
+      { kind: "diff" },
+      { kind: "terminal", originThreadId: "thread-A", terminalIds: ["term-1"] },
+    ]);
+
+    useRightPanelStore.getState().close(workspaceStoreRef);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceStoreRef)
+        .surfaces,
+    ).toHaveLength(2);
+    useRightPanelStore.getState().show(workspaceStoreRef);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceStoreRef)
+        .isOpen,
+    ).toBe(true);
+  });
+
+  it("preserves colliding legacy terminal ids from different origin threads", () => {
+    const workspaceRef = {
+      environmentId: refA.environmentId,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    };
+    const workspaceStoreRef = workspaceRightPanelRef(workspaceRef)!;
+    const store = useRightPanelStore.getState();
+    store.openTerminal(refA, "term-1");
+    store.openTerminal(refB, "term-1");
+    store.migrateLegacyWorkspaceSurfaces({ threadRef: refA, workspaceRef });
+    store.migrateLegacyWorkspaceSurfaces({ threadRef: refB, workspaceRef });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceStoreRef)
+        .surfaces,
+    ).toMatchObject([
+      { kind: "terminal", resourceId: "term-1", originThreadId: "thread-A" },
+      { kind: "terminal", resourceId: "term-1", originThreadId: "thread-B" },
+    ]);
+  });
+
+  it("hides a context without disposing resources and restores the last surface", () => {
+    const context = {
+      threadRef: refA,
+      workspaceRef: {
+        environmentId: refA.environmentId,
+        workspaceRoot: "/tmp/project/.worktrees/feature",
+      },
+    };
+    const workspaceStoreRef = workspaceRightPanelRef(context.workspaceRef)!;
+    const store = useRightPanelStore.getState();
+    store.open(workspaceStoreRef, "diff");
+    store.close(workspaceStoreRef);
+    store.open(refA, "plan");
+
+    store.hideContext(context);
+    expect(
+      selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, context),
+    ).toEqual(
+      expect.objectContaining({
+        isOpen: false,
+        surfaces: [
+          expect.objectContaining({ kind: "plan" }),
+          expect.objectContaining({ kind: "diff" }),
+        ],
+      }),
+    );
+
+    useRightPanelStore.getState().restoreContext(context);
+    expect(
+      selectActiveRightPanelContextSurface(useRightPanelStore.getState().byThreadKey, context),
+    ).toMatchObject({ kind: "plan" });
   });
 });

@@ -7,8 +7,10 @@
  * terminal surfaces point at terminal session ids, file surfaces point at
  * workspace paths, and diff/plan/files remain singleton surfaces.
  */
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspacePanelRef } from "@t3tools/client-runtime/environment";
+import { workspaceTerminalOwnerThreadId } from "@t3tools/shared/terminalOwner";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -16,6 +18,32 @@ import { resolveStorage } from "./lib/storage";
 
 export const RIGHT_PANEL_KINDS = ["plan", "diff", "files", "file", "preview", "terminal"] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
+
+export interface RightPanelContext {
+  readonly threadRef: ScopedThreadRef;
+  readonly workspaceRef: WorkspacePanelRef | null;
+}
+
+const THREAD_SCOPED_RIGHT_PANEL_KINDS = new Set<RightPanelKind>(["plan", "preview"]);
+
+export function workspaceRightPanelRef(
+  workspaceRef: WorkspacePanelRef | null,
+): ScopedThreadRef | null {
+  if (!workspaceRef) return null;
+  return {
+    environmentId: workspaceRef.environmentId,
+    threadId: ThreadId.make(workspaceTerminalOwnerThreadId(workspaceRef.workspaceRoot)),
+  };
+}
+
+export function rightPanelRefForKind(
+  context: RightPanelContext,
+  kind: RightPanelKind,
+): ScopedThreadRef {
+  return THREAD_SCOPED_RIGHT_PANEL_KINDS.has(kind)
+    ? context.threadRef
+    : (workspaceRightPanelRef(context.workspaceRef) ?? context.threadRef);
+}
 
 export type RightPanelSurface =
   | { id: `browser:${string}`; kind: "preview"; resourceId: string }
@@ -27,6 +55,12 @@ export type RightPanelSurface =
       terminalIds: string[];
       activeTerminalId: string;
       splitDirection?: "horizontal" | "vertical";
+      originThreadId?: string;
+      terminalPanes: Array<{
+        terminalId: string;
+        originThreadId: string;
+        workspaceRoot?: string;
+      }>;
     }
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
@@ -40,7 +74,7 @@ export type RightPanelSurface =
   | { id: "plan"; kind: "plan" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 7;
+const RIGHT_PANEL_STORAGE_VERSION = 8;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -53,12 +87,19 @@ interface RightPanelStoreState {
   open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
-  openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
+  openTerminal: (
+    ref: ScopedThreadRef,
+    terminalId: string,
+    originThreadId?: string,
+    workspaceRoot?: string,
+  ) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
     surfaceId: string,
     terminalId: string,
     direction?: "horizontal" | "vertical",
+    originThreadId?: string,
+    workspaceRoot?: string,
   ) => void;
   activateTerminal: (ref: ScopedThreadRef, surfaceId: string, terminalId: string) => void;
   closeTerminal: (ref: ScopedThreadRef, surfaceId: string, terminalId: string) => void;
@@ -69,6 +110,9 @@ interface RightPanelStoreState {
   closeAllSurfaces: (ref: ScopedThreadRef) => void;
   reconcileBrowserSurfaces: (ref: ScopedThreadRef, tabIds: readonly string[]) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
+  migrateLegacyWorkspaceSurfaces: (context: RightPanelContext) => void;
+  hideContext: (context: RightPanelContext) => void;
+  restoreContext: (context: RightPanelContext) => void;
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
@@ -112,12 +156,18 @@ const fileSurface = (
   revealRequestId,
 });
 
-const terminalSurface = (terminalId: string): RightPanelSurface => ({
+const terminalSurface = (
+  terminalId: string,
+  originThreadId: string,
+  workspaceRoot?: string,
+): RightPanelSurface => ({
   id: `terminal:${terminalId}`,
   kind: "terminal",
   resourceId: terminalId,
   terminalIds: [terminalId],
   activeTerminalId: terminalId,
+  originThreadId,
+  terminalPanes: [{ terminalId, originThreadId, ...(workspaceRoot ? { workspaceRoot } : {}) }],
 });
 
 const upsertSurface = (
@@ -168,9 +218,18 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
             ([threadKey, threadState]) => {
               const validThreadState =
                 threadState && typeof threadState === "object" ? threadState : null;
+              const persistedThreadRef = parseScopedThreadKey(threadKey);
               const surfaces = Array.isArray(validThreadState?.surfaces)
-                ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
+                ? validThreadState.surfaces.flatMap<RightPanelSurface>((value) => {
+                    if (!value || typeof value !== "object") return [];
+                    const surface = value as Record<string, unknown>;
                     if (surface.kind === "file") {
+                      if (
+                        typeof surface.relativePath !== "string" ||
+                        surface.id !== `file:${surface.relativePath}`
+                      ) {
+                        return [];
+                      }
                       const revealLine =
                         typeof surface.revealLine === "number" &&
                         Number.isFinite(surface.revealLine)
@@ -182,13 +241,51 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         surface.revealRequestId >= 0
                           ? surface.revealRequestId
                           : 0;
-                      return [{ ...surface, revealLine, revealRequestId }];
+                      return [
+                        {
+                          id: surface.id as `file:${string}`,
+                          kind: "file",
+                          relativePath: surface.relativePath,
+                          revealLine,
+                          revealRequestId,
+                        },
+                      ];
                     }
-                    if (surface.kind !== "terminal") return [surface];
+                    if (surface.kind === "diff" && surface.id === "diff") {
+                      return [{ id: "diff", kind: "diff" }];
+                    }
+                    if (surface.kind === "files" && surface.id === "files") {
+                      return [{ id: "files", kind: "files" }];
+                    }
+                    if (surface.kind === "plan" && surface.id === "plan") {
+                      return [{ id: "plan", kind: "plan" }];
+                    }
                     if (
-                      !("resourceId" in surface) ||
+                      surface.kind === "preview" &&
+                      typeof surface.id === "string" &&
+                      typeof surface.resourceId === "string" &&
+                      surface.id === `browser:${surface.resourceId}`
+                    ) {
+                      return [
+                        {
+                          id: surface.id as `browser:${string}`,
+                          kind: "preview",
+                          resourceId: surface.resourceId,
+                        },
+                      ];
+                    }
+                    if (
+                      surface.kind === "preview" &&
+                      surface.id === "browser:new" &&
+                      surface.resourceId === null
+                    ) {
+                      return [{ id: "browser:new", kind: "preview", resourceId: null }];
+                    }
+                    if (surface.kind !== "terminal") return [];
+                    if (
                       typeof surface.resourceId !== "string" ||
-                      surface.id !== `terminal:${surface.resourceId}`
+                      typeof surface.id !== "string" ||
+                      !surface.id.startsWith("terminal:")
                     ) {
                       return [];
                     }
@@ -209,11 +306,58 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       terminalIds.includes(surface.activeTerminalId)
                         ? surface.activeTerminalId
                         : (terminalIds[0] ?? surface.resourceId);
+                    const originThreadId =
+                      typeof surface.originThreadId === "string"
+                        ? surface.originThreadId
+                        : persistedThreadRef?.threadId;
+                    if (!originThreadId) return [];
+                    const persistedPanes = Array.isArray(surface.terminalPanes)
+                      ? surface.terminalPanes.flatMap<{
+                          terminalId: string;
+                          originThreadId: string;
+                          workspaceRoot?: string;
+                        }>((pane) =>
+                          pane &&
+                          typeof pane === "object" &&
+                          "terminalId" in pane &&
+                          typeof pane.terminalId === "string" &&
+                          "originThreadId" in pane &&
+                          typeof pane.originThreadId === "string"
+                            ? [
+                                {
+                                  terminalId: pane.terminalId,
+                                  originThreadId: pane.originThreadId,
+                                  ...("workspaceRoot" in pane &&
+                                  typeof pane.workspaceRoot === "string"
+                                    ? { workspaceRoot: pane.workspaceRoot }
+                                    : {}),
+                                },
+                              ]
+                            : [],
+                        )
+                      : [];
+                    const terminalPanes = terminalIds.map(
+                      (terminalId) =>
+                        persistedPanes.find((pane) => pane.terminalId === terminalId) ?? {
+                          terminalId,
+                          originThreadId,
+                          ...(typeof surface.workspaceRoot === "string"
+                            ? { workspaceRoot: surface.workspaceRoot }
+                            : {}),
+                        },
+                    );
                     return [
                       {
-                        ...surface,
+                        id: surface.id as `terminal:${string}`,
+                        kind: "terminal",
+                        resourceId: surface.resourceId,
                         terminalIds: terminalIds.length > 0 ? terminalIds : [surface.resourceId],
                         activeTerminalId,
+                        ...(surface.splitDirection === "vertical"
+                          ? { splitDirection: "vertical" as const }
+                          : {}),
+                        originThreadId,
+                        terminalPanes,
                       },
                     ];
                   })
@@ -286,13 +430,20 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         })),
-      openTerminal: (ref, terminalId) =>
+      openTerminal: (ref, terminalId, originThreadId = ref.threadId, workspaceRoot) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, terminalSurface(terminalId)),
+            upsertSurface(current, terminalSurface(terminalId, originThreadId, workspaceRoot)),
           ),
         })),
-      splitTerminal: (ref, surfaceId, terminalId, direction = "horizontal") =>
+      splitTerminal: (
+        ref,
+        surfaceId,
+        terminalId,
+        direction = "horizontal",
+        originThreadId = ref.threadId,
+        workspaceRoot,
+      ) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => ({
             ...current,
@@ -307,6 +458,16 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   ? surface.terminalIds
                   : [...surface.terminalIds, terminalId],
                 activeTerminalId: terminalId,
+                terminalPanes: surface.terminalPanes.some((pane) => pane.terminalId === terminalId)
+                  ? surface.terminalPanes
+                  : [
+                      ...surface.terminalPanes,
+                      {
+                        terminalId,
+                        originThreadId,
+                        ...(workspaceRoot ? { workspaceRoot } : {}),
+                      },
+                    ],
                 ...(direction === "vertical" ? { splitDirection: "vertical" as const } : {}),
               };
             }),
@@ -334,6 +495,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             );
             if (!surface || surface.kind !== "terminal") return current;
             const terminalIds = surface.terminalIds.filter((id) => id !== terminalId);
+            const terminalPanes = surface.terminalPanes.filter(
+              (pane) => pane.terminalId !== terminalId,
+            );
             if (terminalIds.length === 0) {
               const index = current.surfaces.findIndex((entry) => entry.id === surfaceId);
               const surfaces = current.surfaces.filter((entry) => entry.id !== surfaceId);
@@ -355,6 +519,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   ? {
                       ...entry,
                       terminalIds,
+                      terminalPanes,
                       activeTerminalId:
                         entry.activeTerminalId === terminalId
                           ? (terminalIds.at(-1) ?? terminalIds[0]!)
@@ -478,6 +643,130 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         })),
+      migrateLegacyWorkspaceSurfaces: (context) =>
+        set((state) => {
+          const workspaceRef = workspaceRightPanelRef(context.workspaceRef);
+          if (!workspaceRef) return state;
+          const threadKey = scopedThreadKey(context.threadRef);
+          const workspaceKey = scopedThreadKey(workspaceRef);
+          const threadState = state.byThreadKey[threadKey];
+          if (!threadState) return state;
+          const legacy = threadState.surfaces.filter(
+            (surface) => !THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
+          );
+          if (legacy.length === 0) return state;
+          const threadSurfaces = threadState.surfaces.filter((surface) =>
+            THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
+          );
+          const workspaceState = state.byThreadKey[workspaceKey] ?? EMPTY_THREAD_STATE;
+          const workspaceSurfaces = [...workspaceState.surfaces];
+          let migratedActiveSurfaceId: string | null = null;
+          for (const legacySurface of legacy) {
+            let surface =
+              legacySurface.kind === "terminal" && !legacySurface.originThreadId
+                ? { ...legacySurface, originThreadId: context.threadRef.threadId }
+                : legacySurface;
+            const terminalIdentity =
+              surface.kind === "terminal"
+                ? {
+                    resourceId: surface.resourceId,
+                    originThreadId: surface.originThreadId,
+                  }
+                : null;
+            const equivalentTerminal = terminalIdentity
+              ? workspaceSurfaces.find(
+                  (candidate) =>
+                    candidate.kind === "terminal" &&
+                    candidate.resourceId === terminalIdentity.resourceId &&
+                    candidate.originThreadId === terminalIdentity.originThreadId,
+                )
+              : undefined;
+            const idCollision = workspaceSurfaces.some((candidate) => candidate.id === surface.id);
+            if (equivalentTerminal) {
+              surface = equivalentTerminal;
+            } else if (surface.kind === "terminal" && idCollision) {
+              surface = {
+                ...surface,
+                id: `terminal:${surface.originThreadId ?? context.threadRef.threadId}:${surface.resourceId}`,
+              };
+              workspaceSurfaces.push(surface);
+            } else if (!idCollision) {
+              workspaceSurfaces.push(surface);
+            }
+            if (legacySurface.id === threadState.activeSurfaceId) {
+              migratedActiveSurfaceId = surface.id;
+            }
+          }
+          const activeWasLegacy = legacy.some(
+            (surface) => surface.id === threadState.activeSurfaceId,
+          );
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: {
+                ...threadState,
+                surfaces: threadSurfaces,
+                isOpen: threadState.isOpen && threadSurfaces.length > 0 && !activeWasLegacy,
+                activeSurfaceId: threadSurfaces.some(
+                  (surface) => surface.id === threadState.activeSurfaceId,
+                )
+                  ? threadState.activeSurfaceId
+                  : (threadSurfaces.at(-1)?.id ?? null),
+              },
+              [workspaceKey]: {
+                isOpen: workspaceState.isOpen || (threadState.isOpen && activeWasLegacy),
+                surfaces: workspaceSurfaces,
+                activeSurfaceId:
+                  threadState.isOpen && activeWasLegacy
+                    ? migratedActiveSurfaceId
+                    : (workspaceState.activeSurfaceId ?? workspaceSurfaces.at(-1)?.id ?? null),
+              },
+            },
+          };
+        }),
+      hideContext: (context) =>
+        set((state) => {
+          const active = selectActiveRightPanelContextSurface(state.byThreadKey, context);
+          if (!active) return state;
+          const activeRef = rightPanelRefForKind(context, active.kind);
+          const activeKey = scopedThreadKey(activeRef);
+          const contextKeys = new Set([
+            scopedThreadKey(context.threadRef),
+            ...(context.workspaceRef
+              ? [scopedThreadKey(workspaceRightPanelRef(context.workspaceRef)!)]
+              : []),
+          ]);
+          const byThreadKey = { ...state.byThreadKey };
+          let changed = false;
+          for (const key of contextKeys) {
+            const current = byThreadKey[key];
+            if (!current) continue;
+            byThreadKey[key] = {
+              ...current,
+              isOpen: false,
+              activeSurfaceId: key === activeKey ? current.activeSurfaceId : null,
+            };
+            changed = true;
+          }
+          return changed ? { byThreadKey } : state;
+        }),
+      restoreContext: (context) =>
+        set((state) => {
+          const workspaceRef = workspaceRightPanelRef(context.workspaceRef);
+          const candidates = [context.threadRef, ...(workspaceRef ? [workspaceRef] : [])];
+          const restoreRef = candidates.find((ref) => {
+            const current = state.byThreadKey[scopedThreadKey(ref)];
+            return current?.activeSurfaceId != null;
+          });
+          if (!restoreRef) return state;
+          return {
+            byThreadKey: updateThread(
+              state.byThreadKey,
+              scopedThreadKey(restoreRef),
+              (current) => ({ ...current, isOpen: true }),
+            ),
+          };
+        }),
       show: (ref) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
@@ -555,6 +844,52 @@ export function selectActiveRightPanelSurface(
   ref: ScopedThreadRef | null | undefined,
 ): RightPanelSurface | null {
   const state = selectThreadRightPanelState(byThreadKey, ref);
+  if (!state.isOpen) return null;
+  return state.surfaces.find((surface) => surface.id === state.activeSurfaceId) ?? null;
+}
+
+export function selectRightPanelContextState(
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  context: RightPanelContext | null | undefined,
+): ThreadRightPanelState {
+  if (!context) return EMPTY_THREAD_STATE;
+  const threadState = selectThreadRightPanelState(byThreadKey, context.threadRef);
+  const workspaceRef = workspaceRightPanelRef(context.workspaceRef);
+  const workspaceState = selectThreadRightPanelState(byThreadKey, workspaceRef);
+  const threadSurfaces = threadState.surfaces.filter((surface) =>
+    THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
+  );
+  const legacyWorkspaceSurfaces = threadState.surfaces.filter(
+    (surface) => !THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
+  );
+  const workspaceSurfaces = [...legacyWorkspaceSurfaces, ...workspaceState.surfaces].filter(
+    (surface, index, all) => all.findIndex((candidate) => candidate.id === surface.id) === index,
+  );
+  const surfaces = [...threadSurfaces, ...workspaceSurfaces];
+  const threadActive = threadSurfaces.find((surface) => surface.id === threadState.activeSurfaceId);
+  const workspaceActive =
+    workspaceSurfaces.find((surface) => surface.id === workspaceState.activeSurfaceId) ??
+    legacyWorkspaceSurfaces.find((surface) => surface.id === threadState.activeSurfaceId);
+  const activeSurfaceId =
+    threadState.isOpen && threadActive
+      ? threadActive.id
+      : workspaceState.isOpen && workspaceActive
+        ? workspaceActive.id
+        : threadState.isOpen && workspaceActive
+          ? workspaceActive.id
+          : null;
+  return {
+    isOpen: activeSurfaceId !== null,
+    activeSurfaceId,
+    surfaces,
+  };
+}
+
+export function selectActiveRightPanelContextSurface(
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  context: RightPanelContext | null | undefined,
+): RightPanelSurface | null {
+  const state = selectRightPanelContextState(byThreadKey, context);
   if (!state.isOpen) return null;
   return state.surfaces.find((surface) => surface.id === state.activeSurfaceId) ?? null;
 }

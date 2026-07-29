@@ -854,6 +854,18 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   return `${toolName}: ${serialized.slice(0, 397)}...`;
 }
 
+function structuredCommandCwd(
+  itemType: CanonicalItemType,
+  input: Record<string, unknown>,
+): string | undefined {
+  if (itemType !== "command_execution") return undefined;
+  for (const key of ["cwd", "workdir", "working_directory"] as const) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 function titleForTool(itemType: CanonicalItemType): string {
   switch (itemType) {
     case "command_execution":
@@ -1993,6 +2005,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         itemId: asRuntimeItemId(tool.itemId),
         payload: {
           itemType: tool.itemType,
+          ...(structuredCommandCwd(tool.itemType, tool.input)
+            ? { cwd: structuredCommandCwd(tool.itemType, tool.input) }
+            : {}),
           status: status === "completed" ? "completed" : "failed",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
@@ -2200,6 +2215,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           itemId: asRuntimeItemId(nextTool.itemId),
           payload: {
             itemType: nextTool.itemType,
+            ...(structuredCommandCwd(nextTool.itemType, nextTool.input)
+              ? { cwd: structuredCommandCwd(nextTool.itemType, nextTool.input) }
+              : {}),
             status: "inProgress",
             title: nextTool.title,
             ...(nextTool.detail ? { detail: nextTool.detail } : {}),
@@ -2295,6 +2313,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         itemId: asRuntimeItemId(tool.itemId),
         payload: {
           itemType: tool.itemType,
+          ...(structuredCommandCwd(tool.itemType, toolInput)
+            ? { cwd: structuredCommandCwd(tool.itemType, toolInput) }
+            : {}),
           status: "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
@@ -2373,6 +2394,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         itemId: asRuntimeItemId(tool.itemId),
         payload: {
           itemType: tool.itemType,
+          ...(structuredCommandCwd(tool.itemType, tool.input)
+            ? { cwd: structuredCommandCwd(tool.itemType, tool.input) }
+            : {}),
           status: toolResult.isError ? "failed" : "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),

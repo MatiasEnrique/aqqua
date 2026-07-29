@@ -1206,6 +1206,71 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
+  it.effect("maps only structured command working directories", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-opencode-command-cwd");
+      const sessionID = "http://127.0.0.1:9999/session";
+      const completedToolPart = (id: string, input: Record<string, unknown>) => ({
+        id,
+        sessionID,
+        messageID: `message-${id}`,
+        type: "tool",
+        callID: `call-${id}`,
+        tool: "bash",
+        state: {
+          status: "completed",
+          input,
+          output: "done",
+          title: "bash",
+          metadata: {},
+          time: { start: 1, end: 2 },
+        },
+      });
+      runtimeMock.state.subscribedEvents = [
+        {
+          type: "message.part.updated",
+          properties: {
+            sessionID,
+            part: completedToolPart("structured", {
+              command: "pwd",
+              workdir: "/tmp/structured-worktree",
+            }),
+          },
+        },
+        {
+          type: "message.part.updated",
+          properties: {
+            sessionID,
+            part: completedToolPart("command-text-only", {
+              command: "cd /tmp/must-not-be-inferred && pwd",
+            }),
+          },
+        },
+      ];
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId && event.type === "item.completed"),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      NodeAssert.equal(events[0]?.type, "item.completed");
+      NodeAssert.equal(events[1]?.type, "item.completed");
+      if (events[0]?.type === "item.completed" && events[1]?.type === "item.completed") {
+        NodeAssert.equal(events[0].payload.cwd, "/tmp/structured-worktree");
+        NodeAssert.equal(events[1].payload.cwd, undefined);
+      }
+    }),
+  );
+
   it.effect("lets OpenCode own session title generation and emits title metadata updates", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;

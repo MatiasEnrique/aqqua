@@ -7,7 +7,13 @@ import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelSt
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
 describe("diffPanelStore", () => {
-  beforeEach(() => useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} }));
+  beforeEach(() =>
+    useDiffPanelStore.setState({
+      byThreadKey: {},
+      branchBaseRefByThreadKey: {},
+      visibleTurnThreadKey: null,
+    }),
+  );
 
   it("defaults each thread to branch changes when the working tree is clean", () => {
     expect(
@@ -78,5 +84,26 @@ describe("diffPanelStore", () => {
       filePath: "src/app.ts",
       revealRequestId: 1,
     });
+  });
+
+  it("migrates live scope into a workspace bucket while remembering a turn per thread", () => {
+    const workspaceRef = scopeThreadRef(
+      EnvironmentId.make("environment-1"),
+      ThreadId.make("workspace-root:/repo"),
+    );
+    const turnId = TurnId.make("turn-1");
+    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
+    useDiffPanelStore.getState().migrateLegacyWorkspaceSelection(THREAD_REF, workspaceRef);
+    useDiffPanelStore.getState().selectTurn(THREAD_REF, turnId);
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, workspaceRef),
+    ).toEqual({ kind: "branch", baseRef: "origin/main" });
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({ kind: "turn", turnId });
+    expect(useDiffPanelStore.getState().visibleTurnThreadKey).toBe(
+      `${THREAD_REF.environmentId}:${THREAD_REF.threadId}`,
+    );
   });
 });

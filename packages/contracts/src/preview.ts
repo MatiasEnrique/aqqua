@@ -264,6 +264,7 @@ export const DiscoveredLocalServer = Schema.Struct({
     Schema.Struct({
       threadId: ThreadId,
       terminalId: TrimmedNonEmptyString,
+      workspaceRoot: Schema.optional(TrimmedNonEmptyString),
     }),
   ),
 });

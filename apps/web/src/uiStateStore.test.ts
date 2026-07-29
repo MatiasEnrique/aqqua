@@ -27,6 +27,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadLastVisitedAtById: {},
     threadExpandedById: {},
     threadChangedFilesExpandedById: {},
+    worktreeExpandedByKey: {},
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -242,6 +243,7 @@ describe("parsePersistedState", () => {
       threadExpandedById: {
         "environment:thread-1": false,
       },
+      worktreeExpandedByKey: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -362,6 +364,7 @@ describe("uiStateStore persistence", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       threadExpandedById: {},
+      worktreeExpandedByKey: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {

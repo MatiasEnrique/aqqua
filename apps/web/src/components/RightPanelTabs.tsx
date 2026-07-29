@@ -1,6 +1,15 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  ClipboardList,
+  FileDiff,
+  Files,
+  Globe2,
+  PanelRightClose,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -38,6 +47,7 @@ interface RightPanelTabsProps {
   onCloseOtherSurfaces: (surface: RightPanelSurface) => void;
   onCloseSurfacesToRight: (surface: RightPanelSurface) => void;
   onCloseAllSurfaces: () => void;
+  onHide: () => void;
   onCopyFilePath: (relativePath: string) => void;
   onAddBrowser: () => void;
   onAddTerminal: () => void;
@@ -474,6 +484,21 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             ) : null}
           </div>
         </ScrollArea>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Hide right sidebar"
+                onClick={props.onHide}
+              >
+                <PanelRightClose className="size-4" />
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom">Hide right sidebar</TooltipPopup>
+        </Tooltip>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         {props.activeSurfaceId === null ? (

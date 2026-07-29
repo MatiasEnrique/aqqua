@@ -22,6 +22,7 @@ import {
   formatWorkingDurationLabel,
   selectSidebarDraftRows,
   SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
+  SIDEBAR_LOCAL_DRAFT_ROW_TITLE,
   shouldNavigateAfterProjectRemoval,
   shouldClearThreadSelectionOnMouseDown,
   sortLogicalProjectsForSidebar,
@@ -726,6 +727,7 @@ describe("selectSidebarDraftRows", () => {
         draftId: "newer",
         environmentId: "local",
         projectId: "project-a",
+        envMode: "worktree",
         title: SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
         baseBranch: null,
         createdAt: "2026-03-09T11:00:00.000Z",
@@ -734,6 +736,7 @@ describe("selectSidebarDraftRows", () => {
         draftId: "older",
         environmentId: "local",
         projectId: "project-a",
+        envMode: "worktree",
         title: "feature/older",
         baseBranch: "main",
         createdAt: "2026-03-09T10:00:00.000Z",
@@ -749,6 +752,23 @@ describe("selectSidebarDraftRows", () => {
     });
 
     expect(rows).toEqual([]);
+  });
+
+  it("includes local drafts for worktree-grouped rendering", () => {
+    const rows = selectSidebarDraftRows({
+      draftsByDraftId: { local: draft({ threadId: "thread-local", envMode: "local" }) },
+      existingThreadKeys: new Set(),
+      scopedProjectKeys: null,
+      includeLocal: true,
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        draftId: "local",
+        envMode: "local",
+        title: SIDEBAR_LOCAL_DRAFT_ROW_TITLE,
+      }),
+    ]);
   });
 
   it("drops promoted drafts and drafts whose thread already has a server shell", () => {

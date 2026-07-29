@@ -20,14 +20,19 @@ export function useDiscoveredPorts(
 export function useThreadDiscoveredPorts(input: {
   readonly environmentId: EnvironmentId | null;
   readonly threadId: ThreadId | null;
+  readonly workspaceRoot?: string | null;
 }): ReadonlyArray<DiscoveredLocalServer> {
   const ports = useDiscoveredPorts(input.environmentId);
   return useMemo(
     () =>
-      input.threadId
-        ? ports.filter((port) => port.terminal?.threadId === input.threadId)
+      input.threadId || input.workspaceRoot
+        ? ports.filter((port) =>
+            input.workspaceRoot
+              ? port.terminal?.workspaceRoot === input.workspaceRoot
+              : port.terminal?.threadId === input.threadId,
+          )
         : EMPTY_PORTS,
-    [input.threadId, ports],
+    [input.threadId, input.workspaceRoot, ports],
   );
 }
 
@@ -35,17 +40,20 @@ export function useTerminalDiscoveredPorts(input: {
   readonly environmentId: EnvironmentId | null;
   readonly threadId: ThreadId | null;
   readonly terminalId: string | null;
+  readonly workspaceRoot?: string | null;
 }): ReadonlyArray<DiscoveredLocalServer> {
   const ports = useDiscoveredPorts(input.environmentId);
   return useMemo(
     () =>
-      input.threadId && input.terminalId
+      (input.threadId || input.workspaceRoot) && input.terminalId
         ? ports.filter(
             (port) =>
-              port.terminal?.threadId === input.threadId &&
-              port.terminal.terminalId === input.terminalId,
+              (input.workspaceRoot
+                ? port.terminal?.workspaceRoot === input.workspaceRoot
+                : port.terminal?.threadId === input.threadId) &&
+              port.terminal?.terminalId === input.terminalId,
           )
         : EMPTY_PORTS,
-    [input.terminalId, input.threadId, ports],
+    [input.terminalId, input.threadId, input.workspaceRoot, ports],
   );
 }

@@ -140,6 +140,60 @@ effectIt("does not swallow process probe defects", () =>
   }),
 );
 
+effectIt("attributes discovered ports to a workspace terminal owner", () =>
+  Effect.gen(function* () {
+    const layer = PortScanner.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(ProcessRunner.ProcessRunner, {
+            run: () =>
+              Effect.succeed({
+                stdout: "p4242\ncnode\nn127.0.0.1:5173\n",
+                stderr: "",
+                code: 0,
+                timedOut: false,
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              }),
+          }),
+          Layer.succeed(Net.NetService, {
+            canListenOnHost: () => Effect.succeed(true),
+            isPortAvailableOnLoopback: () => Effect.succeed(true),
+            reserveLoopbackPort: () => Effect.succeed(40_000),
+            findAvailablePort: (preferred) => Effect.succeed(preferred),
+          }),
+          Layer.succeed(HostProcessPlatform, "linux"),
+        ),
+      ),
+    );
+
+    const result = yield* Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      yield* scanner.registerTerminalProcesses({
+        threadId: "origin-thread",
+        terminalId: "terminal-1",
+        workspaceRoot: "/repo/worktree/",
+        processIds: [4242],
+      });
+      const discovered = yield* scanner.scan();
+      yield* scanner.unregisterTerminal({
+        threadId: "another-thread",
+        terminalId: "terminal-1",
+        workspaceRoot: "/repo/worktree",
+      });
+      const afterUnregister = yield* scanner.scan();
+      return { discovered, afterUnregister };
+    }).pipe(Effect.provide(layer), Effect.scoped);
+
+    expect(result.discovered[0]?.terminal).toEqual({
+      threadId: "origin-thread",
+      terminalId: "terminal-1",
+      workspaceRoot: "/repo/worktree/",
+    });
+    expect(result.afterUnregister[0]?.terminal).toBeNull();
+  }),
+);
+
 effectIt("does not swallow process probe interruption", () =>
   Effect.gen(function* () {
     const layer = makeProbeFailureLayer(() => Effect.interrupt);

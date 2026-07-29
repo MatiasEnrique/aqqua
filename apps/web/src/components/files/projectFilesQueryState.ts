@@ -7,11 +7,12 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
-import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useAtomCommand } from "~/state/use-atom-command";
 
 const EMPTY_PROJECT_FILE_PATH = "";
 const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
@@ -25,7 +26,7 @@ interface ProjectQueryState<A> {
   readonly data: A | null;
   readonly error: string | null;
   readonly isPending: boolean;
-  readonly refresh: () => void;
+  readonly refresh: () => Promise<void>;
 }
 
 export function getProjectEntriesQueryAtom(environmentId: EnvironmentId, cwd: string) {
@@ -127,11 +128,31 @@ export function useProjectEntriesQuery(
   const atom = getProjectEntriesQueryAtom(environmentId, cwd);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
-  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  const refreshEntries = useAtomCommand(projectEnvironment.refreshEntries, {
+    reportFailure: false,
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      const outcome = await refreshEntries({ environmentId, input: { cwd } });
+      if (outcome._tag === "Failure") {
+        throw squashAtomCommandFailure(outcome);
+      }
+      refreshAtom();
+      await executeAtomQuery(appAtomRegistry, atom, {
+        reportDefect: false,
+        reportFailure: false,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [atom, cwd, environmentId, isRefreshing, refreshAtom, refreshEntries]);
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
-    isPending: result.waiting,
+    isPending: result.waiting || isRefreshing,
     refresh,
   };
 }
@@ -147,7 +168,7 @@ export function useProjectFileQuery(
     : EMPTY_PROJECT_FILE_QUERY_ATOM;
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
-  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  const refresh = useCallback(async () => refreshAtom(), [refreshAtom]);
   const data = Option.getOrNull(AsyncResult.value(result));
   const optimisticResult = useAtomValue(
     optimisticFileAtom(environmentId, cwd, relativePath ?? EMPTY_PROJECT_FILE_PATH),

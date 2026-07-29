@@ -22,6 +22,7 @@ export interface PersistedUiState {
   projectOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
   threadExpandedById?: Record<string, boolean>;
+  worktreeExpandedByKey?: Record<string, boolean>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
@@ -39,6 +40,7 @@ export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadExpandedById: Record<string, boolean>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  worktreeExpandedByKey: Record<string, boolean>;
 }
 
 export interface UiEndpointState {
@@ -53,6 +55,7 @@ const initialState: UiState = {
   threadLastVisitedAtById: {},
   threadExpandedById: {},
   threadChangedFilesExpandedById: {},
+  worktreeExpandedByKey: {},
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -130,6 +133,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectOrder,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadExpandedById: sanitizeBooleanRecord(parsed.threadExpandedById),
+    worktreeExpandedByKey: sanitizeBooleanRecord(parsed.worktreeExpandedByKey),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
@@ -209,6 +213,7 @@ export function persistState(state: UiState): void {
         projectOrder: state.projectOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         threadExpandedById: state.threadExpandedById,
+        worktreeExpandedByKey: state.worktreeExpandedByKey,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
@@ -341,6 +346,21 @@ export function setThreadExpanded(
   };
 }
 
+export function setWorktreeExpanded(
+  state: UiState,
+  worktreeKey: string,
+  expanded: boolean,
+): UiState {
+  if (state.worktreeExpandedByKey[worktreeKey] === expanded) return state;
+  return {
+    ...state,
+    worktreeExpandedByKey: {
+      ...state.worktreeExpandedByKey,
+      [worktreeKey]: expanded,
+    },
+  };
+}
+
 export function retainThreadExpansionForKnownThreads(
   state: UiState,
   knownThreadIds: readonly string[],
@@ -450,6 +470,7 @@ interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadExpanded: (threadIds: string | readonly string[], expanded: boolean) => void;
+  setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
   retainThreadExpansionForKnownThreads: (knownThreadIds: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
@@ -469,6 +490,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setThreadExpanded: (threadIds, expanded) =>
     set((state) => setThreadExpanded(state, threadIds, expanded)),
+  setWorktreeExpanded: (worktreeKey, expanded) =>
+    set((state) => setWorktreeExpanded(state, worktreeKey, expanded)),
   retainThreadExpansionForKnownThreads: (knownThreadIds) =>
     set((state) => retainThreadExpansionForKnownThreads(state, knownThreadIds)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>

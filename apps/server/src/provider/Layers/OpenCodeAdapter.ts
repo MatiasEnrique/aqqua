@@ -488,6 +488,19 @@ function detailFromToolPart(part: Extract<Part, { type: "tool" }>): string | und
   }
 }
 
+function structuredToolCwd(part: Extract<Part, { type: "tool" }>): string | undefined {
+  const state = part.state as unknown as Record<string, unknown>;
+  const input =
+    state.input && typeof state.input === "object" && !Array.isArray(state.input)
+      ? (state.input as Record<string, unknown>)
+      : state;
+  for (const key of ["cwd", "workdir", "working_directory"] as const) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 function toolStateCreatedAt(part: Extract<Part, { type: "tool" }>): string | undefined {
   switch (part.state.status) {
     case "running":
@@ -904,6 +917,9 @@ export function makeOpenCodeAdapter(
             const detail = detailFromToolPart(part);
             const payload = {
               itemType,
+              ...(itemType === "command_execution" && structuredToolCwd(part)
+                ? { cwd: structuredToolCwd(part) }
+                : {}),
               ...(part.state.status === "error"
                 ? { status: "failed" as const }
                 : part.state.status === "completed"

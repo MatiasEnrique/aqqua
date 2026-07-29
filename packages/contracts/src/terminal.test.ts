@@ -40,6 +40,18 @@ describe("TerminalOpenInput", () => {
     ).toBe(true);
   });
 
+  it("accepts a workspace owner without changing the legacy thread owner", () => {
+    const parsed = decodeSync(TerminalOpenInput, {
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      cwd: "/tmp/project/.worktrees/feature",
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    });
+
+    expect(parsed.threadId).toBe("thread-1");
+    expect(parsed.workspaceRoot).toBe("/tmp/project/.worktrees/feature");
+  });
+
   it("accepts ultrawide terminal dimensions from xterm fit", () => {
     expect(
       decodes(TerminalOpenInput, {
@@ -229,6 +241,25 @@ describe("TerminalSessionSnapshot", () => {
       }),
     ).toBe(true);
   });
+
+  it("accepts workspace-owned snapshots while retaining creator attribution", () => {
+    const parsed = decodeSync(TerminalSessionSnapshot, {
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      cwd: "/tmp/project/.worktrees/feature",
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+      worktreePath: "/tmp/project/.worktrees/feature",
+      status: "running",
+      pid: 1234,
+      history: "",
+      exitCode: null,
+      exitSignal: null,
+      label: "Shell",
+      updatedAt: isoTimestamp,
+    });
+
+    expect(parsed.workspaceRoot).toBe("/tmp/project/.worktrees/feature");
+  });
 });
 
 describe("TerminalEvent", () => {
@@ -243,6 +274,18 @@ describe("TerminalEvent", () => {
         data: "line\n",
       }),
     ).toBe(true);
+  });
+
+  it("accepts workspace attribution on terminal events", () => {
+    const parsed = decodeSync(TerminalEvent, {
+      type: "output",
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+      data: "line\n",
+    });
+
+    expect(parsed.workspaceRoot).toBe("/tmp/project/.worktrees/feature");
   });
 
   it("accepts exited events", () => {

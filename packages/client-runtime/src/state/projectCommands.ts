@@ -66,6 +66,15 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    refreshEntries: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:refresh-entries",
+      tag: WS_METHODS.projectsRefreshEntries,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+    }),
     readFile: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:read-file",
       tag: WS_METHODS.projectsReadFile,

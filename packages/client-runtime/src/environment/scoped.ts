@@ -7,6 +7,12 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
+
+export interface WorkspacePanelRef {
+  readonly environmentId: EnvironmentIdType;
+  readonly workspaceRoot: string;
+}
 
 export function scopeProjectRef(
   environmentId: EnvironmentIdType,
@@ -33,6 +39,14 @@ export function scopedProjectKey(ref: ScopedProjectRef): string {
 
 export function scopedThreadKey(ref: ScopedThreadRef): string {
   return scopedRefKey(ref);
+}
+
+export function scopedWorkspaceKey(ref: WorkspacePanelRef): string {
+  const normalizedSeparators = ref.workspaceRoot.replaceAll("\\", "/");
+  return JSON.stringify([
+    ref.environmentId,
+    normalizeProjectPathForComparison(normalizedSeparators),
+  ]);
 }
 
 function parseScopedKey(key: string): { environmentId: EnvironmentIdType; localId: string } | null {

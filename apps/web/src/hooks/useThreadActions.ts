@@ -28,6 +28,7 @@ import {
   readThreadShell,
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -183,6 +184,7 @@ export function useThreadActions() {
         return archiveResult;
       }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+      useRightPanelStore.getState().removeThread(threadRef);
       opts.onArchived?.();
 
       if (shouldNavigateToDraft) {
@@ -225,6 +227,7 @@ export function useThreadActions() {
         });
         if (result._tag === "Success") {
           refreshArchivedThreadsForEnvironment(target.environmentId);
+          useRightPanelStore.getState().removeThread(target);
         }
         return result;
       }
@@ -308,6 +311,7 @@ export function useThreadActions() {
         return deleteResult;
       }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+      useRightPanelStore.getState().removeThread(threadRef);
       clearComposerDraftForThread(threadRef);
       clearProjectDraftThreadById(
         scopeProjectRef(threadRef.environmentId, thread.projectId),

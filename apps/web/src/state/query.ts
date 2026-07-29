@@ -2,6 +2,10 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { useCallback } from "react";
+
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 
 const EMPTY_ASYNC_RESULT_ATOM = Atom.make(AsyncResult.initial<never, never>(false)).pipe(
   Atom.withLabel("web-environment-query:empty"),
@@ -11,7 +15,7 @@ export interface EnvironmentQueryView<A> {
   readonly data: A | null;
   readonly error: string | null;
   readonly isPending: boolean;
-  readonly refresh: () => void;
+  readonly refresh: () => Promise<void>;
 }
 
 function formatError(cause: Cause.Cause<unknown>): string {
@@ -26,7 +30,18 @@ export function useEnvironmentQuery<A, E>(
 ): EnvironmentQueryView<A> {
   const selectedAtom = atom ?? EMPTY_ASYNC_RESULT_ATOM;
   const result = useAtomValue(selectedAtom);
-  const refresh = useAtomRefresh(selectedAtom);
+  const refreshAtom = useAtomRefresh(selectedAtom);
+  const refresh = useCallback(async () => {
+    if (atom === null) return;
+    refreshAtom();
+    const refreshed = await executeAtomQuery(appAtomRegistry, atom, {
+      reportDefect: false,
+      reportFailure: false,
+    });
+    if (refreshed._tag === "Failure") {
+      throw Cause.squash(refreshed.cause);
+    }
+  }, [atom, refreshAtom]);
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: result._tag === "Failure" ? formatError(result.cause) : null,

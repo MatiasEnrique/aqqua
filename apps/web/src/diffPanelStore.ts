@@ -16,10 +16,15 @@ const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  visibleTurnThreadKey: string | null;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
+  migrateLegacyWorkspaceSelection: (
+    threadRef: ScopedThreadRef,
+    workspaceRef: ScopedThreadRef,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -33,6 +38,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      visibleTurnThreadKey: null,
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -53,6 +59,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               previous?.kind === "branch"
                 ? { ...state.branchBaseRefByThreadKey, [threadKey]: previous.baseRef }
                 : state.branchBaseRefByThreadKey,
+            visibleTurnThreadKey: null,
           };
         }),
       selectBranchBaseRef: (ref, baseRef) =>
@@ -68,6 +75,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               ...state.branchBaseRefByThreadKey,
               [threadKey]: normalizedBaseRef,
             },
+            visibleTurnThreadKey: null,
           };
         }),
       selectTurn: (ref, turnId, filePath) =>
@@ -84,6 +92,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
                 revealRequestId: previous?.kind === "turn" ? previous.revealRequestId + 1 : 1,
               },
             },
+            visibleTurnThreadKey: threadKey,
           };
         }),
       reconcileTurnSelection: (ref, availableTurnIds) =>
@@ -105,6 +114,27 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      migrateLegacyWorkspaceSelection: (threadRef, workspaceRef) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(threadRef);
+          const workspaceKey = scopedThreadKey(workspaceRef);
+          if (state.byThreadKey[workspaceKey] !== undefined) return state;
+          const legacy = state.byThreadKey[threadKey];
+          if (!legacy || legacy.kind === "turn") return state;
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [workspaceKey]: legacy,
+            },
+            branchBaseRefByThreadKey:
+              legacy.kind === "branch"
+                ? {
+                    ...state.branchBaseRefByThreadKey,
+                    [workspaceKey]: legacy.baseRef,
+                  }
+                : state.branchBaseRefByThreadKey,
+          };
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -114,12 +144,17 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey };
+          return {
+            byThreadKey,
+            branchBaseRefByThreadKey,
+            visibleTurnThreadKey:
+              state.visibleTurnThreadKey === threadKey ? null : state.visibleTurnThreadKey,
+          };
         }),
     }),
     {
       name: "t3code:diff-panel-state:v1",
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),

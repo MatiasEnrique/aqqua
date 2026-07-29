@@ -159,6 +159,10 @@
       "types": "./src/composerInlineTokens.ts",
       "import": "./src/composerInlineTokens.ts"
     },
+    "./terminalOwner": {
+      "types": "./src/terminalOwner.ts",
+      "import": "./src/terminalOwner.ts"
+    },
     "./terminalLabels": {
       "types": "./src/terminalLabels.ts",
       "import": "./src/terminalLabels.ts"

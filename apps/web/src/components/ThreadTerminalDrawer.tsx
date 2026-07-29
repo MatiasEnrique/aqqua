@@ -275,6 +275,7 @@ interface TerminalViewportProps {
   terminalId: string;
   terminalLabel: string;
   cwd: string;
+  workspaceRoot?: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
@@ -298,6 +299,7 @@ export function TerminalViewport({
   terminalId,
   terminalLabel,
   cwd,
+  workspaceRoot,
   worktreePath,
   runtimeEnv,
   onSessionExited,
@@ -348,6 +350,7 @@ export function TerminalViewport({
       threadId,
       terminalId,
       cwd,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
@@ -355,13 +358,19 @@ export function TerminalViewport({
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { threadId, terminalId, data, ...(workspaceRoot ? { workspaceRoot } : {}) },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
     runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: {
+        threadId,
+        terminalId,
+        cols,
+        rows,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
+      },
     }),
   );
   const terminalBuffer = terminalSession.buffer;
@@ -734,7 +743,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, workspaceRoot, worktreePath]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -836,6 +845,7 @@ interface ThreadTerminalDrawerProps {
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
   cwd: string;
+  workspaceRoot?: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   visible?: boolean;
@@ -897,6 +907,7 @@ export default function ThreadTerminalDrawer({
   threadRef,
   threadId,
   cwd,
+  workspaceRoot,
   worktreePath,
   runtimeEnv,
   visible = true,
@@ -1363,6 +1374,7 @@ export default function ThreadTerminalDrawer({
                           terminalId={terminalId}
                           terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                           cwd={terminalLaunchLocation.cwd}
+                          {...(workspaceRoot ? { workspaceRoot } : {})}
                           {...(terminalLaunchLocation.worktreePath !== undefined
                             ? { worktreePath: terminalLaunchLocation.worktreePath }
                             : {})}
@@ -1391,6 +1403,7 @@ export default function ThreadTerminalDrawer({
                   terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={activeTerminalLaunchLocation.cwd}
+                  {...(workspaceRoot ? { workspaceRoot } : {})}
                   {...(activeTerminalLaunchLocation.worktreePath !== undefined
                     ? { worktreePath: activeTerminalLaunchLocation.worktreePath }
                     : {})}

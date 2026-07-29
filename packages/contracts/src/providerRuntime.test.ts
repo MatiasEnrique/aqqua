@@ -6,6 +6,25 @@ import { ProviderRuntimeEvent } from "./providerRuntime.ts";
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
+  it("preserves a structured command execution cwd", () => {
+    const event = decodeRuntimeEvent({
+      eventId: "event-command-cwd",
+      provider: "codex",
+      type: "item.completed",
+      threadId: "thread-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        cwd: "/tmp/project/.worktrees/feature",
+      },
+    });
+
+    expect(event.type).toBe("item.completed");
+    if (event.type === "item.completed") {
+      expect(event.payload.cwd).toBe("/tmp/project/.worktrees/feature");
+    }
+  });
   it("accepts fork-provided driver kinds as branded slugs", () => {
     const parsed = decodeRuntimeEvent({
       type: "session.started",

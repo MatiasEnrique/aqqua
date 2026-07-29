@@ -38,6 +38,7 @@ const TerminalProgramArgsSchema = Schema.Array(Schema.String.check(Schema.isMaxL
 
 export const TerminalThreadInput = Schema.Struct({
   threadId: TrimmedNonEmptyStringSchema,
+  workspaceRoot: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TerminalThreadInput = typeof TerminalThreadInput.Type;
 
@@ -113,6 +114,7 @@ export const TerminalSessionSnapshot = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
   cwd: Schema.String.check(Schema.isNonEmpty()),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyStringSchema),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
@@ -130,6 +132,7 @@ export const TerminalSummary = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
   cwd: Schema.String.check(Schema.isNonEmpty()),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyStringSchema),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
@@ -156,6 +159,7 @@ const TerminalMetadataRemoveEvent = Schema.Struct({
   type: Schema.Literal("remove"),
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
 export const TerminalMetadataStreamEvent = Schema.Union([
@@ -168,6 +172,7 @@ export type TerminalMetadataStreamEvent = typeof TerminalMetadataStreamEvent.Typ
 const TerminalEventBaseSchema = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyStringSchema),
   sequence: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 

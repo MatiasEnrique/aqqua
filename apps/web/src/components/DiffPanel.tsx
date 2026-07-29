@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   ArrowDownToLineIcon,
   ArrowRightIcon,
@@ -17,6 +18,7 @@ import {
   Columns2Icon,
   PilcrowIcon,
   Rows3Icon,
+  RefreshCwIcon,
   SearchIcon,
   TextWrapIcon,
 } from "lucide-react";
@@ -89,6 +91,7 @@ import { vcsEnvironment } from "../state/vcs";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useSourceControlActionRunning, useVcsPullAction } from "~/lib/sourceControlActions";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
@@ -225,6 +228,7 @@ interface DiffPanelProps {
    * thread on the draft route (`/draft/$draftId`).
    */
   threadRef?: ScopedThreadRef | null;
+  workspaceRef?: ScopedThreadRef | null;
   /**
    * Repository to diff when the thread resolves no checkout of its own — a
    * conversation that has never been sent has no server thread, and a worktree
@@ -240,6 +244,7 @@ export default function DiffPanel({
   composerDraftTarget,
   initialGitScope: initialGitScopeProp,
   threadRef: threadRefProp = null,
+  workspaceRef = null,
   fallbackCwd = null,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
@@ -297,13 +302,26 @@ export default function DiffPanel({
         })
       : null,
   );
-  const diffSelection = useDiffPanelStore((state) =>
-    selectThreadDiffPanelSelection(
+  const diffSelection = useDiffPanelStore((state) => {
+    const threadSelection = selectThreadDiffPanelSelection(
       state.byThreadKey,
       routeThreadRef,
       initialGitScope === "unstaged",
-    ),
-  );
+    );
+    const routeKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+    if (
+      threadSelection.kind === "turn" &&
+      routeKey !== null &&
+      state.visibleTurnThreadKey === routeKey
+    ) {
+      return threadSelection;
+    }
+    return selectThreadDiffPanelSelection(
+      state.byThreadKey,
+      workspaceRef ?? routeThreadRef,
+      initialGitScope === "unstaged",
+    );
+  });
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -570,6 +588,50 @@ export default function DiffPanel({
     BLOCKING_SOURCE_CONTROL_ACTIONS,
   );
   const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
+  const [isRefreshingDiff, setIsRefreshingDiff] = useState(false);
+  const refreshDiffInFlightRef = useRef(false);
+  const handleRefreshDiff = useCallback(() => {
+    if (refreshDiffInFlightRef.current || environmentId === null || gitActionCwd === null) return;
+    refreshDiffInFlightRef.current = true;
+    setIsRefreshingDiff(true);
+    void (async () => {
+      try {
+        const result = await refreshVcsStatus({
+          environmentId,
+          input: { cwd: gitActionCwd },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const failure = squashAtomCommandFailure(result);
+          throw failure instanceof Error ? failure : new Error("Unable to refresh repository.");
+        }
+        await Promise.all([
+          localBranchRefs.refresh(),
+          remoteBranchRefs.refresh(),
+          selectedTurn ? activeCheckpointDiff.refresh() : refreshBranchDiffPreview(),
+        ]);
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not refresh diff",
+            description: error instanceof Error ? error.message : "Try again.",
+          }),
+        );
+      } finally {
+        refreshDiffInFlightRef.current = false;
+        setIsRefreshingDiff(false);
+      }
+    })();
+  }, [
+    activeCheckpointDiff,
+    environmentId,
+    gitActionCwd,
+    localBranchRefs,
+    refreshBranchDiffPreview,
+    refreshVcsStatus,
+    remoteBranchRefs,
+    selectedTurn,
+  ]);
   // Tagged with the repository it describes so switching threads or projects
   // never leaves another repository's pull result on screen.
   const [pullStatus, setPullStatus] = useState<{
@@ -700,12 +762,14 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectTurn(routeThreadRef, turnId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
+    const targetRef = workspaceRef ?? routeThreadRef;
+    if (!targetRef) return;
+    useDiffPanelStore.getState().selectGitScope(targetRef, scope);
   };
   const selectBranchBaseRef = (baseRef: string | null) => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
+    const targetRef = workspaceRef ?? routeThreadRef;
+    if (!targetRef) return;
+    useDiffPanelStore.getState().selectBranchBaseRef(targetRef, baseRef);
   };
 
   const headerRow = (
@@ -894,6 +958,29 @@ export default function DiffPanel({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Refresh diff"
+                disabled={isRefreshingDiff || environmentId === null || gitActionCwd === null}
+                onClick={handleRefreshDiff}
+              />
+            }
+          >
+            {isRefreshingDiff ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <RefreshCwIcon className="size-3.5" />
+            )}
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {isRefreshingDiff ? "Refreshing diff..." : "Refresh diff"}
+          </TooltipPopup>
+        </Tooltip>
         {showPullControl && (
           <Tooltip>
             <TooltipTrigger

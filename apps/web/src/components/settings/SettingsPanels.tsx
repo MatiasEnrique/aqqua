@@ -411,6 +411,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.sidebarThreadGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode
+        ? ["Thread grouping"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -461,6 +464,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
+      settings.sidebarThreadGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       settings.wordWrap,
@@ -486,6 +490,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      sidebarThreadGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -666,6 +671,35 @@ export function GeneralSettingsPanel() {
                 });
               }}
               aria-label="Project Grouping"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Group threads by worktree"
+          description="Keep conversations and workspace tools organized by checkout."
+          resetAction={
+            settings.sidebarThreadGroupingMode !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode ? (
+              <SettingResetButton
+                label="thread grouping"
+                onClick={() =>
+                  updateSettings({
+                    sidebarThreadGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarThreadGroupingMode === "worktree"}
+              onCheckedChange={(checked) =>
+                updateSettings({
+                  sidebarThreadGroupingMode: checked ? "worktree" : "flat",
+                })
+              }
+              aria-label="Group threads by worktree"
             />
           }
         />

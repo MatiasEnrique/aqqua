@@ -525,6 +525,7 @@ export type SidebarDraftRow = {
   readonly draftId: string;
   readonly environmentId: string;
   readonly projectId: string;
+  readonly envMode: "local" | "worktree";
   /** Worktree branch the user named, or a generic label until they name one. */
   readonly title: string;
   /** Base branch the worktree will fork from, when the draft pinned one. */
@@ -544,16 +545,16 @@ type SidebarDraftInput = {
 };
 
 export const SIDEBAR_DRAFT_ROW_FALLBACK_TITLE = "New worktree conversation";
+export const SIDEBAR_LOCAL_DRAFT_ROW_TITLE = "New conversation";
 
 /**
- * Picks the client-local drafts that deserve a sidebar row: new worktree
- * conversations, before the first message promotes them into a server thread.
+ * Picks client-local drafts that deserve a sidebar row before the first
+ * message promotes them into a server thread.
  *
- * Local-mode drafts are deliberately excluded — every project keeps one
- * around permanently, so rendering them would add a row per project that
- * never goes away. Promoted drafts drop out too, and so do drafts whose
- * thread id already has a server shell: the real row takes over and a
- * duplicate would flicker through the promotion.
+ * Flat mode retains its historical behavior and omits the permanent local
+ * draft. Worktree grouping opts into local drafts so they can live in the
+ * current-checkout group. Promoted drafts drop out, as do drafts whose thread
+ * id already has a server shell: the real row takes over without flicker.
  */
 export function selectSidebarDraftRows(input: {
   readonly draftsByDraftId: Readonly<Record<string, SidebarDraftInput>>;
@@ -561,10 +562,12 @@ export function selectSidebarDraftRows(input: {
   readonly existingThreadKeys: ReadonlySet<string>;
   /** `environmentId:projectId` scope filter, or null for "all projects". */
   readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly includeLocal?: boolean;
 }): SidebarDraftRow[] {
   const rows: SidebarDraftRow[] = [];
   for (const [draftId, draft] of Object.entries(input.draftsByDraftId)) {
-    if (draft.envMode !== "worktree") continue;
+    if (draft.envMode !== "worktree" && !(input.includeLocal && draft.envMode === "local"))
+      continue;
     if (draft.promotedTo != null) continue;
     if (input.existingThreadKeys.has(`${draft.environmentId}:${draft.threadId}`)) continue;
     if (
@@ -577,7 +580,11 @@ export function selectSidebarDraftRows(input: {
       draftId,
       environmentId: draft.environmentId,
       projectId: draft.projectId,
-      title: draft.worktreeBranchName ?? SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
+      envMode: draft.envMode,
+      title:
+        draft.envMode === "worktree"
+          ? (draft.worktreeBranchName ?? SIDEBAR_DRAFT_ROW_FALLBACK_TITLE)
+          : SIDEBAR_LOCAL_DRAFT_ROW_TITLE,
       baseBranch: draft.branch,
       createdAt: draft.createdAt,
     });

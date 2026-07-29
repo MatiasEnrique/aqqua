@@ -54,6 +54,16 @@ describe("ClientSettings sidebar v2", () => {
     const settings = decodeClientSettings({});
     expect(settings.sidebarV2Enabled).toBe(false);
     expect(settings.sidebarAutoSettleAfterDays).toBe(3);
+    expect(settings.sidebarThreadGroupingMode).toBe("worktree");
+  });
+
+  it("accepts flat thread grouping in settings and patches", () => {
+    expect(
+      decodeClientSettings({ sidebarThreadGroupingMode: "flat" }).sidebarThreadGroupingMode,
+    ).toBe("flat");
+    expect(
+      decodeClientSettingsPatch({ sidebarThreadGroupingMode: "flat" }).sidebarThreadGroupingMode,
+    ).toBe("flat");
   });
 
   it("allows auto-settle by inactivity to be disabled", () => {
