@@ -11,6 +11,10 @@ import {
   type VcsCreateRefResult,
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
+  type VcsGetCommitDetailsInput,
+  type VcsGetCommitDetailsResult,
+  type VcsListHistoryInput,
+  type VcsListHistoryResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
   type GitManagerServiceError,
@@ -29,6 +33,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
+import * as GitHistory from "./GitHistory.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
@@ -62,6 +67,12 @@ export class GitWorkflowService extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly listHistory: (
+      input: VcsListHistoryInput,
+    ) => Effect.Effect<VcsListHistoryResult, GitCommandError>;
+    readonly getCommitDetails: (
+      input: VcsGetCommitDetailsInput,
+    ) => Effect.Effect<VcsGetCommitDetailsResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -130,9 +141,19 @@ function nonRepositoryListRefs(): VcsListRefsResult {
   };
 }
 
+function nonRepositoryHistory(): VcsListHistoryResult {
+  return {
+    commits: [],
+    isRepo: false,
+    nextCursor: null,
+    referencesTruncated: false,
+  };
+}
+
 export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
+  const gitHistory = yield* GitHistory.GitHistory;
   const gitManager = yield* GitManager.GitManager;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
@@ -293,6 +314,27 @@ export const make = Effect.gen(function* () {
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+        ),
+      ),
+    listHistory: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.listHistory", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? gitHistory.list(input) : Effect.succeed(nonRepositoryHistory()),
+        ),
+      ),
+    getCommitDetails: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.getCommitDetails", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository
+            ? gitHistory.getDetails(input)
+            : Effect.fail(
+                new GitCommandError({
+                  operation: "GitWorkflowService.getCommitDetails",
+                  command: "vcs-route",
+                  cwd: input.cwd,
+                  detail: "No Git repository was detected for the selected commit.",
+                }),
+              ),
         ),
       ),
     createWorktree: (input) =>

@@ -129,6 +129,34 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("preserves a persisted History surface when migrating older state", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "history",
+            surfaces: [
+              { id: "diff", kind: "diff" },
+              { id: "history", kind: "history" },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "history",
+          surfaces: [
+            { id: "diff", kind: "diff" },
+            { id: "history", kind: "history" },
+          ],
+        },
+      },
+    });
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");
@@ -166,6 +194,16 @@ describe("rightPanelStore", () => {
       isOpen: true,
       activeSurfaceId: "files",
       surfaces: [{ id: "files", kind: "files" }],
+    });
+  });
+
+  it("keeps history as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "history");
+    useRightPanelStore.getState().open(refA, "history");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "history",
+      surfaces: [{ id: "history", kind: "history" }],
     });
   });
 
@@ -529,6 +567,28 @@ describe("rightPanelStore", () => {
     expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff", "file"]);
     expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["diff", "file"]);
     expect(stateB.activeSurfaceId).toBe("file:src/index.ts");
+  });
+
+  it("shares History across threads in the same workspace", () => {
+    const workspaceRef = {
+      environmentId: refA.environmentId,
+      workspaceRoot: "/tmp/project/.worktrees/feature",
+    };
+    const workspaceStoreRef = workspaceRightPanelRef(workspaceRef)!;
+    useRightPanelStore.getState().open(workspaceStoreRef, "history");
+
+    const stateA = selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, {
+      threadRef: refA,
+      workspaceRef,
+    });
+    const stateB = selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, {
+      threadRef: refB,
+      workspaceRef,
+    });
+
+    expect(stateA.activeSurfaceId).toBe("history");
+    expect(stateA.surfaces).toEqual([{ id: "history", kind: "history" }]);
+    expect(stateB).toEqual(stateA);
   });
 
   it("lazily migrates legacy workspace surfaces and hiding keeps their resources", () => {

@@ -1,10 +1,17 @@
 import * as Schema from "effect/Schema";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  PositiveInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
+const GIT_LIST_HISTORY_MAX_LIMIT = 200;
 
 // Domain Types
 
@@ -83,6 +90,54 @@ export const VcsRef = Schema.Struct({
 });
 export type VcsRef = typeof VcsRef.Type;
 
+export const GitObjectId = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/));
+export type GitObjectId = typeof GitObjectId.Type;
+
+export const GitHistoryRefKind = Schema.Literals(["local_branch", "remote_branch", "tag"]);
+export type GitHistoryRefKind = typeof GitHistoryRefKind.Type;
+
+export const GitHistoryRef = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  kind: GitHistoryRefKind,
+  current: Schema.Boolean,
+});
+export type GitHistoryRef = typeof GitHistoryRef.Type;
+
+export const GitHistoryCommitSummary = Schema.Struct({
+  id: GitObjectId,
+  parentIds: Schema.Array(GitObjectId),
+  subject: Schema.String,
+  authorName: Schema.String,
+  authorEmail: Schema.String,
+  authoredAt: IsoDateTime,
+  committedAt: IsoDateTime,
+  isHead: Schema.Boolean,
+  refs: Schema.Array(GitHistoryRef),
+});
+export type GitHistoryCommitSummary = typeof GitHistoryCommitSummary.Type;
+
+export const GitHistoryFileChangeKind = Schema.Literals([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "copied",
+  "type_changed",
+  "unmerged",
+  "unknown",
+]);
+export type GitHistoryFileChangeKind = typeof GitHistoryFileChangeKind.Type;
+
+export const GitHistoryFileChange = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  previousPath: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  kind: GitHistoryFileChangeKind,
+  insertions: Schema.NullOr(NonNegativeInt),
+  deletions: Schema.NullOr(NonNegativeInt),
+  binary: Schema.Boolean,
+});
+export type GitHistoryFileChange = typeof GitHistoryFileChange.Type;
+
 const VcsWorktree = Schema.Struct({
   path: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -132,6 +187,19 @@ export const VcsListRefsInput = Schema.Struct({
   ),
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
+
+export const VcsListHistoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  cursor: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_HISTORY_MAX_LIMIT))),
+});
+export type VcsListHistoryInput = typeof VcsListHistoryInput.Type;
+
+export const VcsGetCommitDetailsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  commitId: GitObjectId,
+});
+export type VcsGetCommitDetailsInput = typeof VcsGetCommitDetailsInput.Type;
 
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -260,6 +328,27 @@ export const VcsListRefsResult = Schema.Struct({
   totalCount: NonNegativeInt,
 });
 export type VcsListRefsResult = typeof VcsListRefsResult.Type;
+
+export const VcsListHistoryResult = Schema.Struct({
+  commits: Schema.Array(GitHistoryCommitSummary),
+  isRepo: Schema.Boolean,
+  nextCursor: Schema.NullOr(NonNegativeInt),
+  referencesTruncated: Schema.Boolean,
+});
+export type VcsListHistoryResult = typeof VcsListHistoryResult.Type;
+
+export const VcsGetCommitDetailsResult = Schema.Struct({
+  commitId: GitObjectId,
+  committerName: Schema.String,
+  committerEmail: Schema.String,
+  committedAt: IsoDateTime,
+  body: Schema.String,
+  bodyTruncated: Schema.Boolean,
+  comparisonParentId: Schema.NullOr(GitObjectId),
+  files: Schema.Array(GitHistoryFileChange),
+  filesTruncated: Schema.Boolean,
+});
+export type VcsGetCommitDetailsResult = typeof VcsGetCommitDetailsResult.Type;
 
 export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,

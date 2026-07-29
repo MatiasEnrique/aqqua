@@ -4,6 +4,10 @@ import type {
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
   VcsInitInput,
+  VcsGetCommitDetailsInput,
+  VcsGetCommitDetailsResult,
+  VcsListHistoryInput,
+  VcsListHistoryResult,
   VcsListRefsInput,
   VcsListRefsResult,
   VcsPullInput,
@@ -1229,6 +1233,8 @@ export interface EnvironmentApi {
     ) => Promise<SourceControlPublishRepositoryResult>;
   };
   vcs: {
+    listHistory: (input: VcsListHistoryInput) => Promise<VcsListHistoryResult>;
+    getCommitDetails: (input: VcsGetCommitDetailsInput) => Promise<VcsGetCommitDetailsResult>;
     listRefs: (input: VcsListRefsInput) => Promise<VcsListRefsResult>;
     createWorktree: (input: VcsCreateWorktreeInput) => Promise<VcsCreateWorktreeResult>;
     removeWorktree: (input: VcsRemoveWorktreeInput) => Promise<void>;

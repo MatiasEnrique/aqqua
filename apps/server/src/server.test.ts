@@ -13,6 +13,7 @@ import {
   EnvironmentId,
   EventId,
   GitCommandError,
+  type GitObjectId,
   KeybindingRule,
   MessageId,
   ExternalLauncherCommandNotFoundError,
@@ -76,6 +77,7 @@ import { AgentControl } from "./agent-control/Services/AgentControl.ts";
 import { makeRoutesLayer } from "./server.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
+import * as GitHistory from "./git/GitHistory.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
@@ -331,6 +333,7 @@ const buildAppUnderTest = (options?: {
     vcsDriverRegistry?: Partial<VcsDriverRegistry.VcsDriverRegistry["Service"]>;
     gitVcsDriver?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
     gitManager?: Partial<GitManager.GitManager["Service"]>;
+    gitHistory?: Partial<GitHistory.GitHistory["Service"]>;
     sourceControlRepositoryService?: Partial<
       SourceControlRepositoryService.SourceControlRepositoryService["Service"]
     >;
@@ -494,6 +497,9 @@ const buildAppUnderTest = (options?: {
     const gitManagerLayer = Layer.mock(GitManager.GitManager)({
       ...options?.layers?.gitManager,
     });
+    const gitHistoryLayer = Layer.mock(GitHistory.GitHistory)({
+      ...options?.layers?.gitHistory,
+    });
     const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(
       Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
@@ -514,6 +520,7 @@ const buildAppUnderTest = (options?: {
       Layer.provideMerge(vcsDriverRegistryLayer),
       Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(gitManagerLayer),
+      Layer.provideMerge(gitHistoryLayer),
     );
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
@@ -5159,6 +5166,101 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(diffPreview.sources[0]?.diff, "dirty-diff");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket Git history reads without refreshing VCS status", () =>
+    Effect.gen(function* () {
+      const commitId = "a".repeat(40) as GitObjectId;
+      const parentId = "b".repeat(40) as GitObjectId;
+      const listInputs: unknown[] = [];
+      const detailInputs: unknown[] = [];
+      let refreshCalls = 0;
+      yield* buildAppUnderTest({
+        config: { cwd: "/tmp/repo" },
+        layers: {
+          vcsDriver: {
+            isInsideWorkTree: () => Effect.succeed(true),
+          },
+          gitHistory: {
+            list: (input) => {
+              listInputs.push(input);
+              return Effect.succeed({
+                isRepo: true,
+                commits: [
+                  {
+                    id: commitId,
+                    parentIds: [parentId],
+                    subject: "History RPC",
+                    authorName: "Test Author",
+                    authorEmail: "test@example.com",
+                    authoredAt: "2026-07-29T12:00:00.000Z",
+                    committedAt: "2026-07-29T12:00:00.000Z",
+                    isHead: true,
+                    refs: [{ name: "main", kind: "local_branch", current: true }],
+                  },
+                ],
+                nextCursor: null,
+                referencesTruncated: false,
+              });
+            },
+            getDetails: (input) => {
+              detailInputs.push(input);
+              return Effect.succeed({
+                commitId,
+                committerName: "Test Committer",
+                committerEmail: "committer@example.com",
+                committedAt: "2026-07-29T12:00:00.000Z",
+                body: "Body\n",
+                bodyTruncated: false,
+                comparisonParentId: parentId,
+                files: [
+                  {
+                    path: "README.md",
+                    previousPath: null,
+                    kind: "modified",
+                    insertions: 1,
+                    deletions: 0,
+                    binary: false,
+                  },
+                ],
+                filesTruncated: false,
+              });
+            },
+          },
+          vcsStatusBroadcaster: {
+            refreshStatus: () => {
+              refreshCalls += 1;
+              return Effect.die("History reads must not refresh VCS status.");
+            },
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const listed = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsListHistory]({
+            cwd: "/tmp/repo",
+            cursor: 100,
+            limit: 50,
+          }),
+        ),
+      );
+      const details = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsGetCommitDetails]({
+            cwd: "/tmp/repo",
+            commitId,
+          }),
+        ),
+      );
+
+      assert.equal(listed.commits[0]?.id, commitId);
+      assert.equal(details.files[0]?.path, "README.md");
+      assert.deepStrictEqual(listInputs, [{ cwd: "/tmp/repo", cursor: 100, limit: 50 }]);
+      assert.deepStrictEqual(detailInputs, [{ cwd: "/tmp/repo", commitId }]);
+      assert.equal(refreshCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

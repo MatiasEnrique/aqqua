@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
+import * as GitHistory from "./GitHistory.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -19,6 +20,7 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(Layer.mock(GitHistory.GitHistory)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
   );
 }
@@ -93,6 +95,7 @@ describe("GitWorkflowService", () => {
         }),
       ),
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({})),
       Layer.provide(
         Layer.mock(GitManager.GitManager)({
           localStatus,
@@ -134,6 +137,97 @@ describe("GitWorkflowService", () => {
       ),
     ),
   );
+
+  it.effect("returns an empty history when no VCS repository is detected", () =>
+    Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const history = yield* workflow.listHistory({ cwd: "/not-a-repo" });
+
+      assert.deepStrictEqual(history, {
+        commits: [],
+        isRepo: false,
+        nextCursor: null,
+        referencesTruncated: false,
+      });
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          detect: () => Effect.succeed(null),
+        }),
+      ),
+    ),
+  );
+
+  it.effect("delegates commit details after detecting Git", () => {
+    const commitId = "0123456789abcdef0123456789abcdef01234567" as const;
+    const getDetails = vi.fn(() =>
+      Effect.succeed({
+        commitId,
+        committerName: "Test",
+        committerEmail: "test@example.com",
+        committedAt: "2026-07-29T12:00:00Z",
+        body: "",
+        bodyTruncated: false,
+        comparisonParentId: null,
+        files: [],
+        filesTruncated: false,
+      }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          detect: () =>
+            Effect.succeed({
+              kind: "git",
+            } as never),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({ getDetails })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.getCommitDetails({ cwd: "/repo", commitId });
+
+      assert.equal(result.commitId, commitId);
+      assert.equal(getDetails.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects commit details when no repository is detected", () => {
+    const getDetails = vi.fn();
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          detect: () => Effect.succeed(null),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({ getDetails })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const error = yield* Effect.flip(
+        workflow.getCommitDetails({
+          cwd: "/not-a-repo",
+          commitId: "0123456789abcdef0123456789abcdef01234567",
+        }),
+      );
+
+      expect(error).toMatchObject({
+        _tag: "GitCommandError",
+        operation: "GitWorkflowService.getCommitDetails",
+        command: "vcs-route",
+        cwd: "/not-a-repo",
+        detail: "No Git repository was detected for the selected commit.",
+      });
+      assert.equal(getDetails.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("structures workflow detection failures without exposing upstream details", () => {
     const cause = new VcsRepositoryDetectionError({

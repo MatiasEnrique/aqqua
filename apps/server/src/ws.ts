@@ -379,6 +379,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.gitRunStackedAction, AuthOrchestrationOperateScope],
   [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
   [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsListHistory, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsGetCommitDetails, AuthOrchestrationReadScope],
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
@@ -1965,6 +1967,14 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsListHistory]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListHistory, gitWorkflow.listHistory(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsGetCommitDetails]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsGetCommitDetails, gitWorkflow.getCommitDetails(input), {
             "rpc.aggregate": "vcs",
           }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>

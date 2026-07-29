@@ -395,6 +395,11 @@ const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
 const DiffPanel = lazy(() => import("./DiffPanel"));
+const GitHistoryPanel = lazy(() =>
+  import("./gitHistory/GitHistoryPanel").then((module) => ({
+    default: module.GitHistoryPanel,
+  })),
+);
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
@@ -3108,6 +3113,21 @@ function ChatViewContent(props: ChatViewProps) {
     planSidebarOpen,
     rightPanelWorkspaceStoreRef,
   ]);
+  const addHistorySurface = useCallback(() => {
+    if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !diffSurfaceAvailable) return;
+    if (planSidebarOpen) {
+      dismissPlanSidebarForCurrentTurn();
+    }
+    const store = useRightPanelStore.getState();
+    store.close(activeThreadRef);
+    store.open(rightPanelWorkspaceStoreRef, "history");
+  }, [
+    activeThreadRef,
+    diffSurfaceAvailable,
+    dismissPlanSidebarForCurrentTurn,
+    planSidebarOpen,
+    rightPanelWorkspaceStoreRef,
+  ]);
   const addFilesSurface = useCallback(() => {
     if (!activeThreadRef || !rightPanelWorkspaceStoreRef || !activeProject) return;
     const store = useRightPanelStore.getState();
@@ -3378,6 +3398,9 @@ function ChatViewContent(props: ChatViewProps) {
         case "diff":
           addDiffSurface();
           return;
+        case "history":
+          addHistorySurface();
+          return;
         case "terminal":
           addTerminalSurface();
           return;
@@ -3390,6 +3413,7 @@ function ChatViewContent(props: ChatViewProps) {
       activateRightPanelSurface,
       addDiffSurface,
       addFilesSurface,
+      addHistorySurface,
       addTerminalSurface,
       createBrowserSurface,
       rightPanelState.surfaces,
@@ -5799,6 +5823,7 @@ function ChatViewContent(props: ChatViewProps) {
       availability={{
         files: activeProject !== null,
         diff: diffSurfaceAvailable,
+        history: diffSurfaceAvailable,
         terminal: activeProject !== null,
         browser: isPreviewSupportedInRuntime(),
       }}
@@ -5861,6 +5886,16 @@ function ChatViewContent(props: ChatViewProps) {
           threadRef={activeThreadRef}
           workspaceRef={rightPanelWorkspaceStoreRef}
           fallbackCwd={gitCwd}
+        />
+      </Suspense>
+    ) : activeRightPanelSurface?.kind === "history" && gitStatusCwd ? (
+      <Suspense fallback={null}>
+        <GitHistoryPanel
+          key={`${activeThreadKey}:${gitStatusCwd}`}
+          environmentId={activeThreadRef.environmentId}
+          cwd={gitStatusCwd}
+          repositoryRefName={gitStatusQuery.data?.refName ?? null}
+          timestampFormat={timestampFormat}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
@@ -6302,9 +6337,11 @@ function ChatViewContent(props: ChatViewProps) {
           onAddBrowser={createBrowserSurface}
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
+          onAddHistory={addHistorySurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={diffSurfaceAvailable}
+          historyAvailable={diffSurfaceAvailable}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -6329,9 +6366,11 @@ function ChatViewContent(props: ChatViewProps) {
             onAddBrowser={createBrowserSurface}
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
+            onAddHistory={addHistorySurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={diffSurfaceAvailable}
+            historyAvailable={diffSurfaceAvailable}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}

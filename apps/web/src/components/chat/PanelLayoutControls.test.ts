@@ -10,6 +10,7 @@ describe("rightPanelSurfaceButtonKindOf", () => {
 
   it("maps the remaining surfaces onto their header buttons", () => {
     expect(rightPanelSurfaceButtonKindOf("diff")).toBe("diff");
+    expect(rightPanelSurfaceButtonKindOf("history")).toBe("history");
     expect(rightPanelSurfaceButtonKindOf("terminal")).toBe("terminal");
     expect(rightPanelSurfaceButtonKindOf("preview")).toBe("browser");
   });

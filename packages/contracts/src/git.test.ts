@@ -2,7 +2,11 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import {
+  GitObjectId,
   VcsCreateWorktreeInput,
+  VcsGetCommitDetailsResult,
+  VcsListHistoryInput,
+  VcsListHistoryResult,
   GitPreparePullRequestThreadInput,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
@@ -10,6 +14,10 @@ import {
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
+const decodeGitObjectId = Schema.decodeUnknownSync(GitObjectId);
+const decodeListHistoryInput = Schema.decodeUnknownSync(VcsListHistoryInput);
+const decodeListHistoryResult = Schema.decodeUnknownSync(VcsListHistoryResult);
+const decodeCommitDetailsResult = Schema.decodeUnknownSync(VcsGetCommitDetailsResult);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -39,6 +47,79 @@ describe("VcsCreateWorktreeInput", () => {
     });
 
     expect(parsed.baseRefName).toBe("origin/main");
+  });
+});
+
+describe("Git history contracts", () => {
+  const sha1 = "0123456789abcdef0123456789abcdef01234567";
+  const sha256 = `${sha1}0123456789abcdef01234567`;
+
+  it("accepts full SHA-1 and SHA-256 object ids", () => {
+    expect(decodeGitObjectId(sha1)).toBe(sha1);
+    expect(decodeGitObjectId(sha256)).toBe(sha256);
+  });
+
+  it("rejects abbreviated, non-hex, uppercase, and option-like object ids", () => {
+    for (const candidate of ["0123456", `${sha1}z`, sha1.toUpperCase(), "--all"]) {
+      expect(() => decodeGitObjectId(candidate)).toThrow();
+    }
+  });
+
+  it("enforces history pagination limits", () => {
+    expect(decodeListHistoryInput({ cwd: "/repo" })).toEqual({ cwd: "/repo" });
+    expect(decodeListHistoryInput({ cwd: "/repo", cursor: 100, limit: 200 })).toEqual({
+      cwd: "/repo",
+      cursor: 100,
+      limit: 200,
+    });
+    expect(() => decodeListHistoryInput({ cwd: "/repo", limit: 201 })).toThrow();
+    expect(() => decodeListHistoryInput({ cwd: "/repo", cursor: -1 })).toThrow();
+  });
+
+  it("decodes commit summaries and file details", () => {
+    expect(
+      decodeListHistoryResult({
+        commits: [
+          {
+            id: sha1,
+            parentIds: [],
+            subject: "Initial commit",
+            authorName: "Ada",
+            authorEmail: "ada@example.com",
+            authoredAt: "2026-07-29T12:00:00Z",
+            committedAt: "2026-07-29T12:01:00Z",
+            isHead: true,
+            refs: [{ name: "main", kind: "local_branch", current: true }],
+          },
+        ],
+        isRepo: true,
+        nextCursor: null,
+        referencesTruncated: false,
+      }).commits[0]?.refs[0],
+    ).toEqual({ name: "main", kind: "local_branch", current: true });
+
+    expect(
+      decodeCommitDetailsResult({
+        commitId: sha1,
+        committerName: "Grace",
+        committerEmail: "grace@example.com",
+        committedAt: "2026-07-29T12:01:00Z",
+        body: "Details",
+        bodyTruncated: false,
+        comparisonParentId: null,
+        files: [
+          {
+            path: "image.png",
+            previousPath: null,
+            kind: "added",
+            insertions: null,
+            deletions: null,
+            binary: true,
+          },
+        ],
+        filesTruncated: false,
+      }).files[0],
+    ).toMatchObject({ kind: "added", binary: true, insertions: null, deletions: null });
   });
 });
 

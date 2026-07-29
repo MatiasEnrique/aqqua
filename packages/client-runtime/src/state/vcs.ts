@@ -13,7 +13,11 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom } from "effect/unstable/reactivity";
 
-import { createEnvironmentRpcCommand, createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentSubscriptionAtomFamily,
+} from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -162,6 +166,16 @@ export function createVcsEnvironmentAtoms<R, E>(
   }) => listRefsByEnvironment(target.environmentId)(JSON.stringify(target.input));
 
   return {
+    listHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:list-history",
+      tag: WS_METHODS.vcsListHistory,
+      staleTimeMs: 0,
+    }),
+    commitDetails: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:commit-details",
+      tag: WS_METHODS.vcsGetCommitDetails,
+      staleTimeMs: 5 * 60_000,
+    }),
     listRefs,
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",

@@ -4,6 +4,7 @@ import {
   ClipboardList,
   FileDiff,
   Files,
+  GitGraph,
   Globe2,
   PanelRightClose,
   Plus,
@@ -52,9 +53,11 @@ interface RightPanelTabsProps {
   onAddBrowser: () => void;
   onAddTerminal: () => void;
   onAddDiff: () => void;
+  onAddHistory: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
+  historyAvailable: boolean;
   filesAvailable: boolean;
   children: ReactNode;
 }
@@ -63,6 +66,7 @@ const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the 3T Code desktop app.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for projects in Git repositories.",
+  history: "History is only available for projects in Git repositories.",
 } as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
@@ -99,9 +103,11 @@ function RightPanelEmptyState(props: {
   onAddBrowser: () => void;
   onAddTerminal: () => void;
   onAddDiff: () => void;
+  onAddHistory: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
+  historyAvailable: boolean;
   filesAvailable: boolean;
 }) {
   const actions = [
@@ -136,6 +142,14 @@ function RightPanelEmptyState(props: {
       available: props.diffAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
+    },
+    {
+      label: "History",
+      description: "Browse the repository commit graph.",
+      icon: GitGraph,
+      available: props.historyAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.history,
+      onClick: props.onAddHistory,
     },
   ] as const;
 
@@ -195,7 +209,7 @@ function RightPanelEmptyState(props: {
   );
 }
 
-function surfaceTitle(
+export function rightPanelSurfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
@@ -203,6 +217,8 @@ function surfaceTitle(
   switch (surface.kind) {
     case "diff":
       return "Diff";
+    case "history":
+      return "History";
     case "files":
       return "Files";
     case "file":
@@ -260,6 +276,8 @@ function SurfaceIcon({
     }
     case "diff":
       return <FileDiff className="size-3.5 shrink-0" />;
+    case "history":
+      return <GitGraph className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
     case "file":
@@ -384,7 +402,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
-              const title = surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
+              const title = rightPanelSurfaceTitle(
+                surface,
+                props.previewSessions,
+                props.terminalLabelsById,
+              );
               return (
                 <div
                   key={surface.id}
@@ -479,6 +501,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <FileDiff />
                     Diff
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.historyAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.history}
+                    onClick={props.onAddHistory}
+                  >
+                    <GitGraph />
+                    History
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -506,9 +536,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddBrowser={props.onAddBrowser}
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
+            onAddHistory={props.onAddHistory}
             onAddFiles={props.onAddFiles}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
+            historyAvailable={props.historyAvailable}
             filesAvailable={props.filesAvailable}
           />
         ) : (

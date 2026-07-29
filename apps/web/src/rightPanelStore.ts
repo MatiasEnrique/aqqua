@@ -5,7 +5,7 @@
  * surface descriptors and the active surface, while each feature continues to
  * own its durable resource state. Browser surfaces point at preview tab ids,
  * terminal surfaces point at terminal session ids, file surfaces point at
- * workspace paths, and diff/plan/files remain singleton surfaces.
+ * workspace paths, and diff/history/plan/files remain singleton surfaces.
  */
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
@@ -16,7 +16,15 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export const RIGHT_PANEL_KINDS = ["plan", "diff", "files", "file", "preview", "terminal"] as const;
+export const RIGHT_PANEL_KINDS = [
+  "plan",
+  "diff",
+  "history",
+  "files",
+  "file",
+  "preview",
+  "terminal",
+] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export interface RightPanelContext {
@@ -63,6 +71,7 @@ export type RightPanelSurface =
       }>;
     }
   | { id: "diff"; kind: "diff" }
+  | { id: "history"; kind: "history" }
   | { id: "files"; kind: "files" }
   | {
       id: `file:${string}`;
@@ -132,6 +141,8 @@ const singletonSurface = (
   switch (kind) {
     case "diff":
       return { id: "diff", kind };
+    case "history":
+      return { id: "history", kind };
     case "files":
       return { id: "files", kind };
     case "plan":
@@ -253,6 +264,9 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                     }
                     if (surface.kind === "diff" && surface.id === "diff") {
                       return [{ id: "diff", kind: "diff" }];
+                    }
+                    if (surface.kind === "history" && surface.id === "history") {
+                      return [{ id: "history", kind: "history" }];
                     }
                     if (surface.kind === "files" && surface.id === "files") {
                       return [{ id: "files", kind: "files" }];

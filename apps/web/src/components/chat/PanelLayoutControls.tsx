@@ -1,6 +1,7 @@
 import {
   FileDiffIcon,
   FolderTreeIcon,
+  GitGraphIcon,
   GlobeIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -57,11 +58,11 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 });
 
 /**
- * The four right-panel surfaces reachable straight from the chat header. These
+ * The five right-panel surfaces reachable straight from the chat header. These
  * replaced the generic "toggle right panel" button: users pick the surface they
  * want instead of opening the panel and then hunting for it.
  */
-export type RightPanelSurfaceButtonKind = "files" | "diff" | "terminal" | "browser";
+export type RightPanelSurfaceButtonKind = "files" | "diff" | "history" | "terminal" | "browser";
 
 /**
  * Maps a right-panel surface kind onto the header button that represents it.
@@ -76,6 +77,8 @@ export function rightPanelSurfaceButtonKindOf(
       return "files";
     case "diff":
       return "diff";
+    case "history":
+      return "history";
     case "terminal":
       return "terminal";
     case "preview":
@@ -97,6 +100,12 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     label: "Open diff viewer",
     icon: FileDiffIcon,
     unavailableReason: "Diff is only available for projects in Git repositories.",
+  },
+  {
+    kind: "history",
+    label: "Open Git history",
+    icon: GitGraphIcon,
+    unavailableReason: "History is only available for projects in Git repositories.",
   },
   {
     kind: "terminal",
