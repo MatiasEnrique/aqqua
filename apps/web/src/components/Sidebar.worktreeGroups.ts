@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { normalizeProjectPathForComparison } from "../lib/projectPaths";
+import { resolveSidebarConversationSummaryState } from "./Sidebar.summaryState";
 
 export interface WorktreeDraftRow {
   readonly draftId: string;
@@ -26,8 +27,15 @@ export interface SidebarWorktreeGroup {
   readonly active: readonly EnvironmentThreadShell[];
   readonly snoozed: readonly EnvironmentThreadShell[];
   readonly conversationCount: number;
-  readonly ongoingConversationCount: number;
+  readonly workingConversationCount: number;
 }
+
+export type SidebarWorktreeConversationLocation = {
+  readonly branch: string;
+  readonly worktreePath: string | null;
+  readonly envMode: "local" | "worktree";
+  readonly startFromOrigin: false;
+};
 
 export interface SidebarRepositoryGroup<
   TProject extends {
@@ -41,7 +49,7 @@ export interface SidebarRepositoryGroup<
   readonly project: TProject;
   readonly worktrees: readonly SidebarWorktreeGroup[];
   readonly conversationCount: number;
-  readonly ongoingConversationCount: number;
+  readonly workingConversationCount: number;
 }
 
 interface ProjectWorkspace {
@@ -175,12 +183,14 @@ export function buildSidebarWorktreeGroups(input: {
 
   return [...groups.entries()]
     .map(([key, group]): SidebarWorktreeGroup => {
-      const ongoingConversationCount = [...group.active, ...group.snoozed].filter(
-        (thread) => thread.session?.status === "running" || thread.session?.status === "starting",
+      const conversationStates = [...group.active, ...group.snoozed].map(
+        resolveSidebarConversationSummaryState,
+      );
+      const workingConversationCount = conversationStates.filter(
+        (state) => state === "working",
       ).length;
       const unsettledConversationCount =
         group.drafts.length + group.active.length + group.snoozed.length;
-      const liveConversationCount = group.active.length + group.snoozed.length;
       return {
         key,
         environmentId: group.environmentId,
@@ -193,7 +203,11 @@ export function buildSidebarWorktreeGroups(input: {
         }`,
         isProjectCheckout: group.isProjectCheckout,
         status:
-          ongoingConversationCount > 0 ? "working" : liveConversationCount > 0 ? "done" : "stale",
+          workingConversationCount > 0
+            ? "working"
+            : conversationStates.includes("done")
+              ? "done"
+              : "stale",
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:
@@ -204,7 +218,7 @@ export function buildSidebarWorktreeGroups(input: {
               ),
         snoozed: group.snoozed,
         conversationCount: unsettledConversationCount + group.settledCount,
-        ongoingConversationCount,
+        workingConversationCount,
       };
     })
     .toSorted(
@@ -260,11 +274,59 @@ export function buildSidebarRepositoryGroups<
           (total, worktree) => total + worktree.conversationCount,
           0,
         ),
-        ongoingConversationCount: worktrees.reduce(
-          (total, worktree) => total + worktree.ongoingConversationCount,
+        workingConversationCount: worktrees.reduce(
+          (total, worktree) => total + worktree.workingConversationCount,
           0,
         ),
       },
     ];
   });
+}
+
+export function filterExpandedSidebarWorktreeGroups<TWorktree, TRepository>(input: {
+  readonly worktrees: readonly TWorktree[];
+  readonly repositories: readonly TRepository[];
+  readonly repositoryHierarchyVisible: boolean;
+  readonly getRepositoryWorktrees: (repository: TRepository) => readonly TWorktree[];
+  readonly isRepositoryExpanded: (repository: TRepository) => boolean;
+  readonly isWorktreeExpanded: (worktree: TWorktree) => boolean;
+}): TWorktree[] {
+  const repositoryVisibleWorktrees = input.repositoryHierarchyVisible
+    ? input.repositories
+        .filter(input.isRepositoryExpanded)
+        .flatMap((repository) => input.getRepositoryWorktrees(repository))
+    : input.worktrees;
+  return repositoryVisibleWorktrees.filter(input.isWorktreeExpanded);
+}
+
+export function filterRemovedSidebarWorktreeGroups(
+  worktrees: readonly SidebarWorktreeGroup[],
+  removedWorktreeAtByKey: Readonly<Record<string, string>>,
+): SidebarWorktreeGroup[] {
+  return worktrees.filter((worktree) => {
+    if (removedWorktreeAtByKey[worktree.key] === undefined) return true;
+    return worktree.drafts.length + worktree.active.length + worktree.snoozed.length > 0;
+  });
+}
+
+export function resolveSidebarWorktreeConversationLocation(
+  group: Pick<SidebarWorktreeGroup, "isProjectCheckout" | "label" | "workspaceRoot">,
+): SidebarWorktreeConversationLocation | null {
+  if (group.isProjectCheckout) {
+    return {
+      branch: group.label,
+      worktreePath: null,
+      envMode: "local",
+      startFromOrigin: false,
+    };
+  }
+  if (group.workspaceRoot === null) {
+    return null;
+  }
+  return {
+    branch: group.label,
+    worktreePath: group.workspaceRoot,
+    envMode: "worktree",
+    startFromOrigin: false,
+  };
 }

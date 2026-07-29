@@ -261,6 +261,28 @@ describe("buildWorktreeSettlementPlan", () => {
     expect(plan.threadsToSettle).toEqual([autoSettled]);
     expect(plan.blockedThreads).toEqual([]);
   });
+
+  it("restores an archived conversation before settling its worktree", () => {
+    const archived = asShell(
+      makeThread({
+        id: ThreadId.make("archived"),
+        worktreePath: "/tmp/worktrees/feature-a",
+        archivedAt: "2026-02-13T00:00:00.000Z",
+      }),
+    );
+
+    const plan = buildWorktreeSettlementPlan({
+      environmentId: localEnvironmentId,
+      worktreePath: "/tmp/worktrees/feature-a",
+      threads: [archived],
+      now: "2026-02-14T00:00:00.000Z",
+      settlementSupported: true,
+    });
+
+    expect(plan.threadsToUnarchive).toEqual([archived]);
+    expect(plan.threadsToSettle).toEqual([archived]);
+    expect(plan.blockedThreads).toEqual([]);
+  });
 });
 
 describe("buildWorktreeDeletionPlan", () => {

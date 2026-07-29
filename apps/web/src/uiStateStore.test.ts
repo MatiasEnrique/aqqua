@@ -2,7 +2,9 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  clearWorktreeRemoved,
   legacyProjectCwdPreferenceKey,
+  markWorktreeRemoved,
   markThreadUnread,
   markThreadVisited,
   parsePersistedState,
@@ -28,6 +30,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadExpandedById: {},
     threadChangedFilesExpandedById: {},
     worktreeExpandedByKey: {},
+    removedWorktreeAtByKey: {},
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -222,6 +225,10 @@ describe("parsePersistedState", () => {
         "environment:thread-1": false,
         invalid: "no" as unknown as boolean,
       },
+      removedWorktreeAtByKey: {
+        "local:/worktrees/ciber/dev-22": "2026-07-29T22:00:00.000Z",
+        invalid: "not-a-date",
+      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -244,6 +251,9 @@ describe("parsePersistedState", () => {
         "environment:thread-1": false,
       },
       worktreeExpandedByKey: {},
+      removedWorktreeAtByKey: {
+        "local:/worktrees/ciber/dev-22": "2026-07-29T22:00:00.000Z",
+      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -365,6 +375,7 @@ describe("uiStateStore persistence", () => {
       },
       threadExpandedById: {},
       worktreeExpandedByKey: {},
+      removedWorktreeAtByKey: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -390,5 +401,20 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(resolveProjectExpanded(persisted.projectExpandedById ?? {}, ["unknown"])).toBe(true);
+  });
+});
+
+describe("markWorktreeRemoved", () => {
+  it("keeps the durable removal timestamp by worktree key", () => {
+    const removedAt = "2026-07-29T22:00:00.000Z";
+    const next = markWorktreeRemoved(makeUiState(), "local:/worktrees/ciber/dev-22", removedAt);
+
+    expect(next.removedWorktreeAtByKey).toEqual({
+      "local:/worktrees/ciber/dev-22": removedAt,
+    });
+    expect(markWorktreeRemoved(next, "local:/worktrees/ciber/dev-22", removedAt)).toBe(next);
+    expect(
+      clearWorktreeRemoved(next, "local:/worktrees/ciber/dev-22").removedWorktreeAtByKey,
+    ).toEqual({});
   });
 });

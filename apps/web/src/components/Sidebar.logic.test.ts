@@ -14,6 +14,7 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
+  resolveSidebarConversationSummaryState,
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
   resolveSidebarV2Status,
@@ -654,6 +655,70 @@ describe("resolveSidebarV2Status", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarV2Status({ ...idle, session: null })).toBe("ready");
+  });
+});
+
+describe("resolveSidebarConversationSummaryState", () => {
+  const session = {
+    threadId: ThreadId.make("thread-1"),
+    status: "running" as const,
+    providerName: "Codex",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    activeTurnId: "turn-1" as never,
+    lastError: null,
+    updatedAt: "2026-03-09T10:00:00.000Z",
+  };
+
+  it("reports working while a session is starting or running", () => {
+    expect(resolveSidebarConversationSummaryState({ session, latestTurn: makeLatestTurn() })).toBe(
+      "working",
+    );
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "starting" },
+        latestTurn: null,
+      }),
+    ).toBe("working");
+  });
+
+  it("keeps a completed conversation visibly done", () => {
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "ready" },
+        latestTurn: makeLatestTurn(),
+      }),
+    ).toBe("done");
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "ready" },
+        latestTurn: null,
+      }),
+    ).toBe("done");
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "idle" },
+        latestTurn: null,
+      }),
+    ).toBe("done");
+  });
+
+  it("reports stale for drafts, interrupted work, and errors", () => {
+    expect(resolveSidebarConversationSummaryState({ session: null, latestTurn: null })).toBe(
+      "stale",
+    );
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "stopped" },
+        latestTurn: { ...makeLatestTurn(), state: "interrupted" },
+      }),
+    ).toBe("stale");
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "ready" },
+        latestTurn: { ...makeLatestTurn(), state: "error" },
+      }),
+    ).toBe("stale");
   });
 });
 

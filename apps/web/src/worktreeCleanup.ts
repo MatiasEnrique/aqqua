@@ -65,6 +65,7 @@ export function selectThreadsForWorktree<
 }
 
 export interface WorktreeSettlementPlan {
+  readonly threadsToUnarchive: ReadonlyArray<EnvironmentThreadShell>;
   readonly threadsToUnsnooze: ReadonlyArray<EnvironmentThreadShell>;
   readonly threadsToSettle: ReadonlyArray<EnvironmentThreadShell>;
   readonly blockedThreads: ReadonlyArray<EnvironmentThreadShell>;
@@ -80,8 +81,9 @@ export function buildWorktreeSettlementPlan(input: {
   const worktreeThreads = selectThreadsForWorktree({
     environmentId: input.environmentId,
     worktreePath: input.worktreePath,
-    threads: input.threads.filter((thread) => thread.archivedAt === null),
+    threads: input.threads,
   });
+  const threadsToUnarchive = worktreeThreads.filter((thread) => thread.archivedAt !== null);
   const threadsToUnsnooze = worktreeThreads.filter((thread) =>
     effectiveSnoozed(thread, { now: input.now }),
   );
@@ -92,6 +94,7 @@ export function buildWorktreeSettlementPlan(input: {
     (thread) => thread.settledOverride !== "settled" || thread.settledAt === null,
   );
   return {
+    threadsToUnarchive,
     threadsToUnsnooze,
     threadsToSettle,
     blockedThreads: threadsToSettle.filter(

@@ -681,10 +681,32 @@ export function useThreadActions() {
 
   const settleAndRemoveWorktree = useCallback(
     async (input: SettleAndRemoveWorktreeInput): Promise<boolean> => {
+      const archivedAtom = orchestrationEnvironment.archivedShellSnapshot({
+        environmentId: input.environmentId,
+        input: {},
+      });
+      appAtomRegistry.refresh(archivedAtom);
+      const archivedResult = await executeAtomQuery(appAtomRegistry, archivedAtom, {
+        reportFailure: false,
+      });
+      if (archivedResult._tag === "Failure") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Worktree kept because archived conversations could not be checked",
+            description: "Reconnect to the environment and try again.",
+          }),
+        );
+        return false;
+      }
+      const archivedThreads = archivedResult.value.threads.map((thread) => ({
+        ...thread,
+        environmentId: input.environmentId,
+      }));
       const plan = buildWorktreeSettlementPlan({
         environmentId: input.environmentId,
         worktreePath: input.worktreePath,
-        threads: input.threads,
+        threads: [...input.threads, ...archivedThreads],
         now: new Date().toISOString(),
         settlementSupported: readEnvironmentSupportsSettlement(input.environmentId),
       });
@@ -715,34 +737,49 @@ export function useThreadActions() {
         return false;
       }
       const inspection = inspectionResult.value;
-      if (inspection.availability !== "available") {
+      if (inspection.availability === "not_worktree") {
         toastManager.add({
           type: "warning",
           title: "Worktree is not available",
-          description:
-            inspection.availability === "missing"
-              ? "The worktree no longer exists on disk."
-              : "The selected path is not a Git worktree.",
+          description: "The selected path is not a Git worktree.",
         });
         return false;
       }
 
-      const api = readLocalApi();
-      if (!api) return false;
-      const confirmed = await settlePromise(() =>
-        api.dialogs.confirm(
-          [
-            `Delete worktree "${input.label}"?`,
-            `Path: ${input.worktreePath}`,
-            `Branch: ${inspection.refName ?? "Detached HEAD"}`,
-            `Base: ${inspection.baseRef ?? "Unknown"}`,
-            `Status: ${inspection.workingTreeStatus === "dirty" ? "Has changes" : inspection.workingTreeStatus === "clean" ? "Clean" : "Changes unknown"} · ${inspection.mergeStatus === "merged" ? "Merged" : inspection.mergeStatus === "unmerged" ? "Not merged" : "Merge unknown"}`,
-            `${plan.threadsToSettle.length} conversation${plan.threadsToSettle.length === 1 ? "" : "s"} will be settled first. The worktree will then be permanently removed.`,
-            "This cannot be undone.",
-          ].join("\n"),
-        ),
-      );
-      if (confirmed._tag === "Failure" || !confirmed.value) return false;
+      const worktreeAlreadyMissing = inspection.availability === "missing";
+      if (!worktreeAlreadyMissing) {
+        const api = readLocalApi();
+        if (!api) return false;
+        const confirmed = await settlePromise(() =>
+          api.dialogs.confirm(
+            [
+              `Delete worktree "${input.label}"?`,
+              `Path: ${input.worktreePath}`,
+              `Branch: ${inspection.refName ?? "Detached HEAD"}`,
+              `Base: ${inspection.baseRef ?? "Unknown"}`,
+              `Status: ${inspection.workingTreeStatus === "dirty" ? "Has changes" : inspection.workingTreeStatus === "clean" ? "Clean" : "Changes unknown"} · ${inspection.mergeStatus === "merged" ? "Merged" : inspection.mergeStatus === "unmerged" ? "Not merged" : "Merge unknown"}`,
+              `${plan.threadsToSettle.length} conversation${plan.threadsToSettle.length === 1 ? "" : "s"} will be settled first${plan.threadsToUnarchive.length > 0 ? `, including ${plan.threadsToUnarchive.length} archived` : ""}. The worktree will then be permanently removed.`,
+              "This cannot be undone.",
+            ].join("\n"),
+          ),
+        );
+        if (confirmed._tag === "Failure" || !confirmed.value) return false;
+      }
+
+      for (const thread of plan.threadsToUnarchive) {
+        const result = await unarchiveThread(scopeThreadRef(thread.environmentId, thread.id));
+        if (result._tag === "Failure") {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Worktree kept because an archived conversation could not be restored",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return false;
+        }
+      }
 
       for (const thread of plan.threadsToUnsnooze) {
         const result = await unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id));
@@ -778,14 +815,36 @@ export function useThreadActions() {
         const thread = readThreadShell(threadRef);
         return thread === null ? [] : [thread];
       });
+      appAtomRegistry.refresh(archivedAtom);
+      const currentArchivedResult = await executeAtomQuery(appAtomRegistry, archivedAtom, {
+        reportFailure: false,
+      });
+      if (currentArchivedResult._tag === "Failure") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "Worktree kept because archived conversations could not be rechecked",
+            description: "Reconnect to the environment and try again.",
+          }),
+        );
+        return false;
+      }
+      const currentArchivedThreads = currentArchivedResult.value.threads.map((thread) => ({
+        ...thread,
+        environmentId: input.environmentId,
+      }));
       const currentPlan = buildWorktreeSettlementPlan({
         environmentId: input.environmentId,
         worktreePath: input.worktreePath,
-        threads: currentThreads,
+        threads: [...currentThreads, ...currentArchivedThreads],
         now: new Date().toISOString(),
         settlementSupported: readEnvironmentSupportsSettlement(input.environmentId),
       });
-      if (currentPlan.threadsToUnsnooze.length > 0 || currentPlan.threadsToSettle.length > 0) {
+      if (
+        currentPlan.threadsToUnarchive.length > 0 ||
+        currentPlan.threadsToUnsnooze.length > 0 ||
+        currentPlan.threadsToSettle.length > 0
+      ) {
         toastManager.add(
           stackedThreadToast({
             type: "warning",
@@ -797,39 +856,41 @@ export function useThreadActions() {
         return false;
       }
 
-      const reinspectionResult = await inspectWorktreeRemoval({
-        environmentId: input.environmentId,
-        input: { cwd: input.projectCwd, path: input.worktreePath },
-      });
-      if (
-        reinspectionResult._tag === "Failure" ||
-        !worktreeRemovalInspectionUnchanged(inspection, reinspectionResult.value)
-      ) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "warning",
-            title: "Worktree changed and was kept",
-            description:
-              "The worktree changed after confirmation. Review its latest state and try again.",
-          }),
-        );
-        return false;
-      }
+      if (!worktreeAlreadyMissing) {
+        const reinspectionResult = await inspectWorktreeRemoval({
+          environmentId: input.environmentId,
+          input: { cwd: input.projectCwd, path: input.worktreePath },
+        });
+        if (
+          reinspectionResult._tag === "Failure" ||
+          !worktreeRemovalInspectionUnchanged(inspection, reinspectionResult.value)
+        ) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: "Worktree changed and was kept",
+              description:
+                "The worktree changed after confirmation. Review its latest state and try again.",
+            }),
+          );
+          return false;
+        }
 
-      const removalResult = await removeWorktree({
-        environmentId: input.environmentId,
-        input: { cwd: input.projectCwd, path: input.worktreePath, force: true },
-      });
-      if (removalResult._tag === "Failure") {
-        const error = squashAtomCommandFailure(removalResult);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Conversations settled, but worktree removal failed",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-        return false;
+        const removalResult = await removeWorktree({
+          environmentId: input.environmentId,
+          input: { cwd: input.projectCwd, path: input.worktreePath, force: true },
+        });
+        if (removalResult._tag === "Failure") {
+          const error = squashAtomCommandFailure(removalResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Conversations settled, but worktree removal failed",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return false;
+        }
       }
 
       const refreshResult = await refreshVcsStatus({
@@ -838,15 +899,23 @@ export function useThreadActions() {
       });
       toastManager.add({
         type: refreshResult._tag === "Success" ? "success" : "warning",
-        title:
-          refreshResult._tag === "Success"
+        title: worktreeAlreadyMissing
+          ? "Unavailable worktree removed from sidebar"
+          : refreshResult._tag === "Success"
             ? "Worktree deleted"
             : "Worktree deleted, but status refresh failed",
         description: input.worktreePath,
       });
       return true;
     },
-    [inspectWorktreeRemoval, refreshVcsStatus, removeWorktree, settleThread, unsnoozeThread],
+    [
+      inspectWorktreeRemoval,
+      refreshVcsStatus,
+      removeWorktree,
+      settleThread,
+      unarchiveThread,
+      unsnoozeThread,
+    ],
   );
 
   const deleteThreads = useCallback(

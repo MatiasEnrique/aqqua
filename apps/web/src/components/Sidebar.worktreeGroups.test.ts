@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { buildSidebarRepositoryGroups, buildSidebarWorktreeGroups } from "./Sidebar.worktreeGroups";
+import {
+  buildSidebarRepositoryGroups,
+  buildSidebarWorktreeGroups,
+  filterExpandedSidebarWorktreeGroups,
+  filterRemovedSidebarWorktreeGroups,
+  resolveSidebarWorktreeConversationLocation,
+  type SidebarWorktreeGroup,
+} from "./Sidebar.worktreeGroups";
 
 const thread = (
   id: string,
@@ -10,7 +17,7 @@ const thread = (
   branch: string,
   updatedAt: string,
   parentThreadId: string | null = null,
-  sessionStatus: "running" | "starting" | "completed" | null = null,
+  sessionStatus: "running" | "starting" | "ready" | "interrupted" | "error" | null = null,
   projectId = "project",
 ): EnvironmentThreadShell =>
   ({
@@ -51,8 +58,20 @@ describe("buildSidebarWorktreeGroups", () => {
 
   it("uses settled conversations for totals without exposing per-worktree settled rows", () => {
     const groups = buildSidebarWorktreeGroups({
-      active: [thread("active", "local", "/repo-wt", "feature", "2026-01-03T00:00:00.000Z")],
-      snoozed: [thread("snoozed", "local", "/repo-wt", "feature", "2026-01-02T00:00:00.000Z")],
+      active: [
+        thread("active", "local", "/repo-wt", "feature", "2026-01-03T00:00:00.000Z", null, "ready"),
+      ],
+      snoozed: [
+        thread(
+          "snoozed",
+          "local",
+          "/repo-wt",
+          "feature",
+          "2026-01-02T00:00:00.000Z",
+          null,
+          "ready",
+        ),
+      ],
       settled: [thread("settled", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
       drafts: [
         {
@@ -146,10 +165,10 @@ describe("buildSidebarWorktreeGroups", () => {
       "feature",
       "2026-01-04T00:00:00.000Z",
       null,
-      "completed",
+      "ready",
     );
-    const hiddenOngoing = thread(
-      "hidden-ongoing",
+    const hiddenWorking = thread(
+      "hidden-working",
       "local",
       "/repo-wt",
       "feature",
@@ -159,7 +178,7 @@ describe("buildSidebarWorktreeGroups", () => {
     );
 
     const groups = buildSidebarWorktreeGroups({
-      active: [visible, hiddenOngoing],
+      active: [visible, hiddenWorking],
       renderedActive: [visible],
       snoozed: [
         thread(
@@ -193,10 +212,42 @@ describe("buildSidebarWorktreeGroups", () => {
       expect.objectContaining({
         active: [expect.objectContaining({ id: "visible" })],
         conversationCount: 5,
-        ongoingConversationCount: 2,
+        workingConversationCount: 2,
         status: "working",
       }),
     ]);
+  });
+
+  it("does not call errored or interrupted work done", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [
+        thread(
+          "errored",
+          "local",
+          "/repo-wt",
+          "feature",
+          "2026-01-04T00:00:00.000Z",
+          null,
+          "error",
+        ),
+        thread(
+          "interrupted",
+          "local",
+          "/repo-wt",
+          "feature",
+          "2026-01-03T00:00:00.000Z",
+          null,
+          "interrupted",
+        ),
+      ],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo-wt", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups[0]?.status).toBe("stale");
   });
 });
 
@@ -221,7 +272,7 @@ describe("buildSidebarRepositoryGroups", () => {
           "main",
           "2026-01-01T00:00:00.000Z",
           null,
-          "completed",
+          "ready",
           "t3code",
         ),
       ],
@@ -254,11 +305,122 @@ describe("buildSidebarRepositoryGroups", () => {
         key: repository.project.projectKey,
         branches: repository.worktrees.map((worktree) => worktree.label),
         conversations: repository.conversationCount,
-        ongoing: repository.ongoingConversationCount,
+        working: repository.workingConversationCount,
       })),
     ).toEqual([
-      { key: "repo:ciber", branches: ["main"], conversations: 1, ongoing: 1 },
-      { key: "repo:t3code", branches: ["main"], conversations: 1, ongoing: 0 },
+      { key: "repo:ciber", branches: ["main"], conversations: 1, working: 1 },
+      { key: "repo:t3code", branches: ["main"], conversations: 1, working: 0 },
     ]);
+  });
+});
+
+describe("filterExpandedSidebarWorktreeGroups", () => {
+  const ciberMain = { key: "ciber:main" };
+  const ciberDev = { key: "ciber:dev" };
+  const t3Main = { key: "t3code:main" };
+  const repositories = [
+    { key: "ciber", worktrees: [ciberMain, ciberDev] },
+    { key: "t3code", worktrees: [t3Main] },
+  ];
+
+  it("omits every worktree inside a collapsed repository", () => {
+    expect(
+      filterExpandedSidebarWorktreeGroups({
+        worktrees: [ciberMain, ciberDev, t3Main],
+        repositories,
+        repositoryHierarchyVisible: true,
+        getRepositoryWorktrees: (repository) => repository.worktrees,
+        isRepositoryExpanded: (repository) => repository.key !== "ciber",
+        isWorktreeExpanded: () => true,
+      }),
+    ).toEqual([t3Main]);
+  });
+
+  it("omits conversations inside a collapsed worktree without repository grouping", () => {
+    expect(
+      filterExpandedSidebarWorktreeGroups({
+        worktrees: [ciberMain, ciberDev, t3Main],
+        repositories,
+        repositoryHierarchyVisible: false,
+        getRepositoryWorktrees: (repository) => repository.worktrees,
+        isRepositoryExpanded: () => true,
+        isWorktreeExpanded: (worktree) => worktree.key !== "ciber:dev",
+      }),
+    ).toEqual([ciberMain, t3Main]);
+  });
+});
+
+describe("resolveSidebarWorktreeConversationLocation", () => {
+  it("targets the project checkout without inventing a worktree path", () => {
+    expect(
+      resolveSidebarWorktreeConversationLocation({
+        isProjectCheckout: true,
+        label: "main",
+        workspaceRoot: "/repos/ciber",
+      }),
+    ).toEqual({
+      branch: "main",
+      worktreePath: null,
+      envMode: "local",
+      startFromOrigin: false,
+    });
+  });
+
+  it("targets an existing secondary worktree", () => {
+    expect(
+      resolveSidebarWorktreeConversationLocation({
+        isProjectCheckout: false,
+        label: "dev-22",
+        workspaceRoot: "/worktrees/ciber/dev-22",
+      }),
+    ).toEqual({
+      branch: "dev-22",
+      worktreePath: "/worktrees/ciber/dev-22",
+      envMode: "worktree",
+      startFromOrigin: false,
+    });
+  });
+
+  it("does not target a not-yet-created draft worktree", () => {
+    expect(
+      resolveSidebarWorktreeConversationLocation({
+        isProjectCheckout: false,
+        label: "New worktree",
+        workspaceRoot: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("filterRemovedSidebarWorktreeGroups", () => {
+  const removedAt = "2026-07-29T22:00:00.000Z";
+  const settledOnly = {
+    key: "local:/worktrees/ciber/dev-22",
+    drafts: [],
+    active: [],
+    snoozed: [],
+    updatedAt: Date.parse("2026-07-29T21:59:00.000Z"),
+  } as unknown as SidebarWorktreeGroup;
+
+  it("hides a settled-only worktree after successful removal", () => {
+    expect(
+      filterRemovedSidebarWorktreeGroups([settledOnly], {
+        [settledOnly.key]: removedAt,
+      }),
+    ).toEqual([]);
+  });
+
+  it("shows a path again when new work appears after removal", () => {
+    const recreated = {
+      ...settledOnly,
+      active: [{}],
+      updatedAt: Date.parse("2026-07-29T21:00:00.000Z"),
+    } as unknown as SidebarWorktreeGroup;
+
+    expect(
+      filterRemovedSidebarWorktreeGroups([recreated], {
+        [recreated.key]: removedAt,
+      }),
+    ).toEqual([recreated]);
   });
 });
