@@ -226,7 +226,13 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
-import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
+import {
+  PanelLayoutControls,
+  RightPanelMaximizeControl,
+  RightPanelSurfaceControls,
+  rightPanelSurfaceButtonKindOf,
+  type RightPanelSurfaceButtonKind,
+} from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
@@ -1489,6 +1495,9 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const activeFileSurface =
     activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;
+  const activeRightPanelSurfaceButtonKind = rightPanelSurfaceButtonKindOf(
+    activeRightPanelSurface?.kind ?? null,
+  );
   const activePreviewState = useThreadPreviewState(activeThreadRef);
   const activePreviewMiniPlayer = usePreviewMiniPlayerStore((state) =>
     selectThreadPreviewMiniPlayer(state.byThreadKey, activeThreadRef),
@@ -3193,6 +3202,43 @@ function ChatViewContent(props: ChatViewProps) {
     }
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePlanSidebar, closePreviewPanel, planSidebarOpen, rightPanelOpen]);
+  // Header icons open a surface rather than spawning another one: browsers and
+  // terminals are multi-instance, so reuse whatever the panel already holds and
+  // only create when there is nothing to activate.
+  const openRightPanelSurface = useCallback(
+    (kind: RightPanelSurfaceButtonKind) => {
+      if (kind === "browser" || kind === "terminal") {
+        const wantedKind = kind === "browser" ? "preview" : "terminal";
+        const existing = rightPanelState.surfaces.find((surface) => surface.kind === wantedKind);
+        if (existing) {
+          activateRightPanelSurface(existing);
+          return;
+        }
+      }
+      switch (kind) {
+        case "files":
+          addFilesSurface();
+          return;
+        case "diff":
+          addDiffSurface();
+          return;
+        case "terminal":
+          addTerminalSurface();
+          return;
+        case "browser":
+          createBrowserSurface();
+          return;
+      }
+    },
+    [
+      activateRightPanelSurface,
+      addDiffSurface,
+      addFilesSurface,
+      addTerminalSurface,
+      createBrowserSurface,
+      rightPanelState.surfaces,
+    ],
+  );
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>
@@ -5553,11 +5599,20 @@ function ChatViewContent(props: ChatViewProps) {
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
-      rightPanelAvailable={activeProject !== null}
-      rightPanelOpen={rightPanelOpen}
-      rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
       onToggleTerminal={toggleTerminalVisibility}
-      onToggleRightPanel={toggleRightPanel}
+    />
+  );
+  const rightPanelSurfaceControls = (
+    <RightPanelSurfaceControls
+      activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
+      availability={{
+        files: activeProject !== null,
+        diff: isServerThread && isGitRepo,
+        terminal: activeProject !== null,
+        browser: isPreviewSupportedInRuntime(),
+      }}
+      onOpenSurface={openRightPanelSurface}
+      onCloseSurface={closePreviewPanel}
     />
   );
   const panelLayoutControls = (
@@ -5688,6 +5743,7 @@ function ChatViewContent(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            rightPanelSurfaceControls={rightPanelSurfaceControls}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
@@ -6058,7 +6114,6 @@ function ChatViewContent(props: ChatViewProps) {
         <RightPanelSheet open onClose={planSidebarOpen ? closePlanSidebar : closePreviewPanel}>
           <RightPanelTabs
             mode="sheet"
-            layoutControls={panelToggleControls}
             surfaces={rightPanelState.surfaces}
             activeSurfaceId={activeRightPanelSurface?.id ?? null}
             pendingSurfaceIds={pendingFileSurfaceIds}
