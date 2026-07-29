@@ -1,5 +1,10 @@
 import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
 import type { ComposerTriggerKind } from "@t3tools/shared/composerTrigger";
+import {
+  PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
+  shouldShowProviderWorkspaceSkillsLoadingFooter,
+  type ProviderSkillSourceBadge,
+} from "@t3tools/client-runtime/state/provider-skills";
 import type { ServerProviderSkill, ServerProviderSlashCommand } from "@t3tools/contracts";
 import { SymbolView } from "../../components/AppSymbol";
 import { memo } from "react";
@@ -36,12 +41,15 @@ export type ComposerCommandItem =
       readonly skill: ServerProviderSkill;
       readonly label: string;
       readonly description: string;
+      readonly sourceBadge: ProviderSkillSourceBadge;
+      readonly sourceDetail: string;
     };
 
 interface ComposerCommandPopoverProps {
   readonly items: ReadonlyArray<ComposerCommandItem>;
   readonly triggerKind: ComposerTriggerKind | null;
   readonly isLoading: boolean;
+  readonly emptyStateText?: string;
   readonly onSelect: (item: ComposerCommandItem) => void;
 }
 
@@ -111,9 +119,22 @@ function groupLabel(triggerKind: ComposerTriggerKind | null): string | null {
   }
 }
 
-function emptyText(triggerKind: ComposerTriggerKind | null, isLoading: boolean): string {
+function emptyText(
+  triggerKind: ComposerTriggerKind | null,
+  isLoading: boolean,
+  emptyStateText?: string,
+): string {
   if (isLoading) {
-    return triggerKind === "path" ? "Searching files…" : "Loading…";
+    if (triggerKind === "path") {
+      return "Searching files…";
+    }
+    if (triggerKind === "skill") {
+      return PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL;
+    }
+    return "Loading…";
+  }
+  if (emptyStateText) {
+    return emptyStateText;
   }
   switch (triggerKind) {
     case "path":
@@ -134,10 +155,17 @@ const CommandRow = memo(function CommandRow(props: {
 }) {
   const iconName = itemIcon(props.item);
   const iconColor = "#a1a1aa";
+  const sourceBadge = props.item.type === "skill" ? props.item.sourceBadge : null;
+  const sourceDetail = props.item.type === "skill" ? props.item.sourceDetail : null;
 
   return (
     <Pressable
       onPress={props.onPress}
+      accessibilityLabel={
+        props.item.type === "skill"
+          ? `${props.item.label}, ${sourceDetail ?? sourceBadge}`
+          : props.item.label
+      }
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
@@ -157,6 +185,11 @@ const CommandRow = memo(function CommandRow(props: {
       <Text className="shrink-0 text-base font-t3-medium text-foreground" numberOfLines={1}>
         {props.item.label}
       </Text>
+      {sourceBadge ? (
+        <Text className="shrink-0 text-3xs font-t3-bold uppercase tracking-[0.4px] text-zinc-400">
+          {sourceBadge}
+        </Text>
+      ) : null}
       {props.item.description ? (
         <Text className="min-w-0 flex-1 text-xs text-zinc-400" numberOfLines={1}>
           {props.item.description}
@@ -171,6 +204,10 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
 ) {
   const isDarkMode = useColorScheme() === "dark";
   const label = groupLabel(props.triggerKind);
+  const showSkillLoadingFooter = shouldShowProviderWorkspaceSkillsLoadingFooter({
+    isPending: props.isLoading,
+    isSkillTrigger: props.triggerKind === "skill",
+  });
 
   return (
     <PopoverSurface isDarkMode={isDarkMode}>
@@ -182,24 +219,37 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
         </View>
       ) : null}
       {props.items.length > 0 ? (
-        <ScrollView
-          className="max-h-[180px]"
-          keyboardShouldPersistTaps="always"
-          showsVerticalScrollIndicator={false}
-        >
-          {props.items.map((item, index) => (
-            <CommandRow
-              key={item.id}
-              item={item}
-              onPress={() => props.onSelect(item)}
-              isLast={index === props.items.length - 1}
-            />
-          ))}
-        </ScrollView>
+        <>
+          <ScrollView
+            className="max-h-[180px]"
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={false}
+          >
+            {props.items.map((item, index) => (
+              <CommandRow
+                key={item.id}
+                item={item}
+                onPress={() => props.onSelect(item)}
+                isLast={index === props.items.length - 1}
+              />
+            ))}
+          </ScrollView>
+          {showSkillLoadingFooter ? (
+            <View
+              className="border-t border-white/10 px-3.5 py-2"
+              accessibilityLiveRegion="polite"
+              pointerEvents="none"
+            >
+              <Text className="text-xs text-foreground-tertiary">
+                {PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL}
+              </Text>
+            </View>
+          ) : null}
+        </>
       ) : (
         <View className="px-3.5 py-2.5">
-          <Text className="text-xs text-foreground-tertiary">
-            {emptyText(props.triggerKind, props.isLoading)}
+          <Text className="text-xs text-foreground-tertiary" accessibilityLiveRegion="polite">
+            {emptyText(props.triggerKind, props.isLoading, props.emptyStateText)}
           </Text>
         </View>
       )}

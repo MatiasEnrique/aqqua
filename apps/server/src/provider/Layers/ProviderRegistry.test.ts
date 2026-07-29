@@ -823,6 +823,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
+            listSkills: () => Effect.succeed([]),
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -976,6 +977,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
+            listSkills: () => Effect.succeed([]),
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1104,6 +1106,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               },
               adapter: {} as ProviderInstance["adapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
+              listSkills: () => Effect.succeed([]),
             } satisfies ProviderInstance;
             const instanceRegistryLayer = Layer.succeed(
               ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1211,6 +1214,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
+            listSkills: () => Effect.succeed([]),
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1303,6 +1307,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
+            listSkills: () => Effect.succeed([]),
           });
           const codexInstance = makeInstance(codexProvider);
           const claudeInstance = makeInstance(claudeProvider);

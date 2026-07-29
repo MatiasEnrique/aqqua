@@ -8,7 +8,14 @@ import { BotIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
-import { formatProviderSkillInstallSource } from "~/providerSkillPresentation";
+import {
+  PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
+  shouldShowProviderWorkspaceSkillsLoadingFooter,
+} from "@t3tools/client-runtime/state/provider-skills";
+import {
+  formatProviderSkillSourceBadge,
+  formatProviderSkillSourceDetail,
+} from "~/providerSkillPresentation";
 import { cn } from "~/lib/utils";
 import {
   Command,
@@ -120,6 +127,10 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
       groupCommandItems(props.items, props.triggerKind, props.groupSlashCommandSections ?? true),
     [props.groupSlashCommandSections, props.items, props.triggerKind],
   );
+  const showSkillLoadingFooter = shouldShowProviderWorkspaceSkillsLoadingFooter({
+    isPending: props.isLoading,
+    isSkillTrigger: props.triggerKind === "skill",
+  });
 
   useLayoutEffect(() => {
     if (!props.activeItemId || !listRef.current) return;
@@ -141,30 +152,41 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     >
       <div ref={listRef} className="dropdown-glass relative w-full overflow-hidden rounded-[20px]">
         {props.items.length > 0 ? (
-          <CommandList className="max-h-72">
-            {groups.map((group, groupIndex) => (
-              <div key={group.id}>
-                {groupIndex > 0 ? <CommandSeparator className="my-0.5" /> : null}
-                <CommandGroup>
-                  {group.label ? (
-                    <CommandGroupLabel className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
-                      {group.label}
-                    </CommandGroupLabel>
-                  ) : null}
-                  {group.items.map((item) => (
-                    <ComposerCommandMenuItem
-                      key={item.id}
-                      item={item}
-                      resolvedTheme={props.resolvedTheme}
-                      isActive={props.activeItemId === item.id}
-                      onHighlight={props.onHighlightedItemChange}
-                      onSelect={props.onSelect}
-                    />
-                  ))}
-                </CommandGroup>
-              </div>
-            ))}
-          </CommandList>
+          <>
+            <CommandList className="max-h-72">
+              {groups.map((group, groupIndex) => (
+                <div key={group.id}>
+                  {groupIndex > 0 ? <CommandSeparator className="my-0.5" /> : null}
+                  <CommandGroup>
+                    {group.label ? (
+                      <CommandGroupLabel className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
+                        {group.label}
+                      </CommandGroupLabel>
+                    ) : null}
+                    {group.items.map((item) => (
+                      <ComposerCommandMenuItem
+                        key={item.id}
+                        item={item}
+                        resolvedTheme={props.resolvedTheme}
+                        isActive={props.activeItemId === item.id}
+                        onHighlight={props.onHighlightedItemChange}
+                        onSelect={props.onSelect}
+                      />
+                    ))}
+                  </CommandGroup>
+                </div>
+              ))}
+            </CommandList>
+            {showSkillLoadingFooter ? (
+              <p
+                className="border-t border-border/40 px-5 py-2 text-muted-foreground/70 text-xs"
+                aria-live="polite"
+                data-composer-skills-loading="true"
+              >
+                {PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL}
+              </p>
+            ) : null}
+          </>
         ) : (
           <div className="px-5 py-3.5">
             {props.triggerKind === "skill" ? (
@@ -172,9 +194,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                 <CommandGroupLabel className="px-0 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
                   Skills
                 </CommandGroupLabel>
-                <p className="text-muted-foreground/70 text-xs">
+                <p className="text-muted-foreground/70 text-xs" aria-live="polite">
                   {props.isLoading
-                    ? "Searching workspace skills..."
+                    ? PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL
                     : (props.emptyStateText ??
                       "No skills found. Try / to browse provider commands.")}
                 </p>
@@ -203,13 +225,21 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   onHighlight: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
-  const skillSourceLabel =
-    props.item.type === "skill" ? formatProviderSkillInstallSource(props.item.skill) : null;
+  const skillSourceBadge =
+    props.item.type === "skill" ? formatProviderSkillSourceBadge(props.item.skill) : null;
+  const skillSourceDetail =
+    props.item.type === "skill" ? formatProviderSkillSourceDetail(props.item.skill) : null;
 
   return (
     <CommandItem
       value={props.item.id}
       data-composer-item-id={props.item.id}
+      title={skillSourceDetail ?? undefined}
+      aria-label={
+        props.item.type === "skill"
+          ? `${props.item.label}, ${skillSourceDetail ?? skillSourceBadge}`
+          : undefined
+      }
       className={cn(
         "cursor-pointer select-none gap-2 hover:bg-transparent hover:text-inherit data-highlighted:bg-transparent data-highlighted:text-inherit",
         props.isActive && "bg-accent! text-accent-foreground!",
@@ -246,12 +276,17 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0">{props.item.label}</span>
+        {skillSourceBadge ? (
+          <span className="shrink-0 rounded-md border border-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground/80">
+            {skillSourceBadge}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1 truncate text-muted-foreground/70 text-xs">
           {props.item.description}
         </span>
       </span>
-      {skillSourceLabel ? (
-        <span className="shrink-0 pl-2 text-muted-foreground/70 text-xs">{skillSourceLabel}</span>
+      {skillSourceDetail && skillSourceDetail !== skillSourceBadge ? (
+        <span className="shrink-0 pl-2 text-muted-foreground/70 text-xs">{skillSourceDetail}</span>
       ) : null}
     </CommandItem>
   );

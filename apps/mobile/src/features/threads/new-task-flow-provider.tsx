@@ -38,6 +38,7 @@ import {
   useComposerDraft,
 } from "../../state/use-composer-drafts";
 import { useBranches } from "../../state/queries";
+import { useProviderWorkspaceSkills } from "../../state/use-provider-skills";
 import {
   flattenQueuedThreadMessages,
   threadOutboxManager,
@@ -391,13 +392,25 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
-  const selectedProviderSkills = useMemo(
+  const snapshotProviderSkills = useMemo(
     () =>
       selectedEnvironmentServerConfig?.providers.find(
         (provider) => provider.instanceId === selectedModel?.instanceId,
       )?.skills ?? [],
     [selectedEnvironmentServerConfig, selectedModel?.instanceId],
   );
+  // Prefer an existing selected worktree path when the draft is already bound
+  // to one; otherwise discover skills from the project workspace root.
+  const skillsCwd = selectedWorktreePath || selectedProject?.workspaceRoot || null;
+  const workspaceSkills = useProviderWorkspaceSkills(
+    {
+      environmentId: selectedProject?.environmentId ?? selectedEnvironmentId,
+      instanceId: selectedModel?.instanceId ?? null,
+      cwd: skillsCwd,
+    },
+    snapshotProviderSkills,
+  );
+  const selectedProviderSkills = workspaceSkills.skills;
   const setSelectedModelKey = useCallback(
     (key: string | null) => {
       if (!key || !selectedProjectDraftKey) {

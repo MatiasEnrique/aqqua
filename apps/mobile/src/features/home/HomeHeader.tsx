@@ -209,7 +209,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
         <View className="w-full max-w-[720px] self-center gap-3">
           <View className="flex-row items-center gap-2.5">
             <View className="flex-1 flex-row items-center gap-2">
-              {/* Mirrors the desktop SidebarBrand: T3 mark + muted "Code". */}
+              {/* Mirrors the desktop SidebarBrand: logo + muted "Code". */}
               <T3Wordmark color={iconColor} height={15} />
               <RNText className="-ml-0.5 text-[21px] font-t3-medium tracking-[-0.5px] text-foreground-muted">
                 Code

@@ -56,4 +56,30 @@ describe("searchProviderSkills", () => {
 
     expect(searchProviderSkills(skills, "ui").map((skill) => skill.name)).toEqual([]);
   });
+
+  it("dedupes repo over global before ranking and limits", () => {
+    const skills = [
+      makeSkill({
+        name: "ui",
+        scope: "user",
+        path: "/home/.agents/skills/ui/SKILL.md",
+        shortDescription: "Global UI",
+      }),
+      makeSkill({
+        name: "ui",
+        scope: "project",
+        path: "/workspace/.agents/skills/ui/SKILL.md",
+        shortDescription: "Repo UI",
+      }),
+      makeSkill({
+        name: "agent-browser",
+        scope: "user",
+        path: "/home/.agents/skills/agent-browser/SKILL.md",
+      }),
+    ];
+
+    const results = searchProviderSkills(skills, "ui", 20);
+    expect(results.map((skill) => skill.path)).toEqual(["/workspace/.agents/skills/ui/SKILL.md"]);
+    expect(results.some((skill) => skill.path.includes("/home/.agents/skills/ui/"))).toBe(false);
+  });
 });

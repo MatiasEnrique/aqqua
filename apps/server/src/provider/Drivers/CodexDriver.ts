@@ -21,7 +21,13 @@
  *
  * @module provider/Drivers/CodexDriver
  */
-import { CodexSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  CodexSettings,
+  ProviderDriverKind,
+  ProviderListSkillsError,
+  type ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -36,7 +42,12 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
-import { checkCodexProviderStatus, makePendingCodexProvider } from "../Layers/CodexProvider.ts";
+import {
+  checkCodexProviderStatus,
+  listCodexSkills,
+  makePendingCodexProvider,
+} from "../Layers/CodexProvider.ts";
+import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import type { ProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
@@ -58,6 +69,33 @@ import {
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
+
+/**
+ * Map a Codex app-server skill listing failure to the wire-safe RPC error.
+ * Kept exported so tests can assert listing failures are never empty success.
+ */
+export function toCodexListSkillsError(
+  instanceId: ProviderInstanceId,
+  cause: unknown,
+): ProviderListSkillsError {
+  const detail =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === "object" &&
+          cause !== null &&
+          "message" in cause &&
+          typeof (cause as { message: unknown }).message === "string"
+        ? (cause as { message: string }).message
+        : String(cause);
+  const reason = detail.trim().length > 0 ? detail.trim() : "Codex skills/list failed";
+  return new ProviderListSkillsError({
+    instanceId,
+    reason: reason.startsWith("Codex skills/list failed")
+      ? reason
+      : `Codex skills/list failed: ${reason}`,
+    cause,
+  });
+}
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
 const SNAPSHOT_REFRESH_INTERVAL = Duration.minutes(5);
@@ -199,6 +237,21 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         ),
       );
 
+      const listSkills = (cwd: string) =>
+        listCodexSkills({
+          binaryPath: effectiveConfig.binaryPath,
+          homePath: effectiveConfig.homePath,
+          launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv),
+          cwd,
+          environment: processEnv,
+        }).pipe(
+          Effect.scoped,
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          // Declare listing failures on the wire — empty success would hide a
+          // broken binary/auth/config path from the `$` picker.
+          Effect.mapError((cause) => toCodexListSkillsError(instanceId, cause)),
+        );
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -209,6 +262,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        listSkills,
       } satisfies ProviderInstance;
     }),
 };

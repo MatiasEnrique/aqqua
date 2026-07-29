@@ -149,6 +149,9 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
         ),
       );
 
+      const listSkills = (_cwd: string) =>
+        snapshot.getSnapshot.pipe(Effect.map((provider) => provider.skills));
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -159,6 +162,7 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        listSkills,
       } satisfies ProviderInstance;
     }),
 };

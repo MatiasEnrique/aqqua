@@ -40,6 +40,7 @@ const makeStubInstance = (
     snapshot: {} as ProviderInstance["snapshot"],
     adapter: {} as ProviderInstance["adapter"],
     textGeneration,
+    listSkills: () => Effect.succeed([]),
   }) satisfies ProviderInstance;
 
 const makeStubRegistry = (

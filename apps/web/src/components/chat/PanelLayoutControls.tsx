@@ -108,7 +108,7 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     kind: "browser",
     label: "Open browser",
     icon: GlobeIcon,
-    unavailableReason: "Browser previews are only available in the T3 Code desktop app.",
+    unavailableReason: "Browser previews are only available in the 3T Code desktop app.",
   },
 ] as const satisfies ReadonlyArray<{
   kind: RightPanelSurfaceButtonKind;

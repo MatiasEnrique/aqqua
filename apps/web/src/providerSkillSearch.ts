@@ -5,7 +5,10 @@ import {
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
 
-import { formatProviderSkillDisplayName } from "./providerSkillPresentation";
+import {
+  dedupeProviderSkillsByCanonicalName,
+  formatProviderSkillDisplayName,
+} from "./providerSkillPresentation";
 
 function scoreProviderSkill(skill: ServerProviderSkill, query: string): number | null {
   const normalizedName = skill.name.toLowerCase();
@@ -71,11 +74,13 @@ export function searchProviderSkills(
   query: string,
   limit = Number.POSITIVE_INFINITY,
 ): ServerProviderSkill[] {
-  const enabledSkills = skills.filter((skill) => skill.enabled);
+  const enabledSkills = dedupeProviderSkillsByCanonicalName(skills).filter(
+    (skill) => skill.enabled,
+  );
   const normalizedQuery = normalizeSearchQuery(query, { trimLeadingPattern: /^\$+/ });
 
   if (!normalizedQuery) {
-    return enabledSkills;
+    return enabledSkills.slice(0, Number.isFinite(limit) ? limit : enabledSkills.length);
   }
 
   const ranked: Array<{
@@ -95,7 +100,7 @@ export function searchProviderSkills(
       {
         item: skill,
         score,
-        tieBreaker: `${formatProviderSkillDisplayName(skill).toLowerCase()}\u0000${skill.name}`,
+        tieBreaker: `${formatProviderSkillDisplayName(skill).toLowerCase()}\u0000${skill.name}\u0000${skill.path}`,
       },
       limit,
     );

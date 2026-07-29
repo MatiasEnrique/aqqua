@@ -25,9 +25,9 @@ import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { type RelayEnvironmentView, useConnectionController } from "./useConnectionController";
 
 /**
- * "T3 Connect" section: every environment published to the signed-in account,
+ * "3T Connect" section: every environment published to the signed-in account,
  * with connect switches, availability status, refresh, and loading/error
- * states. Shared between the Settings environments screen and the T3 Connect
+ * states. Shared between the Settings environments screen and the 3T Connect
  * onboarding sheet.
  */
 export function CloudEnvironmentRows(props: {
@@ -36,7 +36,7 @@ export function CloudEnvironmentRows(props: {
   readonly showcaseAvailableEnvironments?: ReadonlyArray<RelayEnvironmentView>;
   readonly showcaseSignedIn?: boolean;
   /**
-   * Hide the "T3 Connect" section title + refresh button for hosts that
+   * Hide the "3T Connect" section title + refresh button for hosts that
    * provide their own chrome (the onboarding sheet's native header and
    * pull-to-refresh).
    */
@@ -73,7 +73,7 @@ export function CloudEnvironmentRows(props: {
     <View collapsable={false} className={cn("gap-3", showHeader && "mt-5")}>
       {showHeader ? (
         <View className="flex-row items-center justify-between px-1">
-          <Text className="text-sm font-t3-bold uppercase text-foreground-muted">T3 Connect</Text>
+          <Text className="text-sm font-t3-bold uppercase text-foreground-muted">3T Connect</Text>
           <Pressable
             accessibilityRole="button"
             disabled={controller.relayDiscovery.isRefreshing}
@@ -140,7 +140,7 @@ export function CloudEnvironmentRows(props: {
       {controller.relayDiscovery.error && !controller.relayDiscovery.isRefreshing ? (
         <View collapsable={false} className="gap-3 rounded-[24px] bg-card p-5">
           <Text className="text-base font-t3-bold text-foreground">
-            Could not load T3 Connect environments
+            Could not load 3T Connect environments
           </Text>
           <Text className="text-sm text-foreground-muted">{controller.relayDiscovery.error}</Text>
           {controller.relayDiscovery.errorTraceId ? (

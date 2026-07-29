@@ -246,16 +246,24 @@ function appendCustomCodexModels(
   return customEntries.length === 0 ? models : [...models, ...customEntries];
 }
 
-function parseCodexSkillsListResponse(
+/**
+ * Map a `skills/list` response to wire skills for exactly one requested cwd.
+ *
+ * Does not flatten skills from unrelated cwd entries — the `$` picker must
+ * only see skills for the active project/worktree. Same-name repo and global
+ * entries are preserved in provider order; client-side precedence owns
+ * effective deduplication.
+ */
+export function parseCodexSkillsListResponse(
   response: CodexSchema.V2SkillsListResponse,
   cwd: string,
 ): ReadonlyArray<ServerProviderSkill> {
   const matchingEntry = response.data.find((entry) => entry.cwd === cwd);
-  const skills = matchingEntry
-    ? matchingEntry.skills
-    : response.data.flatMap((entry) => entry.skills);
+  if (!matchingEntry) {
+    return [];
+  }
 
-  return skills.map((skill) => {
+  return matchingEntry.skills.map((skill) => {
     const shortDescription =
       skill.shortDescription ?? skill.interface?.shortDescription ?? undefined;
 
@@ -313,12 +321,16 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
-const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
+/**
+ * Shared app-server spawn + initialize used by the full provider probe and
+ * the skills-only listing path. Callers own request sequencing after
+ * `initialized`.
+ */
+const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly launchArgs?: string;
   readonly cwd: string;
-  readonly customModels?: ReadonlyArray<string>;
   readonly environment?: NodeJS.ProcessEnv;
 }) {
   // `~` is not shell-expanded when env vars are set via `child_process.spawn`,
@@ -379,6 +391,19 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
   const version = versionMatch ? versionMatch[1] : undefined;
 
+  return { client, version } as const;
+});
+
+const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly customModels?: ReadonlyArray<string>;
+  readonly environment?: NodeJS.ProcessEnv;
+}) {
+  const { client, version } = yield* withCodexAppServerClient(input);
+
   const accountResponse = yield* client.request("account/read", {});
   if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {
     return {
@@ -407,6 +432,28 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     ),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
   } satisfies CodexAppServerProviderSnapshot;
+});
+
+/**
+ * Skills-only app-server request for the active project/worktree cwd.
+ * Skips account/model catalog work so the `$` picker stays cheap.
+ */
+export const listCodexSkills = Effect.fn("listCodexSkills")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+}): Effect.fn.Return<
+  ReadonlyArray<ServerProviderSkill>,
+  CodexErrors.CodexAppServerError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> {
+  const { client } = yield* withCodexAppServerClient(input);
+  const skillsResponse = yield* client.request("skills/list", {
+    cwds: [input.cwd],
+  });
+  return parseCodexSkillsListResponse(skillsResponse, input.cwd);
 });
 
 const emptyCodexModelsFromSettings = (codexSettings: CodexSettings): ServerProvider["models"] => {

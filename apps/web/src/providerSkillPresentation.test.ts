@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { ServerProviderSkill } from "@t3tools/contracts";
 
 import {
+  classifyProviderSkillSource,
+  dedupeProviderSkillsByCanonicalName,
   formatProviderSkillDisplayName,
   formatProviderSkillInstallSource,
+  formatProviderSkillSourceBadge,
+  formatProviderSkillSourceDetail,
 } from "./providerSkillPresentation";
+
+function makeSkill(
+  input: Partial<ServerProviderSkill> & Pick<ServerProviderSkill, "name">,
+): ServerProviderSkill {
+  return {
+    path: `/tmp/${input.name}/SKILL.md`,
+    enabled: true,
+    ...input,
+  } satisfies ServerProviderSkill;
+}
 
 describe("formatProviderSkillDisplayName", () => {
   it("prefers the provider display name", () => {
@@ -53,5 +68,40 @@ describe("formatProviderSkillInstallSource", () => {
         scope: "project",
       }),
     ).toBe("Project");
+  });
+});
+
+describe("Repo/Global presentation", () => {
+  it("exposes Repo and Global badges for web rows", () => {
+    const repo = makeSkill({
+      name: "ui",
+      scope: "workspace",
+      path: "/workspace/.agents/skills/ui/SKILL.md",
+    });
+    const global = makeSkill({
+      name: "agent-browser",
+      scope: "user",
+      path: "/Users/me/.agents/skills/agent-browser/SKILL.md",
+    });
+
+    expect(formatProviderSkillSourceBadge(repo)).toBe("Repo");
+    expect(formatProviderSkillSourceBadge(global)).toBe("Global");
+    expect(formatProviderSkillSourceDetail(global)).toBe("Global · Personal");
+    expect(classifyProviderSkillSource(repo)).toBe("repo");
+  });
+
+  it("dedupes repo over global before rendering", () => {
+    const repo = makeSkill({
+      name: "ui",
+      scope: "local",
+      path: "/workspace/.agents/skills/ui/SKILL.md",
+    });
+    const global = makeSkill({
+      name: "ui",
+      scope: "user",
+      path: "/Users/me/.agents/skills/ui/SKILL.md",
+    });
+
+    expect(dedupeProviderSkillsByCanonicalName([global, repo])).toEqual([repo]);
   });
 });

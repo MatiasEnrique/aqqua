@@ -125,6 +125,7 @@ const makeFakeInstance = (
     },
     adapter,
     textGeneration: {} as unknown as TextGeneration.TextGeneration["Service"],
+    listSkills: () => Effect.succeed([]),
   };
 };
 

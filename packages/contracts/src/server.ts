@@ -575,6 +575,41 @@ export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerPro
   }
 }
 
+/**
+ * Read-only skill listing for the `$` picker. Scoped to one configured
+ * provider instance and one workspace/worktree cwd so repo skills track the
+ * active project rather than the long-lived health snapshot's startup cwd.
+ */
+export const ProviderListSkillsInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwd: TrimmedNonEmptyString,
+});
+export type ProviderListSkillsInput = typeof ProviderListSkillsInput.Type;
+
+export const ProviderListSkillsResult = Schema.Struct({
+  skills: Schema.Array(ServerProviderSkill),
+});
+export type ProviderListSkillsResult = typeof ProviderListSkillsResult.Type;
+
+/**
+ * Wire error for `provider.listSkills` when skill discovery cannot complete:
+ * missing/unavailable instance, or a provider-side listing failure (e.g. Codex
+ * app-server spawn/request error). Clients should present this rather than
+ * treating an empty skill list as success.
+ */
+export class ProviderListSkillsError extends Schema.TaggedErrorClass<ProviderListSkillsError>()(
+  "ProviderListSkillsError",
+  {
+    instanceId: ProviderInstanceId,
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Failed to list skills for provider instance '${this.instanceId}': ${this.reason}`;
+  }
+}
+
 export const ServerSelfUpdateInput = Schema.Struct({
   /** Exact npm version of the `t3` package to install (never a dist-tag, so
       the server and the acknowledging client agree on what was requested). */

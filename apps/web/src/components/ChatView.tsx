@@ -201,6 +201,8 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
+import { resolveProviderWorkspaceSkillsInstanceId } from "@t3tools/client-runtime/state/provider-skills";
+import { useProviderWorkspaceSkills } from "../lib/providerSkillsState";
 import {
   primaryServerAvailableEditorsAtom,
   primaryServerKeybindingsAtom,
@@ -2390,6 +2392,16 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
+  // Use the resolved status identity so the default-provider fallback still
+  // queries workspace skills (activeProviderInstanceId can remain null there).
+  const timelineWorkspaceSkills = useProviderWorkspaceSkills(
+    {
+      environmentId,
+      instanceId: resolveProviderWorkspaceSkillsInstanceId(activeProviderStatus),
+      cwd: gitCwd,
+    },
+    activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS,
+  );
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -5803,7 +5815,7 @@ function ChatViewContent(props: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
-                skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                skills={timelineWorkspaceSkills.skills}
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}

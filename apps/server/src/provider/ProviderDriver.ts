@@ -25,6 +25,8 @@ import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
+  ProviderListSkillsError,
+  ServerProviderSkill,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
@@ -71,6 +73,20 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  /**
+   * List skills for the active project/worktree `cwd`, using this instance's
+   * captured settings/environment. Must not rely on the long-lived health
+   * snapshot's startup cwd for contextual repo skills.
+   *
+   * Implementations that probe a provider process (e.g. Codex) must map
+   * underlying failures to the declared `ProviderListSkillsError` so the
+   * client can present a real error — never an empty success list and never
+   * an undeclared defect. Drivers without contextual discovery may keep a
+   * `never` error channel (assignable here).
+   */
+  readonly listSkills: (
+    cwd: string,
+  ) => Effect.Effect<ReadonlyArray<ServerProviderSkill>, ProviderListSkillsError>;
 }
 
 export interface ProviderContinuationIdentity {

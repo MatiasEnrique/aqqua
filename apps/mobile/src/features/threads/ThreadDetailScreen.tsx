@@ -32,6 +32,7 @@ import type {
   PendingUserInputDraftAnswer,
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
+import { useProviderWorkspaceSkills } from "../../state/use-provider-skills";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import {
@@ -225,11 +226,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
-  const selectedProviderSkills = useMemo(
+  const snapshotProviderSkills = useMemo(
     () =>
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
         ?.skills ?? [],
     [props.serverConfig, selectedInstanceId],
+  );
+  const workspaceSkills = useProviderWorkspaceSkills(
+    {
+      environmentId: props.environmentId,
+      instanceId: selectedInstanceId,
+      cwd: props.threadCwd,
+    },
+    snapshotProviderSkills,
   );
 
   useLayoutEffect(() => {
@@ -370,7 +379,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             layoutVariant={layoutVariant}
             usesAutomaticContentInsets={props.usesAutomaticContentInsets}
             onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
-            skills={selectedProviderSkills}
+            skills={workspaceSkills.skills}
           />
         </View>
       ) : (
@@ -431,7 +440,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               queueCount={props.selectedThreadQueueCount}
               activeThreadBusy={props.activeThreadBusy}
               environmentId={props.environmentId}
-              projectCwd={props.projectWorkspaceRoot}
+              projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
               bottomInset={composerBottomInset}
               onChangeDraftMessage={props.onChangeDraftMessage}
               onPickDraftImages={props.onPickDraftImages}

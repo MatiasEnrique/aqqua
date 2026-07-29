@@ -62,12 +62,20 @@ import {
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
 import {
+  dedupeProviderSkillsByCanonicalName,
+  formatProviderSkillDisplayName,
+  formatProviderSkillSourceBadge,
+  formatProviderSkillSourceDetail,
+  providerSkillStableId,
+} from "@t3tools/client-runtime/state/provider-skills";
+import {
   applyProviderOptionMenuEvent,
   buildProviderOptionMenuActions,
   providerOptionsConfigurationLabel,
   resolveProviderOptionDescriptors,
 } from "../../lib/providerOptions";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
+import { useProviderWorkspaceSkills } from "../../state/use-provider-skills";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 
 /**
@@ -332,6 +340,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const snapshotProviderSkills = useMemo(
+    () => selectedProviderStatus?.skills ?? [],
+    [selectedProviderStatus],
+  );
+  const workspaceSkills = useProviderWorkspaceSkills(
+    {
+      environmentId: props.environmentId,
+      instanceId: props.selectedThread.modelSelection.instanceId,
+      cwd: props.projectCwd,
+    },
+    snapshotProviderSkills,
+  );
 
   // ── Trigger detection ────────────────────────────────────
   const [composerSelection, setComposerSelection] = useState(() => ({
@@ -412,19 +432,25 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     if (composerTrigger.kind === "skill") {
-      const enabledSkills = (selectedProviderStatus?.skills ?? []).filter((s) => s.enabled);
+      const enabledSkills = dedupeProviderSkillsByCanonicalName(workspaceSkills.skills).filter(
+        (skill) => skill.enabled,
+      );
       const normalizedQuery = normalizeSearchQuery(composerTrigger.query, {
         trimLeadingPattern: /^\$+/,
       });
 
+      const toSkillItem = (skill: (typeof enabledSkills)[number]): ComposerCommandItem => ({
+        id: providerSkillStableId(skill),
+        type: "skill" as const,
+        skill,
+        label: formatProviderSkillDisplayName(skill),
+        description: skill.shortDescription ?? skill.description ?? "",
+        sourceBadge: formatProviderSkillSourceBadge(skill),
+        sourceDetail: formatProviderSkillSourceDetail(skill),
+      });
+
       if (!normalizedQuery) {
-        return enabledSkills.slice(0, 20).map((skill) => ({
-          id: `skill:${skill.name}`,
-          type: "skill" as const,
-          skill,
-          label: skill.displayName ?? skill.name,
-          description: skill.shortDescription ?? skill.description ?? "",
-        }));
+        return enabledSkills.slice(0, 20).map(toSkillItem);
       }
 
       const ranked: Array<{
@@ -433,7 +459,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         tieBreaker: string;
       }> = [];
       for (const skill of enabledSkills) {
-        const displayLabel = (skill.displayName ?? skill.name).toLowerCase();
+        const displayLabel = formatProviderSkillDisplayName(skill).toLowerCase();
         const scores = [
           scoreQueryMatch({
             value: skill.name.toLowerCase(),
@@ -478,20 +504,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             {
               item: skill,
               score: Math.min(...scores),
-              tieBreaker: `${displayLabel}\u0000${skill.name}`,
+              tieBreaker: `${displayLabel}\u0000${skill.name}\u0000${skill.path}`,
             },
             20,
           );
         }
       }
 
-      return ranked.map(({ item: skill }) => ({
-        id: `skill:${skill.name}`,
-        type: "skill" as const,
-        skill,
-        label: skill.displayName ?? skill.name,
-        description: skill.shortDescription ?? skill.description ?? "",
-      }));
+      return ranked.map(({ item: skill }) => toSkillItem(skill));
     }
 
     if (composerTrigger.kind === "path") {
@@ -509,7 +529,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     return [];
-  }, [composerTrigger, pathSearch.entries, selectedProviderStatus]);
+  }, [composerTrigger, pathSearch.entries, selectedProviderStatus, workspaceSkills.skills]);
 
   // ── Handle command selection ──────────────────────────────
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
@@ -522,7 +542,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     // the app is foregrounded and the activity token can be registered.
     armAgentAwarenessLiveActivityForLocalWork({
       threadTitle: props.selectedThread.title,
-      projectTitle: props.environmentLabel ?? "T3 Code",
+      projectTitle: props.environmentLabel ?? "3T Code",
     });
     try {
       await onSendMessage();
@@ -724,12 +744,27 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         layout={COMPOSER_LAYOUT_TRANSITION}
         style={{ maxWidth: props.contentMaxWidth }}
       >
-        {composerTrigger && composerMenuItems.length > 0 ? (
+        {composerTrigger &&
+        (composerMenuItems.length > 0 ||
+          (composerTrigger.kind === "path" && pathSearch.isPending) ||
+          (composerTrigger.kind === "skill" &&
+            (workspaceSkills.isPending || workspaceSkills.error !== null))) ? (
           <View className="absolute inset-x-0 bottom-full z-10 mb-2">
             <ComposerCommandPopover
               items={composerMenuItems}
               triggerKind={composerTrigger.kind}
-              isLoading={pathSearch.isPending}
+              isLoading={
+                composerTrigger.kind === "path"
+                  ? pathSearch.isPending
+                  : composerTrigger.kind === "skill"
+                    ? workspaceSkills.isPending
+                    : false
+              }
+              emptyStateText={
+                composerTrigger.kind === "skill" && workspaceSkills.error
+                  ? workspaceSkills.error
+                  : undefined
+              }
               onSelect={handleCommandSelect}
             />
           </View>
@@ -783,7 +818,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               ref={inputRef}
               multiline
               value={props.draftMessage}
-              skills={selectedProviderStatus?.skills ?? []}
+              skills={workspaceSkills.skills}
               selection={composerSelection}
               onChangeText={props.onChangeDraftMessage}
               onSelectionChange={handleSelectionChange}
