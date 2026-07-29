@@ -42,7 +42,18 @@ import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { DiffCommitBar } from "./diffs/DiffCommitBar";
+import {
+  EMPTY_EXCLUDED_COMMIT_PATHS,
+  isCommitFileIncluded,
+  resolveDiffCommitPaths,
+  shouldShowDiffCommitControls,
+  toggleCommitFileExcluded,
+  type DiffCommitFile,
+  type DiffCommitSelection,
+} from "./diffs/diffCommitSelection";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
 import {
@@ -80,6 +91,17 @@ interface CollapsedDiffFilesState {
 }
 
 const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * Height of the compact file header this panel forces through
+ * `DIFF_PANEL_UNSAFE_CSS`. The virtualizer sizes every file from
+ * `itemMetrics.diffHeaderHeight` (and a collapsed file is *exactly* that tall),
+ * so the CSS height and the metric must stay in sync. Leaving the library
+ * default (44px) in place while rendering a 32px header makes every file's
+ * estimated height wrong, which is what made scroll offsets snap around and
+ * left a huge blank region after collapsing files.
+ */
+const DIFF_PANEL_HEADER_HEIGHT = 32;
 
 const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header],
@@ -133,8 +155,11 @@ const DIFF_PANEL_UNSAFE_CSS = `
   font-family: var(--font-sans) !important;
   font-size: 12px !important;
   line-height: 1 !important;
-  min-height: 32px !important;
-  padding-block: 6px !important;
+  box-sizing: border-box !important;
+  height: ${DIFF_PANEL_HEADER_HEIGHT}px !important;
+  min-height: ${DIFF_PANEL_HEADER_HEIGHT}px !important;
+  max-height: ${DIFF_PANEL_HEADER_HEIGHT}px !important;
+  padding-block: 0 !important;
 }
 
 [data-diffs-header] [data-header-content] {
@@ -202,6 +227,10 @@ export default function DiffPanel({
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
     fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
+  }));
+  const [commitSelection, setCommitSelection] = useState<DiffCommitSelection>(() => ({
+    scopeKey: null,
+    excludedPaths: EMPTY_EXCLUDED_COMMIT_PATHS,
   }));
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
 
@@ -453,10 +482,72 @@ export default function DiffPanel({
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
 
+  const gitActionCwd = branchDiffPreview.data?.cwd ?? activeCwd ?? null;
+  const commitFiles = useMemo<DiffCommitFile[]>(
+    () =>
+      renderableFiles.map((fileDiff) => ({
+        fileKey: buildFileDiffRenderKey(fileDiff),
+        path: resolveFileDiffPath(fileDiff),
+        commitPaths: resolveDiffCommitPaths(fileDiff),
+      })),
+    [renderableFiles],
+  );
+  const showCommitControls = shouldShowDiffCommitControls({
+    isGitRepo,
+    selectedTurnId,
+    gitScope: selectedGitScope,
+    hasCwd: gitActionCwd !== null,
+  });
+  const excludedCommitPaths =
+    commitSelection.scopeKey === collapseScopeKey
+      ? commitSelection.excludedPaths
+      : EMPTY_EXCLUDED_COMMIT_PATHS;
+  const setExcludedCommitPaths = useCallback(
+    (excludedPaths: ReadonlySet<string>) => {
+      setCommitSelection({ scopeKey: collapseScopeKey, excludedPaths });
+    },
+    [collapseScopeKey],
+  );
+  const toggleCommitFile = useCallback(
+    (filePath: string) => {
+      setCommitSelection((current) => ({
+        scopeKey: collapseScopeKey,
+        excludedPaths: toggleCommitFileExcluded(
+          current.scopeKey === collapseScopeKey
+            ? current.excludedPaths
+            : EMPTY_EXCLUDED_COMMIT_PATHS,
+          filePath,
+        ),
+      }));
+    },
+    [collapseScopeKey],
+  );
+  const refreshBranchDiffPreview = branchDiffPreview.refresh;
+  const handleCommitActionCompleted = useCallback(() => {
+    setCommitSelection({ scopeKey: collapseScopeKey, excludedPaths: EMPTY_EXCLUDED_COMMIT_PATHS });
+    refreshBranchDiffPreview();
+  }, [collapseScopeKey, refreshBranchDiffPreview]);
+
+  // Reveal the selected file once per reveal request. `codeViewFiles` is a fresh
+  // array on every collapse toggle, annotation edit and refetch, so scrolling
+  // whenever it changes would yank the viewport back to the selected file (and
+  // fight the virtualizer) long after the user asked for it. The pending request
+  // is kept until the file actually shows up, because the patch usually resolves
+  // after the selection is made.
+  const pendingRevealRef = useRef<{ requestId: number; filePath: string } | null>(null);
+  const handledRevealRequestIdRef = useRef(0);
   useEffect(() => {
-    if (!selectedFilePath) return;
-    const file = codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath);
+    if (selectedFileRevealRequestId !== handledRevealRequestIdRef.current) {
+      handledRevealRequestIdRef.current = selectedFileRevealRequestId;
+      pendingRevealRef.current = selectedFilePath
+        ? { requestId: selectedFileRevealRequestId, filePath: selectedFilePath }
+        : null;
+    }
+    const pending = pendingRevealRef.current;
+    if (!pending) return;
+    const file = codeViewFiles.find((candidate) => candidate.filePath === pending.filePath);
     if (!file) return;
+    pendingRevealRef.current = null;
     codeViewRef.current?.scrollTo({ type: "item", id: file.fileKey, align: "start" });
   }, [codeViewFiles, selectedFilePath, selectedFileRevealRequestId]);
 
@@ -803,7 +894,24 @@ export default function DiffPanel({
   );
 
   return (
-    <DiffPanelShell mode={mode} header={headerRow}>
+    <DiffPanelShell
+      mode={mode}
+      header={headerRow}
+      footer={
+        showCommitControls && activeThread ? (
+          <DiffCommitBar
+            // Reset the draft message and last action result per thread/scope.
+            key={collapseScopeKey ?? "diff-commit"}
+            environmentId={activeThread.environmentId}
+            cwd={gitActionCwd}
+            files={commitFiles}
+            excludedPaths={excludedCommitPaths}
+            onExcludedPathsChange={setExcludedCommitPaths}
+            onActionCompleted={handleCommitActionCompleted}
+          />
+        ) : null
+      }
+    >
       {!activeThread ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
@@ -866,42 +974,80 @@ export default function DiffPanel({
                 <AnnotatableCodeView
                   viewerRef={codeViewRef}
                   key={collapseScopeKey ?? reviewSectionId}
-                  className="diff-render-surface h-full min-h-0 overflow-auto [&>div>div:last-child]:top-0! [&>div>div:last-child]:bottom-auto!"
+                  // The library owns the sticky positioning of its render
+                  // window (root > container > stickyContainer): it rewrites
+                  // `top`/`bottom` on that element every frame to keep the
+                  // rendered rows aligned with the scroll offset. Overriding
+                  // those with `top: 0 !important` pinned the window to the top
+                  // of the viewport and made large diffs jump to the end, so we
+                  // only style the scroll container itself here.
+                  className="diff-render-surface h-full min-h-0 overflow-auto"
                   files={codeViewFiles}
                   sectionId={reviewSectionId}
                   sectionTitle={reviewSectionTitle}
                   composerDraftTarget={composerDraftTarget}
                   renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                     const filePath = resolveFileDiffPath(fileDiff);
+                    const includedInCommit = isCommitFileIncluded(excludedCommitPaths, filePath);
                     return (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              className={cn(
-                                "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
-                                getDiffCollapseIconClassName(fileDiff),
-                              )}
-                              aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
-                              aria-expanded={!collapsed}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleDiffFileCollapsed(fileKey);
-                              }}
+                      <span className="inline-flex shrink-0 items-center gap-1.5">
+                        {showCommitControls && (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Checkbox
+                                  className="size-3.5"
+                                  aria-label={
+                                    includedInCommit
+                                      ? `Exclude ${filePath} from commit`
+                                      : `Include ${filePath} in commit`
+                                  }
+                                  checked={includedInCommit}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                  onCheckedChange={() => {
+                                    toggleCommitFile(filePath);
+                                  }}
+                                />
+                              }
                             />
-                          }
-                        >
-                          {collapsed ? (
-                            <ChevronRightIcon className="size-4" />
-                          ) : (
-                            <ChevronDownIcon className="size-4" />
-                          )}
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">
-                          {collapsed ? "Expand diff" : "Collapse diff"}
-                        </TooltipPopup>
-                      </Tooltip>
+                            <TooltipPopup side="top">
+                              {includedInCommit ? "Exclude from commit" : "Include in commit"}
+                            </TooltipPopup>
+                          </Tooltip>
+                        )}
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                className={cn(
+                                  "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
+                                  getDiffCollapseIconClassName(fileDiff),
+                                )}
+                                aria-label={
+                                  collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`
+                                }
+                                aria-expanded={!collapsed}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleDiffFileCollapsed(fileKey);
+                                }}
+                              />
+                            }
+                          >
+                            {collapsed ? (
+                              <ChevronRightIcon className="size-4" />
+                            ) : (
+                              <ChevronDownIcon className="size-4" />
+                            )}
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">
+                            {collapsed ? "Expand diff" : "Collapse diff"}
+                          </TooltipPopup>
+                        </Tooltip>
+                      </span>
                     );
                   }}
                   options={{
@@ -913,6 +1059,7 @@ export default function DiffPanel({
                     unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
                     stickyHeaders: true,
                     layout: { paddingTop: 8, paddingBottom: 8, gap: 8 },
+                    itemMetrics: { diffHeaderHeight: DIFF_PANEL_HEADER_HEIGHT },
                   }}
                 />
               </div>

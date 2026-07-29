@@ -21,6 +21,11 @@ export function DiffPanelShell(props: {
   mode: DiffPanelMode;
   header: ReactNode;
   children: ReactNode;
+  /**
+   * Pinned below the scrolling diff list (used for the working-tree commit
+   * controls) so it never scrolls away with the virtualized content.
+   */
+  footer?: ReactNode;
 }) {
   const shouldUseDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
 
@@ -41,6 +46,7 @@ export function DiffPanelShell(props: {
         </div>
       )}
       {props.children}
+      {props.footer}
     </div>
   );
 }
