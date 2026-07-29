@@ -2413,6 +2413,11 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  // The diff viewer only needs a repository to point at, not a started
+  // conversation: a message-less thread and a client-local draft both show the
+  // working tree of the project's repository (the draft's worktree, when it
+  // wants one, is only created with its first message).
+  const diffSurfaceAvailable = activeProject !== null && isGitRepo;
   const showComposerContextStrip = isGitRepo && activeProject !== null;
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
@@ -2444,7 +2449,7 @@ function ChatViewContent(props: ChatViewProps) {
     [keybindings, terminalShortcutLabelOptions],
   );
   const onToggleDiff = useCallback(() => {
-    if (!isServerThread) {
+    if (!diffSurfaceAvailable) {
       return;
     }
     if (!diffOpen) {
@@ -2453,7 +2458,7 @@ function ChatViewContent(props: ChatViewProps) {
     if (activeThreadRef) {
       useRightPanelStore.getState().toggle(activeThreadRef, "diff");
     }
-  }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
+  }, [activeThreadRef, diffOpen, diffSurfaceAvailable, onDiffPanelOpen]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3025,7 +3030,7 @@ function ChatViewContent(props: ChatViewProps) {
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    if (!activeThreadRef || !diffSurfaceAvailable) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
@@ -3033,9 +3038,8 @@ function ChatViewContent(props: ChatViewProps) {
     onDiffPanelOpen?.();
   }, [
     activeThreadRef,
+    diffSurfaceAvailable,
     dismissPlanSidebarForCurrentTurn,
-    isGitRepo,
-    isServerThread,
     onDiffPanelOpen,
     planSidebarOpen,
   ]);
@@ -5607,7 +5611,7 @@ function ChatViewContent(props: ChatViewProps) {
       activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
       availability={{
         files: activeProject !== null,
-        diff: isServerThread && isGitRepo,
+        diff: diffSurfaceAvailable,
         terminal: activeProject !== null,
         browser: isPreviewSupportedInRuntime(),
       }}
@@ -5662,6 +5666,10 @@ function ChatViewContent(props: ChatViewProps) {
           mode="embedded"
           composerDraftTarget={composerDraftTarget}
           initialGitScope={initialDiffPanelGitScope}
+          // The draft route has no thread params, and a draft has no server
+          // thread to resolve a checkout from, so both are handed over here.
+          threadRef={activeThreadRef}
+          fallbackCwd={gitCwd}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
@@ -6104,7 +6112,7 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={diffSurfaceAvailable}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -6130,7 +6138,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
-            diffAvailable={isServerThread && isGitRepo}
+            diffAvailable={diffSurfaceAvailable}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}

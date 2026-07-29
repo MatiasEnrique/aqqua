@@ -7,6 +7,7 @@ import {
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import {
+  ArrowDownToLineIcon,
   ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -52,8 +53,14 @@ import {
   type DiffCommitFile,
   type DiffCommitSelection,
 } from "./diffs/diffCommitSelection";
+import {
+  formatVcsPullOutcome,
+  resolveDiffPanelCwd,
+  shouldShowDiffPullControl,
+} from "./diffs/diffPanelGitTarget";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import { Spinner } from "./ui/spinner";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
 import {
@@ -79,6 +86,8 @@ import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
+import { useAtomCommand } from "../state/use-atom-command";
+import { useSourceControlActionRunning, useVcsPullAction } from "~/lib/sourceControlActions";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 
 type DiffRenderMode = "stacked" | "split";
@@ -204,10 +213,24 @@ const DIFF_PANEL_UNSAFE_CSS = `
 }
 `;
 
+/** Git actions that make the panel's own git controls wait their turn. */
+const BLOCKING_SOURCE_CONTROL_ACTIONS = ["pull", "runStackedAction", "publishRepository"] as const;
+
 interface DiffPanelProps {
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
   initialGitScope: "branch" | "unstaged";
+  /**
+   * Thread the diff belongs to. Falls back to the route params, which carry no
+   * thread on the draft route (`/draft/$draftId`).
+   */
+  threadRef?: ScopedThreadRef | null;
+  /**
+   * Repository to diff when the thread resolves no checkout of its own — a
+   * conversation that has never been sent has no server thread, and a worktree
+   * draft's worktree is only created with its first message.
+   */
+  fallbackCwd?: string | null;
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -216,6 +239,8 @@ export default function DiffPanel({
   mode = "inline",
   composerDraftTarget,
   initialGitScope: initialGitScopeProp,
+  threadRef: threadRefProp = null,
+  fallbackCwd = null,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -234,33 +259,40 @@ export default function DiffPanel({
   }));
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
 
-  const routeThreadRef = useParams({
+  const paramsThreadRef = useParams({
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
   });
+  const routeThreadRef = threadRefProp ?? paramsThreadRef;
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useThread(routeThreadRef);
   const activeProjectId = activeThread?.projectId ?? null;
+  // A client-local draft has no server thread to read an environment from, so
+  // the thread ref (which drafts pre-allocate) carries it instead.
+  const environmentId = activeThread?.environmentId ?? routeThreadRef?.environmentId ?? null;
   const activeProject = useProject(
-    activeThread && activeProjectId
+    environmentId !== null && activeProjectId
       ? {
-          environmentId: activeThread.environmentId,
+          environmentId,
           projectId: activeProjectId,
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const serverConfig = useAtomValue(
-    serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
-  );
+  const activeCwd =
+    resolveDiffPanelCwd({
+      threadWorktreePath: activeThread?.worktreePath,
+      projectWorkspaceRoot: activeProject?.workspaceRoot,
+      fallbackCwd,
+    }) ?? undefined;
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
-    activeThread?.environmentId ?? null,
+    environmentId,
     serverConfig?.availableEditors ?? [],
   );
   const gitStatusQuery = useEnvironmentQuery(
-    activeThread !== null && activeThread !== undefined && activeCwd != null
+    environmentId !== null && activeCwd != null
       ? vcsEnvironment.status({
-          environmentId: activeThread.environmentId,
+          environmentId,
           input: { cwd: activeCwd },
         })
       : null,
@@ -346,7 +378,7 @@ export default function DiffPanel({
   );
   const activeCheckpointDiff = useCheckpointDiff(
     {
-      environmentId: activeThread?.environmentId ?? null,
+      environmentId,
       threadId: activeThreadId,
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
@@ -356,9 +388,9 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    selectedTurnId === null && activeThread && activeCwd
+    selectedTurnId === null && environmentId !== null && activeCwd
       ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
+          environmentId,
           input: {
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
@@ -373,9 +405,9 @@ export default function DiffPanel({
     serverConfig?.cwd !== undefined &&
     serverConfig.cwd !== activeCwd;
   const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
+    shouldRetryBranchDiffAtEnvironmentCwd && environmentId !== null && serverConfig
       ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
+          environmentId,
           input: {
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
@@ -393,10 +425,10 @@ export default function DiffPanel({
   const localBranchRefs = useEnvironmentQuery(
     selectedTurnId === null &&
       selectedGitScope === "branch" &&
-      activeThread &&
+      environmentId !== null &&
       branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
-          environmentId: activeThread.environmentId,
+          environmentId,
           input: {
             cwd: branchDiffPreview.data.cwd,
             includeMatchingRemoteRefs: true,
@@ -410,10 +442,10 @@ export default function DiffPanel({
   const remoteBranchRefs = useEnvironmentQuery(
     selectedTurnId === null &&
       selectedGitScope === "branch" &&
-      activeThread &&
+      environmentId !== null &&
       branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
-          environmentId: activeThread.environmentId,
+          environmentId,
           input: {
             cwd: branchDiffPreview.data.cwd,
             includeMatchingRemoteRefs: true,
@@ -527,6 +559,64 @@ export default function DiffPanel({
     setCommitSelection({ scopeKey: collapseScopeKey, excludedPaths: EMPTY_EXCLUDED_COMMIT_PATHS });
     refreshBranchDiffPreview();
   }, [collapseScopeKey, refreshBranchDiffPreview]);
+
+  const sourceControlScope = useMemo(
+    () => ({ environmentId, cwd: gitActionCwd }),
+    [environmentId, gitActionCwd],
+  );
+  const pullAction = useVcsPullAction(sourceControlScope);
+  const isSourceControlBusy = useSourceControlActionRunning(
+    sourceControlScope,
+    BLOCKING_SOURCE_CONTROL_ACTIONS,
+  );
+  const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
+  // Tagged with the repository it describes so switching threads or projects
+  // never leaves another repository's pull result on screen.
+  const [pullStatus, setPullStatus] = useState<{
+    readonly kind: "outcome" | "error";
+    readonly message: string;
+    readonly cwd: string;
+  } | null>(null);
+  const visiblePullStatus = pullStatus?.cwd === gitActionCwd ? pullStatus : null;
+  const showPullControl = shouldShowDiffPullControl({
+    isGitRepo,
+    selectedTurnId,
+    hasCwd: gitActionCwd !== null,
+  });
+  const isPulling = pullAction.isPending;
+  const handlePull = useCallback(() => {
+    if (environmentId === null || gitActionCwd === null || isSourceControlBusy) return;
+    setPullStatus(null);
+    void (async () => {
+      const result = await pullAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        const failure = squashAtomCommandFailure(result);
+        setPullStatus({
+          kind: "error",
+          message: failure instanceof Error ? failure.message : "The pull failed.",
+          cwd: gitActionCwd,
+        });
+        return;
+      }
+      setPullStatus({
+        kind: "outcome",
+        message: formatVcsPullOutcome(result.value),
+        cwd: gitActionCwd,
+      });
+      // The pull moved HEAD, so both the diff and every branch/ahead-behind
+      // readout built from the git status are stale.
+      void refreshVcsStatus({ environmentId, input: { cwd: gitActionCwd } });
+      refreshBranchDiffPreview();
+    })();
+  }, [
+    environmentId,
+    gitActionCwd,
+    isSourceControlBusy,
+    pullAction,
+    refreshBranchDiffPreview,
+    refreshVcsStatus,
+  ]);
 
   // Reveal the selected file once per reveal request. `codeViewFiles` is a fresh
   // array on every collapse toggle, annotation edit and refetch, so scrolling
@@ -804,6 +894,32 @@ export default function DiffPanel({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        {showPullControl && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  aria-label="Pull the current branch"
+                  disabled={isPulling || isSourceControlBusy}
+                  onClick={handlePull}
+                />
+              }
+            >
+              {isPulling ? (
+                <Spinner className="size-3" />
+              ) : (
+                <ArrowDownToLineIcon className="size-3" />
+              )}
+              Pull
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {isPulling ? "Pulling..." : "Pull the current branch"}
+            </TooltipPopup>
+          </Tooltip>
+        )}
         {codeViewFiles.length > 0 && (
           <Tooltip>
             <TooltipTrigger
@@ -898,11 +1014,11 @@ export default function DiffPanel({
       mode={mode}
       header={headerRow}
       footer={
-        showCommitControls && activeThread ? (
+        showCommitControls && environmentId !== null ? (
           <DiffCommitBar
             // Reset the draft message and last action result per thread/scope.
             key={collapseScopeKey ?? "diff-commit"}
-            environmentId={activeThread.environmentId}
+            environmentId={environmentId}
             cwd={gitActionCwd}
             files={commitFiles}
             excludedPaths={excludedCommitPaths}
@@ -912,9 +1028,13 @@ export default function DiffPanel({
         ) : null
       }
     >
-      {!activeThread ? (
+      {environmentId === null ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
+        </div>
+      ) : activeCwd == null ? (
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
+          Select a project to inspect its diffs.
         </div>
       ) : !isGitRepo ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
@@ -931,6 +1051,19 @@ export default function DiffPanel({
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
                 This diff was truncated because it exceeded the preview limit. The changes shown are
                 incomplete.
+              </p>
+            )}
+            {visiblePullStatus && (
+              <p
+                className={cn(
+                  "shrink-0 border-b border-border/70 px-3 py-1.5 text-[11px]",
+                  visiblePullStatus.kind === "error"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-muted/40 text-muted-foreground",
+                )}
+                {...(visiblePullStatus.kind === "error" ? { role: "alert" as const } : {})}
+              >
+                {visiblePullStatus.message}
               </p>
             )}
             {selectedPatchError && !renderablePatch && (

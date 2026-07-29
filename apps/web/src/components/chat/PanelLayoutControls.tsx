@@ -96,7 +96,7 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     kind: "diff",
     label: "Open diff viewer",
     icon: FileDiffIcon,
-    unavailableReason: "Diff is only available for server threads in Git repositories.",
+    unavailableReason: "Diff is only available for projects in Git repositories.",
   },
   {
     kind: "terminal",
