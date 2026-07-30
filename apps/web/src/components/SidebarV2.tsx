@@ -34,6 +34,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  GitBranchPlusIcon,
   EllipsisIcon,
   MessageSquareIcon,
   NetworkIcon,
@@ -207,6 +208,38 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
+
+function ProjectNewWorktreeButton(props: {
+  projectRef: ReturnType<typeof scopeProjectRef>;
+  projectName: string;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`New worktree in ${props.projectName}`}
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-sidebar-foreground active:scale-[0.94] motion-reduce:transform-none",
+              props.className,
+            )}
+            onClick={() =>
+              openCommandPalette({
+                open: "new-worktree",
+                context: { projectRef: props.projectRef },
+              })
+            }
+          />
+        }
+      >
+        <GitBranchPlusIcon aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="right">New worktree</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -3120,6 +3153,15 @@ export default function SidebarV2() {
                     </MenuRadioGroup>
                   </MenuPopup>
                 </Menu>
+                {scopedProjectGroup ? (
+                  <ProjectNewWorktreeButton
+                    projectRef={scopeProjectRef(
+                      scopedProjectGroup.environmentId,
+                      scopedProjectGroup.id,
+                    )}
+                    projectName={scopedProjectGroup.displayName}
+                  />
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -3485,13 +3527,7 @@ export default function SidebarV2() {
                           data-thread-selection-safe
                           className="list-none"
                         >
-                          <button
-                            type="button"
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? "Collapse" : "Expand"} repository ${repository.project.displayName}`}
-                            onClick={() =>
-                              setProjectExpanded(repository.project.projectKey, !expanded)
-                            }
+                          <div
                             onContextMenu={(event) =>
                               handleLocationContextMenu(event, {
                                 projectRef: scopeProjectRef(
@@ -3500,35 +3536,53 @@ export default function SidebarV2() {
                                 ),
                               })
                             }
-                            className="mt-2 flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover active:scale-[0.96] motion-reduce:transform-none"
+                            className="mt-2 flex h-10 w-full min-w-0 items-center rounded-lg text-sidebar-foreground transition-[background-color] hover:bg-sidebar-row-hover"
                           >
-                            {expanded ? (
-                              <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
-                            ) : (
-                              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
-                            )}
-                            <ProjectFavicon
-                              environmentId={repository.project.environmentId}
-                              cwd={repository.project.workspaceRoot}
-                              className="size-4 shrink-0"
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                              {repository.project.displayName}
-                            </span>
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-normal tabular-nums text-muted-foreground/60">
-                              <span>
-                                {repository.worktrees.length} branch
-                                {repository.worktrees.length === 1 ? "" : "es"}
+                            <button
+                              type="button"
+                              aria-expanded={expanded}
+                              aria-label={`${expanded ? "Collapse" : "Expand"} repository ${repository.project.displayName}`}
+                              onClick={() =>
+                                setProjectExpanded(repository.project.projectKey, !expanded)
+                              }
+                              className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold transition-[color,scale] active:scale-[0.98] motion-reduce:transform-none"
+                            >
+                              {expanded ? (
+                                <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+                              ) : (
+                                <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+                              )}
+                              <ProjectFavicon
+                                environmentId={repository.project.environmentId}
+                                cwd={repository.project.workspaceRoot}
+                                className="size-4 shrink-0"
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {repository.project.displayName}
                               </span>
-                              {!expanded ? (
-                                <>
-                                  <span aria-hidden>·</span>
-                                  <MessageSquareIcon aria-hidden className="size-3" />
-                                  <span>{repository.conversationCount}</span>
-                                </>
-                              ) : null}
-                            </span>
-                          </button>
+                              <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-normal tabular-nums text-muted-foreground/60">
+                                <span>
+                                  {repository.worktrees.length} branch
+                                  {repository.worktrees.length === 1 ? "" : "es"}
+                                </span>
+                                {!expanded ? (
+                                  <>
+                                    <span aria-hidden>·</span>
+                                    <MessageSquareIcon aria-hidden className="size-3" />
+                                    <span>{repository.conversationCount}</span>
+                                  </>
+                                ) : null}
+                              </span>
+                            </button>
+                            <ProjectNewWorktreeButton
+                              projectRef={scopeProjectRef(
+                                repository.project.environmentId,
+                                repository.project.id,
+                              )}
+                              projectName={repository.project.displayName}
+                              className="mr-1"
+                            />
+                          </div>
                           {expanded ? (
                             <ul
                               role="list"
