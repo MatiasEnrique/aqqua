@@ -174,5 +174,12 @@ all be leaves later without touching the layout.
 
 ## Verdict
 
-_TBD — pick a winner (or a hybrid) and note why here, then delete this file
-and the Paper artboards that lost._
+Decided 2026-07-30. **Board surface: V2 Run table** (position = segment track,
+status = badge beside it; To-Do and Done as sections of the same table — this
+doc's description is the spec, the exploration artboards were cleaned up).
+**Card detail: V3-i1 as refined above** — card tree + single detail slot on the
+app's existing chat surface; the three dark artboards on the canvas
+(V3-i1a/b/c: step thread / sub-agent thread / artifact selected) are the design
+source and all ship as selection states. Implementation is broken down in
+`agentic-board-tickets.md`; keep this file and the three artboards until the
+UI lands.
