@@ -244,14 +244,33 @@ it.layer(TestLayer)("GitHistory", (it) => {
       }),
     );
 
-    it.effect("lists visible refs in topological order and excludes internal-only commits", () =>
+    it.effect("lists only the current local branch and its matching origin branch", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepo(cwd);
         const initial = yield* commitFile(cwd, "README.md", "initial\n", "Initial commit");
-        const latest = yield* commitFile(cwd, "feature.txt", "feature\n", "Latest commit");
+        const localLatest = yield* commitFile(cwd, "local.txt", "local\n", "Local commit");
         yield* git(cwd, ["tag", "v1.0.0", initial]);
-        yield* git(cwd, ["update-ref", "refs/remotes/origin/main", latest]);
+        yield* git(cwd, ["branch", "other-local", initial]);
+        yield* git(cwd, ["update-ref", "refs/remotes/origin/other-shared", initial]);
+
+        yield* git(cwd, ["checkout", "-b", "origin-main", initial]);
+        const originLatest = yield* commitFile(cwd, "origin.txt", "origin\n", "Origin commit");
+        yield* git(cwd, ["update-ref", "refs/remotes/origin/main", originLatest]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* git(cwd, ["branch", "-D", "origin-main"]);
+
+        yield* git(cwd, ["checkout", "-b", "unrelated", initial]);
+        const unrelated = yield* commitFile(
+          cwd,
+          "unrelated.txt",
+          "unrelated\n",
+          "Unrelated branch commit",
+        );
+        yield* git(cwd, ["update-ref", "refs/remotes/origin/unrelated", unrelated]);
+        yield* git(cwd, ["tag", "unrelated-tag", unrelated]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* git(cwd, ["branch", "-D", "unrelated"]);
 
         yield* git(cwd, ["checkout", "--orphan", "checkpoint-only"]);
         yield* git(cwd, ["rm", "-rf", "."]);
@@ -273,48 +292,64 @@ it.layer(TestLayer)("GitHistory", (it) => {
 
         assert.equal(result.isRepo, true);
         assert.equal(result.commits.length, 1);
-        assert.equal(result.commits[0]?.id, latest);
-        assert.equal(result.commits[0]?.isHead, true);
+        assert.equal([localLatest, originLatest].includes(result.commits[0]?.id ?? ""), true);
         assert.notEqual(result.nextCursor, null);
         assert.equal(typeof result.nextCursor, "string");
-        assert.equal(
-          result.commits[0]?.refs.some(
-            (ref) => ref.kind === "local_branch" && ref.name === "main" && ref.current,
-          ),
-          true,
-        );
-        assert.equal(
-          result.commits[0]?.refs.some(
-            (ref) => ref.kind === "remote_branch" && ref.name === "origin/main",
-          ),
-          true,
-        );
 
         const older = yield* history.list({
           cwd,
           cursor: result.nextCursor ?? undefined,
           limit: 10,
         });
+        const allCommits = [...result.commits, ...older.commits];
         assert.deepStrictEqual(
-          older.commits.map((commit) => commit.id),
-          [initial],
+          new Set(allCommits.map((commit) => commit.id)),
+          new Set([localLatest, originLatest, initial]),
         );
+        const localCommit = allCommits.find((commit) => commit.id === localLatest);
+        const originCommit = allCommits.find((commit) => commit.id === originLatest);
+        const initialCommit = allCommits.find((commit) => commit.id === initial);
+        assert.equal(localCommit?.isHead, true);
         assert.equal(
-          older.commits[0]?.refs.some((ref) => ref.kind === "tag" && ref.name === "v1.0.0"),
+          localCommit?.refs.some(
+            (ref) => ref.kind === "local_branch" && ref.name === "main" && ref.current,
+          ),
           true,
         );
         assert.equal(
-          [...result.commits, ...older.commits].some((commit) => commit.id === checkpoint),
+          originCommit?.refs.some(
+            (ref) => ref.kind === "remote_branch" && ref.name === "origin/main",
+          ),
+          true,
+        );
+        assert.equal(
+          initialCommit?.refs.some((ref) => ref.kind === "tag" && ref.name === "v1.0.0"),
+          true,
+        );
+        assert.deepStrictEqual(
+          allCommits
+            .flatMap((commit) => commit.refs)
+            .filter((ref) => ref.kind !== "tag")
+            .map((ref) => ref.name)
+            .sort(),
+          ["main", "origin/main"],
+        );
+        assert.equal(
+          allCommits.some((commit) => commit.id === checkpoint),
           false,
         );
         assert.equal(
-          [...result.commits, ...older.commits].some((commit) => commit.id === stashCommit),
+          allCommits.some((commit) => commit.id === stashCommit),
+          false,
+        );
+        assert.equal(
+          allCommits.some((commit) => commit.id === unrelated),
           false,
         );
       }),
     );
 
-    it.effect("peels annotated tags, omits symbolic remote HEAD, and marks detached HEAD", () =>
+    it.effect("peels annotated tags and limits detached history to HEAD", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepo(cwd);
@@ -328,7 +363,6 @@ it.layer(TestLayer)("GitHistory", (it) => {
         const history = yield* GitHistory.GitHistory;
         const result = yield* history.list({ cwd });
         const detached = result.commits.find((commit) => commit.id === initial);
-        const latestCommit = result.commits.find((commit) => commit.id === latest);
 
         assert.equal(detached?.isHead, true);
         assert.equal(
@@ -340,10 +374,8 @@ it.layer(TestLayer)("GitHistory", (it) => {
           false,
         );
         assert.equal(
-          latestCommit?.refs.some(
-            (ref) => ref.kind === "remote_branch" && ref.name === "origin/main",
-          ),
-          true,
+          result.commits.some((commit) => commit.id === latest),
+          false,
         );
         assert.equal(
           result.commits.flatMap((commit) => commit.refs).some((ref) => ref.name === "origin/HEAD"),

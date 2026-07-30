@@ -39,9 +39,10 @@ const GIT_ENV = Object.freeze({
 /**
  * Opaque cursor payload for stable history pagination.
  *
- * - `tips`: sorted unique commit object ids of the ref tips (+ HEAD) from the
- *   first page. Continuations always walk that fixed tip set so later ref
- *   advances cannot insert or drop commits mid-pagination.
+ * - `tips`: sorted unique commit object ids of HEAD and the matching
+ *   `origin/<current-branch>` tip from the first page. Continuations always
+ *   walk that fixed tip set so later ref advances cannot insert or drop
+ *   commits mid-pagination.
  * - `skip`: deterministic topo-order offset within that frozen walk.
  */
 const HistoryCursorPayload = Schema.Struct({
@@ -118,16 +119,41 @@ function decodeHistoryCursor(
   }
 }
 
+function currentHistoryBranchNames(
+  currentRef: string | null,
+): { readonly local: string; readonly origin: string } | null {
+  if (!currentRef?.startsWith("refs/heads/")) return null;
+  const local = currentRef.slice("refs/heads/".length);
+  return { local, origin: `origin/${local}` };
+}
+
 function collectHistoryTips(
   headId: GitObjectIdType | null,
   refsByCommit: ReadonlyMap<GitObjectIdType, ReadonlyArray<GitHistoryRef>>,
+  currentRef: string | null,
 ): GitObjectIdType[] {
   const tips = new Set<GitObjectIdType>();
   if (headId) tips.add(headId);
-  for (const objectId of refsByCommit.keys()) {
-    tips.add(objectId);
+
+  const branchNames = currentHistoryBranchNames(currentRef);
+  if (branchNames) {
+    for (const [objectId, refs] of refsByCommit) {
+      if (refs.some((ref) => ref.kind === "remote_branch" && ref.name === branchNames.origin)) {
+        tips.add(objectId);
+      }
+    }
   }
+
   return [...tips].sort((left, right) => left.localeCompare(right));
+}
+
+function isVisibleHistoryRef(ref: GitHistoryRef, currentRef: string | null): boolean {
+  if (ref.kind === "tag") return true;
+  const branchNames = currentHistoryBranchNames(currentRef);
+  if (!branchNames) return false;
+  return ref.kind === "local_branch"
+    ? ref.name === branchNames.local
+    : ref.name === branchNames.origin;
 }
 
 function parseCommitLog(
@@ -421,7 +447,7 @@ export const make = Effect.gen(function* () {
         : null;
     const limit = input.limit ?? DEFAULT_HISTORY_LIMIT;
     const refsByCommit = parseRefs(refsResult.stdout, currentRef, refsResult.stdoutTruncated);
-    const liveTips = collectHistoryTips(headId, refsByCommit);
+    const liveTips = collectHistoryTips(headId, refsByCommit, currentRef);
 
     let tips: ReadonlyArray<GitObjectIdType>;
     let skip: number;
@@ -486,7 +512,9 @@ export const make = Effect.gen(function* () {
     const commits = parsed.slice(0, limit).map<GitHistoryCommitSummary>((commit) => ({
       ...commit,
       isHead: commit.id === headId,
-      refs: [...(refsByCommit.get(commit.id) ?? [])],
+      refs: (refsByCommit.get(commit.id) ?? []).filter((ref) =>
+        isVisibleHistoryRef(ref, currentRef),
+      ),
     }));
     return {
       commits,

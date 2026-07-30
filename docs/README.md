@@ -8,6 +8,7 @@
   - [Server updates](./architecture/server-updates.md)
 - User guides
   - [Background service](./user/background-service.md)
+  - [Git history](./user/git-history.md)
   - [Sidebar conversations and worktrees](./user/sidebar.md)
   - [Remote access](./user/remote-access.md)
   - [Keeping T3 Code in sync](./user/server-updates.md)
