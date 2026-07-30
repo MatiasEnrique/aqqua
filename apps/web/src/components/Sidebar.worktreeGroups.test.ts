@@ -6,6 +6,7 @@ import {
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
+  resolveSidebarProjectState,
   resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeSettleAction,
@@ -408,14 +409,65 @@ describe("buildSidebarRepositoryGroups", () => {
       repositories.map((repository) => ({
         key: repository.project.projectKey,
         branches: repository.worktrees.map((worktree) => worktree.label),
+        state: repository.state,
         conversations: repository.conversationCount,
         working: repository.workingConversationCount,
       })),
     ).toEqual([
-      { key: "repo:ciber", branches: ["main"], conversations: 1, working: 1 },
-      { key: "repo:t3code", branches: ["main"], conversations: 1, working: 0 },
-      { key: "repo:empty", branches: [], conversations: 0, working: 0 },
+      {
+        key: "repo:ciber",
+        branches: ["main"],
+        state: "working",
+        conversations: 1,
+        working: 1,
+      },
+      {
+        key: "repo:t3code",
+        branches: ["main"],
+        state: "done",
+        conversations: 1,
+        working: 0,
+      },
+      {
+        key: "repo:empty",
+        branches: [],
+        state: "idle",
+        conversations: 0,
+        working: 0,
+      },
     ]);
+  });
+});
+
+describe("resolveSidebarProjectState", () => {
+  const worktree = (
+    stateCounts: SidebarWorktreeGroup["stateCounts"],
+  ): Pick<SidebarWorktreeGroup, "stateCounts"> => ({ stateCounts });
+
+  it("prioritizes needs input, then working, then done, then idle", () => {
+    expect(
+      resolveSidebarProjectState([
+        worktree({ needsInput: 0, working: 1, done: 1, stale: 0, settled: 0 }),
+        worktree({ needsInput: 1, working: 0, done: 0, stale: 0, settled: 0 }),
+      ]),
+    ).toBe("needsInput");
+    expect(
+      resolveSidebarProjectState([
+        worktree({ needsInput: 0, working: 1, done: 0, stale: 0, settled: 0 }),
+        worktree({ needsInput: 0, working: 0, done: 1, stale: 0, settled: 0 }),
+      ]),
+    ).toBe("working");
+    expect(
+      resolveSidebarProjectState([
+        worktree({ needsInput: 0, working: 0, done: 1, stale: 1, settled: 1 }),
+      ]),
+    ).toBe("done");
+    expect(
+      resolveSidebarProjectState([
+        worktree({ needsInput: 0, working: 0, done: 0, stale: 1, settled: 1 }),
+      ]),
+    ).toBe("idle");
+    expect(resolveSidebarProjectState([])).toBe("idle");
   });
 });
 

@@ -39,6 +39,23 @@ export interface SidebarWorktreeStateCounts {
   readonly settled: number;
 }
 
+export type SidebarProjectState = "needsInput" | "working" | "done" | "idle";
+
+export function resolveSidebarProjectState(
+  worktrees: readonly Pick<SidebarWorktreeGroup, "stateCounts">[],
+): SidebarProjectState {
+  if (worktrees.some((worktree) => worktree.stateCounts.needsInput > 0)) {
+    return "needsInput";
+  }
+  if (worktrees.some((worktree) => worktree.stateCounts.working > 0)) {
+    return "working";
+  }
+  if (worktrees.some((worktree) => worktree.stateCounts.done > 0)) {
+    return "done";
+  }
+  return "idle";
+}
+
 export interface SidebarWorktreeActionAvailability {
   readonly enabled: boolean;
   readonly disabledReason: string | null;
@@ -128,6 +145,7 @@ export interface SidebarRepositoryGroup<
 > {
   readonly project: TProject;
   readonly worktrees: readonly SidebarWorktreeGroup[];
+  readonly state: SidebarProjectState;
   readonly conversationCount: number;
   readonly workingConversationCount: number;
 }
@@ -350,6 +368,7 @@ export function buildSidebarRepositoryGroups<
     return {
       project,
       worktrees,
+      state: resolveSidebarProjectState(worktrees),
       conversationCount: worktrees.reduce(
         (total, worktree) => total + worktree.conversationCount,
         0,

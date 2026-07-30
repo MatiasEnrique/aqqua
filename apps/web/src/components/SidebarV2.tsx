@@ -145,6 +145,7 @@ import {
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
+  type SidebarProjectState,
   resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeSettleAction,
@@ -237,6 +238,48 @@ function ProjectNewWorktreeButton(props: {
         <GitBranchPlusIcon aria-hidden className="size-3.5" />
       </TooltipTrigger>
       <TooltipPopup side="right">New worktree</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+const SIDEBAR_PROJECT_STATE_PRESENTATIONS: Record<
+  SidebarProjectState,
+  { label: string; className: string }
+> = {
+  needsInput: {
+    label: "Needs input",
+    className: "bg-violet-500 dark:bg-violet-400",
+  },
+  working: {
+    label: "Working",
+    className: "bg-sky-500 dark:bg-sky-400",
+  },
+  done: {
+    label: "Done",
+    className: "bg-emerald-600 dark:bg-emerald-400",
+  },
+  idle: {
+    label: "Idle",
+    className: "bg-muted-foreground/45",
+  },
+};
+
+function SidebarProjectStateDot(props: { state: SidebarProjectState }) {
+  const presentation = SIDEBAR_PROJECT_STATE_PRESENTATIONS[props.state];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role="status"
+            aria-label={`Project status: ${presentation.label}`}
+            className="inline-flex size-4 shrink-0 items-center justify-center"
+          />
+        }
+      >
+        <span aria-hidden className={cn("size-2 rounded-full", presentation.className)} />
+      </TooltipTrigger>
+      <TooltipPopup side="right">{presentation.label}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -2086,6 +2129,15 @@ export default function SidebarV2() {
     () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
     [projectGroups, worktreeGroups],
   );
+  const scopedProjectState = useMemo(
+    () =>
+      scopedProjectGroup === null
+        ? null
+        : (repositoryGroups.find(
+            (repository) => repository.project.projectKey === scopedProjectGroup.projectKey,
+          )?.state ?? "idle"),
+    [repositoryGroups, scopedProjectGroup],
+  );
   const repositoryHierarchyVisible =
     sidebarThreadGroupingMode === "worktree" && projectScopeKey === null;
   const expandedWorktreeGroups = useMemo(
@@ -3103,6 +3155,9 @@ export default function SidebarV2() {
                     <span className="min-w-0 flex-1 truncate">
                       {scopedProjectGroup?.displayName ?? "All projects"}
                     </span>
+                    {scopedProjectState ? (
+                      <SidebarProjectStateDot state={scopedProjectState} />
+                    ) : null}
                     <ChevronDownIcon className="-mr-px size-4 shrink-0" />
                   </MenuTrigger>
                   <MenuPopup align="start" className="w-(--anchor-width)">
@@ -3560,6 +3615,7 @@ export default function SidebarV2() {
                               <span className="min-w-0 flex-1 truncate">
                                 {repository.project.displayName}
                               </span>
+                              <SidebarProjectStateDot state={repository.state} />
                               <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-normal tabular-nums text-muted-foreground/60">
                                 <span>
                                   {repository.worktrees.length} branch
