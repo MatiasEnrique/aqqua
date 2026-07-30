@@ -701,7 +701,7 @@ const make = Effect.gen(function* () {
         });
         const shared = {
           name: profile,
-          driver: definition?.driver ?? null,
+          driver: definition?.target.kind === "driver" ? definition.target.driver : null,
           pinsModel: definition?.model !== undefined,
           titlePrefix: definition?.titlePrefix ?? null,
         };

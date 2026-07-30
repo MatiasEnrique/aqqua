@@ -1,11 +1,12 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { normalizeProjectPathForComparison } from "../lib/projectPaths";
 import { resolveSidebarConversationSummaryState } from "./Sidebar.summaryState";
 
 export interface WorktreeDraftRow {
   readonly draftId: string;
-  readonly environmentId: string;
-  readonly projectId: string;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
   readonly envMode: "local" | "worktree";
   readonly title: string;
   readonly baseBranch: string | null;
@@ -14,8 +15,8 @@ export interface WorktreeDraftRow {
 
 export interface SidebarWorktreeGroup {
   readonly key: string;
-  readonly environmentId: string;
-  readonly projectId: string;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
   readonly workspaceRoot: string | null;
   readonly projectRoot: string | null;
   readonly environmentLabel: string | null;
@@ -183,8 +184,8 @@ export function buildSidebarWorktreeGroups(input: {
   const groups = new Map<
     string,
     {
-      environmentId: string;
-      projectId: string;
+      environmentId: EnvironmentId;
+      projectId: ProjectId;
       workspaceRoot: string | null;
       projectRoot: string | null;
       environmentLabel: string | null;
@@ -402,14 +403,33 @@ export function sidebarWorktreeHasVisibleChildren(
   return worktree.drafts.length + worktree.active.length + worktree.snoozed.length > 0;
 }
 
-export function filterRemovedSidebarWorktreeGroups(
+/**
+ * Filters worktrees hidden by an ephemeral optimistic-delete set.
+ *
+ * Hide only while the authoritative projection still surfaces a settled-only
+ * (or empty) group for the same key. Visible children unhide immediately so a
+ * recreated path is never stuck behind a stale hide.
+ */
+export function filterHiddenSidebarWorktreeGroups(
   worktrees: readonly SidebarWorktreeGroup[],
-  removedWorktreeAtByKey: Readonly<Record<string, string>>,
+  hiddenWorktreeKeys: ReadonlySet<string>,
 ): SidebarWorktreeGroup[] {
   return worktrees.filter((worktree) => {
-    if (removedWorktreeAtByKey[worktree.key] === undefined) return true;
+    if (!hiddenWorktreeKeys.has(worktree.key)) return true;
     return sidebarWorktreeHasVisibleChildren(worktree);
   });
+}
+
+/** @deprecated Use filterHiddenSidebarWorktreeGroups with a Set. */
+export function filterRemovedSidebarWorktreeGroups(
+  worktrees: readonly SidebarWorktreeGroup[],
+  removedWorktreeAtByKey: Readonly<Record<string, string>> | ReadonlySet<string>,
+): SidebarWorktreeGroup[] {
+  const hidden =
+    removedWorktreeAtByKey instanceof Set
+      ? removedWorktreeAtByKey
+      : new Set(Object.keys(removedWorktreeAtByKey));
+  return filterHiddenSidebarWorktreeGroups(worktrees, hidden);
 }
 
 export function resolveSidebarWorktreeConversationLocation(

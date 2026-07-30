@@ -30,6 +30,9 @@ import {
   INTERACTION_MODE_DESCRIPTIONS,
   INTERACTION_MODE_LABELS,
   INTERACTION_MODES,
+  isAgentProfileRuntime,
+  isInteractionMode,
+  isRuntimeMode,
   parseProviderChoiceValue,
   providerChoiceValue,
   pruneAgentProfileOptions,
@@ -339,10 +342,10 @@ export function AgentProfileDialog({
                       <Select
                         value={draft.runtime}
                         onValueChange={(value) => {
-                          if (value === null) return;
+                          if (value === null || !isAgentProfileRuntime(value)) return;
                           setDraft((current) => ({
                             ...current,
-                            runtime: value as AgentProfileDraft["runtime"],
+                            runtime: value,
                           }));
                         }}
                       >
@@ -366,10 +369,10 @@ export function AgentProfileDialog({
                       <Select
                         value={draft.runtimeMode}
                         onValueChange={(value) => {
-                          if (value === null) return;
+                          if (value === null || !isRuntimeMode(value)) return;
                           setDraft((current) => ({
                             ...current,
-                            runtimeMode: value as AgentProfileDraft["runtimeMode"],
+                            runtimeMode: value,
                           }));
                         }}
                       >
@@ -393,10 +396,10 @@ export function AgentProfileDialog({
                       <Select
                         value={draft.interactionMode}
                         onValueChange={(value) => {
-                          if (value === null) return;
+                          if (value === null || !isInteractionMode(value)) return;
                           setDraft((current) => ({
                             ...current,
-                            interactionMode: value as AgentProfileDraft["interactionMode"],
+                            interactionMode: value,
                           }));
                         }}
                       >

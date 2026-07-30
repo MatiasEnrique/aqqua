@@ -4,6 +4,8 @@ import * as Schema from "effect/Schema";
 import {
   GitObjectId,
   VcsCreateWorktreeInput,
+  VcsDeleteWorktreeInput,
+  VcsDeleteWorktreeResult,
   VcsGetCommitDetailsResult,
   VcsInspectWorktreeRemovalResult,
   VcsListHistoryInput,
@@ -22,6 +24,8 @@ const decodeCommitDetailsResult = Schema.decodeUnknownSync(VcsGetCommitDetailsRe
 const decodeInspectWorktreeRemovalResult = Schema.decodeUnknownSync(
   VcsInspectWorktreeRemovalResult,
 );
+const decodeDeleteWorktreeInput = Schema.decodeUnknownSync(VcsDeleteWorktreeInput);
+const decodeDeleteWorktreeResult = Schema.decodeUnknownSync(VcsDeleteWorktreeResult);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -152,6 +156,68 @@ describe("Git history contracts", () => {
         filesTruncated: false,
       }).files[0],
     ).toMatchObject({ kind: "added", binary: true, insertions: null, deletions: null });
+  });
+});
+
+describe("VcsDeleteWorktreeResult", () => {
+  it("decodes a completed server-owned deletion", () => {
+    const parsed = decodeDeleteWorktreeResult({
+      status: "completed",
+      deletedThreadIds: ["thread-1", "thread-2"],
+      worktreeRemoval: "removed",
+    });
+    expect(parsed).toEqual({
+      status: "completed",
+      deletedThreadIds: ["thread-1", "thread-2"],
+      worktreeRemoval: "removed",
+    });
+  });
+
+  it("decodes a partial retryable worktree-stage failure with filesystem outcome", () => {
+    const parsed = decodeDeleteWorktreeResult({
+      status: "partial",
+      stage: "worktree",
+      deletedThreadIds: ["thread-1"],
+      retryable: true,
+      detail: "git worktree remove failed",
+      worktreeRemoval: "failed",
+    });
+    expect(parsed.status).toBe("partial");
+    if (parsed.status === "partial") {
+      expect(parsed.stage).toBe("worktree");
+      expect(parsed.retryable).toBe(true);
+      expect(parsed.worktreeRemoval).toBe("failed");
+    }
+  });
+
+  it("decodes a partial post-remove conversation failure with worktree already removed", () => {
+    const parsed = decodeDeleteWorktreeResult({
+      status: "partial",
+      stage: "conversation",
+      deletedThreadIds: ["thread-1"],
+      retryable: true,
+      detail: "straggler delete rejected",
+      worktreeRemoval: "removed",
+    });
+    expect(parsed).toMatchObject({
+      status: "partial",
+      stage: "conversation",
+      worktreeRemoval: "removed",
+    });
+  });
+
+  it("accepts delete input with optional force", () => {
+    expect(
+      decodeDeleteWorktreeInput({
+        cwd: "/repo",
+        path: "/repo/worktrees/feature",
+        force: true,
+      }),
+    ).toEqual({
+      cwd: "/repo",
+      path: "/repo/worktrees/feature",
+      force: true,
+    });
   });
 });
 

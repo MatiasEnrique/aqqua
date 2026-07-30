@@ -45,9 +45,7 @@ import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import {
   buildWorktreeDeletionPlan,
-  deleteWorktreeResourcesInOrder,
   isFinalWorktreeReferenceAfterDeletion,
-  selectThreadDeletionRoots,
   selectThreadsForWorktree,
   type WorktreeDeletionCandidate,
   worktreeRemovalInspectionUnchanged,
@@ -138,14 +136,28 @@ export interface DeleteWorktreeInput {
  * Conversation delete is a single server command. Provider session stop and
  * terminal close (with history deletion) are owned solely by the server
  * `ThreadDeletionReactor` reacting to `thread.deleted` — best-effort and not
- * awaited by the client. Optional worktree removal is client-owned after a
- * successful delete and may fail without rolling the conversation back.
+ * awaited by the client. Optional worktree removal after a single-thread
+ * delete remains client best-effort. Whole-worktree deletion is a separate
+ * server-owned `vcs.deleteWorktree` operation (see WORKTREE_DELETION_BOUNDARY).
  */
 export const THREAD_DELETION_CLEANUP_BOUNDARY = {
   conversationDelete: "server-command",
   providerSessionStop: "thread-deletion-reactor",
   terminalCloseWithHistory: "thread-deletion-reactor",
   worktreeRemoval: "client-best-effort-after-delete",
+} as const;
+
+/**
+ * Ownership boundary for sidebar worktree deletion.
+ *
+ * Membership, thread cascade via `thread.delete`, and filesystem removal are
+ * decided and executed by one server operation. The client only confirms and
+ * invokes that operation.
+ */
+export const WORKTREE_DELETION_BOUNDARY = {
+  membership: "server-at-execution-time",
+  threadDelete: "server-thread-delete",
+  worktreeRemoval: "server-after-thread-delete",
 } as const;
 
 export function useThreadActions() {
@@ -171,6 +183,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
+    reportFailure: false,
+  });
+  const deleteWorktreeCommand = useAtomCommand(vcsEnvironment.deleteWorktree, {
     reportFailure: false,
   });
   const inspectWorktreeRemoval = useAtomCommand(vcsEnvironment.inspectWorktreeRemoval, {
@@ -730,6 +745,8 @@ export function useThreadActions() {
 
   const deleteWorktree = useCallback(
     async (input: DeleteWorktreeInput): Promise<boolean> => {
+      // Confirmation copy uses the client's last-known membership. Authoritative
+      // membership and deletion are decided only on the server at execution time.
       const archivedAtom = orchestrationEnvironment.archivedShellSnapshot({
         environmentId: input.environmentId,
         input: {},
@@ -808,139 +825,84 @@ export function useThreadActions() {
         if (confirmed._tag === "Failure" || !confirmed.value) return false;
       }
 
-      const currentThreads = readEnvironmentThreadRefs(input.environmentId).flatMap((threadRef) => {
-        const thread = readThreadShell(threadRef);
-        return thread === null ? [] : [thread];
-      });
-      appAtomRegistry.refresh(archivedAtom);
-      const currentArchivedResult = await executeAtomQuery(appAtomRegistry, archivedAtom, {
-        reportFailure: false,
-      });
-      if (currentArchivedResult._tag === "Failure") {
-        toastManager.add(
-          stackedThreadToast({
-            type: "warning",
-            title: "Worktree kept because archived conversations could not be rechecked",
-            description: "Reconnect to the environment and try again.",
-          }),
-        );
-        return false;
-      }
-      const currentArchivedThreads = currentArchivedResult.value.threads.map((thread) => ({
-        ...thread,
+      const deletionResult = await deleteWorktreeCommand({
         environmentId: input.environmentId,
-      }));
-      const remainingWorktreeThreads = selectThreadsForWorktree({
-        environmentId: input.environmentId,
-        worktreePath: input.worktreePath,
-        threads: [...currentThreads, ...currentArchivedThreads],
-      });
-      const initialThreadKeys = new Set(
-        worktreeThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        ),
-      );
-      const conversationsChanged =
-        remainingWorktreeThreads.length !== initialThreadKeys.size ||
-        remainingWorktreeThreads.some(
-          (thread) =>
-            !initialThreadKeys.has(
-              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-            ),
-        );
-      if (conversationsChanged) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "warning",
-            title: "Worktree kept because its conversations changed",
-            description:
-              "A conversation was added or changed while deletion was in progress. Review it and try again.",
-          }),
-        );
-        return false;
-      }
-
-      if (!worktreeAlreadyMissing) {
-        const reinspectionResult = await inspectWorktreeRemoval({
-          environmentId: input.environmentId,
-          input: { cwd: input.projectCwd, path: input.worktreePath },
-        });
-        if (
-          reinspectionResult._tag === "Failure" ||
-          !worktreeRemovalInspectionUnchanged(inspection, reinspectionResult.value)
-        ) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "warning",
-              title: "Worktree changed and was kept",
-              description:
-                "The worktree changed after confirmation. Review its latest state and try again.",
-            }),
-          );
-          return false;
-        }
-      }
-
-      const deletionPlan: ThreadDeletionExecutionPlan = {
-        catalogThreads: worktreeThreads,
-        candidates: [],
-        decision: {
-          deleteWorktrees: false,
-          selectionSource: "none",
-          inspections: {},
+        input: {
+          cwd: input.projectCwd,
+          path: input.worktreePath,
+          force: true,
         },
-      };
-      const deletionResult = await deleteWorktreeResourcesInOrder({
-        threadRoots: selectThreadDeletionRoots(worktreeThreads),
-        deleteThread: (thread) =>
-          deleteThread(thread, {
-            deletedThreadKeys: initialThreadKeys,
-            deletionPlan,
-          }),
-        removeWorktree: worktreeAlreadyMissing
-          ? null
-          : () =>
-              removeWorktree({
-                environmentId: input.environmentId,
-                input: { cwd: input.projectCwd, path: input.worktreePath, force: true },
-              }),
       });
       if (deletionResult._tag === "Failure") {
-        const error = squashAtomCommandFailure(deletionResult.result);
+        const error = squashAtomCommandFailure(deletionResult);
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title:
-              deletionResult.stage === "conversation"
-                ? "Worktree kept because conversation history could not be deleted"
-                : "Conversation history deleted, but worktree removal failed",
-            description:
-              error instanceof Error
-                ? error.message
-                : deletionResult.stage === "conversation"
-                  ? "No worktree files were removed."
-                  : "The worktree remains on disk.",
+            title: "Worktree kept because deletion failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
         return false;
       }
 
+      const outcome = deletionResult.value;
+      if (outcome.status === "rejected") {
+        toastManager.add({
+          type: "warning",
+          title: "Worktree is not available",
+          description: "The selected path is not a Git worktree.",
+        });
+        return false;
+      }
+      if (outcome.status === "partial") {
+        const worktreeAlreadyRemoved = outcome.worktreeRemoval === "removed";
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: worktreeAlreadyRemoved
+              ? "Worktree removed, but some conversations could not be cleaned up"
+              : outcome.stage === "conversation"
+                ? "Worktree kept because conversation history could not be deleted"
+                : "Conversation history deleted, but worktree removal failed",
+            description:
+              outcome.detail ||
+              (worktreeAlreadyRemoved
+                ? "Retry to finish conversation cleanup. The worktree is already gone from disk."
+                : outcome.stage === "conversation"
+                  ? "No worktree files were removed."
+                  : "The worktree remains on disk. Retry to finish removal."),
+          }),
+        );
+        // Filesystem already gone: still refresh archived/VCS so the UI does not
+        // keep showing a path that no longer exists.
+        if (worktreeAlreadyRemoved) {
+          refreshArchivedThreadsForEnvironment(input.environmentId);
+          await refreshVcsStatus({
+            environmentId: input.environmentId,
+            input: { cwd: input.projectCwd },
+          });
+        }
+        return false;
+      }
+
+      refreshArchivedThreadsForEnvironment(input.environmentId);
       const refreshResult = await refreshVcsStatus({
         environmentId: input.environmentId,
         input: { cwd: input.projectCwd },
       });
       toastManager.add({
         type: refreshResult._tag === "Success" ? "success" : "warning",
-        title: worktreeAlreadyMissing
-          ? "Unavailable worktree removed from sidebar"
-          : refreshResult._tag === "Success"
-            ? "Worktree deleted"
-            : "Worktree deleted, but status refresh failed",
+        title:
+          outcome.worktreeRemoval === "already_missing"
+            ? "Unavailable worktree removed from sidebar"
+            : refreshResult._tag === "Success"
+              ? "Worktree deleted"
+              : "Worktree deleted, but status refresh failed",
         description: input.worktreePath,
       });
       return true;
     },
-    [deleteThread, inspectWorktreeRemoval, refreshVcsStatus, removeWorktree],
+    [deleteWorktreeCommand, inspectWorktreeRemoval, refreshVcsStatus],
   );
 
   const deleteThreads = useCallback(

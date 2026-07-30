@@ -125,6 +125,72 @@ export function shouldWriteThreadErrorToCurrentServerThread(input: {
   );
 }
 
+/**
+ * Local and session-sourced thread errors share one banner. Dismissal is keyed by
+ * thread + source + revision + message so a later occurrence (new session.updatedAt
+ * or a new local write) can reappear without erasing the server's lastError.
+ */
+export type ThreadErrorCandidate = {
+  readonly message: string;
+  readonly revision: string;
+  readonly source: "local" | "session";
+};
+
+export function resolveThreadErrorCandidate(input: {
+  localError: { message: string | null; at: number } | null | undefined;
+  sessionLastError: string | null | undefined;
+  sessionUpdatedAt: string | null | undefined;
+}): ThreadErrorCandidate | null {
+  if (input.localError?.message) {
+    return {
+      message: input.localError.message,
+      revision: String(input.localError.at),
+      source: "local",
+    };
+  }
+  const sessionLastError = input.sessionLastError ?? null;
+  if (!sessionLastError) {
+    return null;
+  }
+  return {
+    message: sessionLastError,
+    revision: input.sessionUpdatedAt ?? "",
+    source: "session",
+  };
+}
+
+export function getThreadErrorIdentity(
+  threadId: string,
+  candidate: Pick<ThreadErrorCandidate, "message" | "revision" | "source">,
+): string {
+  return [threadId, candidate.source, candidate.revision, candidate.message].join("\u0000");
+}
+
+export function resolveVisibleThreadError(input: {
+  threadId: string | null | undefined;
+  localError: { message: string | null; at: number } | null | undefined;
+  sessionLastError: string | null | undefined;
+  sessionUpdatedAt: string | null | undefined;
+  dismissedIdentity: string | null | undefined;
+}): string | null {
+  if (!input.threadId) {
+    return null;
+  }
+  const candidate = resolveThreadErrorCandidate({
+    localError: input.localError,
+    sessionLastError: input.sessionLastError,
+    sessionUpdatedAt: input.sessionUpdatedAt,
+  });
+  if (!candidate) {
+    return null;
+  }
+  const identity = getThreadErrorIdentity(input.threadId, candidate);
+  if (input.dismissedIdentity != null && identity === input.dismissedIdentity) {
+    return null;
+  }
+  return candidate.message;
+}
+
 export function buildThreadTurnInterruptInput(thread: Pick<Thread, "id" | "session">): {
   threadId: ThreadId;
   turnId?: TurnId;

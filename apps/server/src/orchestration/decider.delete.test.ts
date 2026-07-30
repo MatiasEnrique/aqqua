@@ -14,6 +14,10 @@ import { expect, it } from "@effect/vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
+import {
+  listActiveThreadsForWorktreePath,
+  selectTopLevelThreadsForBatchDelete,
+} from "./threadDeletion.ts";
 
 const asCommandId = (value: string): CommandId => CommandId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
@@ -364,5 +368,96 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
         );
         expect(events.at(-1)?.type).toBe("project.deleted");
       }),
+  );
+
+  it.effect("selects live and archived worktree members for server-owned deletion roots", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      let readModel = yield* seedReadModel;
+      readModel = yield* projectEvent(readModel, {
+        sequence: 4,
+        eventId: asEventId("evt-thread-worktree-live"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-wt-live"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: asCommandId("cmd-thread-wt-live"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-thread-wt-live"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-wt-live"),
+          projectId: asProjectId("project-delete"),
+          title: "Live worktree",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: "feature/wt",
+          worktreePath: "/tmp/worktrees/feature-wt",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      readModel = yield* projectEvent(readModel, {
+        sequence: 5,
+        eventId: asEventId("evt-thread-worktree-archived"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-wt-archived"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: asCommandId("cmd-thread-wt-archived"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-thread-wt-archived"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-wt-archived"),
+          projectId: asProjectId("project-delete"),
+          title: "Archived worktree",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: "feature/wt",
+          worktreePath: "/tmp/worktrees/feature-wt/",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      readModel = yield* projectEvent(readModel, {
+        sequence: 6,
+        eventId: asEventId("evt-thread-worktree-archived-mark"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-wt-archived"),
+        type: "thread.archived",
+        occurredAt: "2026-01-02T00:00:00.000Z",
+        commandId: asCommandId("cmd-thread-wt-archive"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-thread-wt-archive"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-wt-archived"),
+          archivedAt: "2026-01-02T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+        },
+      });
+
+      const members = listActiveThreadsForWorktreePath(
+        readModel.threads,
+        "/tmp/worktrees/feature-wt",
+      );
+      expect(members.map((thread) => thread.id).sort()).toEqual(
+        [asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort(),
+      );
+      expect(
+        selectTopLevelThreadsForBatchDelete(members)
+          .map((thread) => thread.id)
+          .sort(),
+      ).toEqual([asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort());
+    }),
   );
 });

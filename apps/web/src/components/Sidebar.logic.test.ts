@@ -737,6 +737,24 @@ describe("resolveSidebarConversationSummaryState", () => {
       }),
     ).toBe("stale");
   });
+
+  it("keeps session error visible as stale even when the latest turn completed", () => {
+    // Regression: an independent summary classifier used to project this as
+    // "done" while the row strip correctly showed failed.
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "error", lastError: "boom" },
+        latestTurn: makeLatestTurn(),
+      }),
+    ).toBe("stale");
+    expect(
+      resolveSidebarV2Status({
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        session: { ...session, status: "error", lastError: "boom" },
+      }),
+    ).toBe("failed");
+  });
 });
 
 describe("sortThreadsForSidebarV2", () => {
@@ -1121,6 +1139,53 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("shows failed for a session error, even when the latest turn completed", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasActionableProposedPlan: true,
+          interactionMode: "plan",
+          latestTurn: makeLatestTurn(),
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          session: {
+            ...baseThread.session,
+            status: "error",
+            lastError: "boom",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Failed", pulse: false });
+  });
+
+  it("ranks failed below pending input but above completion for project indicators", () => {
+    const failed = resolveThreadStatusPill({
+      thread: {
+        ...baseThread,
+        session: { ...baseThread.session, status: "error", lastError: "boom" },
+      },
+    });
+    const awaiting = resolveThreadStatusPill({
+      thread: { ...baseThread, hasPendingUserInput: true },
+    });
+    const completed = resolveThreadStatusPill({
+      thread: {
+        ...baseThread,
+        interactionMode: "default",
+        latestTurn: makeLatestTurn(),
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+        session: { ...baseThread.session, status: "ready", activeTurnId: null },
+      },
+    });
+    expect(resolveProjectStatusIndicator([completed, failed])).toMatchObject({
+      label: "Failed",
+    });
+    expect(resolveProjectStatusIndicator([failed, awaiting])).toMatchObject({
+      label: "Awaiting Input",
+    });
   });
 });
 

@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
@@ -11,7 +13,12 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
 } from "./orchestration.ts";
-import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import {
+  isProviderDriverKind,
+  ProviderDriverKind,
+  ProviderInstanceConfig,
+  ProviderInstanceId,
+} from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -418,14 +425,21 @@ export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 //
 // A profile maps a role name an orchestrator can ask for ("implementer") to a
 // concrete provider configuration. Profiles live in machine-local settings, not
-// in the repository, because `instanceId` names a provider instance configured on
-// this machine and is not portable across checkouts.
+// in the repository, because an instance target names a provider instance
+// configured on this machine and is not portable across checkouts.
+//
+// Normalized application state always carries a closed `target` union. Both
+// targets, neither target, and non-slug "driver" strings are not representable
+// after decode. Legacy on-disk shapes with optional top-level `instanceId` /
+// `driver` are absorbed by the decode transform (see below) and re-encoded
+// only in the canonical target shape.
 
-const AGENT_PROFILE_NAME_MAX_CHARS = 64;
+export const AGENT_PROFILE_NAME_MAX_CHARS = 64;
+export const AGENT_PROFILE_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 export const AgentProfileName = TrimmedNonEmptyString.check(
   Schema.isMaxLength(AGENT_PROFILE_NAME_MAX_CHARS),
-  Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
+  Schema.isPattern(AGENT_PROFILE_NAME_PATTERN),
 ).pipe(Schema.brand("AgentProfileName"));
 export type AgentProfileName = typeof AgentProfileName.Type;
 
@@ -443,14 +457,36 @@ export const AgentProfileRuntime = Schema.Literals(["session", "terminal"]);
 export type AgentProfileRuntime = typeof AgentProfileRuntime.Type;
 export const DEFAULT_AGENT_PROFILE_RUNTIME: AgentProfileRuntime = "session";
 
-export const AgentProfile = Schema.Struct({
+/** Driver used when a legacy profile names neither instance nor driver. */
+export const DEFAULT_AGENT_PROFILE_DRIVER = ProviderDriverKind.make("codex");
+
+/**
+ * Closed provider target for a profile.
+ *
+ * - `instance`: pin an exact configured provider instance.
+ * - `driver`: resolve to the first enabled instance of this driver at spawn.
+ */
+export const AgentProfileTarget = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("instance"),
+    instanceId: ProviderInstanceId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("driver"),
+    driver: ProviderDriverKind,
+  }),
+]);
+export type AgentProfileTarget = typeof AgentProfileTarget.Type;
+
+/**
+ * Canonical profile shape after decode. Application code should only construct
+ * and consume this form — never optional top-level `instanceId` / `driver`.
+ */
+const AgentProfileCanonical = Schema.Struct({
   runtime: AgentProfileRuntime.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_PROFILE_RUNTIME)),
   ),
-  /** Omit to fall back to the first enabled instance of `driver`. */
-  instanceId: Schema.optional(ProviderInstanceId),
-  /** Driver used for the fallback when `instanceId` is absent. */
-  driver: Schema.optional(TrimmedNonEmptyString),
+  target: AgentProfileTarget,
   /** Omit to inherit the project's default model. */
   model: Schema.optional(TrimmedNonEmptyString),
   options: Schema.optional(ProviderOptionSelections),
@@ -464,6 +500,105 @@ export const AgentProfile = Schema.Struct({
   /** Prefixed to generated sub-agent thread titles, e.g. "impl". */
   titlePrefix: Schema.optional(TrimmedNonEmptyString),
 });
+
+/**
+ * Wire/source shape. Accepts the canonical `target` form and the legacy
+ * optional top-level `instanceId` / `driver` fields. Fields are `Unknown` so
+ * malformed values reach the transform / target schema with actionable errors.
+ */
+const AgentProfileSource = Schema.Struct({
+  runtime: Schema.optional(Schema.Unknown),
+  target: Schema.optional(Schema.Unknown),
+  instanceId: Schema.optional(Schema.Unknown),
+  driver: Schema.optional(Schema.Unknown),
+  model: Schema.optional(Schema.Unknown),
+  options: Schema.optional(Schema.Unknown),
+  runtimeMode: Schema.optional(Schema.Unknown),
+  interactionMode: Schema.optional(Schema.Unknown),
+  titlePrefix: Schema.optional(Schema.Unknown),
+});
+
+/**
+ * Legacy decode rules for top-level `instanceId` / `driver` (when `target` is
+ * absent):
+ *
+ * 1. `instanceId` present → instance target (even if `driver` is also set —
+ *    matches historical server resolution, which preferred the explicit instance);
+ * 2. otherwise a present `driver` → driver target, if it is a valid
+ *    `ProviderDriverKind` slug; invalid/unknown-format drivers fail decode;
+ * 3. neither → Codex driver target (the historical implicit default).
+ *
+ * Encoding always writes the canonical `target` shape and never re-emits the
+ * legacy top-level fields.
+ */
+const normalizeAgentProfileTarget = (
+  raw: typeof AgentProfileSource.Type,
+): Effect.Effect<typeof AgentProfileTarget.Encoded, SchemaIssue.Issue> => {
+  if (raw.target !== undefined) {
+    return Effect.succeed(raw.target as typeof AgentProfileTarget.Encoded);
+  }
+
+  if (raw.instanceId !== undefined) {
+    return Effect.succeed({
+      kind: "instance" as const,
+      instanceId: raw.instanceId,
+    } as typeof AgentProfileTarget.Encoded);
+  }
+
+  if (raw.driver !== undefined) {
+    if (typeof raw.driver !== "string" || !isProviderDriverKind(raw.driver.trim())) {
+      return Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(raw.driver), {
+          message:
+            "Agent profile driver must be a valid provider driver kind slug " +
+            "(letter first, then letters, digits, '-', or '_'; max 64 characters).",
+        }),
+      );
+    }
+    return Effect.succeed({
+      kind: "driver" as const,
+      driver: raw.driver.trim(),
+    } as typeof AgentProfileTarget.Encoded);
+  }
+
+  return Effect.succeed({
+    kind: "driver" as const,
+    driver: DEFAULT_AGENT_PROFILE_DRIVER,
+  } as typeof AgentProfileTarget.Encoded);
+};
+
+export const AgentProfile = AgentProfileSource.pipe(
+  Schema.decodeTo(
+    AgentProfileCanonical,
+    SchemaTransformation.transformOrFail({
+      decode: (raw) =>
+        normalizeAgentProfileTarget(raw).pipe(
+          Effect.map((target) => {
+            const encoded: Record<string, unknown> = { target };
+            if (raw.runtime !== undefined) encoded.runtime = raw.runtime;
+            if (raw.model !== undefined) encoded.model = raw.model;
+            if (raw.options !== undefined) encoded.options = raw.options;
+            if (raw.runtimeMode !== undefined) encoded.runtimeMode = raw.runtimeMode;
+            if (raw.interactionMode !== undefined) encoded.interactionMode = raw.interactionMode;
+            if (raw.titlePrefix !== undefined) encoded.titlePrefix = raw.titlePrefix;
+            return encoded as typeof AgentProfileCanonical.Encoded;
+          }),
+        ),
+      encode: (value) => {
+        const encoded: Record<string, unknown> = {
+          runtime: value.runtime,
+          target: value.target,
+          runtimeMode: value.runtimeMode,
+          interactionMode: value.interactionMode,
+        };
+        if (value.model !== undefined) encoded.model = value.model;
+        if (value.options !== undefined) encoded.options = value.options;
+        if (value.titlePrefix !== undefined) encoded.titlePrefix = value.titlePrefix;
+        return Effect.succeed(encoded as typeof AgentProfileSource.Encoded);
+      },
+    }),
+  ),
+);
 export type AgentProfile = typeof AgentProfile.Type;
 
 export const AgentProfileMap = Schema.Record(AgentProfileName, AgentProfile);

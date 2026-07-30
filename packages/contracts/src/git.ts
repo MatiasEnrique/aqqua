@@ -252,6 +252,54 @@ export const VcsInspectWorktreeRemovalResult = Schema.Struct({
 });
 export type VcsInspectWorktreeRemovalResult = typeof VcsInspectWorktreeRemovalResult.Type;
 
+/**
+ * Server-owned worktree deletion: membership, thread cascade, and filesystem
+ * removal are decided and executed on the server in one typed operation.
+ * Partial progress is explicit so a failed filesystem step can be retried
+ * without pretending the multi-resource delete is atomic.
+ */
+export const VcsDeleteWorktreeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  path: TrimmedNonEmptyStringSchema,
+  force: Schema.optional(Schema.Boolean),
+});
+export type VcsDeleteWorktreeInput = typeof VcsDeleteWorktreeInput.Type;
+
+/**
+ * Filesystem outcome for a worktree deletion attempt.
+ * - completed: `removed` or `already_missing`
+ * - partial: always present so clients can tell whether the tree is still on disk
+ *   (`not_attempted` / `failed`) or already gone (`removed`)
+ */
+export const VcsDeleteWorktreeRemoval = Schema.Literals([
+  "not_attempted",
+  "failed",
+  "removed",
+  "already_missing",
+]);
+export type VcsDeleteWorktreeRemoval = typeof VcsDeleteWorktreeRemoval.Type;
+
+export const VcsDeleteWorktreeResult = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("completed"),
+    deletedThreadIds: Schema.Array(ThreadId),
+    worktreeRemoval: Schema.Literals(["removed", "already_missing"]),
+  }),
+  Schema.Struct({
+    status: Schema.Literal("partial"),
+    stage: Schema.Literals(["conversation", "worktree"]),
+    deletedThreadIds: Schema.Array(ThreadId),
+    retryable: Schema.Boolean,
+    detail: Schema.String,
+    worktreeRemoval: Schema.Literals(["not_attempted", "failed", "removed"]),
+  }),
+  Schema.Struct({
+    status: Schema.Literal("rejected"),
+    reason: Schema.Literal("not_worktree"),
+  }),
+]);
+export type VcsDeleteWorktreeResult = typeof VcsDeleteWorktreeResult.Type;
+
 export const VcsCreateRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,

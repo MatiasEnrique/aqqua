@@ -62,66 +62,6 @@ export function selectThreadsForWorktree<
   );
 }
 
-export function selectThreadDeletionRoots<
-  T extends {
-    readonly id: ThreadId;
-    readonly parentThreadId?: ThreadId | null | undefined;
-  },
->(threads: ReadonlyArray<T>): T[] {
-  const selectedThreadIds = new Set(threads.map((thread) => thread.id));
-  return threads.filter((thread) => {
-    const parentThreadId = thread.parentThreadId;
-    return parentThreadId == null || !selectedThreadIds.has(parentThreadId);
-  });
-}
-
-type TaggedCommandResult = { readonly _tag: "Success" } | { readonly _tag: "Failure" };
-
-export type WorktreeResourceDeletionResult<TDeleteResult, TRemoveResult> =
-  | { readonly _tag: "Success" }
-  | {
-      readonly _tag: "Failure";
-      readonly stage: "conversation";
-      readonly result: Extract<TDeleteResult, { readonly _tag: "Failure" }>;
-    }
-  | {
-      readonly _tag: "Failure";
-      readonly stage: "worktree";
-      readonly result: Extract<TRemoveResult, { readonly _tag: "Failure" }>;
-    };
-
-export async function deleteWorktreeResourcesInOrder<
-  TThread,
-  TDeleteResult extends TaggedCommandResult,
-  TRemoveResult extends TaggedCommandResult,
->(input: {
-  readonly threadRoots: ReadonlyArray<TThread>;
-  readonly deleteThread: (thread: TThread) => Promise<TDeleteResult>;
-  readonly removeWorktree: (() => Promise<TRemoveResult>) | null;
-}): Promise<WorktreeResourceDeletionResult<TDeleteResult, TRemoveResult>> {
-  for (const thread of input.threadRoots) {
-    const result = await input.deleteThread(thread);
-    if (result._tag === "Failure") {
-      return {
-        _tag: "Failure",
-        stage: "conversation",
-        result: result as Extract<TDeleteResult, { readonly _tag: "Failure" }>,
-      };
-    }
-  }
-  if (input.removeWorktree !== null) {
-    const result = await input.removeWorktree();
-    if (result._tag === "Failure") {
-      return {
-        _tag: "Failure",
-        stage: "worktree",
-        result: result as Extract<TRemoveResult, { readonly _tag: "Failure" }>,
-      };
-    }
-  }
-  return { _tag: "Success" };
-}
-
 export function getOrphanedWorktreePathForThread(
   threads: ReadonlyArray<Pick<ThreadShell, "id" | "worktreePath">>,
   threadId: ThreadShell["id"],

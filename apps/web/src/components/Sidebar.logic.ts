@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { ContextMenuItem } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
   getThreadSortTimestamp,
@@ -10,12 +10,34 @@ import {
 import type { SidebarThreadSummary, Thread } from "../types";
 import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
-import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
-export {
+import {
+  classifyThreadPresentation,
+  hasUnseenCompletion,
   resolveSidebarConversationSummaryState,
+  resolveSidebarV2Status,
+  toConversationSummaryState,
+  toSidebarV2Status,
   type SidebarConversationSummaryState,
+  type SidebarV2Status,
+  type ThreadPresentationInput,
+  type ThreadPresentationPhase,
+  type ThreadPresentationState,
 } from "./Sidebar.summaryState";
+
+export {
+  classifyThreadPresentation,
+  hasUnseenCompletion,
+  resolveSidebarConversationSummaryState,
+  resolveSidebarV2Status,
+  toConversationSummaryState,
+  toSidebarV2Status,
+  type SidebarConversationSummaryState,
+  type SidebarV2Status,
+  type ThreadPresentationInput,
+  type ThreadPresentationPhase,
+  type ThreadPresentationState,
+};
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -105,17 +127,21 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Failed";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
 }
 
+// Pending input/approval outrank activity; failed sits below activity but
+// above plan-ready/completion so a session error still wins the project pill.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 5,
-  "Awaiting Input": 4,
-  Working: 3,
-  Connecting: 3,
+  "Pending Approval": 6,
+  "Awaiting Input": 5,
+  Working: 4,
+  Connecting: 4,
+  Failed: 3,
   "Plan Ready": 2,
   Completed: 1,
 };
@@ -222,17 +248,6 @@ export function useThreadJumpHintVisibility(): {
     showThreadJumpHints,
     updateThreadJumpHintsVisibility,
   };
-}
-
-export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
-  if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return false;
-
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
 }
 
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
@@ -398,36 +413,6 @@ export function resolveThreadRowClassName(input: {
   );
 }
 
-// ── Sidebar v2 status model ─────────────────────────────────────────
-// Five visual states, three colors: color is reserved for "act now"
-// (approval), "in motion" (working), and "broken" (failed). Ready is the
-// unlabeled resting state — the agent stopped and is waiting on the user,
-// whether it finished, asked a question, or proposed a plan.
-// Unread completion is tracked separately: it describes whether a ready
-// thread needs attention, not what the thread is currently doing.
-export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "ready";
-
-type SidebarV2StatusInput = Pick<
-  SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session"
->;
-
-export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
-  if (thread.hasPendingApprovals) {
-    return "approval";
-  }
-  if (thread.hasPendingUserInput) {
-    return "input";
-  }
-  if (thread.session?.status === "running" || thread.session?.status === "starting") {
-    return "working";
-  }
-  if (thread.session?.status === "error") {
-    return "failed";
-  }
-  return "ready";
-}
-
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
     poison the whole ordering, so it sinks to the epoch instead. */
 export function parseTimestampMs(isoDate: string): number {
@@ -527,8 +512,8 @@ export function sortSettledThreadsForSidebarV2<
  */
 export type SidebarDraftRow = {
   readonly draftId: string;
-  readonly environmentId: string;
-  readonly projectId: string;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
   readonly envMode: "local" | "worktree";
   /** Worktree branch the user named, or a generic label until they name one. */
   readonly title: string;
@@ -539,8 +524,8 @@ export type SidebarDraftRow = {
 
 type SidebarDraftInput = {
   readonly threadId: string;
-  readonly environmentId: string;
-  readonly projectId: string;
+  readonly environmentId: EnvironmentId | string;
+  readonly projectId: ProjectId | string;
   readonly createdAt: string;
   readonly envMode: string;
   readonly branch: string | null;
@@ -582,8 +567,8 @@ export function selectSidebarDraftRows(input: {
     }
     rows.push({
       draftId,
-      environmentId: draft.environmentId,
-      projectId: draft.projectId,
+      environmentId: EnvironmentId.make(draft.environmentId),
+      projectId: ProjectId.make(draft.projectId),
       envMode: draft.envMode,
       title:
         draft.envMode === "worktree"
@@ -627,67 +612,63 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
+  const presentation = classifyThreadPresentation(thread);
 
-  if (thread.hasPendingApprovals) {
-    return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
-    };
+  switch (presentation.phase) {
+    case "approval":
+      return {
+        label: "Pending Approval",
+        colorClass: "text-amber-600 dark:text-amber-300/90",
+        dotClass: "bg-amber-500 dark:bg-amber-300/90",
+        pulse: false,
+      };
+    case "input":
+      return {
+        label: "Awaiting Input",
+        colorClass: "text-indigo-600 dark:text-indigo-300/90",
+        dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+        pulse: false,
+      };
+    case "working":
+      return {
+        label: "Working",
+        colorClass: "text-sky-600 dark:text-sky-300/80",
+        dotClass: "bg-sky-500 dark:bg-sky-300/80",
+        pulse: true,
+      };
+    case "starting":
+      return {
+        label: "Connecting",
+        colorClass: "text-sky-600 dark:text-sky-300/80",
+        dotClass: "bg-sky-500 dark:bg-sky-300/80",
+        pulse: true,
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        colorClass: "text-red-600 dark:text-red-400/90",
+        dotClass: "bg-red-500 dark:bg-red-400/90",
+        pulse: false,
+      };
+    case "ready":
+      if (presentation.planReady) {
+        return {
+          label: "Plan Ready",
+          colorClass: "text-violet-600 dark:text-violet-300/90",
+          dotClass: "bg-violet-500 dark:bg-violet-300/90",
+          pulse: false,
+        };
+      }
+      if (presentation.unseenCompletion) {
+        return {
+          label: "Completed",
+          colorClass: "text-emerald-600 dark:text-emerald-300/90",
+          dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+          pulse: false,
+        };
+      }
+      return null;
   }
-
-  if (thread.hasPendingUserInput) {
-    return {
-      label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
-      pulse: false,
-    };
-  }
-
-  if (thread.session?.status === "running") {
-    return {
-      label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
-    };
-  }
-
-  if (thread.session?.status === "starting") {
-    return {
-      label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
-    };
-  }
-
-  const hasPlanReadyPrompt =
-    !thread.hasPendingUserInput &&
-    thread.interactionMode === "plan" &&
-    isLatestTurnSettled(thread.latestTurn, thread.session) &&
-    thread.hasActionableProposedPlan;
-  if (hasPlanReadyPrompt) {
-    return {
-      label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
-      pulse: false,
-    };
-  }
-
-  if (hasUnseenCompletion(thread)) {
-    return {
-      label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
-      pulse: false,
-    };
-  }
-
-  return null;
 }
 
 export function resolveProjectStatusIndicator(

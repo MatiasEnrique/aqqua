@@ -23,6 +23,7 @@ export interface PersistedUiState {
   threadLastVisitedAtById?: Record<string, string>;
   threadExpandedById?: Record<string, boolean>;
   worktreeExpandedByKey?: Record<string, boolean>;
+  /** @deprecated Ignored on read; never written. Tombstones are ephemeral request state. */
   removedWorktreeAtByKey?: Record<string, string>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
@@ -42,7 +43,6 @@ export interface UiThreadState {
   threadExpandedById: Record<string, boolean>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
   worktreeExpandedByKey: Record<string, boolean>;
-  removedWorktreeAtByKey: Record<string, string>;
 }
 
 export interface UiEndpointState {
@@ -58,7 +58,6 @@ const initialState: UiState = {
   threadExpandedById: {},
   threadChangedFilesExpandedById: {},
   worktreeExpandedByKey: {},
-  removedWorktreeAtByKey: {},
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -137,7 +136,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadExpandedById: sanitizeBooleanRecord(parsed.threadExpandedById),
     worktreeExpandedByKey: sanitizeBooleanRecord(parsed.worktreeExpandedByKey),
-    removedWorktreeAtByKey: sanitizeTimestampRecord(parsed.removedWorktreeAtByKey),
+    // Legacy removedWorktreeAtByKey tombstones are intentionally dropped: hide
+    // state after deleteWorktree is request-local, not a durable preference.
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
@@ -218,7 +218,6 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         threadExpandedById: state.threadExpandedById,
         worktreeExpandedByKey: state.worktreeExpandedByKey,
-        removedWorktreeAtByKey: state.removedWorktreeAtByKey,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
@@ -366,31 +365,6 @@ export function setWorktreeExpanded(
   };
 }
 
-export function markWorktreeRemoved(
-  state: UiState,
-  worktreeKey: string,
-  removedAt: string,
-): UiState {
-  if (state.removedWorktreeAtByKey[worktreeKey] === removedAt) return state;
-  return {
-    ...state,
-    removedWorktreeAtByKey: {
-      ...state.removedWorktreeAtByKey,
-      [worktreeKey]: removedAt,
-    },
-  };
-}
-
-export function clearWorktreeRemoved(state: UiState, worktreeKey: string): UiState {
-  if (state.removedWorktreeAtByKey[worktreeKey] === undefined) return state;
-  const removedWorktreeAtByKey = { ...state.removedWorktreeAtByKey };
-  delete removedWorktreeAtByKey[worktreeKey];
-  return {
-    ...state,
-    removedWorktreeAtByKey,
-  };
-}
-
 export function retainThreadExpansionForKnownThreads(
   state: UiState,
   knownThreadIds: readonly string[],
@@ -501,8 +475,6 @@ interface UiStateStore extends UiState {
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadExpanded: (threadIds: string | readonly string[], expanded: boolean) => void;
   setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
-  markWorktreeRemoved: (worktreeKey: string, removedAt: string) => void;
-  clearWorktreeRemoved: (worktreeKey: string) => void;
   retainThreadExpansionForKnownThreads: (knownThreadIds: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
@@ -524,9 +496,6 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setThreadExpanded(state, threadIds, expanded)),
   setWorktreeExpanded: (worktreeKey, expanded) =>
     set((state) => setWorktreeExpanded(state, worktreeKey, expanded)),
-  markWorktreeRemoved: (worktreeKey, removedAt) =>
-    set((state) => markWorktreeRemoved(state, worktreeKey, removedAt)),
-  clearWorktreeRemoved: (worktreeKey) => set((state) => clearWorktreeRemoved(state, worktreeKey)),
   retainThreadExpansionForKnownThreads: (knownThreadIds) =>
     set((state) => retainThreadExpansionForKnownThreads(state, knownThreadIds)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>

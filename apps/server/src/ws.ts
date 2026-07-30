@@ -100,6 +100,9 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import { deleteWorktreeOwned } from "./orchestration/Services/WorktreeDeletion.ts";
+import { WorktreePathCoordination } from "./orchestration/Services/WorktreePathCoordination.ts";
+import { listActiveThreadsForWorktreePath } from "./orchestration/threadDeletion.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -391,6 +394,7 @@ const makeWsRpcLayer = (
       const path = yield* Path.Path;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const worktreePathCoordination = yield* WorktreePathCoordination;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -1919,6 +1923,94 @@ const makeWsRpcLayer = (
                   ),
                 );
               yield* refreshGitStatus(input.cwd);
+              return result;
+            }),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDeleteWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDeleteWorktree,
+            Effect.gen(function* () {
+              const terminalOwner = yield* canonicalizeTerminalInput(
+                { workspaceRoot: input.path },
+                input.path,
+              );
+
+              const result = yield* deleteWorktreeOwned(input, {
+                inspectWorktreeRemoval: (inspectInput) =>
+                  gitWorkflow.inspectWorktreeRemoval(inspectInput),
+                removeWorktree: (removeInput) => gitWorkflow.removeWorktree(removeInput),
+                listMemberThreads: (worktreePath) =>
+                  Effect.gen(function* () {
+                    const [live, archived] = yield* Effect.all([
+                      projectionSnapshotQuery.getShellSnapshot(),
+                      projectionSnapshotQuery.getArchivedShellSnapshot(),
+                    ]);
+                    // Shell snapshots already exclude deleted rows; map to the
+                    // membership shape with deletedAt=null for the shared filter.
+                    const members = [...live.threads, ...archived.threads].map((thread) => ({
+                      id: thread.id,
+                      parentThreadId: thread.parentThreadId,
+                      worktreePath: thread.worktreePath,
+                      deletedAt: null,
+                      archivedAt: thread.archivedAt,
+                    }));
+                    return listActiveThreadsForWorktreePath(members, worktreePath);
+                  }).pipe(
+                    Effect.mapError((error) => ({
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to load worktree conversation membership.",
+                    })),
+                  ),
+                dispatchThreadDelete: ({ commandId, threadId }) =>
+                  orchestrationEngine
+                    .dispatch({
+                      type: "thread.delete",
+                      commandId,
+                      threadId,
+                    })
+                    .pipe(
+                      Effect.asVoid,
+                      Effect.mapError((error) => ({
+                        message: error instanceof Error ? error.message : String(error),
+                      })),
+                    ),
+                allocateCommandId: (tag) =>
+                  serverCommandId(tag).pipe(
+                    Effect.mapError((error) => ({
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to allocate worktree deletion command id.",
+                    })),
+                  ),
+                pathCoordination: worktreePathCoordination,
+              });
+
+              // Close terminals / refresh VCS whenever the filesystem is gone,
+              // including post-remove conversation partials.
+              const filesystemGone =
+                result.status === "completed" ||
+                (result.status === "partial" && result.worktreeRemoval === "removed");
+              if (filesystemGone) {
+                yield* terminalManager
+                  .close({
+                    threadId: "workspace-cleanup",
+                    workspaceRoot: terminalOwner.workspaceRoot,
+                  })
+                  .pipe(
+                    Effect.catch((error) =>
+                      Effect.logWarning("failed to close removed worktree terminals", {
+                        workspaceRoot: terminalOwner.workspaceRoot,
+                        error: error.message,
+                      }),
+                    ),
+                  );
+                yield* refreshGitStatus(input.cwd);
+              }
+
               return result;
             }),
             { "rpc.aggregate": "vcs" },

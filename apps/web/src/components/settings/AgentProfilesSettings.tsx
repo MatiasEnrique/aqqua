@@ -141,12 +141,7 @@ export function AgentProfilesSettingsPanel() {
             optionsSummary={summarizeAgentProfileOptions({
               options: row.profile.options,
               descriptors: selectOptionDescriptorsForModel(
-                findProviderChoice(
-                  choices,
-                  row.profile.instanceId !== undefined
-                    ? { kind: "instance", instanceId: row.profile.instanceId }
-                    : { kind: "driver", driver: row.profile.driver ?? "codex" },
-                )?.models ?? [],
+                findProviderChoice(choices, row.profile.target)?.models ?? [],
                 row.profile.model ?? null,
               ),
             })}

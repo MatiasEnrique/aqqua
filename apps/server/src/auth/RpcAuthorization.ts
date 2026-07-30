@@ -76,6 +76,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.vcsCreateWorktree]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsInspectWorktreeRemoval]: AuthOrchestrationReadScope,
   [WS_METHODS.vcsRemoveWorktree]: AuthOrchestrationOperateScope,
+  [WS_METHODS.vcsDeleteWorktree]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsCreateRef]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsSwitchRef]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsInit]: AuthOrchestrationOperateScope,

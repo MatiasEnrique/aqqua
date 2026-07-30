@@ -22,6 +22,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { selectTopLevelThreadsForBatchDelete } from "./threadDeletion.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -311,19 +312,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       if (activeThreads.length > 0) {
         // thread.delete cascades to sub-agent threads, so only dispatch deletes
-        // for threads whose parent is not itself in this batch — deleting a
-        // child here too would emit a second thread.deleted for it. A parent
-        // that is self-referencing or already deleted cannot cascade, so its
-        // children count as top-level.
-        const activeThreadIds = new Set(activeThreads.map((thread) => thread.id));
-        const topLevelThreads = activeThreads.filter((thread) => {
-          const parentThreadId = thread.parentThreadId ?? null;
-          return (
-            parentThreadId === null ||
-            parentThreadId === thread.id ||
-            !activeThreadIds.has(parentThreadId)
-          );
-        });
+        // for roots whose parent is not itself in this batch — deleting a
+        // child here too would emit a second thread.deleted for it.
+        const topLevelThreads = selectTopLevelThreadsForBatchDelete(activeThreads);
         return yield* decideCommandSequence({
           readModel,
           commands: [

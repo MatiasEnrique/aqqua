@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { ProviderInstanceId } from "./providerInstance.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
+  AgentProfile,
   AgentProfileName,
   ClientSettingsSchema,
   ClientSettingsPatch,
+  DEFAULT_AGENT_PROFILE_DRIVER,
   DEFAULT_SERVER_SETTINGS,
   ServerSettings,
   ServerSettingsPatch,
@@ -16,6 +18,8 @@ const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const decodeAgentProfile = Schema.decodeUnknownSync(AgentProfile);
+const encodeAgentProfile = Schema.encodeSync(AgentProfile);
 
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
@@ -262,7 +266,7 @@ describe("ServerSettingsPatch.agentProfiles", () => {
     });
     expect(replacement.agentProfiles).toBeDefined();
     const implementer = replacement.agentProfiles?.[AgentProfileName.make("implementer")];
-    expect(implementer?.driver).toBe("codex");
+    expect(implementer?.target).toEqual({ kind: "driver", driver: "codex" });
     expect(implementer?.model).toBe("gpt-5.4");
     // Defaults applied by AgentProfile decoding.
     expect(implementer?.runtime).toBe("session");
@@ -278,6 +282,160 @@ describe("ServerSettingsPatch.agentProfiles", () => {
         },
       }),
     ).toThrow();
+  });
+});
+
+describe("AgentProfile target union", () => {
+  it("decodes a canonical instance target", () => {
+    const decoded = decodeAgentProfile({
+      target: { kind: "instance", instanceId: "codex_work" },
+      model: "gpt-5.4",
+    });
+    expect(decoded.target).toEqual({
+      kind: "instance",
+      instanceId: ProviderInstanceId.make("codex_work"),
+    });
+    expect(decoded.model).toBe("gpt-5.4");
+    expect(decoded.runtime).toBe("session");
+  });
+
+  it("decodes a canonical driver target", () => {
+    const decoded = decodeAgentProfile({
+      target: { kind: "driver", driver: "claudeAgent" },
+    });
+    expect(decoded.target).toEqual({
+      kind: "driver",
+      driver: ProviderDriverKind.make("claudeAgent"),
+    });
+  });
+
+  it("legacy: instanceId alone becomes an instance target", () => {
+    const decoded = decodeAgentProfile({
+      instanceId: "codex_personal",
+      runtimeMode: "auto",
+    });
+    expect(decoded.target).toEqual({
+      kind: "instance",
+      instanceId: ProviderInstanceId.make("codex_personal"),
+    });
+    expect(decoded.runtimeMode).toBe("auto");
+  });
+
+  it("legacy: driver alone becomes a driver target", () => {
+    const decoded = decodeAgentProfile({ driver: "grok" });
+    expect(decoded.target).toEqual({
+      kind: "driver",
+      driver: ProviderDriverKind.make("grok"),
+    });
+  });
+
+  it("legacy: neither instanceId nor driver becomes the Codex driver target", () => {
+    const decoded = decodeAgentProfile({});
+    expect(decoded.target).toEqual({
+      kind: "driver",
+      driver: DEFAULT_AGENT_PROFILE_DRIVER,
+    });
+    expect(decoded.runtime).toBe("session");
+    expect(decoded.runtimeMode).toBe("full-access");
+    expect(decoded.interactionMode).toBe("default");
+  });
+
+  it("legacy: both instanceId and driver prefer the instance target", () => {
+    // Historical server resolution preferred the explicit instance whenever it
+    // was present, so decode preserves that choice rather than inventing a
+    // third "both" state.
+    const decoded = decodeAgentProfile({
+      instanceId: "codex_work",
+      driver: "claudeAgent",
+    });
+    expect(decoded.target).toEqual({
+      kind: "instance",
+      instanceId: ProviderInstanceId.make("codex_work"),
+    });
+  });
+
+  it("legacy: rejects an unknown-format driver instead of storing an arbitrary string", () => {
+    expect(() => decodeAgentProfile({ driver: "1bad" })).toThrow(/driver/i);
+    expect(() => decodeAgentProfile({ driver: "has spaces" })).toThrow(/driver/i);
+    expect(() => decodeAgentProfile({ driver: "" })).toThrow();
+    expect(() => decodeAgentProfile({ driver: 42 })).toThrow(/driver/i);
+  });
+
+  it("rejects a malformed canonical target", () => {
+    expect(() => decodeAgentProfile({ target: { kind: "driver", driver: "1bad" } })).toThrow();
+    expect(() =>
+      decodeAgentProfile({ target: { kind: "instance", instanceId: "1bad" } }),
+    ).toThrow();
+    expect(() => decodeAgentProfile({ target: { kind: "neither" } })).toThrow();
+  });
+
+  it("encodes only the canonical target shape, never legacy top-level fields", () => {
+    const fromLegacy = decodeAgentProfile({
+      instanceId: "codex_work",
+      driver: "claudeAgent",
+      model: "gpt-5.4",
+      titlePrefix: "impl",
+    });
+    const encoded = encodeAgentProfile(fromLegacy) as Record<string, unknown>;
+    expect(encoded).toEqual({
+      runtime: "session",
+      target: { kind: "instance", instanceId: "codex_work" },
+      model: "gpt-5.4",
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      titlePrefix: "impl",
+    });
+    expect(encoded).not.toHaveProperty("instanceId");
+    expect(encoded).not.toHaveProperty("driver");
+  });
+
+  it("round-trips a driver-target profile through encode/decode", () => {
+    const original = decodeAgentProfile({
+      target: { kind: "driver", driver: "opencode" },
+      runtime: "terminal",
+      runtimeMode: "approval-required",
+      interactionMode: "plan",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+    const encoded = encodeAgentProfile(original);
+    expect(encoded).toMatchObject({
+      target: { kind: "driver", driver: "opencode" },
+      runtime: "terminal",
+    });
+    expect(encoded).not.toHaveProperty("instanceId");
+    expect(encoded).not.toHaveProperty("driver");
+    expect(decodeAgentProfile(encoded)).toEqual(original);
+  });
+
+  it("preserves runtime/model/options/modes/titlePrefix through legacy migration", () => {
+    const decoded = decodeAgentProfile({
+      driver: "codex",
+      model: "gpt-5.4-codex",
+      options: [{ id: "reasoningEffort", value: "xhigh" }],
+      runtime: "terminal",
+      runtimeMode: "auto-accept-edits",
+      interactionMode: "plan",
+      titlePrefix: "impl",
+    });
+    expect(decoded).toEqual({
+      runtime: "terminal",
+      target: { kind: "driver", driver: ProviderDriverKind.make("codex") },
+      model: "gpt-5.4-codex",
+      options: [{ id: "reasoningEffort", value: "xhigh" }],
+      runtimeMode: "auto-accept-edits",
+      interactionMode: "plan",
+      titlePrefix: "impl",
+    });
+  });
+
+  it("accepts open driver slugs that this build may not ship (forks)", () => {
+    // ProviderDriverKind is open; "unknown to this build" is a runtime concern.
+    // Only invalid *format* fails decode.
+    const decoded = decodeAgentProfile({ driver: "ollama" });
+    expect(decoded.target).toEqual({
+      kind: "driver",
+      driver: ProviderDriverKind.make("ollama"),
+    });
   });
 });
 

@@ -279,10 +279,13 @@ import {
   PullRequestDialogState,
   cloneComposerImageForRetry,
   deriveLockedProvider,
+  getThreadErrorIdentity,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveThreadErrorCandidate,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveVisibleThreadError,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -1294,6 +1297,10 @@ function ChatViewContent(props: ChatViewProps) {
   const [localServerErrorsByThreadKey, setLocalServerErrorsByThreadKey] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
+  // Client-local dismissal of the currently shown error identity. Does not clear
+  // the server's historical session.lastError; a later revision reappears.
+  const [dismissedThreadErrorIdentityByThreadId, setDismissedThreadErrorIdentityByThreadId] =
+    useState<Record<string, string>>({});
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
@@ -1404,10 +1411,6 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
     : null;
   const fallbackDraftProject = useProject(fallbackDraftProjectRef);
-  const localDraftError = activeServerThread
-    ? null
-    : ((draftId ? localDraftErrorsByDraftId[draftId]?.message : null) ?? null);
-  const localServerError = localServerErrorsByThreadKey[routeThreadKey]?.message ?? null;
   // Draft errors are keyed by draftId while server errors are keyed by thread
   // key, so a pending draft entry must migrate when the server thread loads or
   // a failed send would silently disappear on promotion. When both keys hold
@@ -1459,9 +1462,30 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
-  const threadError = isServerThread
-    ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
-    : localDraftError;
+  const localThreadErrorEntry = isServerThread
+    ? (localServerErrorsByThreadKey[routeThreadKey] ?? null)
+    : draftId
+      ? (localDraftErrorsByDraftId[draftId] ?? null)
+      : null;
+  const threadErrorCandidate = resolveThreadErrorCandidate({
+    localError: localThreadErrorEntry,
+    sessionLastError: isServerThread ? (activeServerThread?.session?.lastError ?? null) : null,
+    sessionUpdatedAt: isServerThread ? (activeServerThread?.session?.updatedAt ?? null) : null,
+  });
+  const activeThreadErrorIdentity =
+    activeThread && threadErrorCandidate
+      ? getThreadErrorIdentity(activeThread.id, threadErrorCandidate)
+      : null;
+  const dismissedThreadErrorIdentity = activeThread
+    ? (dismissedThreadErrorIdentityByThreadId[activeThread.id] ?? null)
+    : null;
+  const threadError = resolveVisibleThreadError({
+    threadId: activeThread?.id ?? null,
+    localError: localThreadErrorEntry,
+    sessionLastError: isServerThread ? (activeServerThread?.session?.lastError ?? null) : null,
+    sessionUpdatedAt: isServerThread ? (activeServerThread?.session?.updatedAt ?? null) : null,
+    dismissedIdentity: dismissedThreadErrorIdentity,
+  });
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
@@ -6018,7 +6042,22 @@ function ChatViewContent(props: ChatViewProps) {
 
         <ThreadErrorBanner
           error={threadError}
-          onDismiss={() => setThreadError(activeThread.id, null)}
+          onDismiss={() => {
+            if (activeThreadErrorIdentity) {
+              setDismissedThreadErrorIdentityByThreadId((existing) => {
+                if (existing[activeThread.id] === activeThreadErrorIdentity) {
+                  return existing;
+                }
+                return {
+                  ...existing,
+                  [activeThread.id]: activeThreadErrorIdentity,
+                };
+              });
+            }
+            // Clear any local override; session.lastError stays on the server and
+            // stays hidden only while its identity matches the dismissal above.
+            setThreadError(activeThread.id, null);
+          }}
         />
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">

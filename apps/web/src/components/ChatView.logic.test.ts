@@ -20,12 +20,15 @@ import {
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   getStartedThreadModelChangeBlockReason,
+  getThreadErrorIdentity,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
+  resolveThreadErrorCandidate,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveVisibleThreadError,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -494,6 +497,120 @@ describe("shouldWriteThreadErrorToCurrentServerThread", () => {
         targetThreadId: threadId,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveVisibleThreadError", () => {
+  const restartMessage =
+    "The T3 Code server restarted while this turn was running, so the provider session was lost. Send a message to pick the thread back up.";
+  const sessionUpdatedAt = "2026-03-29T00:00:10.000Z";
+
+  it("hides a persisted session.lastError after dismiss even when the server value remains", () => {
+    // Exact regression: null local override + nullish-coalesce fallback to
+    // session.lastError used to re-show the banner immediately after dismiss.
+    const candidate = resolveThreadErrorCandidate({
+      localError: { message: null, at: 1 },
+      sessionLastError: restartMessage,
+      sessionUpdatedAt,
+    });
+    expect(candidate).toEqual({
+      message: restartMessage,
+      revision: sessionUpdatedAt,
+      source: "session",
+    });
+
+    const dismissedIdentity = getThreadErrorIdentity(threadId, candidate!);
+    expect(
+      resolveVisibleThreadError({
+        threadId,
+        localError: { message: null, at: 1 },
+        sessionLastError: restartMessage,
+        sessionUpdatedAt,
+        dismissedIdentity,
+      }),
+    ).toBeNull();
+    // Server historical lastError is still present; only visibility is gated.
+    expect(restartMessage).toBeTruthy();
+  });
+
+  it("shows a later occurrence with the same text when the session revision changes", () => {
+    const candidate = resolveThreadErrorCandidate({
+      localError: null,
+      sessionLastError: restartMessage,
+      sessionUpdatedAt,
+    });
+    const dismissedIdentity = getThreadErrorIdentity(threadId, candidate!);
+
+    expect(
+      resolveVisibleThreadError({
+        threadId,
+        localError: null,
+        sessionLastError: restartMessage,
+        sessionUpdatedAt: "2026-03-29T00:05:00.000Z",
+        dismissedIdentity,
+      }),
+    ).toBe(restartMessage);
+  });
+
+  it("does not inherit dismissal across threads", () => {
+    const otherThreadId = ThreadId.make("thread-2");
+    const candidate = resolveThreadErrorCandidate({
+      localError: null,
+      sessionLastError: restartMessage,
+      sessionUpdatedAt,
+    });
+    const dismissedIdentity = getThreadErrorIdentity(threadId, candidate!);
+
+    expect(
+      resolveVisibleThreadError({
+        threadId: otherThreadId,
+        localError: null,
+        sessionLastError: restartMessage,
+        sessionUpdatedAt,
+        dismissedIdentity,
+      }),
+    ).toBe(restartMessage);
+  });
+
+  it("prefers a local error and clears it independently of session.lastError", () => {
+    const localMessage = "Could not send message.";
+    const localAt = 1_700_000_000_000;
+    expect(
+      resolveVisibleThreadError({
+        threadId,
+        localError: { message: localMessage, at: localAt },
+        sessionLastError: restartMessage,
+        sessionUpdatedAt,
+        dismissedIdentity: null,
+      }),
+    ).toBe(localMessage);
+
+    const localIdentity = getThreadErrorIdentity(threadId, {
+      message: localMessage,
+      revision: String(localAt),
+      source: "local",
+    });
+    // Dismissing the local instance does not permanently hide a distinct session error.
+    expect(
+      resolveVisibleThreadError({
+        threadId,
+        localError: { message: null, at: localAt + 1 },
+        sessionLastError: restartMessage,
+        sessionUpdatedAt,
+        dismissedIdentity: localIdentity,
+      }),
+    ).toBe(restartMessage);
+
+    // Local-only clear (no dismiss identity) still removes the transient local banner.
+    expect(
+      resolveVisibleThreadError({
+        threadId,
+        localError: { message: null, at: localAt + 1 },
+        sessionLastError: null,
+        sessionUpdatedAt: null,
+        dismissedIdentity: null,
+      }),
+    ).toBeNull();
   });
 });
 

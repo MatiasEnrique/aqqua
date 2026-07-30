@@ -14,6 +14,7 @@ import {
   type AgentProfile,
   type AgentProfileMap,
   type AgentProfileName,
+  DEFAULT_AGENT_PROFILE_DRIVER,
   DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_AGENT_PROFILE_RUNTIME,
   DEFAULT_MODEL,
@@ -31,7 +32,7 @@ import * as Result from "effect/Result";
 import { AgentProfileUnavailableError, AgentProfileUnknownError } from "./Errors.ts";
 
 /** Driver used for sub-agents when a profile does not name one. */
-export const DEFAULT_AGENT_PROFILE_DRIVER = "codex";
+export { DEFAULT_AGENT_PROFILE_DRIVER };
 
 /**
  * Model used when neither the profile nor the project supplies one.
@@ -67,6 +68,7 @@ export interface ResolvedAgentProfile {
  */
 const IMPLICIT_DEFAULT_PROFILE: AgentProfile = {
   runtime: DEFAULT_AGENT_PROFILE_RUNTIME,
+  target: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
   runtimeMode: DEFAULT_RUNTIME_MODE,
   interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
 };
@@ -85,9 +87,9 @@ export interface ResolveAgentProfileInput {
  *
  * Resolution order for the provider instance:
  *
- * 1. the profile's explicit `instanceId`;
- * 2. otherwise the first **enabled** instance whose driver matches the profile's
- *    `driver` (default `codex`).
+ * 1. when `target.kind === "instance"`, that explicit instance;
+ * 2. when `target.kind === "driver"`, the first **enabled** instance whose
+ *    driver matches `target.driver`.
  *
  * Resolution order for the model:
  *
@@ -119,10 +121,7 @@ export function resolveAgentProfile(
   if (Result.isFailure(instanceResult)) {
     return Result.fail(instanceResult.failure);
   }
-  const instanceId = instanceResult.success;
-  const driverKind =
-    instances.find((candidate) => candidate.instanceId === instanceId)?.driverKind ??
-    (DEFAULT_AGENT_PROFILE_DRIVER as ProviderDriverKind);
+  const { instanceId, driverKind } = instanceResult.success;
 
   const inheritedModel =
     projectDefaultModelSelection !== null && projectDefaultModelSelection.instanceId === instanceId
@@ -160,11 +159,15 @@ const resolveInstance = (input: {
   readonly definition: AgentProfile;
   readonly instances: ReadonlyArray<AgentInstanceCandidate>;
   readonly profile: AgentProfileName;
-}): Result.Result<ProviderInstanceId, AgentProfileUnavailableError> => {
+}): Result.Result<
+  { readonly instanceId: ProviderInstanceId; readonly driverKind: ProviderDriverKind },
+  AgentProfileUnavailableError
+> => {
   const { definition, instances, profile } = input;
+  const { target } = definition;
 
-  if (definition.instanceId !== undefined) {
-    const explicit = instances.find((candidate) => candidate.instanceId === definition.instanceId);
+  if (target.kind === "instance") {
+    const explicit = instances.find((candidate) => candidate.instanceId === target.instanceId);
     if (!explicit) {
       return Result.fail(
         new AgentProfileUnavailableError({
@@ -181,10 +184,14 @@ const resolveInstance = (input: {
         }),
       );
     }
-    return Result.succeed(explicit.instanceId);
+    return Result.succeed({
+      instanceId: explicit.instanceId,
+      driverKind: explicit.driverKind,
+    });
   }
 
-  const driver = definition.driver ?? DEFAULT_AGENT_PROFILE_DRIVER;
+  // Driver target carries the kind directly — no second lookup to recover it.
+  const driver = target.driver;
   const matching = instances.filter((candidate) => candidate.driverKind === driver);
   const usable = matching.find((candidate) => candidate.enabled);
   if (!usable) {
@@ -198,5 +205,8 @@ const resolveInstance = (input: {
       }),
     );
   }
-  return Result.succeed(usable.instanceId);
+  return Result.succeed({
+    instanceId: usable.instanceId,
+    driverKind: driver,
+  });
 };

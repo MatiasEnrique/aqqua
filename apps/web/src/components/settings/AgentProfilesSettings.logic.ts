@@ -4,13 +4,13 @@
  * A profile maps a role name an orchestrator asks for (`3T agent spawn
  * --profile <name>`) to a concrete provider configuration. Profiles are
  * machine-local: they live in server settings under `agentProfiles`, because
- * `instanceId` names a provider instance configured on this machine.
+ * an instance target names a provider instance configured on this machine.
  *
  * Everything here is a pure function over the settings map plus the live
  * provider instance entries, so the presentation layer only has to render.
  * Server-side resolution lives in `apps/server/src/agent-control/Profiles.ts`;
- * the presentation rules below mirror it (explicit instance wins, else the
- * first enabled instance of `driver`, else the built-in `implementer` role).
+ * the presentation rules below mirror it (instance target wins, else the first
+ * enabled instance of a driver target, else the built-in `implementer` role).
  *
  * @module components/settings/AgentProfilesSettings.logic
  */
@@ -19,11 +19,17 @@ import {
   type AgentProfileMap,
   AgentProfileName,
   type AgentProfileRuntime,
+  type AgentProfileTarget,
+  AGENT_PROFILE_NAME_MAX_CHARS,
+  AGENT_PROFILE_NAME_PATTERN,
+  DEFAULT_AGENT_PROFILE_DRIVER,
   DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_AGENT_PROFILE_RUNTIME,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
-  type ProviderInstanceId,
+  isProviderDriverKind,
+  ProviderDriverKind,
+  ProviderInstanceId,
   type ProviderInteractionMode,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
@@ -33,13 +39,8 @@ import {
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
-/** Mirrors `AGENT_PROFILE_NAME_MAX_CHARS` in `packages/contracts/src/settings.ts`. */
-export const AGENT_PROFILE_NAME_MAX_LENGTH = 64;
-/** Mirrors the `AgentProfileName` pattern in contracts. */
-export const AGENT_PROFILE_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-
-/** Driver the server falls back to when a profile names neither instance nor driver. */
-export const DEFAULT_AGENT_PROFILE_DRIVER = "codex";
+/** Re-export contracts limits so the dialog can cite a single source of truth. */
+export { AGENT_PROFILE_NAME_MAX_CHARS, AGENT_PROFILE_NAME_PATTERN, DEFAULT_AGENT_PROFILE_DRIVER };
 
 /** Label used wherever a profile omits `model` and inherits the project default. */
 export const INHERIT_MODEL_LABEL = "Inherits project default";
@@ -49,27 +50,34 @@ export const INHERIT_MODEL_VALUE = "__inherit__";
 // ── Map editing ──────────────────────────────────────────────────────
 
 /**
- * `AgentProfileMap` is keyed by a branded name, which makes plain string
- * indexing a type error. Every map edit below goes through this widened view
- * and casts back once, so the branding stays a boundary concern.
+ * Mutable view of a profile map for whole-map rebuilds. Keys stay plain
+ * strings while editing; {@link toAgentProfileMap} brands the result once.
  */
 type MutableProfileMap = Record<string, AgentProfile>;
 
-const asRecord = (map: AgentProfileMap | undefined): MutableProfileMap =>
-  (map ?? {}) as unknown as MutableProfileMap;
+const asMutableRecord = (map: AgentProfileMap | undefined): MutableProfileMap => {
+  const next: MutableProfileMap = {};
+  if (map === undefined) return next;
+  for (const [key, value] of Object.entries(map)) {
+    next[key] = value;
+  }
+  return next;
+};
 
-const asProfileMap = (record: MutableProfileMap): AgentProfileMap =>
-  record as unknown as AgentProfileMap;
+/** Brand a plain record as an `AgentProfileMap` after keys have been validated. */
+export function toAgentProfileMap(record: MutableProfileMap): AgentProfileMap {
+  return record as AgentProfileMap;
+}
 
 export function agentProfileNames(map: AgentProfileMap | undefined): ReadonlyArray<string> {
-  return Object.keys(asRecord(map));
+  return Object.keys(asMutableRecord(map));
 }
 
 export function getAgentProfile(
   map: AgentProfileMap | undefined,
   name: string,
 ): AgentProfile | undefined {
-  return asRecord(map)[name];
+  return asMutableRecord(map)[name];
 }
 
 /**
@@ -89,8 +97,8 @@ export function validateAgentProfileName(input: {
 }): string | null {
   const name = input.name.trim();
   if (name.length === 0) return "Profile name is required.";
-  if (name.length > AGENT_PROFILE_NAME_MAX_LENGTH) {
-    return `Profile name must be ${AGENT_PROFILE_NAME_MAX_LENGTH} characters or fewer.`;
+  if (name.length > AGENT_PROFILE_NAME_MAX_CHARS) {
+    return `Profile name must be ${AGENT_PROFILE_NAME_MAX_CHARS} characters or fewer.`;
   }
   if (!AGENT_PROFILE_NAME_PATTERN.test(name)) {
     return "Profile name must start with a letter and use only letters, digits, '-', or '_'.";
@@ -115,7 +123,7 @@ export function upsertAgentProfile(input: {
   readonly name: string;
   readonly profile: AgentProfile;
 }): AgentProfileMap {
-  const source = asRecord(input.map);
+  const source = asMutableRecord(input.map);
   const name = input.name.trim();
   const originalName = input.originalName ?? null;
   const next: MutableProfileMap = {};
@@ -135,7 +143,7 @@ export function upsertAgentProfile(input: {
   if (!placed) {
     next[name] = input.profile;
   }
-  return asProfileMap(next);
+  return toAgentProfileMap(next);
 }
 
 /** Remove one profile, returning a whole new map. Unknown names are a no-op. */
@@ -144,23 +152,20 @@ export function deleteAgentProfile(
   name: string,
 ): AgentProfileMap {
   const next: MutableProfileMap = {};
-  for (const [key, value] of Object.entries(asRecord(map))) {
+  for (const [key, value] of Object.entries(asMutableRecord(map))) {
     if (key === name) continue;
     next[key] = value;
   }
-  return asProfileMap(next);
+  return toAgentProfileMap(next);
 }
 
 // ── Draft ⇄ profile ──────────────────────────────────────────────────
 
 /**
- * Which provider a profile targets. `instance` pins an exact configured
- * instance (`instanceId`); `driver` records only a driver kind and lets the
- * server pick the first enabled instance of it at spawn time.
+ * Which provider a profile targets. Same closed union as the contracts
+ * `AgentProfile.target` field — drafts never invent a third state.
  */
-export type AgentProfileProviderSelection =
-  | { readonly kind: "instance"; readonly instanceId: string }
-  | { readonly kind: "driver"; readonly driver: string };
+export type AgentProfileProviderSelection = AgentProfileTarget;
 
 /** Editable form state for the add/edit dialog. */
 export interface AgentProfileDraft {
@@ -189,7 +194,7 @@ export const DEFAULT_AGENT_PROFILE_DRAFT: AgentProfileDraft = {
 /** The implicit `implementer` role every build resolves without any settings. */
 export const BUILT_IN_IMPLEMENTER_PROFILE: AgentProfile = {
   runtime: DEFAULT_AGENT_PROFILE_RUNTIME,
-  driver: DEFAULT_AGENT_PROFILE_DRIVER,
+  target: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
   runtimeMode: DEFAULT_RUNTIME_MODE,
   interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
 };
@@ -197,10 +202,7 @@ export const BUILT_IN_IMPLEMENTER_PROFILE: AgentProfile = {
 export function draftFromAgentProfile(name: string, profile: AgentProfile): AgentProfileDraft {
   return {
     name,
-    provider:
-      profile.instanceId !== undefined
-        ? { kind: "instance", instanceId: profile.instanceId }
-        : { kind: "driver", driver: profile.driver ?? DEFAULT_AGENT_PROFILE_DRIVER },
+    provider: profile.target,
     model: profile.model ?? null,
     options: profile.options ?? [],
     runtime: profile.runtime,
@@ -228,9 +230,7 @@ export function agentProfileFromDraft(draft: AgentProfileDraft): AgentProfile {
   const titlePrefix = draft.titlePrefix.trim();
   return {
     runtime: draft.runtime,
-    ...(draft.provider.kind === "instance"
-      ? { instanceId: draft.provider.instanceId as ProviderInstanceId }
-      : { driver: draft.provider.driver }),
+    target: draft.provider,
     ...(model.length > 0 ? { model } : {}),
     ...(draft.options.length > 0 ? { options: draft.options } : {}),
     runtimeMode: draft.runtimeMode,
@@ -286,15 +286,24 @@ export function parseProviderChoiceValue(value: string): AgentProfileProviderSel
   const kind = value.slice(0, separator);
   const rest = value.slice(separator + 1);
   if (rest.length === 0) return null;
-  if (kind === "instance") return { kind: "instance", instanceId: rest };
-  if (kind === "driver") return { kind: "driver", driver: rest };
+  if (kind === "instance") {
+    try {
+      return { kind: "instance", instanceId: ProviderInstanceId.make(rest) };
+    } catch {
+      return null;
+    }
+  }
+  if (kind === "driver") {
+    if (!isProviderDriverKind(rest)) return null;
+    return { kind: "driver", driver: rest };
+  }
   return null;
 }
 
 /**
  * Build the provider select: every enabled configured instance first (pinning
- * `instanceId`), then a generic "first enabled <driver>" fallback per driver
- * kind the user has at least one instance of (recording only `driver`).
+ * an instance target), then a generic "first enabled <driver>" fallback per
+ * driver kind the user has at least one instance of (a driver target).
  *
  * A driver fallback's model list comes from the instance the server would pick
  * — the first enabled one of that kind — so the model select shows the same
@@ -305,22 +314,32 @@ export function buildProviderChoices(input: {
   readonly driverLabels: Readonly<Record<string, string | undefined>>;
 }): ReadonlyArray<AgentProfileProviderChoice> {
   const enabled = input.entries.filter((entry) => entry.enabled);
-  const choices: AgentProfileProviderChoice[] = enabled.map((entry) => ({
-    selection: { kind: "instance", instanceId: entry.instanceId },
-    value: providerChoiceValue({ kind: "instance", instanceId: entry.instanceId }),
-    label: entry.displayName,
-    description: `Pinned instance '${entry.instanceId}'`,
-    models: entry.models,
-  }));
+  const choices: AgentProfileProviderChoice[] = enabled.map((entry) => {
+    const selection = {
+      kind: "instance" as const,
+      instanceId: entry.instanceId,
+    };
+    return {
+      selection,
+      value: providerChoiceValue(selection),
+      label: entry.displayName,
+      description: `Pinned instance '${entry.instanceId}'`,
+      models: entry.models,
+    };
+  });
 
   const seenDrivers = new Set<string>();
   for (const entry of enabled) {
     if (seenDrivers.has(entry.driverKind)) continue;
     seenDrivers.add(entry.driverKind);
     const label = input.driverLabels[entry.driverKind] ?? entry.driverKind;
+    const selection = {
+      kind: "driver" as const,
+      driver: entry.driverKind,
+    };
     choices.push({
-      selection: { kind: "driver", driver: entry.driverKind },
-      value: providerChoiceValue({ kind: "driver", driver: entry.driverKind }),
+      selection,
+      value: providerChoiceValue(selection),
       label: `First enabled ${label}`,
       description: "Resolved at spawn time, so it survives instance changes",
       models: entry.models,
@@ -332,9 +351,13 @@ export function buildProviderChoices(input: {
   // dialog always has something to select.
   if (!seenDrivers.has(DEFAULT_AGENT_PROFILE_DRIVER)) {
     const label = input.driverLabels[DEFAULT_AGENT_PROFILE_DRIVER] ?? DEFAULT_AGENT_PROFILE_DRIVER;
+    const selection = {
+      kind: "driver" as const,
+      driver: DEFAULT_AGENT_PROFILE_DRIVER,
+    };
     choices.push({
-      selection: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
-      value: providerChoiceValue({ kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER }),
+      selection,
+      value: providerChoiceValue(selection),
       label: `First enabled ${label}`,
       description: "No enabled instance of this driver is configured yet",
       models: [],
@@ -387,7 +410,7 @@ export interface AgentProfileRow {
 export function buildAgentProfileRows(
   map: AgentProfileMap | undefined,
 ): ReadonlyArray<AgentProfileRow> {
-  const record = asRecord(map);
+  const record = asMutableRecord(map);
   const rows: AgentProfileRow[] = Object.keys(record)
     .toSorted((left, right) => left.localeCompare(right))
     .map((name) => ({ name, profile: record[name]!, isBuiltIn: false }));
@@ -409,13 +432,13 @@ export function describeAgentProfileProvider(input: {
   readonly driverLabels: Readonly<Record<string, string | undefined>>;
 }): string {
   const { profile, entries, driverLabels } = input;
-  if (profile.instanceId !== undefined) {
-    const entry = entries.find((candidate) => candidate.instanceId === profile.instanceId);
-    if (entry === undefined) return `${profile.instanceId} (not configured)`;
+  const { target } = profile;
+  if (target.kind === "instance") {
+    const entry = entries.find((candidate) => candidate.instanceId === target.instanceId);
+    if (entry === undefined) return `${target.instanceId} (not configured)`;
     return entry.enabled ? entry.displayName : `${entry.displayName} (disabled)`;
   }
-  const driver = profile.driver ?? DEFAULT_AGENT_PROFILE_DRIVER;
-  return `First enabled ${driverLabels[driver] ?? driver}`;
+  return `First enabled ${driverLabels[target.driver] ?? target.driver}`;
 }
 
 /** Human label for a profile's model. */
@@ -497,3 +520,25 @@ export const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
   "approval-required",
 ];
 export const INTERACTION_MODES: ReadonlyArray<ProviderInteractionMode> = ["default", "plan"];
+
+export function isAgentProfileRuntime(value: string): value is AgentProfileRuntime {
+  return (AGENT_PROFILE_RUNTIMES as ReadonlyArray<string>).includes(value);
+}
+
+export function isRuntimeMode(value: string): value is RuntimeMode {
+  return (RUNTIME_MODES as ReadonlyArray<string>).includes(value);
+}
+
+export function isInteractionMode(value: string): value is ProviderInteractionMode {
+  return (INTERACTION_MODES as ReadonlyArray<string>).includes(value);
+}
+
+/** Build a typed driver target without casts at the call site. */
+export function driverTarget(driver: ProviderDriverKind): AgentProfileTarget {
+  return { kind: "driver", driver };
+}
+
+/** Build a typed instance target without casts at the call site. */
+export function instanceTarget(instanceId: ProviderInstanceId): AgentProfileTarget {
+  return { kind: "instance", instanceId };
+}

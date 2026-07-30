@@ -5,6 +5,7 @@ import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
+  filterHiddenSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
   resolveSidebarProjectState,
   resolveSidebarWorktreeDeleteAction,
@@ -85,8 +86,8 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "draft",
-          environmentId: "local",
-          projectId: "project",
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
           envMode: "worktree",
           title: "future",
           baseBranch: "main",
@@ -154,8 +155,8 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "local-draft",
-          environmentId: "local",
-          projectId: "project",
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
           envMode: "local",
           title: "New conversation",
           baseBranch: "main",
@@ -216,8 +217,8 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "draft",
-          environmentId: "local",
-          projectId: "project",
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
           envMode: "local",
           title: "New conversation",
           baseBranch: null,
@@ -389,17 +390,17 @@ describe("buildSidebarRepositoryGroups", () => {
         {
           projectKey: "repo:ciber",
           displayName: "ciber",
-          memberProjectRefs: [{ environmentId: "local", projectId: "ciber" }],
+          memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "ciber" }],
         },
         {
           projectKey: "repo:t3code",
           displayName: "t3code",
-          memberProjectRefs: [{ environmentId: "local", projectId: "t3code" }],
+          memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "t3code" }],
         },
         {
           projectKey: "repo:empty",
           displayName: "empty",
-          memberProjectRefs: [{ environmentId: "local", projectId: "empty" }],
+          memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "empty" }],
         },
       ],
       worktrees,
@@ -588,8 +589,7 @@ describe("sidebarLocationContextMenuItems", () => {
   });
 });
 
-describe("filterRemovedSidebarWorktreeGroups", () => {
-  const removedAt = "2026-07-29T22:00:00.000Z";
+describe("filterHiddenSidebarWorktreeGroups", () => {
   const settledOnly = {
     key: "local:/worktrees/ciber/dev-22",
     drafts: [],
@@ -599,11 +599,9 @@ describe("filterRemovedSidebarWorktreeGroups", () => {
   } as unknown as SidebarWorktreeGroup;
 
   it("hides a settled-only worktree after successful removal", () => {
-    expect(
-      filterRemovedSidebarWorktreeGroups([settledOnly], {
-        [settledOnly.key]: removedAt,
-      }),
-    ).toEqual([]);
+    expect(filterHiddenSidebarWorktreeGroups([settledOnly], new Set([settledOnly.key]))).toEqual(
+      [],
+    );
   });
 
   it("shows a path again when new work appears after removal", () => {
@@ -613,10 +611,54 @@ describe("filterRemovedSidebarWorktreeGroups", () => {
       updatedAt: Date.parse("2026-07-29T21:00:00.000Z"),
     } as unknown as SidebarWorktreeGroup;
 
+    expect(filterHiddenSidebarWorktreeGroups([recreated], new Set([recreated.key]))).toEqual([
+      recreated,
+    ]);
+  });
+
+  it("accepts the legacy record form via filterRemovedSidebarWorktreeGroups", () => {
     expect(
-      filterRemovedSidebarWorktreeGroups([recreated], {
-        [recreated.key]: removedAt,
+      filterRemovedSidebarWorktreeGroups([settledOnly], {
+        [settledOnly.key]: "2026-07-29T22:00:00.000Z",
       }),
-    ).toEqual([recreated]);
+    ).toEqual([]);
+  });
+});
+
+describe("session error aggregates", () => {
+  it("counts a session-error thread as stale even when the latest turn completed", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [
+        {
+          ...thread(
+            "errored-done",
+            "local",
+            "/repo-wt",
+            "feature",
+            "2026-01-04T00:00:00.000Z",
+            null,
+            "error",
+          ),
+          latestTurn: {
+            state: "completed",
+            completedAt: "2026-01-04T00:00:00.000Z",
+          },
+        } as EnvironmentThreadShell,
+      ],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo-wt", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups[0]?.stateCounts).toEqual({
+      working: 0,
+      needsInput: 0,
+      done: 0,
+      stale: 1,
+      settled: 0,
+    });
+    expect(resolveSidebarProjectState(groups)).toBe("idle");
   });
 });

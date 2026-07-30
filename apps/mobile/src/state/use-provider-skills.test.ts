@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 import type { ServerProviderSkill } from "@t3tools/contracts";
 import {
+  createUseProviderWorkspaceSkills,
   dedupeProviderSkillsByCanonicalName,
   formatProviderSkillSourceBadge,
   PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
@@ -17,6 +21,13 @@ function makeSkill(
     ...input,
   } satisfies ServerProviderSkill;
 }
+
+const bindingDir = dirname(fileURLToPath(import.meta.url));
+const mobileBindingSource = readFileSync(join(bindingDir, "use-provider-skills.ts"), "utf8");
+const webBindingSource = readFileSync(
+  join(bindingDir, "../../../web/src/lib/providerSkillsState.ts"),
+  "utf8",
+);
 
 describe("mobile provider skill presentation", () => {
   it("exposes Repo and Global badges for mobile rows", () => {
@@ -82,5 +93,34 @@ describe("mobile provider skill presentation", () => {
       }),
     ).toBe(true);
     expect(PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL).toBe("Searching workspace skills…");
+  });
+});
+
+/**
+ * Regression for:
+ * [plugin:builtin:vite-resolve] "./state/use-provider-workspace-skills" is not
+ * exported under the conditions ["module", "browser", "development", "import"]
+ * from apps/web/node_modules/@t3tools/client-runtime
+ *
+ * Both surfaces must bind the shared factory through the pre-existing
+ * state/provider-skills export so a cached Vite package export map still resolves.
+ */
+describe("web and mobile bindings use pre-existing state/provider-skills export", () => {
+  it("imports createUseProviderWorkspaceSkills from state/provider-skills with injected useMemo", () => {
+    // Avoid importing the binding modules here: mobile pulls connection/runtime → RN.
+    expect(typeof createUseProviderWorkspaceSkills).toBe("function");
+
+    for (const [label, source] of [
+      ["mobile", mobileBindingSource],
+      ["web", webBindingSource],
+    ] as const) {
+      expect(source, label).toContain('from "@t3tools/client-runtime/state/provider-skills"');
+      expect(source, label).not.toContain("use-provider-workspace-skills");
+      expect(source, label).toContain("createUseProviderWorkspaceSkills({");
+      expect(source, label).toContain("useMemo");
+      expect(source, label).toContain("useEnvironmentQuery");
+      expect(source, label).toContain("listSkills: providerSkillsEnvironment.listSkills");
+      expect(source, label).toContain("export const useProviderWorkspaceSkills =");
+    }
   });
 });

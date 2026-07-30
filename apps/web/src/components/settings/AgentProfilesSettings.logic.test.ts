@@ -1,4 +1,10 @@
-import type { AgentProfile, AgentProfileMap, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  type AgentProfile,
+  type AgentProfileMap,
+  DEFAULT_AGENT_PROFILE_DRIVER,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -12,13 +18,16 @@ import {
   describeAgentProfileModel,
   describeAgentProfileProvider,
   draftFromAgentProfile,
+  driverTarget,
   findProviderChoice,
+  instanceTarget,
   parseProviderChoiceValue,
   providerChoiceValue,
   pruneAgentProfileOptions,
   selectOptionDescriptorsForModel,
   setAgentProfileOption,
   summarizeAgentProfileOptions,
+  toAgentProfileMap,
   upsertAgentProfile,
   validateAgentProfileName,
 } from "./AgentProfilesSettings.logic";
@@ -28,6 +37,7 @@ const DRIVER_LABELS = { codex: "Codex", grok: "Grok", claudeAgent: "Claude" };
 function profile(overrides: Partial<AgentProfile> = {}): AgentProfile {
   return {
     runtime: "session",
+    target: driverTarget(DEFAULT_AGENT_PROFILE_DRIVER),
     runtimeMode: "full-access",
     interactionMode: "default",
     ...overrides,
@@ -35,13 +45,13 @@ function profile(overrides: Partial<AgentProfile> = {}): AgentProfile {
 }
 
 function asMap(record: Record<string, AgentProfile>): AgentProfileMap {
-  return record as unknown as AgentProfileMap;
+  return toAgentProfileMap(record);
 }
 
 function entry(overrides: Partial<ProviderInstanceEntry> = {}): ProviderInstanceEntry {
   return {
-    instanceId: "codex" as ProviderInstanceId,
-    driverKind: "codex",
+    instanceId: ProviderInstanceId.make("codex"),
+    driverKind: ProviderDriverKind.make("codex"),
     displayName: "Codex",
     enabled: true,
     installed: true,
@@ -102,7 +112,7 @@ describe("upsertAgentProfile", () => {
     const next = upsertAgentProfile({
       map: asMap({ grok: profile() }),
       name: "cc",
-      profile: profile({ driver: "claudeAgent" }),
+      profile: profile({ target: driverTarget(ProviderDriverKind.make("claudeAgent")) }),
     });
     expect(Object.keys(next)).toEqual(["grok", "cc"]);
   });
@@ -159,7 +169,7 @@ describe("agentProfileFromDraft", () => {
     const built = agentProfileFromDraft(DEFAULT_AGENT_PROFILE_DRAFT);
     expect(built).toEqual({
       runtime: "session",
-      driver: "codex",
+      target: { kind: "driver", driver: "codex" },
       runtimeMode: "full-access",
       interactionMode: "default",
     });
@@ -167,15 +177,23 @@ describe("agentProfileFromDraft", () => {
     expect("options" in built).toBe(false);
     expect("titlePrefix" in built).toBe(false);
     expect("instanceId" in built).toBe(false);
+    expect("driver" in built).toBe(false);
   });
 
-  it("writes instanceId instead of driver for a pinned instance", () => {
+  it("writes an instance target for a pinned instance", () => {
     const built = agentProfileFromDraft({
       ...DEFAULT_AGENT_PROFILE_DRAFT,
-      provider: { kind: "instance", instanceId: "codex_work" },
+      provider: instanceTarget(ProviderInstanceId.make("codex_work")),
     });
-    expect(built.instanceId).toBe("codex_work");
-    expect("driver" in built).toBe(false);
+    expect(built.target).toEqual({ kind: "instance", instanceId: "codex_work" });
+  });
+
+  it("writes a driver target for a driver selection", () => {
+    const built = agentProfileFromDraft({
+      ...DEFAULT_AGENT_PROFILE_DRAFT,
+      provider: driverTarget(ProviderDriverKind.make("claudeAgent")),
+    });
+    expect(built.target).toEqual({ kind: "driver", driver: "claudeAgent" });
   });
 
   it("keeps a chosen model, options, and trimmed title prefix", () => {
@@ -200,7 +218,7 @@ describe("agentProfileFromDraft", () => {
 
   it("round-trips through draftFromAgentProfile", () => {
     const original = profile({
-      instanceId: "codex_work" as ProviderInstanceId,
+      target: instanceTarget(ProviderInstanceId.make("codex_work")),
       model: "gpt-5-codex",
       options: [{ id: "reasoningEffort", value: "high" }],
       titlePrefix: "impl",
@@ -235,13 +253,13 @@ describe("provider choices", () => {
   const entries = [
     entry(),
     entry({
-      instanceId: "codex_work" as ProviderInstanceId,
+      instanceId: ProviderInstanceId.make("codex_work"),
       displayName: "Codex Work",
       isDefault: false,
     }),
     entry({
-      instanceId: "grok" as ProviderInstanceId,
-      driverKind: "grok" as ProviderInstanceEntry["driverKind"],
+      instanceId: ProviderInstanceId.make("grok"),
+      driverKind: ProviderDriverKind.make("grok"),
       displayName: "Grok",
       models: [
         {
@@ -262,8 +280,8 @@ describe("provider choices", () => {
       ],
     }),
     entry({
-      instanceId: "claude" as ProviderInstanceId,
-      driverKind: "claudeAgent" as ProviderInstanceEntry["driverKind"],
+      instanceId: ProviderInstanceId.make("claude"),
+      driverKind: ProviderDriverKind.make("claudeAgent"),
       displayName: "Claude",
       enabled: false,
     }),
@@ -288,21 +306,24 @@ describe("provider choices", () => {
   });
 
   it("round-trips selection values", () => {
-    const selection = { kind: "instance", instanceId: "codex_work" } as const;
+    const selection = instanceTarget(ProviderInstanceId.make("codex_work"));
     expect(parseProviderChoiceValue(providerChoiceValue(selection))).toEqual(selection);
     expect(parseProviderChoiceValue("driver:codex")).toEqual({ kind: "driver", driver: "codex" });
     expect(parseProviderChoiceValue("nonsense")).toBeNull();
     expect(parseProviderChoiceValue("instance:")).toBeNull();
+    expect(parseProviderChoiceValue("driver:1bad")).toBeNull();
   });
 
   it("returns undefined for a selection whose instance is gone", () => {
     const choices = buildProviderChoices({ entries, driverLabels: DRIVER_LABELS });
-    expect(findProviderChoice(choices, { kind: "instance", instanceId: "ghost" })).toBeUndefined();
+    expect(
+      findProviderChoice(choices, instanceTarget(ProviderInstanceId.make("ghost"))),
+    ).toBeUndefined();
   });
 
   it("exposes only select descriptors for the chosen model", () => {
     const choices = buildProviderChoices({ entries, driverLabels: DRIVER_LABELS });
-    const grok = findProviderChoice(choices, { kind: "instance", instanceId: "grok" })!;
+    const grok = findProviderChoice(choices, instanceTarget(ProviderInstanceId.make("grok")))!;
     expect(selectOptionDescriptorsForModel(grok.models, "grok-4").map((d) => d.id)).toEqual([
       "reasoningEffort",
     ]);
@@ -348,21 +369,21 @@ describe("presentation", () => {
     const entries = [entry({ displayName: "Codex" })];
     expect(
       describeAgentProfileProvider({
-        profile: profile({ instanceId: "codex" as ProviderInstanceId }),
+        profile: profile({ target: instanceTarget(ProviderInstanceId.make("codex")) }),
         entries,
         driverLabels: DRIVER_LABELS,
       }),
     ).toBe("Codex");
     expect(
       describeAgentProfileProvider({
-        profile: profile({ instanceId: "ghost" as ProviderInstanceId }),
+        profile: profile({ target: instanceTarget(ProviderInstanceId.make("ghost")) }),
         entries,
         driverLabels: DRIVER_LABELS,
       }),
     ).toBe("ghost (not configured)");
     expect(
       describeAgentProfileProvider({
-        profile: profile({ driver: "grok" }),
+        profile: profile({ target: driverTarget(ProviderDriverKind.make("grok")) }),
         entries,
         driverLabels: DRIVER_LABELS,
       }),

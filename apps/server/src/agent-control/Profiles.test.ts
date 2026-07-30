@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   AgentProfileName,
   type AgentProfileMap,
+  DEFAULT_AGENT_PROFILE_DRIVER,
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -63,6 +64,7 @@ it("resolves the default role on a machine with no agent profiles configured", (
   assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("codex"));
   assert.equal(resolved.modelSelection.model, codexFallbackModel);
   assert.equal(resolved.runtime, "session");
+  assert.equal(resolved.driverKind, DEFAULT_AGENT_PROFILE_DRIVER);
   // A delegated sub-agent has nobody to answer approval prompts while its
   // orchestrator waits, so it must not start in a mode that can block.
   assert.equal(resolved.runtimeMode, "full-access");
@@ -75,7 +77,12 @@ it("rejects an unconfigured role that is not the default, listing what exists", 
     resolve({
       profile: reviewer,
       profiles: {
-        [implementer]: { runtime: "session", runtimeMode: "auto", interactionMode: "default" },
+        [implementer]: {
+          runtime: "session",
+          target: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
+          runtimeMode: "auto",
+          interactionMode: "default",
+        },
       } as AgentProfileMap,
     }),
   );
@@ -119,7 +126,7 @@ it("falls back to the resolved driver's default model rather than a fixed one", 
       profiles: {
         [implementer]: {
           runtime: "session",
-          driver: "claudeAgent",
+          target: { kind: "driver", driver: ProviderDriverKind.make("claudeAgent") },
           runtimeMode: "full-access",
           interactionMode: "default",
         },
@@ -132,6 +139,7 @@ it("falls back to the resolved driver's default model rather than a fixed one", 
   );
 
   assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("claudeAgent"));
+  assert.equal(resolved.driverKind, ProviderDriverKind.make("claudeAgent"));
   assert.equal(
     resolved.modelSelection.model,
     agentProfileFallbackModel(ProviderDriverKind.make("claudeAgent")),
@@ -145,6 +153,7 @@ it("prefers the profile's explicit model over the project default", () => {
       profiles: {
         [implementer]: {
           runtime: "session",
+          target: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
           model: "gpt-5.4-codex",
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -160,13 +169,13 @@ it("prefers the profile's explicit model over the project default", () => {
   assert.equal(resolved.modelSelection.model, "gpt-5.4-codex");
 });
 
-it("falls back to the first enabled instance of the profile's driver", () => {
+it("falls back to the first enabled instance of the profile's driver target", () => {
   const resolved = expectSuccess(
     resolve({
       profiles: {
         [implementer]: {
           runtime: "session",
-          driver: "claudeAgent",
+          target: { kind: "driver", driver: ProviderDriverKind.make("claudeAgent") },
           runtimeMode: "full-access",
           interactionMode: "default",
         },
@@ -180,6 +189,29 @@ it("falls back to the first enabled instance of the profile's driver", () => {
   );
 
   assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("claude_work"));
+  assert.equal(resolved.driverKind, ProviderDriverKind.make("claudeAgent"));
+});
+
+it("resolves an instance target without recovering driver kind from a second map", () => {
+  const resolved = expectSuccess(
+    resolve({
+      profiles: {
+        [implementer]: {
+          runtime: "session",
+          target: {
+            kind: "instance",
+            instanceId: ProviderInstanceId.make("claude_work"),
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        },
+      } as AgentProfileMap,
+      instances: [instance("claude_work", "claudeAgent"), instance("codex", "codex")],
+    }),
+  );
+
+  assert.equal(resolved.modelSelection.instanceId, ProviderInstanceId.make("claude_work"));
+  assert.equal(resolved.driverKind, ProviderDriverKind.make("claudeAgent"));
 });
 
 it("reports a disabled explicit instance differently from a missing one", () => {
@@ -187,7 +219,7 @@ it("reports a disabled explicit instance differently from a missing one", () => 
     ({
       [implementer]: {
         runtime: "session",
-        instanceId: ProviderInstanceId.make(instanceId),
+        target: { kind: "instance", instanceId: ProviderInstanceId.make(instanceId) },
         runtimeMode: "full-access",
         interactionMode: "default",
       },
@@ -215,7 +247,10 @@ it("never leaks the provider instance id into a failure message", () => {
       profiles: {
         [implementer]: {
           runtime: "session",
-          instanceId: ProviderInstanceId.make("codex_secret_work_account"),
+          target: {
+            kind: "instance",
+            instanceId: ProviderInstanceId.make("codex_secret_work_account"),
+          },
           runtimeMode: "full-access",
           interactionMode: "default",
         },
@@ -246,6 +281,7 @@ it("carries the configured runtime, modes, and title prefix through", () => {
       profiles: {
         [implementer]: {
           runtime: "terminal",
+          target: { kind: "driver", driver: DEFAULT_AGENT_PROFILE_DRIVER },
           runtimeMode: "approval-required",
           interactionMode: "plan",
           titlePrefix: "impl",

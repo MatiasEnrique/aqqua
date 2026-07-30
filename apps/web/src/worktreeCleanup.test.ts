@@ -1,18 +1,16 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import {
   buildWorktreeDeletionPlan,
-  deleteWorktreeResourcesInOrder,
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
   isFinalWorktreeReferenceAfterDeletion,
-  selectThreadDeletionRoots,
   selectThreadsForWorktree,
   worktreeRemovalInspectionUnchanged,
 } from "./worktreeCleanup";
+import { WORKTREE_DELETION_BOUNDARY } from "./hooks/useThreadActions";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 
@@ -43,16 +41,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     ...overrides,
-  };
-}
-
-function asShell(thread: Thread): EnvironmentThreadShell {
-  return {
-    ...thread,
-    latestUserMessageAt: null,
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
   };
 }
 
@@ -162,93 +150,15 @@ describe("selectThreadsForWorktree", () => {
   });
 });
 
-describe("selectThreadDeletionRoots", () => {
-  it("keeps only roots when deleting a conversation hierarchy", () => {
-    const parent = asShell(
-      makeThread({
-        id: ThreadId.make("parent"),
-        worktreePath: "/tmp/worktrees/feature-a",
-      }),
-    );
-    const child = {
-      ...asShell(
-        makeThread({
-          id: ThreadId.make("child"),
-          worktreePath: "/tmp/worktrees/feature-a",
-        }),
-      ),
-      parentThreadId: parent.id,
-    };
-    const independent = asShell(
-      makeThread({
-        id: ThreadId.make("independent"),
-        worktreePath: "/tmp/worktrees/feature-a",
-      }),
-    );
-
-    expect(selectThreadDeletionRoots([parent, child, independent])).toEqual([parent, independent]);
-  });
-});
-
-describe("deleteWorktreeResourcesInOrder", () => {
-  const success = { _tag: "Success" as const };
-  const failure = { _tag: "Failure" as const };
-
-  it("deletes every conversation root before removing the worktree", async () => {
-    const calls: string[] = [];
-
-    const result = await deleteWorktreeResourcesInOrder({
-      threadRoots: ["parent", "independent"],
-      deleteThread: async (thread) => {
-        calls.push(`conversation:${thread}`);
-        return success;
-      },
-      removeWorktree: async () => {
-        calls.push("worktree");
-        return success;
-      },
+describe("WORKTREE_DELETION_BOUNDARY", () => {
+  it("documents a single server-owned operation instead of client sequential deletes", () => {
+    expect(WORKTREE_DELETION_BOUNDARY).toEqual({
+      membership: "server-at-execution-time",
+      threadDelete: "server-thread-delete",
+      worktreeRemoval: "server-after-thread-delete",
     });
-
-    expect(result).toEqual(success);
-    expect(calls).toEqual(["conversation:parent", "conversation:independent", "worktree"]);
-  });
-
-  it("keeps the worktree when conversation deletion fails", async () => {
-    const calls: string[] = [];
-
-    const result = await deleteWorktreeResourcesInOrder({
-      threadRoots: ["parent", "independent"],
-      deleteThread: async (thread) => {
-        calls.push(`conversation:${thread}`);
-        return thread === "parent" ? failure : success;
-      },
-      removeWorktree: async () => {
-        calls.push("worktree");
-        return success;
-      },
-    });
-
-    expect(result).toEqual({ _tag: "Failure", stage: "conversation", result: failure });
-    expect(calls).toEqual(["conversation:parent"]);
-  });
-
-  it("reports a worktree failure only after conversation history is deleted", async () => {
-    const calls: string[] = [];
-
-    const result = await deleteWorktreeResourcesInOrder({
-      threadRoots: ["conversation"],
-      deleteThread: async () => {
-        calls.push("conversation");
-        return success;
-      },
-      removeWorktree: async () => {
-        calls.push("worktree");
-        return failure;
-      },
-    });
-
-    expect(result).toEqual({ _tag: "Failure", stage: "worktree", result: failure });
-    expect(calls).toEqual(["conversation", "worktree"]);
+    expect(WORKTREE_DELETION_BOUNDARY.membership).not.toBe("client-snapshot");
+    expect(WORKTREE_DELETION_BOUNDARY.threadDelete).not.toBe("client-sequential-roots");
   });
 });
 

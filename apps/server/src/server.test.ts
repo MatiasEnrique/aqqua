@@ -84,6 +84,7 @@ import * as GitHistory from "./git/GitHistory.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
+import { layer as WorktreePathCoordinationLive } from "./orchestration/Services/WorktreePathCoordination.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
@@ -729,13 +730,16 @@ const buildAppUnderTest = (options?: {
         ),
       ),
       Layer.provide(
-        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-          readEvents: () => Stream.empty,
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          streamDomainEvents: Stream.empty,
-          latestSequence: Effect.succeed(0),
-          ...options?.layers?.orchestrationEngine,
-        }),
+        Layer.mergeAll(
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            dispatch: () => Effect.succeed({ sequence: 0 }),
+            streamDomainEvents: Stream.empty,
+            latestSequence: Effect.succeed(0),
+            ...options?.layers?.orchestrationEngine,
+          }),
+          WorktreePathCoordinationLive,
+        ),
       ),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
@@ -5035,6 +5039,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           cwd: "/tmp/repo",
         },
         layers: {
+          terminalManager: {
+            close: () => Effect.void,
+          },
           vcsDriver: {
             isInsideWorkTree: () => Effect.succeed(true),
           },
@@ -5317,6 +5324,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+
+      const deleteWorktreeResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsDeleteWorktree]({
+            cwd: "/tmp/repo",
+            path: "/tmp/wt",
+            force: true,
+          }),
+        ),
+      );
+      assert.equal(deleteWorktreeResult.status, "completed");
+      if (deleteWorktreeResult.status === "completed") {
+        assert.equal(deleteWorktreeResult.worktreeRemoval, "removed");
+      }
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
