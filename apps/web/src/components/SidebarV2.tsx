@@ -264,7 +264,7 @@ const SIDEBAR_PROJECT_STATE_PRESENTATIONS: Record<
   },
 };
 
-function SidebarProjectStateDot(props: { state: SidebarProjectState }) {
+function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {
   const presentation = SIDEBAR_PROJECT_STATE_PRESENTATIONS[props.state];
   return (
     <Tooltip>
@@ -277,7 +277,14 @@ function SidebarProjectStateDot(props: { state: SidebarProjectState }) {
           />
         }
       >
-        <span aria-hidden className={cn("size-2 rounded-full", presentation.className)} />
+        {props.state === "working" ? (
+          <CircleDashedIcon
+            aria-hidden
+            className={cn("size-3.5", SIDEBAR_STATE_PRESENTATIONS.working.className)}
+          />
+        ) : (
+          <span aria-hidden className={cn("size-2 rounded-full", presentation.className)} />
+        )}
       </TooltipTrigger>
       <TooltipPopup side="right">{presentation.label}</TooltipPopup>
     </Tooltip>
@@ -3156,7 +3163,7 @@ export default function SidebarV2() {
                       {scopedProjectGroup?.displayName ?? "All projects"}
                     </span>
                     {scopedProjectState ? (
-                      <SidebarProjectStateDot state={scopedProjectState} />
+                      <SidebarProjectStateIndicator state={scopedProjectState} />
                     ) : null}
                     <ChevronDownIcon className="-mr-px size-4 shrink-0" />
                   </MenuTrigger>
@@ -3615,7 +3622,7 @@ export default function SidebarV2() {
                               <span className="min-w-0 flex-1 truncate">
                                 {repository.project.displayName}
                               </span>
-                              <SidebarProjectStateDot state={repository.state} />
+                              <SidebarProjectStateIndicator state={repository.state} />
                               <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-normal tabular-nums text-muted-foreground/60">
                                 <span>
                                   {repository.worktrees.length} branch
