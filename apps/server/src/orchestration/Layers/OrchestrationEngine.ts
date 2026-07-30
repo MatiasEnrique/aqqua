@@ -4,7 +4,7 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
+import type { OrchestrationCommand } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -185,7 +185,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 for (const nextEvent of eventBases) {
                   const savedEvent = yield* eventStore.append(nextEvent);
                   nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
-                  yield* projectionPipeline.projectEvent(savedEvent);
+                  yield* projectionPipeline.projectEventInTransaction(savedEvent);
                   committedEvents.push(savedEvent);
                 }
 

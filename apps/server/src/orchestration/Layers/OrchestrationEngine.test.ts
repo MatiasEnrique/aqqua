@@ -168,6 +168,8 @@ describe("OrchestrationEngine", () => {
       })),
     };
     let fullSnapshotReadCount = 0;
+    let standaloneProjectionCount = 0;
+    let inTransactionProjectionCount = 0;
 
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
@@ -208,7 +210,14 @@ describe("OrchestrationEngine", () => {
       Layer.provide(
         Layer.succeed(OrchestrationProjectionPipeline, {
           bootstrap: Effect.void,
-          projectEvent: () => Effect.void,
+          projectEvent: () =>
+            Effect.sync(() => {
+              standaloneProjectionCount += 1;
+            }),
+          projectEventInTransaction: () =>
+            Effect.sync(() => {
+              inTransactionProjectionCount += 1;
+            }),
         } satisfies OrchestrationProjectionPipelineShape),
       ),
       Layer.provide(Layer.succeed(OrchestrationEventStore, eventStore)),
@@ -233,6 +242,8 @@ describe("OrchestrationEngine", () => {
     expect(result.sequence).toBe(8);
     expect(await runtime.runPromise(engine.latestSequence)).toBe(8);
     expect(fullSnapshotReadCount).toBe(0);
+    expect(standaloneProjectionCount).toBe(0);
+    expect(inTransactionProjectionCount).toBe(1);
 
     await runtime.dispose();
   });
@@ -870,24 +881,28 @@ describe("OrchestrationEngine", () => {
 
   it("rolls back all events for a multi-event command when projection fails mid-dispatch", async () => {
     let shouldFailRequestedProjection = true;
+    const projectEventWithRequestedFailure: OrchestrationProjectionPipelineShape["projectEvent"] = (
+      event,
+    ) => {
+      if (
+        shouldFailRequestedProjection &&
+        event.commandId === CommandId.make("cmd-turn-start-atomic") &&
+        event.type === "thread.turn-start-requested"
+      ) {
+        shouldFailRequestedProjection = false;
+        return Effect.fail(
+          new PersistenceSqlError({
+            operation: "test.projection",
+            detail: "projection failed",
+          }),
+        );
+      }
+      return Effect.void;
+    };
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectEvent: (event) => {
-        if (
-          shouldFailRequestedProjection &&
-          event.commandId === CommandId.make("cmd-turn-start-atomic") &&
-          event.type === "thread.turn-start-requested"
-        ) {
-          shouldFailRequestedProjection = false;
-          return Effect.fail(
-            new PersistenceSqlError({
-              operation: "test.projection",
-              detail: "projection failed",
-            }),
-          );
-        }
-        return Effect.void;
-      },
+      projectEvent: projectEventWithRequestedFailure,
+      projectEventInTransaction: projectEventWithRequestedFailure,
     };
 
     const runtime = ManagedRuntime.make(
@@ -1014,23 +1029,27 @@ describe("OrchestrationEngine", () => {
     };
 
     let shouldFailProjection = true;
+    const projectEventWithArchiveFailure: OrchestrationProjectionPipelineShape["projectEvent"] = (
+      event,
+    ) => {
+      if (
+        shouldFailProjection &&
+        event.commandId === CommandId.make("cmd-thread-archive-sync-fail")
+      ) {
+        shouldFailProjection = false;
+        return Effect.fail(
+          new PersistenceSqlError({
+            operation: "test.projection",
+            detail: "projection failed",
+          }),
+        );
+      }
+      return Effect.void;
+    };
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectEvent: (event) => {
-        if (
-          shouldFailProjection &&
-          event.commandId === CommandId.make("cmd-thread-archive-sync-fail")
-        ) {
-          shouldFailProjection = false;
-          return Effect.fail(
-            new PersistenceSqlError({
-              operation: "test.projection",
-              detail: "projection failed",
-            }),
-          );
-        }
-        return Effect.void;
-      },
+      projectEvent: projectEventWithArchiveFailure,
+      projectEventInTransaction: projectEventWithArchiveFailure,
     };
 
     const runtime = ManagedRuntime.make(

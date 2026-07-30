@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -37,6 +38,7 @@ import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
+import { makeRuntimeEventCoalescer } from "../RuntimeEventCoalescer.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
@@ -659,24 +661,10 @@ export function runtimeEventToActivities(
     }
 
     case "item.started": {
-      if (!isToolLifecycleItemType(event.payload.itemType)) {
-        return [];
-      }
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "tool",
-          kind: "tool.started",
-          summary: `${event.payload.title ?? "Tool"} started`,
-          payload: {
-            itemType: event.payload.itemType,
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-          },
-          turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
-        },
-      ];
+      // Both clients intentionally hide tool.started rows and render the first
+      // useful tool.updated payload instead. Persisting this redundant activity
+      // multiplies projection work for every tool without changing the work log.
+      return [];
     }
 
     default:
@@ -686,7 +674,19 @@ export function runtimeEventToActivities(
   return [];
 }
 
+interface ProviderRuntimeIngestionOptions {
+  readonly coalesceTransientEvents?: boolean;
+}
+
+const RuntimeEventCoalescingEnabled = Context.Reference<boolean>(
+  "t3/orchestration/RuntimeEventCoalescingEnabled",
+  {
+    defaultValue: () => true,
+  },
+);
+
 const make = Effect.gen(function* () {
+  const coalesceTransientEvents = yield* RuntimeEventCoalescingEnabled;
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1805,12 +1805,21 @@ const make = Effect.gen(function* () {
     );
 
   const worker = yield* makeDrainableWorker(processInputSafely);
+  const runtimeEventCoalescer = !coalesceTransientEvents
+    ? {
+        offer: (event: ProviderRuntimeEvent) => worker.enqueue({ source: "runtime", event }),
+        drain: worker.drain,
+      }
+    : yield* makeRuntimeEventCoalescer({
+        emit: (event) => worker.enqueue({ source: "runtime", event }),
+        drainDownstream: worker.drain,
+      });
 
   const start: ProviderRuntimeIngestionShape["start"] = () =>
     Effect.gen(function* () {
       yield* Effect.forkScoped(
         Stream.runForEach(providerService.streamEvents, (event) =>
-          worker.enqueue({ source: "runtime", event }),
+          runtimeEventCoalescer.offer(event),
         ),
       );
       yield* Effect.forkScoped(
@@ -1825,11 +1834,18 @@ const make = Effect.gen(function* () {
 
   return {
     start,
-    drain: worker.drain,
+    drain: runtimeEventCoalescer.drain,
   } satisfies ProviderRuntimeIngestionShape;
 });
 
-export const ProviderRuntimeIngestionLive = Layer.effect(
-  ProviderRuntimeIngestionService,
-  make,
-).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+export const makeProviderRuntimeIngestionLayer = (options: ProviderRuntimeIngestionOptions = {}) =>
+  Layer.effect(
+    ProviderRuntimeIngestionService,
+    options.coalesceTransientEvents === undefined
+      ? make
+      : make.pipe(
+          Effect.provideService(RuntimeEventCoalescingEnabled, options.coalesceTransientEvents),
+        ),
+  ).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+
+export const ProviderRuntimeIngestionLive = makeProviderRuntimeIngestionLayer();

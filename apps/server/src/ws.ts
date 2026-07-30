@@ -75,6 +75,7 @@ import {
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
+import { isTransientThreadActivity } from "./orchestration/transientThreadActivity.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
@@ -594,6 +595,12 @@ const makeWsRpcLayer = (
       const toShellStreamEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
+        if (
+          event.type === "thread.activity-appended" &&
+          isTransientThreadActivity(event.payload.activity)
+        ) {
+          return Effect.succeed(Option.none());
+        }
         switch (event.type) {
           case "project.created":
           case "project.meta-updated":
@@ -738,6 +745,12 @@ const makeWsRpcLayer = (
           }
           const latestByAggregate = new Map<string, OrchestrationEvent>();
           for (const event of events) {
+            if (
+              event.type === "thread.activity-appended" &&
+              isTransientThreadActivity(event.payload.activity)
+            ) {
+              continue;
+            }
             latestByAggregate.set(`${event.aggregateKind}:${event.aggregateId}`, event);
           }
           const survivors = Array.from(latestByAggregate.values()).sort(

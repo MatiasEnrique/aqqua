@@ -39,6 +39,8 @@ export interface SqliteClientConfig {
   readonly spanAttributes?: Record<string, unknown> | undefined;
   readonly transformResultNames?: ((str: string) => string) | undefined;
   readonly transformQueryNames?: ((str: string) => string) | undefined;
+  readonly onStatement?: ((sql: string) => void) | undefined;
+  readonly onTransaction?: (() => void) | undefined;
 }
 
 export interface SqliteMemoryClientConfig extends Omit<
@@ -182,8 +184,20 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         }
       });
 
+    const instrumentStatement = <A, E, R>(
+      sql: string,
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> => {
+      const onStatement = options.onStatement;
+      return onStatement === undefined
+        ? effect
+        : Effect.sync(() => onStatement(sql)).pipe(Effect.andThen(effect));
+    };
+
     const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
-      Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(s, params, raw));
+      instrumentStatement(sql, Cache.get(prepareCache, sql)).pipe(
+        Effect.flatMap((statement) => runStatement(statement, params, raw)),
+      );
 
     const runStatementValues = (
       statement: NodeSqlite.StatementSync,
@@ -230,8 +244,8 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       );
 
     const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
-      Effect.flatMap(Cache.get(prepareCache, sql), (statement) =>
-        runStatementValues(statement, params),
+      instrumentStatement(sql, Cache.get(prepareCache, sql)).pipe(
+        Effect.flatMap((statement) => runStatementValues(statement, params)),
       );
 
     return identity<Connection>({
@@ -245,12 +259,12 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         return runValues(sql, params);
       },
       executeValuesUnprepared(sql, params) {
-        return Effect.flatMap(prepare(sql), (statement) =>
-          runStatementValues(statement, params ?? []),
+        return instrumentStatement(sql, prepare(sql)).pipe(
+          Effect.flatMap((statement) => runStatementValues(statement, params ?? [])),
         );
       },
       executeUnprepared(sql, params, rowTransform) {
-        const effect = prepare(sql).pipe(
+        const effect = instrumentStatement(sql, prepare(sql)).pipe(
           Effect.flatMap((statement) => runStatement(statement, params ?? [], false)),
         );
         return rowTransform ? Effect.map(effect, rowTransform) : effect;
@@ -269,7 +283,12 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
     const fiber = Fiber.getCurrent()!;
     const scope = Context.getUnsafe(fiber.context, Scope.Scope);
     return Effect.as(
-      Effect.tap(restore(semaphore.take(1)), () => Scope.addFinalizer(scope, semaphore.release(1))),
+      Effect.tap(restore(semaphore.take(1)), () => {
+        const onTransaction = options.onTransaction;
+        return Scope.addFinalizer(scope, semaphore.release(1)).pipe(
+          Effect.andThen(onTransaction === undefined ? Effect.void : Effect.sync(onTransaction)),
+        );
+      }),
       connection,
     );
   });

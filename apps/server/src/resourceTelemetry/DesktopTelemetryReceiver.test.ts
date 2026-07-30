@@ -3,18 +3,24 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import { assert, describe, expect } from "vite-plus/test";
 
+import * as ServerConfig from "../config.ts";
+import { makeServerShutdown, ServerShutdown } from "../serverShutdown.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   type DesktopTelemetryReceiverHealth,
   initialDesktopTelemetryContactAt,
   isDesktopTelemetryContactStale,
+  make as makeDesktopTelemetryReceiver,
   recordDesktopTelemetrySampleHealth,
   requireDesktopTelemetryWriteProgress,
   resolveDesktopTelemetrySnapshotStaleAfterMs,
@@ -101,5 +107,94 @@ describe("DesktopTelemetryReceiver", () => {
       );
       yield* requireDesktopTelemetryWriteProgress(7, 42, 1);
     }),
+  );
+
+  it.effect("requests server shutdown when the desktop telemetry descriptor reaches EOF", () =>
+    Effect.scoped(
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const directory = NodeFS.mkdtempSync(
+            NodePath.join(NodeOS.tmpdir(), "t3-desktop-parent-lease-test-"),
+          );
+          const path = NodePath.join(directory, "telemetry.ndjson");
+          NodeFS.writeFileSync(path, "");
+          return {
+            directory,
+            fd: NodeFS.openSync(path, "r"),
+          };
+        }),
+        ({ fd }) =>
+          Effect.gen(function* () {
+            const baseConfig = yield* ServerConfig.ServerConfig;
+            const shutdown = yield* makeServerShutdown;
+            yield* makeDesktopTelemetryReceiver().pipe(
+              Effect.provideService(
+                ServerConfig.ServerConfig,
+                ServerConfig.make({
+                  ...baseConfig,
+                  mode: "desktop",
+                  desktopTelemetryFd: fd,
+                }),
+              ),
+              Effect.provideService(ServerShutdown, shutdown),
+            );
+
+            expect(yield* shutdown.awaitRequest.pipe(Effect.timeout("2 seconds"))).toBe(
+              "desktop-parent-disconnected",
+            );
+          }),
+        ({ directory, fd }) =>
+          Effect.sync(() => {
+            try {
+              NodeFS.closeSync(fd);
+            } catch {
+              // The receiver owns and closes the descriptor after EOF.
+            }
+            NodeFS.rmSync(directory, { recursive: true, force: true });
+          }),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ServerSettings.layerTest(),
+            ServerConfig.layerTest(process.cwd(), {
+              prefix: "t3-parent-lease-",
+            }),
+          ).pipe(Layer.provideMerge(NodeServices.layer)),
+        ),
+      ),
+    ),
+  );
+
+  it.live("does not request shutdown for a web server without a telemetry descriptor", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const baseConfig = yield* ServerConfig.ServerConfig;
+        const shutdown = yield* makeServerShutdown;
+        yield* makeDesktopTelemetryReceiver().pipe(
+          Effect.provideService(
+            ServerConfig.ServerConfig,
+            ServerConfig.make({
+              ...baseConfig,
+              mode: "web",
+              desktopTelemetryFd: undefined,
+            }),
+          ),
+          Effect.provideService(ServerShutdown, shutdown),
+        );
+
+        expect(
+          Option.isNone(yield* shutdown.awaitRequest.pipe(Effect.timeoutOption("50 millis"))),
+        ).toBe(true);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ServerSettings.layerTest(),
+            ServerConfig.layerTest(process.cwd(), {
+              prefix: "t3-web-no-parent-lease-",
+            }),
+          ).pipe(Layer.provideMerge(NodeServices.layer)),
+        ),
+      ),
+    ),
   );
 });

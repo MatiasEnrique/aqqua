@@ -2679,13 +2679,96 @@ const engineLayer = it.layer(
 );
 
 engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
+  it.effect("keeps transient progress out of shell ordering while completions advance it", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-transient-shell");
+      const threadId = ThreadId.make("thread-transient-shell");
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-transient-shell-project"),
+        projectId,
+        title: "Transient Shell Project",
+        workspaceRoot: "/tmp/project-transient-shell",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-transient-shell-thread"),
+        threadId,
+        projectId,
+        title: "Transient Shell Thread",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: "default",
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      });
+      yield* engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-transient-shell-progress"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-transient-shell-progress"),
+          tone: "tool",
+          kind: "tool.updated",
+          summary: "Running tests",
+          payload: { status: "in_progress" },
+          turnId: null,
+          createdAt: "2026-01-01T00:00:02.000Z",
+        },
+        createdAt: "2026-01-01T00:00:02.000Z",
+      });
+
+      const afterProgress = yield* sql<{ readonly updatedAt: string }>`
+        SELECT updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(afterProgress, [{ updatedAt: "2026-01-01T00:00:01.000Z" }]);
+
+      yield* engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-transient-shell-completed"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-transient-shell-completed"),
+          tone: "tool",
+          kind: "tool.completed",
+          summary: "Tests completed",
+          payload: { status: "completed" },
+          turnId: null,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+        createdAt: "2026-01-01T00:00:03.000Z",
+      });
+
+      const afterCompletion = yield* sql<{ readonly updatedAt: string }>`
+        SELECT updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(afterCompletion, [{ updatedAt: "2026-01-01T00:00:03.000Z" }]);
+    }),
+  );
+
   it.effect("projects dispatched engine events immediately", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
       const createdAt = "2026-01-01T00:00:00.000Z";
 
-      yield* engine.dispatch({
+      const dispatchResult = yield* engine.dispatch({
         type: "project.create",
         commandId: CommandId.make("cmd-live-project"),
         projectId: ProjectId.make("project-live"),
@@ -2713,7 +2796,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         FROM projection_state
         WHERE projector = 'projection.projects'
       `;
-      assert.deepEqual(projectorRows, [{ lastAppliedSequence: 1 }]);
+      assert.deepEqual(projectorRows, [{ lastAppliedSequence: dispatchResult.sequence }]);
     }),
   );
 

@@ -215,6 +215,15 @@ The desktop backend is spawned with:
 These are private Electron-main/server pipes. They do not use the renderer
 WebSocket and are recreated for every backend restart.
 
+Fd 4 is also the bundled backend's parent-lifetime lease. Electron owns the
+write end, so clean EOF proves that the desktop parent disappeared even when
+macOS terminated it before Electron's quit handlers could run (for example,
+when replacing a running app bundle). On EOF the receiver requests
+`desktop-parent-disconnected` shutdown. The server interrupts its scoped layer
+and lets HTTP, WebSocket, provider, terminal, database, and telemetry
+finalizers finish; it does not call `process.exit` or reap processes by name.
+Web and CLI servers have no desktop telemetry fd and are unaffected.
+
 ## Server Effect services
 
 The implementation is under `apps/server/src/resourceTelemetry`.
@@ -261,7 +270,24 @@ the stale deadline stays beyond the slower configured host-power interval with
 30 seconds of scheduling grace, so intentional 2–10 minute idle polling does
 not oscillate the policy between constrained and unconstrained states. Decode
 errors, protocol mismatch, control-write failure, stream failure, stale input,
-and normal stream closure are represented explicitly.
+and normal stream closure are represented explicitly. Decode and protocol
+errors degrade telemetry without requesting shutdown; only clean EOF on the
+parent-owned descriptor ends the bundled backend lifetime.
+
+## Transient orchestration progress
+
+Canonical provider logs retain every native event. The derived orchestration
+stream coalesces only `item.updated`, `thread.token-usage.updated`, and
+`task.progress` by logical thread/turn/item key. The leading update is
+immediate, the newest replacement is emitted on a 250 ms boundary, and pending
+progress flushes before its completion or terminal state.
+
+Approvals, user-input requests, errors, completions, and session transitions
+remain immediate. Transient activity still reaches an active thread-detail
+subscription, but it neither advances the thread shell timestamp nor triggers
+a shell refetch/broadcast. This keeps progress responsive at no more than four
+trailing updates per second per logical key while preserving semantic sidebar
+ordering.
 
 ### `ResourceTelemetry`
 

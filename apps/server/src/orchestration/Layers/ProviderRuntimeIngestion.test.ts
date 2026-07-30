@@ -35,7 +35,10 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import {
+  makeInstrumentedSqlitePersistenceMemory,
+  SqlitePersistenceMemory,
+} from "../../persistence/Layers/Sqlite.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -44,7 +47,10 @@ import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityRes
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
-import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
+import {
+  makeProviderRuntimeIngestionLayer,
+  ProviderRuntimeIngestionLive,
+} from "./ProviderRuntimeIngestion.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -204,7 +210,7 @@ describe("ProviderRuntimeIngestion", () => {
     return dir;
   }
 
-  afterEach(async () => {
+  async function disposeActiveHarness() {
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -213,40 +219,64 @@ describe("ProviderRuntimeIngestion", () => {
       await runtime.dispose();
     }
     runtime = null;
+  }
+
+  afterEach(async () => {
+    await disposeActiveHarness();
     for (const dir of tempDirs.splice(0)) {
       NodeFS.rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
+  async function createHarness(options?: {
+    serverSettings?: Partial<ServerSettings>;
+    sqliteInstrumentation?: {
+      readonly onStatement: (sql: string) => void;
+      readonly onTransaction: () => void;
+    };
+    coalesceTransientEvents?: boolean;
+  }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
+    const sqlitePersistence =
+      options?.sqliteInstrumentation === undefined
+        ? SqlitePersistenceMemory
+        : makeInstrumentedSqlitePersistenceMemory(options.sqliteInstrumentation);
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
       Layer.provide(RepositoryIdentityResolver.layer),
-      Layer.provide(SqlitePersistenceMemory),
+      Layer.provide(sqlitePersistence),
     );
     const projectionSnapshotLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
       Layer.provide(RepositoryIdentityResolver.layer),
-      Layer.provide(SqlitePersistenceMemory),
+      Layer.provide(sqlitePersistence),
     );
-    const layer = ProviderRuntimeIngestionLive.pipe(
+    const ingestionLayer =
+      options?.coalesceTransientEvents === undefined
+        ? ProviderRuntimeIngestionLive
+        : makeProviderRuntimeIngestionLayer({
+            coalesceTransientEvents: options.coalesceTransientEvents,
+          });
+    const layer = ingestionLayer.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
-      Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(sqlitePersistence),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
-    const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
-    const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const activeRuntime = runtime;
+    const engine = await activeRuntime.runPromise(Effect.service(OrchestrationEngineService));
+    const snapshotQuery = await activeRuntime.runPromise(Effect.service(ProjectionSnapshotQuery));
+    const ingestion = await activeRuntime.runPromise(
+      Effect.service(ProviderRuntimeIngestionService),
+    );
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(ingestion.drain);
@@ -316,6 +346,7 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      run: activeRuntime.runPromise,
     };
   }
 
@@ -2165,7 +2196,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(resumedMessage?.text).toBe(" second half");
     expect(resumedMessage?.streaming).toBe(false);
 
-    const events = await Effect.runPromise(
+    const events = await harness.run(
       Stream.runCollect(harness.engine.readEvents(0)).pipe(
         Effect.map((chunk) => Array.from(chunk)),
       ),
@@ -2193,7 +2224,9 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   it("starts a new streaming assistant message segment after approval", async () => {
-    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const harness = await createHarness({
+      serverSettings: { enableAssistantStreaming: true },
+    });
     const startedAt = "2026-03-28T07:00:00.000Z";
     const pausedAt = "2026-03-28T07:00:01.000Z";
     const resumedAt = "2026-03-28T07:00:02.000Z";
@@ -2300,7 +2333,9 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   it("streams assistant deltas when thread.turn.start requests streaming mode", async () => {
-    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const harness = await createHarness({
+      serverSettings: { enableAssistantStreaming: true },
+    });
     const now = "2026-01-01T00:00:00.000Z";
 
     await Effect.runPromise(
@@ -2795,7 +2830,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
-  it("maps session/thread lifecycle and item.started into session/activity projections", async () => {
+  it("maps session/thread lifecycle without persisting redundant item.started activity", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -2831,12 +2866,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(
       harness.readModel,
-      (entry) =>
-        entry.session?.status === "ready" &&
-        entry.session?.activeTurnId === null &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.started",
-        ),
+      (entry) => entry.session?.status === "ready" && entry.session?.activeTurnId === null,
     );
 
     expect(thread.session?.status).toBe("ready");
@@ -2844,7 +2874,268 @@ describe("ProviderRuntimeIngestion", () => {
       thread.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.started",
       ),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("coalesces transient tool updates and flushes the latest update before completion", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const itemId = asItemId("item-coalesced-tool");
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-tool-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-coalesced"),
+      itemId,
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run tests",
+      },
+    });
+
+    for (const index of [1, 2, 3]) {
+      harness.emit({
+        type: "item.updated",
+        eventId: asEventId(`evt-tool-updated-${index}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-coalesced"),
+        itemId,
+        payload: {
+          itemType: "command_execution",
+          status: "in_progress",
+          title: "Run tests",
+          detail: `update ${index}`,
+        },
+      });
+    }
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-tool-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-coalesced"),
+      itemId,
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        title: "Run tests",
+      },
+    });
+
+    await harness.drain();
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-completed",
+      ),
+    );
+
+    expect(
+      thread.activities
+        .filter(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.turnId === "turn-coalesced" && activity.kind.startsWith("tool."),
+        )
+        .map((activity: ProviderRuntimeTestActivity) => activity.id)
+        .toSorted(),
+    ).toEqual(["evt-tool-updated-1", "evt-tool-updated-3", "evt-tool-completed"].toSorted());
+  });
+
+  it("bounds accepted projection work for a fixed ten-session transient workload", async () => {
+    const runWorkload = async (coalesceTransientEvents: boolean, sessionCount: number) => {
+      let sqlStatements = 0;
+      let sqlTransactions = 0;
+      const harness = await createHarness({
+        coalesceTransientEvents,
+        sqliteInstrumentation: {
+          onStatement: () => {
+            sqlStatements += 1;
+          },
+          onTransaction: () => {
+            sqlTransactions += 1;
+          },
+        },
+      });
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const threadIds = Array.from({ length: sessionCount }, (_unused, index) =>
+        asThreadId(`thread-perf-${index + 1}`),
+      );
+
+      for (const [index, threadId] of threadIds.entries()) {
+        await harness.run(
+          harness.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`cmd-thread-perf-${index + 1}`),
+            threadId,
+            projectId: asProjectId("project-1"),
+            title: `Perf Thread ${index + 1}`,
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          }),
+        );
+      }
+
+      const sequenceBefore = await harness.run(harness.engine.latestSequence);
+      const terminalActivity = harness.run(
+        harness.engine.streamDomainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "thread.activity-appended" &&
+              event.payload.activity.id === `evt-perf-${sessionCount}-task-completed`,
+          ),
+          Stream.take(1),
+          Stream.runHead,
+        ),
+      );
+      sqlStatements = 0;
+      sqlTransactions = 0;
+      const cpuBefore = process.cpuUsage();
+      for (const [threadIndex, targetThreadId] of threadIds.entries()) {
+        const targetTurnId = asTurnId(`turn-perf-${threadIndex + 1}`);
+        const targetItemId = asItemId(`item-perf-${threadIndex + 1}`);
+        for (let updateIndex = 1; updateIndex <= 100; updateIndex += 1) {
+          harness.emit({
+            type: "item.updated",
+            eventId: asEventId(`evt-perf-${threadIndex + 1}-update-${updateIndex}`),
+            provider: ProviderDriverKind.make("codex"),
+            createdAt,
+            threadId: targetThreadId,
+            turnId: targetTurnId,
+            itemId: targetItemId,
+            payload: {
+              itemType: "command_execution",
+              status: "in_progress",
+              title: "Synthetic work",
+              detail: `update ${updateIndex}`,
+            },
+          });
+          harness.emit({
+            type: "thread.token-usage.updated",
+            eventId: asEventId(`evt-perf-${threadIndex + 1}-usage-${updateIndex}`),
+            provider: ProviderDriverKind.make("codex"),
+            createdAt,
+            threadId: targetThreadId,
+            turnId: targetTurnId,
+            payload: {
+              usage: {
+                usedTokens: updateIndex,
+                totalProcessedTokens: updateIndex,
+                maxTokens: 128_000,
+              },
+            },
+          });
+          harness.emit({
+            type: "task.progress",
+            eventId: asEventId(`evt-perf-${threadIndex + 1}-task-${updateIndex}`),
+            provider: ProviderDriverKind.make("codex"),
+            createdAt,
+            threadId: targetThreadId,
+            turnId: targetTurnId,
+            payload: {
+              taskId: `task-perf-${threadIndex + 1}`,
+              description: `Synthetic task update ${updateIndex}`,
+            },
+          });
+        }
+        harness.emit({
+          type: "item.completed",
+          eventId: asEventId(`evt-perf-${threadIndex + 1}-completed`),
+          provider: ProviderDriverKind.make("codex"),
+          createdAt,
+          threadId: targetThreadId,
+          turnId: targetTurnId,
+          itemId: targetItemId,
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            title: "Synthetic work",
+          },
+        });
+        harness.emit({
+          type: "task.completed",
+          eventId: asEventId(`evt-perf-${threadIndex + 1}-task-completed`),
+          provider: ProviderDriverKind.make("codex"),
+          createdAt,
+          threadId: targetThreadId,
+          turnId: targetTurnId,
+          payload: {
+            taskId: `task-perf-${threadIndex + 1}`,
+            status: "completed",
+            summary: "Synthetic task completed",
+          },
+        });
+      }
+
+      await terminalActivity;
+      await harness.drain();
+
+      const cpu = process.cpuUsage(cpuBefore);
+      const sequenceAfter = await harness.run(harness.engine.latestSequence);
+      const snapshot = await harness.readModel();
+      const result = {
+        rawRuntimeEvents: sessionCount * 302,
+        acceptedOrchestrationCommands: sequenceAfter - sequenceBefore,
+        sqlTransactions,
+        sqlStatements,
+        cpuMicros: cpu.user + cpu.system,
+        acceptedPerSession: threadIds.map(
+          (targetThreadId) =>
+            snapshot.threads
+              .find((thread) => thread.id === targetThreadId)
+              ?.activities.filter(
+                (activity) =>
+                  activity.kind.startsWith("tool.") ||
+                  activity.kind.startsWith("task.") ||
+                  activity.kind === "context-window.updated",
+              ).length ?? 0,
+        ),
+      };
+      if (process.env.T3_BENCHMARK_REPORT === "1") {
+        await harness.run(
+          Effect.logInfo("runtime ingestion benchmark sample", {
+            coalesceTransientEvents,
+            sessionCount,
+            ...result,
+          }),
+        );
+      }
+      await disposeActiveHarness();
+      return {
+        ...result,
+        projectorRuns: result.acceptedOrchestrationCommands * 9,
+      };
+    };
+
+    const baseline = await runWorkload(false, 10);
+    const optimizedOneSession = await runWorkload(true, 1);
+    const optimized = await runWorkload(true, 10);
+
+    expect(baseline.acceptedOrchestrationCommands).toBe(3_020);
+    expect(optimized.acceptedPerSession).toEqual(Array.from({ length: 10 }, () => 8));
+    expect(optimized.acceptedOrchestrationCommands).toBe(80);
+    expect(optimized.sqlTransactions).toBeLessThanOrEqual(
+      optimized.acceptedOrchestrationCommands + 10,
+    );
+    expect(optimized.sqlTransactions).toBeLessThan(baseline.sqlTransactions * 0.4);
+    if (process.env.T3_BENCHMARK_ASSERT_CPU === "1") {
+      expect(optimized.cpuMicros).toBeLessThanOrEqual(baseline.cpuMicros * 0.4);
+      expect(optimized.cpuMicros / 10).toBeLessThanOrEqual(optimizedOneSession.cpuMicros * 1.25);
+    }
   });
 
   it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {

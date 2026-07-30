@@ -5999,6 +5999,127 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("does not refetch the shell for detail-only transient activity", () =>
+    Effect.gen(function* () {
+      let shellFetches = 0;
+      const now = "2026-01-01T00:00:00.000Z";
+      const event = {
+        sequence: 1,
+        eventId: EventId.make("event-transient-tool-progress"),
+        aggregateKind: "thread",
+        aggregateId: defaultThreadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.activity-appended",
+        payload: {
+          threadId: defaultThreadId,
+          activity: {
+            id: EventId.make("activity-transient-tool-progress"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Running tests",
+            payload: { status: "in_progress" },
+            turnId: null,
+            createdAt: now,
+          },
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.activity-appended" }>;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            latestSequence: Effect.succeed(1),
+            readEvents: () => Stream.make(event),
+          },
+          projectionSnapshotQuery: {
+            getThreadShellById: () =>
+              Effect.sync(() => {
+                shellFetches += 1;
+                return Option.some(makeDefaultOrchestrationThreadShell());
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const subscribeShell = Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({
+            afterSequence: 0,
+            requestCompletionMarker: true,
+          }).pipe(Stream.take(1), Stream.runCollect),
+        ),
+      );
+      const firstItems = yield* subscribeShell;
+      const secondItems = yield* subscribeShell;
+
+      assert.deepEqual(Array.from(firstItems), [{ kind: "synchronized" }]);
+      assert.deepEqual(Array.from(secondItems), [{ kind: "synchronized" }]);
+      assert.equal(shellFetches, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("still replays transient activity to the subscribed thread detail", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const event = {
+        sequence: 1,
+        eventId: EventId.make("event-thread-detail-progress"),
+        aggregateKind: "thread",
+        aggregateId: defaultThreadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.activity-appended",
+        payload: {
+          threadId: defaultThreadId,
+          activity: {
+            id: EventId.make("activity-thread-detail-progress"),
+            tone: "tool",
+            kind: "task.progress",
+            summary: "Working",
+            payload: { taskId: "task-1" },
+            turnId: null,
+            createdAt: now,
+          },
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.activity-appended" }>;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => Stream.make(event),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId: defaultThreadId,
+            afterSequence: 0,
+            requestCompletionMarker: true,
+          }).pipe(Stream.take(2), Stream.runCollect),
+        ),
+      );
+
+      assert.equal(items[0]?.kind, "event");
+      assert.equal(
+        items[0]?.kind === "event" && items[0].event.type === "thread.activity-appended"
+          ? items[0].event.payload.activity.kind
+          : null,
+        "task.progress",
+      );
+      assert.deepEqual(items[1], { kind: "synchronized" });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("marks a socket thread snapshot as synchronized when requested", () =>
     Effect.gen(function* () {
       const thread = makeDefaultOrchestrationReadModel().threads[0]!;

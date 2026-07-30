@@ -106,6 +106,7 @@ import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
+import { makeServerShutdown, runUntilServerShutdown, ServerShutdown } from "./serverShutdown.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
@@ -595,5 +596,18 @@ export const makeServerLayer = Layer.unwrap(
   }),
 );
 
-// Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
-export const runServer = Layer.launch(makeServerLayer);
+// The shutdown service is created once per launched server so the desktop
+// telemetry reader and the outer lifetime race share the same request.
+// ServerConfig remains the only requirement provided by the CLI layer.
+export const runServer = Effect.gen(function* () {
+  const shutdown = yield* makeServerShutdown;
+  const launchedServer = Layer.launch(
+    makeServerLayer.pipe(Layer.provide(Layer.succeed(ServerShutdown, shutdown))),
+  );
+  return yield* runUntilServerShutdown(launchedServer, {
+    ...shutdown,
+    awaitRequest: shutdown.awaitRequest.pipe(
+      Effect.tap((reason) => Effect.logInfo("Server shutdown requested", { reason })),
+    ),
+  });
+});

@@ -18,13 +18,14 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import * as Scope from "effect/Scope";
+import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as Ndjson from "effect/unstable/encoding/Ndjson";
 
 import { ServerConfig } from "../config.ts";
+import { ServerShutdown } from "../serverShutdown.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { subscribeBeforeSnapshotWithoutMutex } from "../utils/subscribeBeforeSnapshot.ts";
 
@@ -175,6 +176,7 @@ export class DesktopTelemetryReceiver extends Context.Service<
 >()("t3/resourceTelemetry/DesktopTelemetryReceiver") {}
 
 const decodeMessage = Schema.decodeUnknownEffect(DesktopHostTelemetryMessage);
+const decodeJsonLine = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString);
 const encodeControlMessage = Schema.encodeEffect(
   Schema.fromJsonString(DesktopTelemetryControlMessage),
 );
@@ -244,6 +246,29 @@ function messageVersion(value: unknown): number | undefined {
   return typeof version === "number" ? version : undefined;
 }
 
+function decodeTelemetryLine(
+  line: string,
+): Effect.Effect<
+  DesktopHostTelemetryMessageValue,
+  DesktopTelemetryProtocolMismatch | DesktopTelemetryDecodeFailed
+> {
+  return Effect.gen(function* () {
+    const value = yield* decodeJsonLine(line).pipe(
+      Effect.mapError((cause) => new DesktopTelemetryDecodeFailed({ cause })),
+    );
+    const version = messageVersion(value);
+    if (version !== undefined && version !== 1) {
+      return yield* new DesktopTelemetryProtocolMismatch({
+        expectedVersion: 1,
+        receivedVersion: version,
+      });
+    }
+    return yield* decodeMessage(value).pipe(
+      Effect.mapError((cause) => new DesktopTelemetryDecodeFailed({ cause })),
+    );
+  });
+}
+
 export const writeAllToFileDescriptor = Effect.fn(
   "resourceTelemetry.desktopTelemetryReceiver.writeAllToFileDescriptor",
 )(function* (fd: number, payload: Buffer) {
@@ -305,6 +330,7 @@ export function requireDesktopTelemetryWriteProgress(
 
 export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")(function* () {
   const config = yield* ServerConfig;
+  const serverShutdown = yield* ServerShutdown;
   const serverSettings = yield* ServerSettingsService;
   const latest = yield* Ref.make(Option.none<DesktopHostTelemetrySnapshot>());
   const receiverStartedAt = yield* DateTime.now;
@@ -457,27 +483,24 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         closeOnDone: true,
         onError: (cause) => new DesktopTelemetryStreamFailed({ fd, cause }),
       }).pipe(
-        Stream.pipeThroughChannel(Ndjson.decode({ ignoreEmptyLines: true })),
-        Stream.mapEffect(
-          (
-            value,
-          ): Effect.Effect<
-            DesktopHostTelemetryMessageValue,
-            DesktopTelemetryProtocolMismatch | DesktopTelemetryDecodeFailed
-          > => {
-            const version = messageVersion(value);
-            if (version !== undefined && version !== 1) {
-              return Effect.fail(
-                new DesktopTelemetryProtocolMismatch({
-                  expectedVersion: 1,
-                  receivedVersion: version,
-                }),
-              );
-            }
-            return decodeMessage(value).pipe(
-              Effect.mapError((cause) => new DesktopTelemetryDecodeFailed({ cause })),
-            );
-          },
+        Stream.decodeText(),
+        Stream.splitLines,
+        Stream.filter((line) => line.trim().length > 0),
+        Stream.mapEffect((line) => decodeTelemetryLine(line).pipe(Effect.result)),
+        Stream.mapEffect((result) =>
+          Result.isFailure(result)
+            ? updateHealth((current) => ({
+                ...current,
+                status: "degraded",
+                lastError: Option.some(result.failure.message),
+              })).pipe(Effect.as(Option.none<DesktopHostTelemetryMessageValue>()))
+            : Effect.succeed(Option.some(result.success)),
+        ),
+        Stream.filterMap((message) =>
+          Option.match(message, {
+            onNone: () => Result.failVoid,
+            onSome: Result.succeed,
+          }),
         ),
         Stream.mapError(normalizeReceiverError),
       );
@@ -522,6 +545,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
           }),
         ),
       ),
+      Effect.andThen(serverShutdown.request("desktop-parent-disconnected")),
       Effect.catch((error) =>
         updateHealth(
           (current): DesktopTelemetryReceiverHealth => ({

@@ -31,6 +31,16 @@ export interface OrchestrationProjectionPipelineShape {
   readonly projectEvent: (
     event: OrchestrationEvent,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /**
+   * Project an event while the caller already owns the command transaction.
+   *
+   * This is reserved for OrchestrationEngine so event persistence, projections,
+   * and the command receipt commit atomically without nested transactions.
+   */
+  readonly projectEventInTransaction: (
+    event: OrchestrationEvent,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
 /**

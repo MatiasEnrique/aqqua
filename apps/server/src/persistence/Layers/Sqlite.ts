@@ -11,6 +11,8 @@ import { ServerConfig } from "../../config.ts";
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
   readonly spanAttributes?: Record<string, unknown>;
+  readonly onStatement?: (sql: string) => void;
+  readonly onTransaction?: () => void;
 };
 
 type Loader = {
@@ -62,6 +64,18 @@ export const SqlitePersistenceMemory = Layer.provideMerge(
   setup,
   makeRuntimeSqliteLayer({ filename: ":memory:" }),
 );
+
+export const makeInstrumentedSqlitePersistenceMemory = (instrumentation: {
+  readonly onStatement: (sql: string) => void;
+  readonly onTransaction: () => void;
+}) =>
+  Layer.provideMerge(
+    setup,
+    makeRuntimeSqliteLayer({
+      filename: ":memory:",
+      ...instrumentation,
+    }),
+  );
 
 export const layerConfig = Layer.unwrap(
   Effect.map(Effect.service(ServerConfig), ({ dbPath }) => makeSqlitePersistenceLive(dbPath)),
