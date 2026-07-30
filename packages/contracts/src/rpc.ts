@@ -59,6 +59,14 @@ import {
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
+  BOARD_WS_METHODS,
+  BoardArtifactError,
+  BoardReadArtifactInput,
+  BoardReadArtifactResult,
+  BoardWriteArtifactInput,
+  BoardWriteArtifactResult,
+} from "./board.ts";
+import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -788,6 +796,18 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
   },
 );
 
+export const WsBoardReadArtifactRpc = Rpc.make(BOARD_WS_METHODS.readArtifact, {
+  payload: BoardReadArtifactInput,
+  success: BoardReadArtifactResult,
+  error: Schema.Union([BoardArtifactError, EnvironmentAuthorizationError]),
+});
+
+export const WsBoardWriteArtifactRpc = Rpc.make(BOARD_WS_METHODS.writeArtifact, {
+  payload: BoardWriteArtifactInput,
+  success: BoardWriteArtifactResult,
+  error: Schema.Union([BoardArtifactError, EnvironmentAuthorizationError]),
+});
+
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -923,4 +943,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  WsBoardReadArtifactRpc,
+  WsBoardWriteArtifactRpc,
 );

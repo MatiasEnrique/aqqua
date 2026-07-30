@@ -41,6 +41,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popov
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { SETTLED_TAIL_PAGE_COUNT } from "./constants";
+import { ProjectBoardButton } from "../board/ProjectBoardButton";
 import { ProjectNewWorktreeButton } from "./ProjectNewWorktreeButton";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { SidebarConversationRow } from "./SidebarConversationRow";
@@ -306,13 +307,22 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                   </MenuPopup>
                 </Menu>
                 {scopedProjectGroup ? (
-                  <ProjectNewWorktreeButton
-                    projectRef={scopeProjectRef(
-                      scopedProjectGroup.environmentId,
-                      scopedProjectGroup.id,
-                    )}
-                    projectName={scopedProjectGroup.displayName}
-                  />
+                  <>
+                    <ProjectBoardButton
+                      projectRef={scopeProjectRef(
+                        scopedProjectGroup.environmentId,
+                        scopedProjectGroup.id,
+                      )}
+                      projectName={scopedProjectGroup.displayName}
+                    />
+                    <ProjectNewWorktreeButton
+                      projectRef={scopeProjectRef(
+                        scopedProjectGroup.environmentId,
+                        scopedProjectGroup.id,
+                      )}
+                      projectName={scopedProjectGroup.displayName}
+                    />
+                  </>
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger

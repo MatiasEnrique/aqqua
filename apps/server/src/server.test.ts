@@ -188,6 +188,8 @@ const makeDefaultOrchestrationReadModel = () => {
         deletedAt: null,
       },
     ],
+    boards: [],
+    cards: [],
   };
 };
 
@@ -750,6 +752,8 @@ const buildAppUnderTest = (options?: {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              boards: [],
+              cards: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
           getArchivedShellSnapshot: () =>
@@ -757,10 +761,14 @@ const buildAppUnderTest = (options?: {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              boards: [],
+              cards: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
           getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
           getProjectShellById: () => Effect.succeed(Option.none()),
+          getBoardById: () => Effect.succeed(Option.none()),
+          getCardById: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
@@ -5881,6 +5889,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             deletedAt: null,
           },
         ],
+        boards: [],
+        cards: [],
       };
 
       yield* buildAppUnderTest({
@@ -6180,6 +6190,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   snapshotSequence: 1,
                   projects: [],
                   threads: [makeDefaultOrchestrationThreadShell()],
+                  boards: [],
+                  cards: [],
                   updatedAt: "2026-01-01T00:00:00.000Z",
                 };
               }),
@@ -6295,6 +6307,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 snapshotSequence: 100_000,
                 projects: [],
                 threads: [makeDefaultOrchestrationThreadShell({ id: snapshotThreadId })],
+                boards: [],
+                cards: [],
                 updatedAt: now,
               }),
           },
@@ -6342,6 +6356,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 snapshotSequence: 5,
                 projects: [],
                 threads: [],
+                boards: [],
+                cards: [],
                 updatedAt: "2026-01-01T00:00:00.000Z",
               }),
           },
@@ -6707,6 +6723,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
           projectionSnapshotQuery: {
             getProjectShellById: () => Effect.succeed(Option.none()),
+            getBoardById: () => Effect.succeed(Option.none()),
+            getCardById: () => Effect.succeed(Option.none()),
           },
         },
       });

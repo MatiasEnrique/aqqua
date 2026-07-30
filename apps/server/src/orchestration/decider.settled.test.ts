@@ -52,6 +52,8 @@ function makeReadModel(
         session,
       },
     ],
+    boards: [],
+    cards: [],
     updatedAt: NOW,
   };
 }
@@ -135,6 +137,8 @@ function makeHierarchyReadModel(
         ...overrides.grandchild,
       }),
     ],
+    boards: [],
+    cards: [],
     updatedAt: NOW,
   };
 }

@@ -15,6 +15,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionBoardRepository } from "../../persistence/Services/ProjectionBoards.ts";
+import { ProjectionCardRepository } from "../../persistence/Services/ProjectionCards.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
@@ -34,6 +36,8 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionBoardRepositoryLive } from "../../persistence/Layers/ProjectionBoards.ts";
+import { ProjectionCardRepositoryLive } from "../../persistence/Layers/ProjectionCards.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -66,6 +70,8 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  boards: "projection.boards",
+  cards: "projection.cards",
 } as const;
 
 type ProjectorName =
@@ -481,6 +487,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const eventStore = yield* OrchestrationEventStore;
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
+    const projectionBoardRepository = yield* ProjectionBoardRepository;
+    const projectionCardRepository = yield* ProjectionCardRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
@@ -1652,10 +1660,227 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyBoardsProjection: ProjectorDefinition["apply"] = Effect.fn("applyBoardsProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "board.created":
+            yield* projectionBoardRepository.upsert({
+              boardId: event.payload.boardId,
+              projectId: event.payload.projectId,
+              name: event.payload.name,
+              steps: event.payload.steps,
+              createdAt: event.payload.createdAt,
+              updatedAt: event.payload.updatedAt,
+              deletedAt: null,
+            });
+            return;
+
+          case "board.updated": {
+            const existingRow = yield* projectionBoardRepository.getById({
+              boardId: event.payload.boardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionBoardRepository.upsert({
+              ...existingRow.value,
+              name: event.payload.name,
+              steps: event.payload.steps,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "board.deleted": {
+            const existingRow = yield* projectionBoardRepository.getById({
+              boardId: event.payload.boardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionBoardRepository.upsert({
+              ...existingRow.value,
+              deletedAt: event.payload.deletedAt,
+              updatedAt: event.payload.deletedAt,
+            });
+            return;
+          }
+
+          default:
+            return;
+        }
+      },
+    );
+
+    const applyCardsProjection: ProjectorDefinition["apply"] = Effect.fn("applyCardsProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "card.created":
+            yield* projectionCardRepository.upsert({
+              cardId: event.payload.cardId,
+              boardId: event.payload.boardId,
+              projectId: event.payload.projectId,
+              title: event.payload.title,
+              parameters: event.payload.parameters,
+              positionKind: "todo",
+              positionStepIndex: null,
+              status: null,
+              snapshot: null,
+              branch: null,
+              worktreePath: null,
+              stepThreads: [],
+              releasedAt: null,
+              completedAt: null,
+              archivedAt: null,
+              createdAt: event.payload.createdAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+
+          case "card.title-updated": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              title: event.payload.title,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.release-requested": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              snapshot: event.payload.snapshot,
+              updatedAt: event.payload.requestedAt,
+            });
+            return;
+          }
+
+          case "card.released": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              branch: event.payload.branch,
+              worktreePath: event.payload.worktreePath,
+              releasedAt: event.payload.releasedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.step-entered": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              positionKind: "step",
+              positionStepIndex: event.payload.stepIndex,
+              status: "running",
+              stepThreads: [
+                ...existingRow.value.stepThreads,
+                {
+                  stepIndex: event.payload.stepIndex,
+                  threadId: event.payload.threadId,
+                  spawnedAt: event.payload.enteredAt,
+                },
+              ],
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.status-set": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              status: event.payload.status,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.completed": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              positionKind: "done",
+              positionStepIndex: null,
+              status: null,
+              completedAt: event.payload.completedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.archived": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              archivedAt: event.payload.archivedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.step-advance-requested":
+          case "card.retry-requested":
+          case "card.cancel-requested":
+            // Reactor signals only — card projection rows are unchanged.
+            return;
+
+          default:
+            return;
+        }
+      },
+    );
+
     const projectors: ReadonlyArray<ProjectorDefinition> = [
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.projects,
         apply: applyProjectsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.boards,
+        apply: applyBoardsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.cards,
+        apply: applyCardsProjection,
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
@@ -1826,6 +2051,8 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline(),
 ).pipe(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionBoardRepositoryLive),
+  Layer.provideMerge(ProjectionCardRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

@@ -237,6 +237,126 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(unsettledRows, [{ settledOverride: "active", settledAt: null }]);
     }),
   );
+
+  it.effect("projects board and card lifecycle into sqlite rows", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-01-01T00:00:00.000Z";
+      const steps = [
+        {
+          id: "step-1",
+          name: "Implement",
+          promptTemplate: "Do ${ticket_id}",
+          profileName: "default",
+          continuation: "auto" as const,
+        },
+      ];
+
+      yield* eventStore.append({
+        type: "board.created",
+        eventId: EventId.make("evt-board-1"),
+        aggregateKind: "board",
+        aggregateId: "board-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-board-1"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-board-1"),
+        metadata: {},
+        payload: {
+          boardId: "board-1" as never,
+          projectId: ProjectId.make("project-1"),
+          name: "Delivery",
+          steps: steps as never,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "card.created",
+        eventId: EventId.make("evt-card-1"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-1"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-card-1"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          boardId: "board-1" as never,
+          projectId: ProjectId.make("project-1"),
+          title: "Card",
+          parameters: { ticket_id: "T-1" },
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "card.release-requested",
+        eventId: EventId.make("evt-card-2"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-2"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-card-2"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          snapshot: { name: "Delivery", steps: steps as never },
+          requestedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "board.deleted",
+        eventId: EventId.make("evt-board-2"),
+        aggregateKind: "board",
+        aggregateId: "board-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-board-2"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-board-2"),
+        metadata: {},
+        payload: {
+          boardId: "board-1" as never,
+          deletedAt: now,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const boardRows = yield* sql<{
+        readonly boardId: string;
+        readonly name: string;
+        readonly deletedAt: string | null;
+      }>`
+        SELECT
+          board_id AS "boardId",
+          name,
+          deleted_at AS "deletedAt"
+        FROM projection_boards
+      `;
+      assert.deepEqual(boardRows, [{ boardId: "board-1", name: "Delivery", deletedAt: now }]);
+
+      const cardRows = yield* sql<{
+        readonly cardId: string;
+        readonly positionKind: string;
+        readonly snapshotJson: string | null;
+      }>`
+        SELECT
+          card_id AS "cardId",
+          position_kind AS "positionKind",
+          snapshot_json AS "snapshotJson"
+        FROM projection_cards
+      `;
+      assert.equal(cardRows.length, 1);
+      assert.equal(cardRows[0]?.cardId, "card-1");
+      assert.equal(cardRows[0]?.positionKind, "todo");
+      assert.ok(cardRows[0]?.snapshotJson?.includes("Delivery"));
+    }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(

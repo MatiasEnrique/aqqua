@@ -40,6 +40,33 @@ export function applyShellStreamEvent(
         threads: Arr.filter(snapshot.threads, (t) => t.id !== event.threadId),
         snapshotSequence: event.sequence,
       };
+    case "board-upserted": {
+      const boards = snapshot.boards.some((b) => b.id === event.board.id)
+        ? Arr.map(snapshot.boards, (b) => (b.id === event.board.id ? event.board : b))
+        : Arr.append(snapshot.boards, event.board);
+      return { ...snapshot, boards, snapshotSequence: event.sequence };
+    }
+    case "board-removed":
+      return {
+        ...snapshot,
+        boards: Arr.filter(snapshot.boards, (b) => b.id !== event.boardId),
+        // Cards are left alone: the server owns their lifecycle and emits its
+        // own card-removed events. Board selectors scope cards by board id, so
+        // any card whose board is gone is already invisible.
+        snapshotSequence: event.sequence,
+      };
+    case "card-upserted": {
+      const cards = snapshot.cards.some((c) => c.id === event.card.id)
+        ? Arr.map(snapshot.cards, (c) => (c.id === event.card.id ? event.card : c))
+        : Arr.append(snapshot.cards, event.card);
+      return { ...snapshot, cards, snapshotSequence: event.sequence };
+    }
+    case "card-removed":
+      return {
+        ...snapshot,
+        cards: Arr.filter(snapshot.cards, (c) => c.id !== event.cardId),
+        snapshotSequence: event.sequence,
+      };
     default:
       return snapshot;
   }

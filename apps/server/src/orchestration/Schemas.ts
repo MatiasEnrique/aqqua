@@ -24,6 +24,20 @@ import {
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  BoardCreatedPayload as ContractsBoardCreatedPayloadSchema,
+  BoardUpdatedPayload as ContractsBoardUpdatedPayloadSchema,
+  BoardDeletedPayload as ContractsBoardDeletedPayloadSchema,
+  CardCreatedPayload as ContractsCardCreatedPayloadSchema,
+  CardTitleUpdatedPayload as ContractsCardTitleUpdatedPayloadSchema,
+  CardReleaseRequestedPayload as ContractsCardReleaseRequestedPayloadSchema,
+  CardReleasedPayload as ContractsCardReleasedPayloadSchema,
+  CardStepEnteredPayload as ContractsCardStepEnteredPayloadSchema,
+  CardStepAdvanceRequestedPayload as ContractsCardStepAdvanceRequestedPayloadSchema,
+  CardStatusSetPayload as ContractsCardStatusSetPayloadSchema,
+  CardCompletedPayload as ContractsCardCompletedPayloadSchema,
+  CardRetryRequestedPayload as ContractsCardRetryRequestedPayloadSchema,
+  CardCancelRequestedPayload as ContractsCardCancelRequestedPayloadSchema,
+  CardArchivedPayload as ContractsCardArchivedPayloadSchema,
 } from "@t3tools/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
@@ -58,3 +72,19 @@ export const ThreadApprovalResponseRequestedPayload =
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+
+export const BoardCreatedPayload = ContractsBoardCreatedPayloadSchema;
+export const BoardUpdatedPayload = ContractsBoardUpdatedPayloadSchema;
+export const BoardDeletedPayload = ContractsBoardDeletedPayloadSchema;
+
+export const CardCreatedPayload = ContractsCardCreatedPayloadSchema;
+export const CardTitleUpdatedPayload = ContractsCardTitleUpdatedPayloadSchema;
+export const CardReleaseRequestedPayload = ContractsCardReleaseRequestedPayloadSchema;
+export const CardReleasedPayload = ContractsCardReleasedPayloadSchema;
+export const CardStepEnteredPayload = ContractsCardStepEnteredPayloadSchema;
+export const CardStepAdvanceRequestedPayload = ContractsCardStepAdvanceRequestedPayloadSchema;
+export const CardStatusSetPayload = ContractsCardStatusSetPayloadSchema;
+export const CardCompletedPayload = ContractsCardCompletedPayloadSchema;
+export const CardRetryRequestedPayload = ContractsCardRetryRequestedPayloadSchema;
+export const CardCancelRequestedPayload = ContractsCardCancelRequestedPayloadSchema;
+export const CardArchivedPayload = ContractsCardArchivedPayloadSchema;

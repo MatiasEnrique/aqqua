@@ -231,3 +231,29 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 
   return { prompt, outputSchema };
 }
+
+// ---------------------------------------------------------------------------
+// Board card title (reuses generateThreadTitle with this message shape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the message body passed to `generateThreadTitle` for an agentic-board
+ * card. Parameters are the only signal; the placeholder title is context only.
+ */
+export function buildBoardCardTitleMessage(input: {
+  readonly parameters: Readonly<Record<string, string>>;
+  readonly placeholderTitle: string;
+}): string {
+  const entries = Object.entries(input.parameters);
+  const paramBlock =
+    entries.length === 0
+      ? "(no parameters)"
+      : entries.map(([name, value]) => `${name}: ${value}`).join("\n");
+  return [
+    "Write a short human-readable title for a board card (a unit of coding work).",
+    `Placeholder title: ${input.placeholderTitle}`,
+    "Card parameters:",
+    paramBlock,
+    "Prefer a title that names the work, not the raw parameter keys.",
+  ].join("\n");
+}

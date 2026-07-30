@@ -48,6 +48,15 @@ export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond
 export type RespondToThreadUserInputInput = CommandInput<"thread.user-input.respond">;
 export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert">;
 export type StopThreadSessionInput = CommandInput<"thread.session.stop">;
+export type CreateBoardInput = CommandInput<"board.create">;
+export type UpdateBoardInput = CommandInput<"board.update">;
+export type DeleteBoardInput = CommandInput<"board.delete">;
+export type CreateCardInput = CommandInput<"card.create">;
+export type ReleaseCardInput = CommandInput<"card.release">;
+export type ContinueCardInput = CommandInput<"card.continue">;
+export type RetryCardInput = CommandInput<"card.retry">;
+export type CancelCardInput = CommandInput<"card.cancel">;
+export type ArchiveCardInput = CommandInput<"card.archive">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
 type CommandEffect = Effect.Effect<
@@ -296,5 +305,95 @@ export const stopThreadSession: (input: StopThreadSessionInput) => CommandEffect
     type: "thread.session.stop",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
+  });
+});
+
+export const createBoard: (input: CreateBoardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.createBoard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "board.create",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const updateBoard: (input: UpdateBoardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.updateBoard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "board.update",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const deleteBoard: (input: DeleteBoardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.deleteBoard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "board.delete",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const createCard: (input: CreateCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.createCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.create",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const releaseCard: (input: ReleaseCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.releaseCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.release",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const continueCard: (input: ContinueCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.continueCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.continue",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const retryCard: (input: RetryCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.retryCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.retry",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const cancelCard: (input: CancelCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.cancelCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.cancel",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const archiveCard: (input: ArchiveCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.archiveCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.archive",
+    commandId: yield* commandId(input),
   });
 });

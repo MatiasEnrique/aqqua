@@ -139,6 +139,24 @@ The patch difference between two checkpoints. Query logic lives in [CheckpointDi
 
 The file patch and changed-file summary for one turn. It is usually computed in [CheckpointDiffQuery.ts][20], represented in [the contracts][1], and recorded into thread state by [projector.ts][4].
 
+### Agentic board
+
+#### Board
+
+A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Defined in [the board contracts][25]; executed by [BoardReactor.ts][26].
+
+#### Card
+
+One unit of board work: one worktree plus one branch. Creating a card is cheap (no git activity); **releasing** it creates the worktree/branch and copies the board definition as its **snapshot**, making in-flight cards immune to board edits. Its **position** (To-Do, step, Done) moves only on successful step completion; its **status** (`running`, `paused`, `needs-input`, `failed`, `cancelled`) is an orthogonal badge that never moves the card.
+
+#### Board artifact
+
+A step's output file on disk under the server state directory (`board-artifacts/<cardId>/<step>.md`), never inside the repository. Later steps receive earlier artifact paths only through explicit `${artifact}` / `${artifact:step}` placeholders. Path logic lives in [boardArtifacts.ts][27].
+
+#### board_complete
+
+The MCP completion signal a step's agent must call (`success` or `blocked`), hosted on the server's MCP toolkit next to preview. A turn that ends without it flags the card `needs-input`.
+
 ## Practical Shortcuts
 
 - If you see `requested`, think "intent recorded".
@@ -178,3 +196,6 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 [22]: ../apps/server/src/checkpointing/Utils.ts
 [23]: ../apps/server/src/checkpointing/Diffs.ts
 [24]: ./architecture.md
+[25]: ../packages/contracts/src/board.ts
+[26]: ../apps/server/src/orchestration/Layers/BoardReactor.ts
+[27]: ../apps/server/src/boardArtifacts.ts

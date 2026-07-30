@@ -17,6 +17,9 @@ import {
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
+  BOARD_WS_METHODS,
+  BoardId,
+  CardId,
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
@@ -66,6 +69,7 @@ import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgro
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
+import { readBoardArtifact, writeBoardArtifact } from "./boardArtifacts.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -613,6 +617,30 @@ const makeWsRpcLayer = (
                 projectId: event.payload.projectId,
               }),
             );
+          case "board.created":
+          case "board.updated":
+            return boardUpsertOrRemove(event.payload.boardId, event.sequence);
+          case "board.deleted":
+            return Effect.succeed(
+              Option.some({
+                kind: "board-removed" as const,
+                sequence: event.sequence,
+                boardId: event.payload.boardId,
+              }),
+            );
+          case "card.created":
+          case "card.title-updated":
+          case "card.release-requested":
+          case "card.released":
+          case "card.step-entered":
+          case "card.step-advance-requested":
+          case "card.status-set":
+          case "card.completed":
+          case "card.retry-requested":
+          case "card.cancel-requested":
+          case "card.archived":
+            // v1 never emits card-removed; archived cards stay for clients to filter.
+            return cardUpsert(event.payload.cardId, event.sequence);
           case "thread.deleted":
           case "thread.archived":
             return Effect.succeed(
@@ -625,6 +653,12 @@ const makeWsRpcLayer = (
           case "thread.unarchived":
             return threadUpsertOrRemove(event.payload.threadId, event.sequence);
           default:
+            if (event.aggregateKind === "board") {
+              return boardUpsertOrRemove(BoardId.make(event.aggregateId), event.sequence);
+            }
+            if (event.aggregateKind === "card") {
+              return cardUpsert(CardId.make(event.aggregateId), event.sequence);
+            }
             if (event.aggregateKind !== "thread") {
               return Effect.succeed(Option.none());
             }
@@ -638,7 +672,7 @@ const makeWsRpcLayer = (
       // If both attempts fail, log and drop the stream item; treating an error as
       // a missing row would incorrectly remove a still-active aggregate.
       const retryShellProjectionRead = <A, E>(
-        aggregateKind: "project" | "thread",
+        aggregateKind: "project" | "thread" | "board" | "card",
         aggregateId: string,
         read: Effect.Effect<A, E>,
       ): Effect.Effect<Option.Option<A>, never, never> =>
@@ -717,6 +751,56 @@ const makeWsRpcLayer = (
                     kind: "thread-upserted" as const,
                     sequence,
                     thread: nextThread,
+                  }),
+              }),
+            ),
+          ),
+        );
+
+      const boardUpsertOrRemove = (
+        boardId: BoardId,
+        sequence: number,
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
+        retryShellProjectionRead(
+          "board",
+          boardId,
+          projectionSnapshotQuery.getBoardById(boardId),
+        ).pipe(
+          Effect.map(
+            Option.flatMap((board) =>
+              Option.match(board, {
+                onNone: () =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "board-removed" as const,
+                    sequence,
+                    boardId,
+                  }),
+                onSome: (nextBoard) =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "board-upserted" as const,
+                    sequence,
+                    board: nextBoard,
+                  }),
+              }),
+            ),
+          ),
+        );
+
+      const cardUpsert = (
+        cardId: CardId,
+        sequence: number,
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
+        retryShellProjectionRead("card", cardId, projectionSnapshotQuery.getCardById(cardId)).pipe(
+          Effect.map(
+            Option.flatMap((card) =>
+              Option.match(card, {
+                // Cards are never removed from the shell in v1.
+                onNone: () => Option.none(),
+                onSome: (nextCard) =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "card-upserted" as const,
+                    sequence,
+                    card: nextCard,
                   }),
               }),
             ),
@@ -2341,6 +2425,14 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "server" },
           ),
+        [BOARD_WS_METHODS.readArtifact]: (input) =>
+          observeRpcEffect(BOARD_WS_METHODS.readArtifact, readBoardArtifact(input), {
+            "rpc.aggregate": "board",
+          }),
+        [BOARD_WS_METHODS.writeArtifact]: (input) =>
+          observeRpcEffect(BOARD_WS_METHODS.writeArtifact, writeBoardArtifact(input), {
+            "rpc.aggregate": "board",
+          }),
       });
     }),
   );

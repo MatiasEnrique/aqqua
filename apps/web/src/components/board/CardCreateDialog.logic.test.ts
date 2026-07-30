@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import { BoardId, BoardStepId, ProjectId } from "@t3tools/contracts";
+import type { BoardStep, OrchestrationBoard } from "@t3tools/contracts";
+
+import {
+  boardParameterNames,
+  buildPlaceholderCardTitle,
+  missingParameterNames,
+  toCardParameters,
+} from "./CardCreateDialog.logic";
+
+function board(templates: ReadonlyArray<string>): OrchestrationBoard {
+  return {
+    id: BoardId.make("board-1"),
+    projectId: ProjectId.make("project-1"),
+    name: "Delivery",
+    steps: templates.map((promptTemplate, index) => ({
+      id: BoardStepId.make(`step-${index}`),
+      name: `Step ${index}`,
+      promptTemplate,
+      profileName: "implementer" as BoardStep["profileName"],
+      continuation: "auto" as const,
+    })),
+    createdAt: "2026-04-01T00:00:00.000Z",
+    updatedAt: "2026-04-01T00:00:00.000Z",
+    deletedAt: null,
+  };
+}
+
+describe("boardParameterNames", () => {
+  it("unions placeholders across every step, in first-seen order", () => {
+    expect(
+      boardParameterNames(board(["Plan ${issue_id} for ${scope}", "Review ${issue_id}"])),
+    ).toEqual(["issue_id", "scope"]);
+  });
+
+  it("adds a field for a brand-new placeholder with no other configuration", () => {
+    const before = boardParameterNames(board(["Plan ${issue_id}"]));
+    const after = boardParameterNames(board(["Plan ${issue_id}", "Ship ${new_param}"]));
+    expect(before).toEqual(["issue_id"]);
+    expect(after).toEqual(["issue_id", "new_param"]);
+  });
+
+  it("excludes reserved artifact and card-title placeholders", () => {
+    expect(
+      boardParameterNames(
+        board(["Read ${artifact} and ${artifact:Plan} for ${card_title}: ${issue_id}"]),
+      ),
+    ).toEqual(["issue_id"]);
+  });
+
+  it("has no fields without a board", () => {
+    expect(boardParameterNames(null)).toEqual([]);
+  });
+});
+
+describe("missingParameterNames", () => {
+  it("treats whitespace-only values as missing", () => {
+    expect(
+      missingParameterNames(["issue_id", "scope"], { issue_id: "T3-482", scope: "  " }),
+    ).toEqual(["scope"]);
+  });
+
+  it("is empty once every field is filled", () => {
+    expect(missingParameterNames(["issue_id"], { issue_id: "T3-482" })).toEqual([]);
+  });
+});
+
+describe("buildPlaceholderCardTitle", () => {
+  it("joins the values in template order", () => {
+    expect(
+      buildPlaceholderCardTitle(["issue_id", "scope"], { scope: "web", issue_id: "T3-482" }),
+    ).toBe("T3-482 · web");
+  });
+
+  it("truncates long joins", () => {
+    const title = buildPlaceholderCardTitle(["note"], { note: "x".repeat(200) });
+    expect(title).toHaveLength(60);
+    expect(title.endsWith("…")).toBe(true);
+  });
+
+  it("falls back when nothing was entered", () => {
+    expect(buildPlaceholderCardTitle(["issue_id"], {})).toBe("Untitled card");
+  });
+});
+
+describe("toCardParameters", () => {
+  it("trims values and drops keys the board does not ask for", () => {
+    expect(
+      toCardParameters(["issue_id"], { issue_id: "  T3-482 ", leftover: "from an older template" }),
+    ).toEqual({ issue_id: "T3-482" });
+  });
+});

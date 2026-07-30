@@ -7,7 +7,11 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  BoardId,
+  CardId,
   CheckpointRef,
+  OrchestrationBoard,
+  OrchestrationCard,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationProjectShell,
@@ -121,6 +125,20 @@ export interface ProjectionSnapshotQueryShape {
   readonly getProjectShellById: (
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single non-deleted board by id for shell stream updates.
+   */
+  readonly getBoardById: (
+    boardId: BoardId,
+  ) => Effect.Effect<Option.Option<OrchestrationBoard>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single card by id for shell stream updates (includes archived).
+   */
+  readonly getCardById: (
+    cardId: CardId,
+  ) => Effect.Effect<Option.Option<OrchestrationCard>, ProjectionRepositoryError>;
 
   /**
    * Read the earliest active thread for a project.

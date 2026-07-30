@@ -1,4 +1,8 @@
 import type {
+  BoardId,
+  CardId,
+  OrchestrationBoard,
+  OrchestrationCard,
   OrchestrationCommand,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -30,6 +34,20 @@ export function findProjectById(
   projectId: ProjectId,
 ): OrchestrationProject | undefined {
   return readModel.projects.find((project) => project.id === projectId);
+}
+
+export function findBoardById(
+  readModel: OrchestrationReadModel,
+  boardId: BoardId,
+): OrchestrationBoard | undefined {
+  return (readModel.boards ?? []).find((board) => board.id === boardId);
+}
+
+export function findCardById(
+  readModel: OrchestrationReadModel,
+  cardId: CardId,
+): OrchestrationCard | undefined {
+  return (readModel.cards ?? []).find((card) => card.id === cardId);
 }
 
 export function listThreadsByProjectId(
@@ -172,6 +190,110 @@ export function requireThreadAbsent(input: {
     invariantError(
       input.command.type,
       `Thread '${input.threadId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireBoard(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly boardId: BoardId;
+}): Effect.Effect<OrchestrationBoard, OrchestrationCommandInvariantError> {
+  const board = findBoardById(input.readModel, input.boardId);
+  if (board) {
+    return Effect.succeed(board);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board '${input.boardId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireBoardNotDeleted(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly boardId: BoardId;
+}): Effect.Effect<OrchestrationBoard, OrchestrationCommandInvariantError> {
+  return requireBoard(input).pipe(
+    Effect.flatMap((board) =>
+      board.deletedAt === null
+        ? Effect.succeed(board)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Board '${input.boardId}' is deleted and cannot handle command '${input.command.type}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
+export function requireBoardAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly boardId: BoardId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findBoardById(input.readModel, input.boardId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Board '${input.boardId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireCard(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly cardId: CardId;
+}): Effect.Effect<OrchestrationCard, OrchestrationCommandInvariantError> {
+  const card = findCardById(input.readModel, input.cardId);
+  if (card) {
+    return Effect.succeed(card);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Card '${input.cardId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireCardAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly cardId: CardId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findCardById(input.readModel, input.cardId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Card '${input.cardId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireCardNotArchived(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly cardId: CardId;
+}): Effect.Effect<OrchestrationCard, OrchestrationCommandInvariantError> {
+  return requireCard(input).pipe(
+    Effect.flatMap((card) =>
+      card.archivedAt === null
+        ? Effect.succeed(card)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Card '${input.cardId}' is already archived and cannot handle command '${input.command.type}'.`,
+            ),
+          ),
     ),
   );
 }

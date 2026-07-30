@@ -33,6 +33,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchPlusIcon,
+  LayoutGridIcon,
   LinkIcon,
   MessageSquareIcon,
   SettingsIcon,
@@ -1347,6 +1348,29 @@ function OpenCommandPaletteDialog(props: {
     }
 
     actionItems.push(newWorktreeThreadItem);
+
+    const boardProjectRef =
+      currentProjectEnvironmentId && currentProjectId
+        ? { environmentId: currentProjectEnvironmentId, projectId: currentProjectId }
+        : defaultProjectRef;
+    if (boardProjectRef) {
+      actionItems.push({
+        kind: "action",
+        value: "action:open-board",
+        searchTerms: ["board", "agentic board", "kanban", "cards", "pipeline", "steps"],
+        title: "Open agentic board",
+        icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await navigate({
+            to: "/board/$environmentId/$projectId",
+            params: {
+              environmentId: boardProjectRef.environmentId,
+              projectId: boardProjectRef.projectId,
+            },
+          });
+        },
+      });
+    }
 
     actionItems.push({
       kind: "submenu",

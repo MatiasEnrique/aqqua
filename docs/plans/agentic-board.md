@@ -1,6 +1,6 @@
 # Agentic Board
 
-Status: planned (design agreed 2026-07-30, not started)
+Status: implemented (v1 landed 2026-07-30; user doc: `docs/user/agentic-board.md`)
 
 ## Problem
 

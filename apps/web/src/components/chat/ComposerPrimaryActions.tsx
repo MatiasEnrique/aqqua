@@ -1,4 +1,4 @@
-import { memo, type PointerEventHandler } from "react";
+import { memo, type PointerEventHandler, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
@@ -15,8 +15,26 @@ interface PendingActionState {
   isComplete: boolean;
 }
 
+/**
+ * Owner-supplied primary action for an idle composer.
+ *
+ * The Agentic Board's card actions ride this slot: a waiting step shows
+ * `Resume ⌄` instead of the bare send arrow. Running turns and pending
+ * questions keep their own primaries — a card can never take the stop button
+ * away from a turn in flight.
+ */
+export interface ComposerIdlePrimaryActionState {
+  readonly promptHasText: boolean;
+  readonly disabled: boolean;
+}
+
+export type ComposerIdlePrimaryActionRenderer = (
+  state: ComposerIdlePrimaryActionState,
+) => ReactNode;
+
 interface ComposerPrimaryActionsProps {
   compact: boolean;
+  renderIdlePrimaryAction?: ComposerIdlePrimaryActionRenderer | undefined;
   pendingAction: PendingActionState | null;
   isRunning: boolean;
   showPlanFollowUpPrompt: boolean;
@@ -57,6 +75,7 @@ const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
+  renderIdlePrimaryAction,
   pendingAction,
   isRunning,
   showPlanFollowUpPrompt,
@@ -145,6 +164,17 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <rect x="2" y="2" width="8" height="8" rx="1.5" />
         </svg>
       </button>
+    );
+  }
+
+  if (renderIdlePrimaryAction) {
+    return (
+      <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+        {renderIdlePrimaryAction({
+          promptHasText,
+          disabled: isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable,
+        })}
+      </div>
     );
   }
 

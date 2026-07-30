@@ -90,7 +90,10 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import {
+  ComposerPrimaryActions,
+  type ComposerIdlePrimaryActionState,
+} from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -408,8 +411,18 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   );
 });
 
+/**
+ * Owner-supplied primary action for the idle composer. The composer hands the
+ * owner its own focus so an action like the board's `Resume step` can put the
+ * caret in the prompt instead of spending a turn.
+ */
+export type ComposerIdlePrimaryActionRenderer = (
+  state: ComposerIdlePrimaryActionState & { readonly focusComposer: () => void },
+) => ReactNode;
+
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
+  renderIdlePrimaryAction?: ((state: ComposerIdlePrimaryActionState) => ReactNode) | undefined;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -446,6 +459,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
+        renderIdlePrimaryAction={props.renderIdlePrimaryAction}
         pendingAction={props.pendingAction}
         isRunning={props.isRunning}
         showPlanFollowUpPrompt={props.showPlanFollowUpPrompt}
@@ -577,6 +591,13 @@ export interface ChatComposerProps {
   // Context window
   activeThreadActivities: Thread["activities"] | undefined;
 
+  /**
+   * Optional owner-supplied primary action for the idle composer (the Agentic
+   * Board's `Resume ⌄` card actions). Turns in flight and pending questions
+   * keep the composer's own primaries.
+   */
+  renderIdlePrimaryAction?: ComposerIdlePrimaryActionRenderer | undefined;
+
   // Misc
   resolvedTheme: "light" | "dark";
   settings: UnifiedSettings;
@@ -631,6 +652,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const {
     composerDraftTarget,
     environmentId,
+    renderIdlePrimaryAction,
     routeKind,
     routeThreadRef,
     draftId,
@@ -1264,6 +1286,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }
         : null,
     [activePendingIsResponding, activePendingProgress, activePendingResolvedAnswers],
+  );
+  // The owner's action renderer gets the composer's own focus handle, so
+  // "resume by talking" can put the caret in the prompt without a turn.
+  const renderIdlePrimaryActionWithFocus = useMemo(
+    () =>
+      renderIdlePrimaryAction === undefined
+        ? undefined
+        : (state: ComposerIdlePrimaryActionState) =>
+            renderIdlePrimaryAction({ ...state, focusComposer }),
+    [focusComposer, renderIdlePrimaryAction],
   );
   const collapsedComposerPrimaryActionDisabled =
     phase === "running" ||
@@ -3171,6 +3203,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               >
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
+                  renderIdlePrimaryAction={renderIdlePrimaryActionWithFocus}
                   activeContextWindow={activeContextWindow}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}

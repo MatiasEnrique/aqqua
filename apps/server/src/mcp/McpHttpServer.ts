@@ -13,6 +13,8 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { BoardToolkitHandlersLive } from "./toolkits/board/handlers.ts";
+import { BoardToolkit } from "./toolkits/board/tools.ts";
 import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
@@ -216,10 +218,21 @@ export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewSnapshotRegistrationLive,
 );
 
+const BoardToolkitRegistrationLive = McpServer.toolkit(BoardToolkit).pipe(
+  Layer.provide(BoardToolkitHandlersLive),
+);
+
+export const BoardAndPreviewToolkitRegistrationLive = Layer.mergeAll(
+  PreviewToolkitRegistrationLive,
+  BoardToolkitRegistrationLive,
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
   path: "/mcp",
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
-export const layer = PreviewToolkitRegistrationLive.pipe(Layer.provideMerge(McpTransportLive));
+export const layer = BoardAndPreviewToolkitRegistrationLive.pipe(
+  Layer.provideMerge(McpTransportLive),
+);

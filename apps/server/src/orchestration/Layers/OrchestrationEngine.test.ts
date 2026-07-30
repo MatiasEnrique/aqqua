@@ -156,6 +156,8 @@ describe("OrchestrationEngine", () => {
           session: null,
         },
       ],
+      boards: [],
+      cards: [],
     };
     const commandReadModel = {
       ...projectionSnapshot,
@@ -185,6 +187,8 @@ describe("OrchestrationEngine", () => {
               snapshotSequence: projectionSnapshot.snapshotSequence,
               projects: [],
               threads: [],
+              boards: [],
+              cards: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
           getArchivedShellSnapshot: () =>
@@ -192,6 +196,8 @@ describe("OrchestrationEngine", () => {
               snapshotSequence: projectionSnapshot.snapshotSequence,
               projects: [],
               threads: [],
+              boards: [],
+              cards: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
           getSnapshotSequence: () =>
@@ -199,6 +205,8 @@ describe("OrchestrationEngine", () => {
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getProjectShellById: () => Effect.succeed(Option.none()),
+          getBoardById: () => Effect.succeed(Option.none()),
+          getCardById: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),

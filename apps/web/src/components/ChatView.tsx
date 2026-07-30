@@ -46,6 +46,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   lazy,
   memo,
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -225,7 +226,11 @@ import {
   useThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
-import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  ChatComposer,
+  type ChatComposerHandle,
+  type ComposerIdlePrimaryActionRenderer,
+} from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -481,27 +486,45 @@ function formatOutgoingPrompt(params: {
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
-type ChatViewProps =
-  | {
-      environmentId: EnvironmentId;
-      threadId: ThreadId;
-      onDiffPanelOpen?: () => void;
-      reserveTitleBarControlInset?: boolean;
-      forceExpandedMobileComposer?: boolean;
-      threadSyncPhase?: ThreadSyncPhase | null;
-      routeKind: "server";
-      draftId?: never;
-    }
-  | {
-      environmentId: EnvironmentId;
-      threadId: ThreadId;
-      onDiffPanelOpen?: () => void;
-      reserveTitleBarControlInset?: boolean;
-      forceExpandedMobileComposer?: boolean;
-      threadSyncPhase?: never;
-      routeKind: "draft";
-      draftId: DraftId;
-    };
+/**
+ * Slots that let another surface reuse the chat view whole rather than clone
+ * it. The Agentic Board's card detail is the only caller: it hangs the card
+ * tree in the rail, swaps the timeline for an artifact document, and puts the
+ * card's `Resume ⌄` actions in the composer's primary slot.
+ */
+export interface ChatViewSurfaceSlots {
+  /** Rail rendered left of the message column, under the app's top bar. */
+  leftRail?: ReactNode;
+  /** Replaces the message timeline; the composer and footer stay. */
+  timelineOverride?: ReactNode;
+  /** Extra banners stacked above the composer (card status, sub-agent hint). */
+  composerBanners?: ReadonlyArray<ComposerBannerStackItem> | undefined;
+  renderComposerIdlePrimaryAction?: ComposerIdlePrimaryActionRenderer | undefined;
+}
+
+type ChatViewProps = ChatViewSurfaceSlots &
+  (
+    | {
+        environmentId: EnvironmentId;
+        threadId: ThreadId;
+        onDiffPanelOpen?: () => void;
+        reserveTitleBarControlInset?: boolean;
+        forceExpandedMobileComposer?: boolean;
+        threadSyncPhase?: ThreadSyncPhase | null;
+        routeKind: "server";
+        draftId?: never;
+      }
+    | {
+        environmentId: EnvironmentId;
+        threadId: ThreadId;
+        onDiffPanelOpen?: () => void;
+        reserveTitleBarControlInset?: boolean;
+        forceExpandedMobileComposer?: boolean;
+        threadSyncPhase?: never;
+        routeKind: "draft";
+        draftId: DraftId;
+      }
+  );
 
 interface TerminalLaunchContext {
   threadId: ThreadId;
@@ -1158,6 +1181,10 @@ function ChatViewContent(props: ChatViewProps) {
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
+    leftRail,
+    timelineOverride,
+    composerBanners,
+    renderComposerIdlePrimaryAction,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
@@ -4445,10 +4472,12 @@ function ChatViewContent(props: ChatViewProps) {
   }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
+    const ownerItems = composerBanners === undefined ? [] : [...composerBanners];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
-      return [...systemComposerBannerItems, ...parkedThreadItems];
+      return [...systemComposerBannerItems, ...ownerItems, ...parkedThreadItems];
     }
     return [
+      ...ownerItems,
       ...systemComposerBannerItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
@@ -4493,6 +4522,7 @@ function ChatViewContent(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
+    composerBanners,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
@@ -6061,6 +6091,7 @@ function ChatViewContent(props: ChatViewProps) {
         />
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
+          {leftRail}
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Provider status overlays the timeline without changing its content height. */}
@@ -6072,60 +6103,64 @@ function ChatViewContent(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-              {/* Messages — LegendList handles virtualization and scrolling internally */}
-              <MessagesTimeline
-                key={activeThread.id}
-                isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
-                activeTurnStartedAt={activeWorkStartedAt}
-                listRef={legendListRef}
-                timelineEntries={timelineEntries}
-                latestTurn={activeLatestTurn}
-                runningTurnId={
-                  activeThread.session?.status === "running"
-                    ? activeThread.session.activeTurnId
-                    : null
-                }
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                activeThreadEnvironmentId={activeThread.environmentId}
-                routeThreadKey={routeThreadKey}
-                onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={activeWorkspaceRoot}
-                skills={timelineWorkspaceSkills.skills}
-                anchorMessageId={timelineAnchorMessageId}
-                onAnchorReady={onTimelineAnchorReady}
-                onAnchorSizeChanged={onTimelineAnchorSizeChanged}
-                contentInsetEndAdjustment={composerOverlayHeight}
-                onIsAtEndChange={onIsAtEndChange}
-                onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
-                topFadeEnabled={!hasTimelineTopBanner}
-              />
+              {timelineOverride ?? (
+                <>
+                  {/* Messages — LegendList handles virtualization and scrolling internally */}
+                  <MessagesTimeline
+                    key={activeThread.id}
+                    isWorking={isWorking}
+                    activeTurnInProgress={isWorking || !latestTurnSettled}
+                    activeTurnStartedAt={activeWorkStartedAt}
+                    listRef={legendListRef}
+                    timelineEntries={timelineEntries}
+                    latestTurn={activeLatestTurn}
+                    runningTurnId={
+                      activeThread.session?.status === "running"
+                        ? activeThread.session.activeTurnId
+                        : null
+                    }
+                    turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                    activeThreadEnvironmentId={activeThread.environmentId}
+                    routeThreadKey={routeThreadKey}
+                    onOpenTurnDiff={onOpenTurnDiff}
+                    revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                    onRevertUserMessage={onRevertUserMessage}
+                    isRevertingCheckpoint={isRevertingCheckpoint}
+                    onImageExpand={onExpandTimelineImage}
+                    markdownCwd={gitCwd ?? undefined}
+                    resolvedTheme={resolvedTheme}
+                    timestampFormat={timestampFormat}
+                    workspaceRoot={activeWorkspaceRoot}
+                    skills={timelineWorkspaceSkills.skills}
+                    anchorMessageId={timelineAnchorMessageId}
+                    onAnchorReady={onTimelineAnchorReady}
+                    onAnchorSizeChanged={onTimelineAnchorSizeChanged}
+                    contentInsetEndAdjustment={composerOverlayHeight}
+                    onIsAtEndChange={onIsAtEndChange}
+                    onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
+                    hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
+                    topFadeEnabled={!hasTimelineTopBanner}
+                  />
 
-              {/* scroll to end pill — shown when user has scrolled away from the live edge */}
-              {showScrollToBottom && (
-                <div
-                  className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
-                  style={{ bottom: composerOverlayHeight + 4 }}
-                >
-                  <button
-                    type="button"
-                    aria-label="Scroll to end"
-                    title="Scroll to end"
-                    onClick={() => scrollToEnd(true)}
-                    className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
-                  >
-                    <ChevronDownIcon className="size-3.5" />
-                    Scroll to end
-                  </button>
-                </div>
+                  {/* scroll to end pill — shown when user has scrolled away from the live edge */}
+                  {showScrollToBottom && (
+                    <div
+                      className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
+                      style={{ bottom: composerOverlayHeight + 4 }}
+                    >
+                      <button
+                        type="button"
+                        aria-label="Scroll to end"
+                        title="Scroll to end"
+                        onClick={() => scrollToEnd(true)}
+                        className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                      >
+                        <ChevronDownIcon className="size-3.5" />
+                        Scroll to end
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -6188,6 +6223,7 @@ function ChatViewContent(props: ChatViewProps) {
                           <ChatComposer
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
+                            renderIdlePrimaryAction={renderComposerIdlePrimaryAction}
                             environmentId={environmentId}
                             routeKind={routeKind}
                             routeThreadRef={routeThreadRef}
