@@ -1,15 +1,15 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import {
-  buildWorktreeSettlementPlan,
   buildWorktreeDeletionPlan,
+  deleteWorktreeResourcesInOrder,
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
   isFinalWorktreeReferenceAfterDeletion,
+  selectThreadDeletionRoots,
   selectThreadsForWorktree,
   worktreeRemovalInspectionUnchanged,
 } from "./worktreeCleanup";
@@ -162,126 +162,93 @@ describe("selectThreadsForWorktree", () => {
   });
 });
 
-describe("buildWorktreeSettlementPlan", () => {
-  it("unsnoozes and settles quiet conversations while blocking a running conversation", () => {
-    const worktreePath = "/tmp/worktrees/feature-a";
-    const ready = makeThread({
-      id: ThreadId.make("ready"),
-      worktreePath,
-    });
-    const snoozed = makeThread({
-      id: ThreadId.make("snoozed"),
-      worktreePath,
-      snoozedAt: "2026-02-13T00:00:00.000Z",
-      snoozedUntil: "2026-02-20T00:00:00.000Z",
-    });
-    const settled = makeThread({
-      id: ThreadId.make("settled"),
-      worktreePath,
-      settledOverride: "settled",
-      settledAt: "2026-02-13T00:00:00.000Z",
-    });
-    const running = makeThread({
-      id: ThreadId.make("running"),
-      worktreePath,
-      session: {
-        threadId: ThreadId.make("running"),
-        status: "running",
-        providerName: "Codex",
-        runtimeMode: "full-access",
-        activeTurnId: null,
-        lastError: null,
-        updatedAt: "2026-02-14T00:00:00.000Z",
-      },
-    });
-
-    const plan = buildWorktreeSettlementPlan({
-      environmentId: localEnvironmentId,
-      worktreePath,
-      threads: [ready, snoozed, settled, running].map(asShell),
-      now: "2026-02-14T00:00:00.000Z",
-      settlementSupported: true,
-    });
-
-    expect(plan.threadsToUnsnooze.map((thread) => thread.id)).toEqual([ThreadId.make("snoozed")]);
-    expect(plan.threadsToSettle.map((thread) => thread.id)).toEqual([
-      ThreadId.make("ready"),
-      ThreadId.make("snoozed"),
-      ThreadId.make("running"),
-    ]);
-    expect(plan.blockedThreads.map((thread) => thread.id)).toEqual([ThreadId.make("running")]);
-  });
-
-  it("blocks removal when the environment cannot settle an unsettled conversation", () => {
-    const ready = asShell(
+describe("selectThreadDeletionRoots", () => {
+  it("keeps only roots when deleting a conversation hierarchy", () => {
+    const parent = asShell(
       makeThread({
-        id: ThreadId.make("ready"),
+        id: ThreadId.make("parent"),
         worktreePath: "/tmp/worktrees/feature-a",
       }),
     );
-
-    const plan = buildWorktreeSettlementPlan({
-      environmentId: localEnvironmentId,
-      worktreePath: "/tmp/worktrees/feature-a",
-      threads: [ready],
-      now: "2026-02-14T00:00:00.000Z",
-      settlementSupported: false,
-    });
-
-    expect(plan.threadsToSettle).toEqual([ready]);
-    expect(plan.blockedThreads).toEqual([ready]);
-  });
-
-  it("pins an auto-settled conversation explicitly before removing its worktree", () => {
-    const autoSettled = {
+    const child = {
       ...asShell(
         makeThread({
-          id: ThreadId.make("auto-settled"),
+          id: ThreadId.make("child"),
           worktreePath: "/tmp/worktrees/feature-a",
         }),
       ),
-      latestUserMessageAt: "2026-02-01T00:00:00.000Z",
+      parentThreadId: parent.id,
     };
-    expect(
-      effectiveSettled(autoSettled, {
-        now: "2026-02-14T00:00:00.000Z",
-        autoSettleAfterDays: 1,
-        changeRequestState: null,
-      }),
-    ).toBe(true);
-
-    const plan = buildWorktreeSettlementPlan({
-      environmentId: localEnvironmentId,
-      worktreePath: "/tmp/worktrees/feature-a",
-      threads: [autoSettled],
-      now: "2026-02-14T00:00:00.000Z",
-      settlementSupported: true,
-    });
-
-    expect(plan.threadsToSettle).toEqual([autoSettled]);
-    expect(plan.blockedThreads).toEqual([]);
-  });
-
-  it("restores an archived conversation before settling its worktree", () => {
-    const archived = asShell(
+    const independent = asShell(
       makeThread({
-        id: ThreadId.make("archived"),
+        id: ThreadId.make("independent"),
         worktreePath: "/tmp/worktrees/feature-a",
-        archivedAt: "2026-02-13T00:00:00.000Z",
       }),
     );
 
-    const plan = buildWorktreeSettlementPlan({
-      environmentId: localEnvironmentId,
-      worktreePath: "/tmp/worktrees/feature-a",
-      threads: [archived],
-      now: "2026-02-14T00:00:00.000Z",
-      settlementSupported: true,
+    expect(selectThreadDeletionRoots([parent, child, independent])).toEqual([parent, independent]);
+  });
+});
+
+describe("deleteWorktreeResourcesInOrder", () => {
+  const success = { _tag: "Success" as const };
+  const failure = { _tag: "Failure" as const };
+
+  it("deletes every conversation root before removing the worktree", async () => {
+    const calls: string[] = [];
+
+    const result = await deleteWorktreeResourcesInOrder({
+      threadRoots: ["parent", "independent"],
+      deleteThread: async (thread) => {
+        calls.push(`conversation:${thread}`);
+        return success;
+      },
+      removeWorktree: async () => {
+        calls.push("worktree");
+        return success;
+      },
     });
 
-    expect(plan.threadsToUnarchive).toEqual([archived]);
-    expect(plan.threadsToSettle).toEqual([archived]);
-    expect(plan.blockedThreads).toEqual([]);
+    expect(result).toEqual(success);
+    expect(calls).toEqual(["conversation:parent", "conversation:independent", "worktree"]);
+  });
+
+  it("keeps the worktree when conversation deletion fails", async () => {
+    const calls: string[] = [];
+
+    const result = await deleteWorktreeResourcesInOrder({
+      threadRoots: ["parent", "independent"],
+      deleteThread: async (thread) => {
+        calls.push(`conversation:${thread}`);
+        return thread === "parent" ? failure : success;
+      },
+      removeWorktree: async () => {
+        calls.push("worktree");
+        return success;
+      },
+    });
+
+    expect(result).toEqual({ _tag: "Failure", stage: "conversation", result: failure });
+    expect(calls).toEqual(["conversation:parent"]);
+  });
+
+  it("reports a worktree failure only after conversation history is deleted", async () => {
+    const calls: string[] = [];
+
+    const result = await deleteWorktreeResourcesInOrder({
+      threadRoots: ["conversation"],
+      deleteThread: async () => {
+        calls.push("conversation");
+        return success;
+      },
+      removeWorktree: async () => {
+        calls.push("worktree");
+        return failure;
+      },
+    });
+
+    expect(result).toEqual({ _tag: "Failure", stage: "worktree", result: failure });
+    expect(calls).toEqual(["conversation", "worktree"]);
   });
 });
 

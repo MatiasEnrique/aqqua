@@ -21,13 +21,22 @@ export interface SidebarWorktreeGroup {
   readonly label: string;
   readonly tooltip: string;
   readonly isProjectCheckout: boolean;
-  readonly status: "working" | "done" | "stale";
+  readonly stateCounts: SidebarWorktreeStateCounts;
   readonly updatedAt: number;
   readonly drafts: readonly WorktreeDraftRow[];
   readonly active: readonly EnvironmentThreadShell[];
   readonly snoozed: readonly EnvironmentThreadShell[];
+  readonly unsettled: readonly EnvironmentThreadShell[];
   readonly conversationCount: number;
   readonly workingConversationCount: number;
+}
+
+export interface SidebarWorktreeStateCounts {
+  readonly working: number;
+  readonly needsInput: number;
+  readonly done: number;
+  readonly stale: number;
+  readonly settled: number;
 }
 
 export type SidebarWorktreeConversationLocation = {
@@ -183,12 +192,20 @@ export function buildSidebarWorktreeGroups(input: {
 
   return [...groups.entries()]
     .map(([key, group]): SidebarWorktreeGroup => {
-      const conversationStates = [...group.active, ...group.snoozed].map(
-        resolveSidebarConversationSummaryState,
-      );
-      const workingConversationCount = conversationStates.filter(
-        (state) => state === "working",
-      ).length;
+      const stateCounts = {
+        working: 0,
+        needsInput: 0,
+        done: 0,
+        stale: group.drafts.length,
+        settled: group.settledCount,
+      };
+      for (const thread of [...group.active, ...group.snoozed]) {
+        if (thread.hasPendingUserInput || thread.hasPendingApprovals) {
+          stateCounts.needsInput += 1;
+          continue;
+        }
+        stateCounts[resolveSidebarConversationSummaryState(thread)] += 1;
+      }
       const unsettledConversationCount =
         group.drafts.length + group.active.length + group.snoozed.length;
       return {
@@ -202,12 +219,7 @@ export function buildSidebarWorktreeGroups(input: {
           group.environmentLabel ? ` · ${group.environmentLabel}` : ""
         }`,
         isProjectCheckout: group.isProjectCheckout,
-        status:
-          workingConversationCount > 0
-            ? "working"
-            : conversationStates.includes("done")
-              ? "done"
-              : "stale",
+        stateCounts,
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:
@@ -217,8 +229,9 @@ export function buildSidebarWorktreeGroups(input: {
                 renderedActiveKeys.has(`${thread.environmentId}:${thread.id}`),
               ),
         snoozed: group.snoozed,
+        unsettled: [...group.active, ...group.snoozed],
         conversationCount: unsettledConversationCount + group.settledCount,
-        workingConversationCount,
+        workingConversationCount: stateCounts.working,
       };
     })
     .toSorted(
@@ -263,23 +276,20 @@ export function buildSidebarRepositoryGroups<
     }
   }
 
-  return input.projects.flatMap((project) => {
-    const worktrees = worktreesByRepositoryKey.get(project.projectKey);
-    if (worktrees === undefined || worktrees.length === 0) return [];
-    return [
-      {
-        project,
-        worktrees,
-        conversationCount: worktrees.reduce(
-          (total, worktree) => total + worktree.conversationCount,
-          0,
-        ),
-        workingConversationCount: worktrees.reduce(
-          (total, worktree) => total + worktree.workingConversationCount,
-          0,
-        ),
-      },
-    ];
+  return input.projects.map((project) => {
+    const worktrees = worktreesByRepositoryKey.get(project.projectKey) ?? [];
+    return {
+      project,
+      worktrees,
+      conversationCount: worktrees.reduce(
+        (total, worktree) => total + worktree.conversationCount,
+        0,
+      ),
+      workingConversationCount: worktrees.reduce(
+        (total, worktree) => total + worktree.workingConversationCount,
+        0,
+      ),
+    };
   });
 }
 
@@ -299,13 +309,19 @@ export function filterExpandedSidebarWorktreeGroups<TWorktree, TRepository>(inpu
   return repositoryVisibleWorktrees.filter(input.isWorktreeExpanded);
 }
 
+export function sidebarWorktreeHasVisibleChildren(
+  worktree: Pick<SidebarWorktreeGroup, "drafts" | "active" | "snoozed">,
+): boolean {
+  return worktree.drafts.length + worktree.active.length + worktree.snoozed.length > 0;
+}
+
 export function filterRemovedSidebarWorktreeGroups(
   worktrees: readonly SidebarWorktreeGroup[],
   removedWorktreeAtByKey: Readonly<Record<string, string>>,
 ): SidebarWorktreeGroup[] {
   return worktrees.filter((worktree) => {
     if (removedWorktreeAtByKey[worktree.key] === undefined) return true;
-    return worktree.drafts.length + worktree.active.length + worktree.snoozed.length > 0;
+    return sidebarWorktreeHasVisibleChildren(worktree);
   });
 }
 

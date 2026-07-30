@@ -1,6 +1,7 @@
 import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  canSettle,
   canSnooze,
   effectiveSettled,
   effectiveSnoozed,
@@ -22,6 +23,7 @@ import {
   AlarmClockIcon,
   AlarmClockOffIcon,
   CheckIcon,
+  CheckCheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CircleAlertIcon,
@@ -143,8 +145,10 @@ import {
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
   resolveSidebarWorktreeConversationLocation,
+  sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeConversationLocation,
   type SidebarWorktreeGroup,
+  type SidebarWorktreeStateCounts,
 } from "./Sidebar.worktreeGroups";
 import {
   prStatusIndicator,
@@ -375,7 +379,7 @@ function SnoozePopoverButton(props: {
   );
 }
 
-type SidebarSummaryState = "working" | "done" | "stale";
+type SidebarSummaryState = "working" | "done" | "stale" | "settled";
 
 function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className?: string }) {
   const presentation =
@@ -391,11 +395,17 @@ function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className
             icon: <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />,
             className: "text-emerald-700 dark:text-emerald-300",
           }
-        : {
-            label: "Stale",
-            icon: <ClockIcon aria-hidden className="size-3.5 shrink-0" />,
-            className: "text-muted-foreground/60",
-          };
+        : props.state === "settled"
+          ? {
+              label: "Settled",
+              icon: <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />,
+              className: "text-amber-600 dark:text-amber-300",
+            }
+          : {
+              label: "Stale",
+              icon: <ClockIcon aria-hidden className="size-3.5 shrink-0" />,
+              className: "text-muted-foreground/60",
+            };
 
   return (
     <span
@@ -409,6 +419,75 @@ function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className
       <span role="status" className="leading-none">
         {presentation.label}
       </span>
+    </span>
+  );
+}
+
+function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCounts }) {
+  const counters = [
+    {
+      key: "working",
+      label: "working",
+      count: props.counts.working,
+      icon: CircleDashedIcon,
+      className: "text-sky-600 dark:text-sky-400",
+    },
+    {
+      key: "needs-input",
+      label: "needs input",
+      count: props.counts.needsInput,
+      icon: CircleAlertIcon,
+      className: "text-violet-600 dark:text-violet-300",
+    },
+    {
+      key: "done",
+      label: "done",
+      count: props.counts.done,
+      icon: CircleCheckIcon,
+      className: "text-emerald-700 dark:text-emerald-300",
+    },
+    {
+      key: "stale",
+      label: "stale",
+      count: props.counts.stale,
+      icon: ClockIcon,
+      className: "text-muted-foreground/60",
+    },
+    {
+      key: "settled",
+      label: "settled",
+      count: props.counts.settled,
+      icon: CircleCheckIcon,
+      className: "text-amber-600 dark:text-amber-300",
+    },
+  ].filter((counter) => counter.count > 0);
+  const summary = counters
+    .map(
+      (counter) =>
+        `${counter.count} ${counter.label} conversation${counter.count === 1 ? "" : "s"}`,
+    )
+    .join(", ");
+
+  return (
+    <span
+      role="status"
+      aria-label={summary}
+      className="inline-flex h-4 shrink-0 items-center gap-1.5 leading-none tabular-nums"
+    >
+      {counters.map((counter) => {
+        const Icon = counter.icon;
+        return (
+          <span
+            key={counter.key}
+            title={`${counter.count} ${counter.label}`}
+            aria-hidden
+            className={cn("inline-flex items-center gap-0.5 font-medium", counter.className)}
+          >
+            <Icon className="size-3.5 shrink-0" />
+            <span>{counter.count}</span>
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -688,6 +767,8 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // on blocked-on-you work or queued turns (the server rejects both).
   const showSnoozeButton =
     props.snoozeSupported && canSnooze(thread, { now: new Date().toISOString() });
+  const canQuickSettle =
+    props.settlementSupported && canSettle(thread, { now: new Date().toISOString() });
   // If the thread becomes blocked while the popover is open, the button
   // unmounts without firing onOpenChange(false). Deriving the flag keeps a
   // stale true from permanently hiding the status label / pinning the
@@ -1139,13 +1220,15 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               <span className="group/v2-status-slot relative flex h-7 min-w-14 shrink-0 items-center justify-end">
                 <span
                   className={cn(
-                    "inline-flex items-center transition-opacity group-focus-within/v2-status-slot:absolute group-focus-within/v2-status-slot:right-0 group-hover/v2-row:absolute group-hover/v2-row:right-0 group-hover/v2-row:opacity-0",
+                    "inline-flex items-center transition-opacity",
+                    showSnoozeButton &&
+                      "group-focus-within/v2-status-slot:absolute group-focus-within/v2-status-slot:right-0 group-hover/v2-row:absolute group-hover/v2-row:right-0 group-hover/v2-row:opacity-0",
                     snoozeMenuOpen && "absolute right-0 opacity-0",
                   )}
                 >
                   <SidebarSummaryStateLabel state={summaryState} />
                 </span>
-                {props.settlementSupported || showSnoozeButton ? (
+                {showSnoozeButton ? (
                   <span
                     className={cn(
                       "absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:static focus-within:opacity-100 group-hover/v2-row:static group-hover/v2-row:opacity-100",
@@ -1159,19 +1242,25 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                         onSnooze={handleSnoozePreset}
                       />
                     ) : null}
-                    {props.settlementSupported ? (
-                      <button
-                        type="button"
-                        aria-label="Settle thread"
-                        onClick={handleSettleClick}
-                        className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-muted-foreground hover:text-foreground"
-                      >
-                        <CheckIcon className="size-3.5" />
-                      </button>
-                    ) : null}
                   </span>
                 ) : null}
               </span>
+              {props.settlementSupported ? (
+                <button
+                  type="button"
+                  aria-label={`Settle conversation ${thread.title}`}
+                  title={
+                    canQuickSettle
+                      ? `Settle ${thread.title}`
+                      : `${thread.title} is still working or needs attention`
+                  }
+                  disabled={!canQuickSettle}
+                  onClick={handleSettleClick}
+                  className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/65 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 motion-reduce:transform-none"
+                >
+                  <CheckIcon aria-hidden className="size-3.5" />
+                </button>
+              ) : null}
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
@@ -1281,7 +1370,8 @@ export default function SidebarV2() {
   const sidebarThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const {
     settleThread,
-    settleAndRemoveWorktree,
+    settleThreads,
+    deleteWorktree,
     unsettleThread,
     snoozeThread,
     unsnoozeThread,
@@ -1344,6 +1434,7 @@ export default function SidebarV2() {
   const markWorktreeRemoved = useUiStateStore((s) => s.markWorktreeRemoved);
   const clearWorktreeRemoved = useUiStateStore((s) => s.clearWorktreeRemoved);
   const [removingWorktreeKey, setRemovingWorktreeKey] = useState<string | null>(null);
+  const [settlingWorktreeKey, setSettlingWorktreeKey] = useState<string | null>(null);
   const [deletingSettledSelection, setDeletingSettledSelection] = useState(false);
   const routeTarget = useParams({
     strict: false,
@@ -1906,7 +1997,7 @@ export default function SidebarV2() {
     for (const worktree of unfilteredWorktreeGroups) {
       if (
         removedWorktreeAtByKey[worktree.key] !== undefined &&
-        worktree.drafts.length + worktree.active.length + worktree.snoozed.length > 0
+        sidebarWorktreeHasVisibleChildren(worktree)
       ) {
         clearWorktreeRemoved(worktree.key);
       }
@@ -1921,9 +2012,7 @@ export default function SidebarV2() {
     [projectGroups, worktreeGroups],
   );
   const repositoryHierarchyVisible =
-    sidebarThreadGroupingMode === "worktree" &&
-    projectScopeKey === null &&
-    repositoryGroups.length > 1;
+    sidebarThreadGroupingMode === "worktree" && projectScopeKey === null;
   const expandedWorktreeGroups = useMemo(
     () =>
       filterExpandedSidebarWorktreeGroups({
@@ -2477,6 +2566,61 @@ export default function SidebarV2() {
     [deleteThreads],
   );
 
+  const attemptSettleWorktree = useCallback(
+    (group: SidebarWorktreeGroup) => {
+      if (group.unsettled.length === 0 || settlingWorktreeKey !== null) return;
+      const threadKeys = new Set(
+        group.unsettled.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+      );
+      if ([...threadKeys].some((threadKey) => settlingThreadKeysRef.current.has(threadKey))) {
+        return;
+      }
+
+      void (async () => {
+        setSettlingWorktreeKey(group.key);
+        for (const threadKey of threadKeys) settlingThreadKeysRef.current.add(threadKey);
+        const activeRouteKey = routeThreadKeyRef.current;
+        const navigateAfterSettle =
+          activeRouteKey !== null && threadKeys.has(activeRouteKey)
+            ? planForwardNavigation(activeRouteKey, threadKeys)
+            : null;
+        try {
+          const result = await settleThreads(group.unsettled);
+          if (result._tag === "Failure") {
+            if (!isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: `Could not settle ${group.label}`,
+                  description:
+                    error instanceof Error
+                      ? error.message
+                      : "A conversation is still working or needs attention.",
+                }),
+              );
+            }
+            return;
+          }
+          toastManager.add({
+            type: "success",
+            title: `${group.label} settled`,
+            description: `${group.unsettled.length} conversation${group.unsettled.length === 1 ? "" : "s"} moved to Settled.`,
+          });
+          if (activeRouteKey !== null && routeThreadKeyRef.current === activeRouteKey) {
+            navigateAfterSettle?.();
+          }
+        } finally {
+          for (const threadKey of threadKeys) settlingThreadKeysRef.current.delete(threadKey);
+          setSettlingWorktreeKey(null);
+        }
+      })();
+    },
+    [planForwardNavigation, settleThreads, settlingWorktreeKey],
+  );
+
   const attemptDeleteWorktree = useCallback(
     (group: SidebarWorktreeGroup) => {
       if (
@@ -2493,7 +2637,7 @@ export default function SidebarV2() {
       void (async () => {
         setRemovingWorktreeKey(group.key);
         try {
-          const removed = await settleAndRemoveWorktree({
+          const removed = await deleteWorktree({
             environmentId: group.environmentId as EnvironmentId,
             projectCwd: projectRoot,
             worktreePath: workspaceRoot,
@@ -2508,7 +2652,7 @@ export default function SidebarV2() {
         }
       })();
     },
-    [markWorktreeRemoved, removingWorktreeKey, settleAndRemoveWorktree, threads],
+    [deleteWorktree, markWorktreeRemoved, removingWorktreeKey, threads],
   );
 
   const handleLocationContextMenu = useCallback(
@@ -3027,7 +3171,7 @@ export default function SidebarV2() {
                         ) ?? null
                       }
                       showProjectIdentity={
-                        section === "settled" || sidebarThreadGroupingMode !== "worktree"
+                        section !== "settled" && sidebarThreadGroupingMode !== "worktree"
                       }
                       providerEntryByInstanceId={providerEntryByInstanceId}
                       onThreadClick={handleThreadClick}
@@ -3070,10 +3214,24 @@ export default function SidebarV2() {
                 if (sidebarThreadGroupingMode === "worktree") {
                   const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode[] => {
                     const groupItems: ReactNode[] = [];
+                    const settlementSupported =
+                      serverConfigs.get(group.environmentId as EnvironmentId)?.environment
+                        .capabilities.threadSettlement === true;
+                    const worktreeSettlementBlocked = group.unsettled.some(
+                      (thread) => !canSettle(thread, { now: new Date().toISOString() }),
+                    );
+                    const canSettleWorktree =
+                      settlementSupported &&
+                      group.unsettled.length > 0 &&
+                      !worktreeSettlementBlocked &&
+                      settlingWorktreeKey === null &&
+                      removingWorktreeKey === null;
+                    const hasVisibleChildren = sidebarWorktreeHasVisibleChildren(group);
                     // A routed descendant does not override the user's collapse:
                     // the conversation remains open in chat while its sidebar
                     // container is allowed to stay closed.
-                    const expanded = worktreeExpandedByKey[group.key] !== false;
+                    const expanded =
+                      hasVisibleChildren && worktreeExpandedByKey[group.key] !== false;
                     groupItems.push(
                       <div
                         key={`${group.key}:header`}
@@ -3082,9 +3240,13 @@ export default function SidebarV2() {
                       >
                         <button
                           type="button"
-                          aria-expanded={expanded}
+                          aria-expanded={hasVisibleChildren ? expanded : undefined}
                           title={group.tooltip}
-                          onClick={() => setWorktreeExpanded(group.key, !expanded)}
+                          onClick={
+                            hasVisibleChildren
+                              ? () => setWorktreeExpanded(group.key, !expanded)
+                              : undefined
+                          }
                           onContextMenu={(event) => {
                             const location = resolveSidebarWorktreeConversationLocation(group);
                             if (location === null) return;
@@ -3096,12 +3258,21 @@ export default function SidebarV2() {
                               location,
                             });
                           }}
-                          className="flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover active:scale-[0.96] motion-reduce:transform-none"
+                          className={cn(
+                            "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
+                            hasVisibleChildren
+                              ? "cursor-pointer active:scale-[0.96]"
+                              : "cursor-default",
+                          )}
                         >
-                          {expanded ? (
-                            <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                          {hasVisibleChildren ? (
+                            expanded ? (
+                              <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                            ) : (
+                              <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                            )
                           ) : (
-                            <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                            <span aria-hidden className="size-3.5 shrink-0" />
                           )}
                           <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                           <span className="min-w-0 flex-1">
@@ -3109,7 +3280,7 @@ export default function SidebarV2() {
                               {group.label}
                             </span>
                             <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
-                              <SidebarSummaryStateLabel state={group.status} />
+                              <SidebarWorktreeStateCounters counts={group.stateCounts} />
                               <span aria-hidden>·</span>
                               <span className="inline-flex min-w-0 items-center gap-1">
                                 <MessageSquareIcon aria-hidden className="size-3 shrink-0" />
@@ -3123,6 +3294,22 @@ export default function SidebarV2() {
                             </span>
                           </span>
                         </button>
+                        {settlementSupported && group.unsettled.length > 0 ? (
+                          <button
+                            type="button"
+                            aria-label={`Settle all conversations in ${group.label}`}
+                            title={
+                              worktreeSettlementBlocked
+                                ? `Finish or interrupt active conversations before settling ${group.label}`
+                                : `Settle all conversations in ${group.label}`
+                            }
+                            disabled={!canSettleWorktree}
+                            onClick={() => attemptSettleWorktree(group)}
+                            className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 motion-reduce:transform-none"
+                          >
+                            <CheckCheckIcon aria-hidden className="size-3.5" />
+                          </button>
+                        ) : null}
                         {!group.isProjectCheckout &&
                         group.workspaceRoot !== null &&
                         group.projectRoot !== null ? (
@@ -3130,7 +3317,7 @@ export default function SidebarV2() {
                             type="button"
                             aria-label={`Delete worktree ${group.label}`}
                             title={`Delete worktree ${group.label}`}
-                            disabled={removingWorktreeKey !== null}
+                            disabled={removingWorktreeKey !== null || settlingWorktreeKey !== null}
                             onClick={() => attemptDeleteWorktree(group)}
                             className="mr-1 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-destructive-foreground active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transform-none"
                           >

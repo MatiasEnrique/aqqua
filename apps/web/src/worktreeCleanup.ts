@@ -5,8 +5,6 @@ import type {
   VcsInspectWorktreeRemovalResult,
 } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { canSettle, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { ThreadShell } from "./types";
 
 export interface WorktreeDeletionThread {
@@ -64,43 +62,64 @@ export function selectThreadsForWorktree<
   );
 }
 
-export interface WorktreeSettlementPlan {
-  readonly threadsToUnarchive: ReadonlyArray<EnvironmentThreadShell>;
-  readonly threadsToUnsnooze: ReadonlyArray<EnvironmentThreadShell>;
-  readonly threadsToSettle: ReadonlyArray<EnvironmentThreadShell>;
-  readonly blockedThreads: ReadonlyArray<EnvironmentThreadShell>;
+export function selectThreadDeletionRoots<
+  T extends {
+    readonly id: ThreadId;
+    readonly parentThreadId?: ThreadId | null | undefined;
+  },
+>(threads: ReadonlyArray<T>): T[] {
+  const selectedThreadIds = new Set(threads.map((thread) => thread.id));
+  return threads.filter((thread) => {
+    const parentThreadId = thread.parentThreadId;
+    return parentThreadId == null || !selectedThreadIds.has(parentThreadId);
+  });
 }
 
-export function buildWorktreeSettlementPlan(input: {
-  readonly environmentId: EnvironmentId;
-  readonly worktreePath: string;
-  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
-  readonly now: string;
-  readonly settlementSupported: boolean;
-}): WorktreeSettlementPlan {
-  const worktreeThreads = selectThreadsForWorktree({
-    environmentId: input.environmentId,
-    worktreePath: input.worktreePath,
-    threads: input.threads,
-  });
-  const threadsToUnarchive = worktreeThreads.filter((thread) => thread.archivedAt !== null);
-  const threadsToUnsnooze = worktreeThreads.filter((thread) =>
-    effectiveSnoozed(thread, { now: input.now }),
-  );
-  // Auto-settlement is only a derived classification. Pin every conversation
-  // durably before its worktree disappears so a later settings or PR-state
-  // change cannot reactivate it with a deleted path.
-  const threadsToSettle = worktreeThreads.filter(
-    (thread) => thread.settledOverride !== "settled" || thread.settledAt === null,
-  );
-  return {
-    threadsToUnarchive,
-    threadsToUnsnooze,
-    threadsToSettle,
-    blockedThreads: threadsToSettle.filter(
-      (thread) => !input.settlementSupported || !canSettle(thread, { now: input.now }),
-    ),
-  };
+type TaggedCommandResult = { readonly _tag: "Success" } | { readonly _tag: "Failure" };
+
+export type WorktreeResourceDeletionResult<TDeleteResult, TRemoveResult> =
+  | { readonly _tag: "Success" }
+  | {
+      readonly _tag: "Failure";
+      readonly stage: "conversation";
+      readonly result: Extract<TDeleteResult, { readonly _tag: "Failure" }>;
+    }
+  | {
+      readonly _tag: "Failure";
+      readonly stage: "worktree";
+      readonly result: Extract<TRemoveResult, { readonly _tag: "Failure" }>;
+    };
+
+export async function deleteWorktreeResourcesInOrder<
+  TThread,
+  TDeleteResult extends TaggedCommandResult,
+  TRemoveResult extends TaggedCommandResult,
+>(input: {
+  readonly threadRoots: ReadonlyArray<TThread>;
+  readonly deleteThread: (thread: TThread) => Promise<TDeleteResult>;
+  readonly removeWorktree: (() => Promise<TRemoveResult>) | null;
+}): Promise<WorktreeResourceDeletionResult<TDeleteResult, TRemoveResult>> {
+  for (const thread of input.threadRoots) {
+    const result = await input.deleteThread(thread);
+    if (result._tag === "Failure") {
+      return {
+        _tag: "Failure",
+        stage: "conversation",
+        result: result as Extract<TDeleteResult, { readonly _tag: "Failure" }>,
+      };
+    }
+  }
+  if (input.removeWorktree !== null) {
+    const result = await input.removeWorktree();
+    if (result._tag === "Failure") {
+      return {
+        _tag: "Failure",
+        stage: "worktree",
+        result: result as Extract<TRemoveResult, { readonly _tag: "Failure" }>,
+      };
+    }
+  }
+  return { _tag: "Success" };
 }
 
 export function getOrphanedWorktreePathForThread(

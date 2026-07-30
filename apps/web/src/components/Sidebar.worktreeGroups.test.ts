@@ -7,6 +7,7 @@ import {
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
   resolveSidebarWorktreeConversationLocation,
+  sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeGroup,
 } from "./Sidebar.worktreeGroups";
 
@@ -94,7 +95,13 @@ describe("buildSidebarWorktreeGroups", () => {
       active: [{ id: "active" }],
       snoozed: [{ id: "snoozed" }],
       conversationCount: 3,
-      status: "done",
+      stateCounts: {
+        working: 0,
+        needsInput: 0,
+        done: 2,
+        stale: 0,
+        settled: 1,
+      },
     });
     expect(groups.find((group) => group.label === "feature")).not.toHaveProperty("settled");
     expect(groups.find((group) => group.label.startsWith("New worktree"))?.drafts).toHaveLength(1);
@@ -120,7 +127,13 @@ describe("buildSidebarWorktreeGroups", () => {
         active: [],
         snoozed: [],
         conversationCount: 1,
-        status: "stale",
+        stateCounts: {
+          working: 0,
+          needsInput: 0,
+          done: 0,
+          stale: 0,
+          settled: 1,
+        },
       }),
     ]);
     expect(groups[0]).not.toHaveProperty("settled");
@@ -211,16 +224,35 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(groups).toEqual([
       expect.objectContaining({
         active: [expect.objectContaining({ id: "visible" })],
+        unsettled: [
+          expect.objectContaining({ id: "visible" }),
+          expect.objectContaining({ id: "hidden-working" }),
+          expect.objectContaining({ id: "snoozed" }),
+        ],
         conversationCount: 5,
         workingConversationCount: 2,
-        status: "working",
+        stateCounts: {
+          working: 2,
+          needsInput: 0,
+          done: 1,
+          stale: 1,
+          settled: 1,
+        },
       }),
     ]);
   });
 
-  it("does not call errored or interrupted work done", () => {
+  it("counts input, approvals, errored, and interrupted work independently", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [
+        {
+          ...thread("needs-input", "local", "/repo-wt", "feature", "2026-01-05T00:00:00.000Z"),
+          hasPendingUserInput: true,
+        },
+        {
+          ...thread("needs-approval", "local", "/repo-wt", "feature", "2026-01-04T12:00:00.000Z"),
+          hasPendingApprovals: true,
+        },
         thread(
           "errored",
           "local",
@@ -247,7 +279,13 @@ describe("buildSidebarWorktreeGroups", () => {
       ]),
     });
 
-    expect(groups[0]?.status).toBe("stale");
+    expect(groups[0]?.stateCounts).toEqual({
+      working: 0,
+      needsInput: 2,
+      done: 0,
+      stale: 2,
+      settled: 0,
+    });
   });
 });
 
@@ -296,6 +334,11 @@ describe("buildSidebarRepositoryGroups", () => {
           displayName: "t3code",
           memberProjectRefs: [{ environmentId: "local", projectId: "t3code" }],
         },
+        {
+          projectKey: "repo:empty",
+          displayName: "empty",
+          memberProjectRefs: [{ environmentId: "local", projectId: "empty" }],
+        },
       ],
       worktrees,
     });
@@ -310,6 +353,7 @@ describe("buildSidebarRepositoryGroups", () => {
     ).toEqual([
       { key: "repo:ciber", branches: ["main"], conversations: 1, working: 1 },
       { key: "repo:t3code", branches: ["main"], conversations: 1, working: 0 },
+      { key: "repo:empty", branches: [], conversations: 0, working: 0 },
     ]);
   });
 });
@@ -347,6 +391,25 @@ describe("filterExpandedSidebarWorktreeGroups", () => {
         isWorktreeExpanded: (worktree) => worktree.key !== "ciber:dev",
       }),
     ).toEqual([ciberMain, t3Main]);
+  });
+});
+
+describe("sidebarWorktreeHasVisibleChildren", () => {
+  it("does not expose expansion for settled-only history", () => {
+    expect(
+      sidebarWorktreeHasVisibleChildren({
+        drafts: [],
+        active: [],
+        snoozed: [],
+      }),
+    ).toBe(false);
+    expect(
+      sidebarWorktreeHasVisibleChildren({
+        drafts: [],
+        active: [{} as EnvironmentThreadShell],
+        snoozed: [],
+      }),
+    ).toBe(true);
   });
 });
 
