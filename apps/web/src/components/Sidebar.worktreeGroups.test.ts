@@ -55,6 +55,10 @@ describe("buildSidebarWorktreeGroups", () => {
 
     expect(groups.map((group) => group.label)).toEqual(["main", "remote-branch", "feature"]);
     expect(new Set(groups.map((group) => group.key)).size).toBe(3);
+    expect(groups.find((group) => group.label === "remote-branch")?.environmentLabel).toBe(
+      "Remote",
+    );
+    expect(groups.find((group) => group.label === "feature")?.environmentLabel).toBe("Local");
   });
 
   it("uses settled conversations for totals without exposing per-worktree settled rows", () => {

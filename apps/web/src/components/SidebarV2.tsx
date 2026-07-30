@@ -186,6 +186,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
+import { HoverCard, HoverCardPopup, HoverCardTrigger } from "./ui/hover-card";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 
@@ -381,31 +382,42 @@ function SnoozePopoverButton(props: {
 
 type SidebarSummaryState = "working" | "done" | "stale" | "settled";
 
+const SIDEBAR_STATE_PRESENTATIONS = {
+  working: {
+    label: "Working",
+    description: "An agent session is running.",
+    icon: CircleDashedIcon,
+    className: "text-sky-600 dark:text-sky-400",
+  },
+  needsInput: {
+    label: "Needs input",
+    description: "Waiting for your reply or approval.",
+    icon: CircleAlertIcon,
+    className: "text-violet-600 dark:text-violet-300",
+  },
+  done: {
+    label: "Done",
+    description: "Completed or ready, still in the active list.",
+    icon: CircleCheckIcon,
+    className: "text-emerald-700 dark:text-emerald-300",
+  },
+  stale: {
+    label: "Stale",
+    description: "A draft, interrupted turn, or failed session.",
+    icon: ClockIcon,
+    className: "text-muted-foreground/60",
+  },
+  settled: {
+    label: "Settled",
+    description: "Stored in the shared Settled section.",
+    icon: CircleCheckIcon,
+    className: "text-amber-600 dark:text-amber-300",
+  },
+} as const;
+
 function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className?: string }) {
-  const presentation =
-    props.state === "working"
-      ? {
-          label: "Working",
-          icon: <CircleDashedIcon aria-hidden className="size-3.5 shrink-0" />,
-          className: "text-sky-600 dark:text-sky-400",
-        }
-      : props.state === "done"
-        ? {
-            label: "Done",
-            icon: <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />,
-            className: "text-emerald-700 dark:text-emerald-300",
-          }
-        : props.state === "settled"
-          ? {
-              label: "Settled",
-              icon: <CircleCheckIcon aria-hidden className="size-3.5 shrink-0" />,
-              className: "text-amber-600 dark:text-amber-300",
-            }
-          : {
-              label: "Stale",
-              icon: <ClockIcon aria-hidden className="size-3.5 shrink-0" />,
-              className: "text-muted-foreground/60",
-            };
+  const presentation = SIDEBAR_STATE_PRESENTATIONS[props.state];
+  const Icon = presentation.icon;
 
   return (
     <span
@@ -415,7 +427,7 @@ function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className
         props.className,
       )}
     >
-      {presentation.icon}
+      <Icon aria-hidden className="size-3.5 shrink-0" />
       <span role="status" className="leading-none">
         {presentation.label}
       </span>
@@ -423,48 +435,21 @@ function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className
   );
 }
 
+const SIDEBAR_WORKTREE_STATE_ORDER = ["working", "needsInput", "done", "stale", "settled"] as const;
+
+function worktreeStatePresentations(counts: SidebarWorktreeStateCounts) {
+  return SIDEBAR_WORKTREE_STATE_ORDER.flatMap((key) => {
+    const count = counts[key];
+    return count > 0 ? [{ key, ...SIDEBAR_STATE_PRESENTATIONS[key], count }] : [];
+  });
+}
+
 function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCounts }) {
-  const counters = [
-    {
-      key: "working",
-      label: "working",
-      count: props.counts.working,
-      icon: CircleDashedIcon,
-      className: "text-sky-600 dark:text-sky-400",
-    },
-    {
-      key: "needs-input",
-      label: "needs input",
-      count: props.counts.needsInput,
-      icon: CircleAlertIcon,
-      className: "text-violet-600 dark:text-violet-300",
-    },
-    {
-      key: "done",
-      label: "done",
-      count: props.counts.done,
-      icon: CircleCheckIcon,
-      className: "text-emerald-700 dark:text-emerald-300",
-    },
-    {
-      key: "stale",
-      label: "stale",
-      count: props.counts.stale,
-      icon: ClockIcon,
-      className: "text-muted-foreground/60",
-    },
-    {
-      key: "settled",
-      label: "settled",
-      count: props.counts.settled,
-      icon: CircleCheckIcon,
-      className: "text-amber-600 dark:text-amber-300",
-    },
-  ].filter((counter) => counter.count > 0);
+  const counters = worktreeStatePresentations(props.counts);
   const summary = counters
     .map(
       (counter) =>
-        `${counter.count} ${counter.label} conversation${counter.count === 1 ? "" : "s"}`,
+        `${counter.count} ${counter.label.toLowerCase()} conversation${counter.count === 1 ? "" : "s"}`,
     )
     .join(", ");
 
@@ -479,7 +464,7 @@ function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCount
         return (
           <span
             key={counter.key}
-            title={`${counter.count} ${counter.label}`}
+            title={`${counter.count} ${counter.label.toLowerCase()}`}
             aria-hidden
             className={cn("inline-flex items-center gap-0.5 font-medium", counter.className)}
           >
@@ -489,6 +474,61 @@ function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCount
         );
       })}
     </span>
+  );
+}
+
+function SidebarWorktreeStatusHoverCard(props: { group: SidebarWorktreeGroup }) {
+  const states = worktreeStatePresentations(props.group.stateCounts);
+  return (
+    <HoverCardPopup className="w-72">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-foreground">{props.group.label}</div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          {props.group.isProjectCheckout ? "Current checkout" : "Worktree"}
+          {props.group.environmentLabel ? ` · ${props.group.environmentLabel}` : ""}
+        </div>
+        <div
+          className="mt-1 truncate font-mono text-[10px] text-muted-foreground/70"
+          title={props.group.workspaceRoot ?? props.group.projectRoot ?? undefined}
+        >
+          {props.group.workspaceRoot ?? props.group.projectRoot ?? "New worktree"}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-1">
+        {states.map((state) => {
+          const Icon = state.icon;
+          return (
+            <div
+              key={state.key}
+              className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 py-1.5"
+            >
+              <span
+                className={cn(
+                  "inline-flex size-7 items-center justify-center rounded-md bg-foreground/[0.04]",
+                  state.className,
+                )}
+              >
+                <Icon aria-hidden className="size-3.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-medium text-foreground">{state.label}</span>
+                <span className="block text-[11px] leading-4 text-muted-foreground text-pretty">
+                  {state.description}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "self-start pt-0.5 text-xs font-semibold tabular-nums",
+                  state.className,
+                )}
+              >
+                {state.count}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </HoverCardPopup>
   );
 }
 
@@ -3238,62 +3278,65 @@ export default function SidebarV2() {
                         data-thread-selection-safe
                         className="mb-1 mt-1 flex items-center gap-1 rounded-lg"
                       >
-                        <button
-                          type="button"
-                          aria-expanded={hasVisibleChildren ? expanded : undefined}
-                          title={group.tooltip}
-                          onClick={
-                            hasVisibleChildren
-                              ? () => setWorktreeExpanded(group.key, !expanded)
-                              : undefined
-                          }
-                          onContextMenu={(event) => {
-                            const location = resolveSidebarWorktreeConversationLocation(group);
-                            if (location === null) return;
-                            handleLocationContextMenu(event, {
-                              projectRef: scopeProjectRef(
-                                group.environmentId as EnvironmentId,
-                                group.projectId as ProjectId,
-                              ),
-                              location,
-                            });
-                          }}
-                          className={cn(
-                            "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
-                            hasVisibleChildren
-                              ? "cursor-pointer active:scale-[0.96]"
-                              : "cursor-default",
-                          )}
-                        >
-                          {hasVisibleChildren ? (
-                            expanded ? (
-                              <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                        <HoverCard>
+                          <HoverCardTrigger
+                            delay={350}
+                            closeDelay={150}
+                            render={
+                              <button
+                                type="button"
+                                aria-expanded={hasVisibleChildren ? expanded : undefined}
+                                onClick={
+                                  hasVisibleChildren
+                                    ? () => setWorktreeExpanded(group.key, !expanded)
+                                    : undefined
+                                }
+                                onContextMenu={(event) => {
+                                  const location =
+                                    resolveSidebarWorktreeConversationLocation(group);
+                                  if (location === null) return;
+                                  handleLocationContextMenu(event, {
+                                    projectRef: scopeProjectRef(
+                                      group.environmentId as EnvironmentId,
+                                      group.projectId as ProjectId,
+                                    ),
+                                    location,
+                                  });
+                                }}
+                                className={cn(
+                                  "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
+                                  hasVisibleChildren
+                                    ? "cursor-pointer active:scale-[0.96]"
+                                    : "cursor-default",
+                                )}
+                              />
+                            }
+                          >
+                            {hasVisibleChildren ? (
+                              expanded ? (
+                                <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                              ) : (
+                                <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                              )
                             ) : (
-                              <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
-                            )
-                          ) : (
-                            <span aria-hidden className="size-3.5 shrink-0" />
-                          )}
-                          <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">
-                              {group.label}
-                            </span>
-                            <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
-                              <SidebarWorktreeStateCounters counts={group.stateCounts} />
-                              <span aria-hidden>·</span>
-                              <span className="inline-flex min-w-0 items-center gap-1">
-                                <MessageSquareIcon aria-hidden className="size-3 shrink-0" />
-                                {group.conversationCount} conversation
-                                {group.conversationCount === 1 ? "" : "s"}
+                              <span aria-hidden className="size-3.5 shrink-0" />
+                            )}
+                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {group.label}
                               </span>
-                              <span aria-hidden>·</span>
-                              <span className="truncate">
-                                {group.isProjectCheckout ? "Current checkout" : "Worktree"}
+                              <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
+                                <SidebarWorktreeStateCounters counts={group.stateCounts} />
+                                <span aria-hidden>·</span>
+                                <span className="truncate">
+                                  {group.isProjectCheckout ? "Current checkout" : "Worktree"}
+                                </span>
                               </span>
                             </span>
-                          </span>
-                        </button>
+                          </HoverCardTrigger>
+                          <SidebarWorktreeStatusHoverCard group={group} />
+                        </HoverCard>
                         {settlementSupported && group.unsettled.length > 0 ? (
                           <button
                             type="button"

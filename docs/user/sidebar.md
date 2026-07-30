@@ -9,11 +9,13 @@ In worktree mode:
   worktrees. Project sections remain visible when they have no conversations and when only one
   project currently has active work. Conversation cards inside these sections omit the repeated
   project folder label.
-- Worktrees use summary cards with a branch name, conversation total, checkout type, and a colored
-  counter for every nonzero state: blue **Working**, violet **Needs input**, green **Done**, gray
-  **Stale**, and yellow **Settled**. Pending user input and pending approvals both count as Needs
-  input, so one worktree can report several states without hiding any of them. Settled-only cards
-  have no expand affordance because their conversations already live in the shared Settled shelf.
+- Worktrees use summary cards with a branch name, checkout type, and a colored counter for every
+  nonzero state: blue **Working**, violet **Needs input**, green **Done**, gray **Stale**, and yellow
+  **Settled**. There is no separate total-conversation counter. Pending user input and pending
+  approvals both count as Needs input, so one worktree can report several states without hiding
+  any of them. Hover a worktree card for the same status breakdown with readable labels and
+  descriptions. Settled-only cards have no expand affordance because their conversations already
+  live in the shared Settled shelf.
 - Active conversations use shorter, flat rows so they read as children of the worktree card.
   Each one-line row shows the conversation name, provider icon, recent activity, and a persistent
   **Working**, **Done**, or **Stale** state. Recent activity hides when the sidebar narrows so

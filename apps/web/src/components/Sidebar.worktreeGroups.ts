@@ -18,8 +18,8 @@ export interface SidebarWorktreeGroup {
   readonly projectId: string;
   readonly workspaceRoot: string | null;
   readonly projectRoot: string | null;
+  readonly environmentLabel: string | null;
   readonly label: string;
-  readonly tooltip: string;
   readonly isProjectCheckout: boolean;
   readonly stateCounts: SidebarWorktreeStateCounts;
   readonly updatedAt: number;
@@ -214,10 +214,8 @@ export function buildSidebarWorktreeGroups(input: {
         projectId: group.projectId,
         workspaceRoot: group.workspaceRoot,
         projectRoot: group.projectRoot,
+        environmentLabel: group.environmentLabel,
         label: group.label,
-        tooltip: `${group.workspaceRoot ?? group.projectRoot ?? "New worktree"}${
-          group.environmentLabel ? ` · ${group.environmentLabel}` : ""
-        }`,
         isProjectCheckout: group.isProjectCheckout,
         stateCounts,
         updatedAt: group.updatedAt,
