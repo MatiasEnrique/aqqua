@@ -83,7 +83,12 @@ function resolveThreadAwarenessPhase(
   if (thread.hasPendingUserInput) {
     return "waiting_for_input";
   }
-  if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
+  if (
+    thread.session?.status === "error" ||
+    thread.session?.status === "interrupted" ||
+    thread.latestTurn?.state === "error" ||
+    thread.latestTurn?.state === "interrupted"
+  ) {
     return "failed";
   }
   if (thread.session?.status === "starting") {
@@ -93,15 +98,6 @@ function resolveThreadAwarenessPhase(
     return "running";
   }
   if (thread.latestTurn?.state === "completed") {
-    return "completed";
-  }
-  // A turn that finished can still read as "interrupted" here: session
-  // teardown settles still-running turns by session status, and that write
-  // can race the turn.completed one. completedAt survives the race — a turn
-  // that has a completion timestamp finished, whatever the state column says.
-  // Without this, quick finish-then-teardown threads resolve to null
-  // persistently and get tombstoned instead of published as completed.
-  if (thread.latestTurn?.state === "interrupted" && thread.latestTurn.completedAt !== null) {
     return "completed";
   }
   // Threads whose turns never produce a checkpoint (no code changes) have no

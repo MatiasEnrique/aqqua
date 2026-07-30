@@ -102,8 +102,8 @@ describe("projectThreadAwareness", () => {
     });
   });
 
-  it("projects completed turns as completed even when teardown settled them as interrupted", () => {
-    const finishedTurn = {
+  it("projects interrupted turns as failed even when cancellation records a completion time", () => {
+    const interruptedTurn = {
       turnId: "turn-1" as TurnId,
       state: "interrupted" as const,
       requestedAt: NOW,
@@ -114,21 +114,13 @@ describe("projectThreadAwareness", () => {
     const state = projectThreadAwareness({
       environmentId: "env-1" as EnvironmentId,
       project,
-      thread: thread({ latestTurn: finishedTurn }),
+      thread: thread({ latestTurn: interruptedTurn }),
     });
 
-    // Session teardown settles still-running turns by session status, and
-    // that write can race turn.completed; the completion timestamp is the
-    // durable signal. Without this the thread resolves to null persistently
-    // and gets tombstoned off the lock-screen card instead of showing Done.
-    expect(state?.phase).toBe("completed");
-
-    const trulyInterrupted = projectThreadAwareness({
-      environmentId: "env-1" as EnvironmentId,
-      project,
-      thread: thread({ latestTurn: { ...finishedTurn, completedAt: null } }),
+    expect(state).toMatchObject({
+      phase: "failed",
+      headline: "Agent failed",
     });
-    expect(trulyInterrupted).toBeNull();
   });
 
   it("projects ready sessions with no materialized turn as completed", () => {

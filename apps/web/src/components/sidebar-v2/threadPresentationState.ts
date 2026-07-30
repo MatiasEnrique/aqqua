@@ -2,9 +2,10 @@
  * Canonical sidebar presentation for a thread.
  *
  * Phase is mutually exclusive and priority-ordered: pending approval/input
- * outrank activity; running/starting stay active; session error is failure;
- * everything else is ready. Plan-ready and unseen-completion are orthogonal
- * attention/completion signals and must not be folded into phase.
+ * outrank activity; running/starting stay active; an interrupted or errored
+ * session/turn is failure; everything else is ready. Plan-ready and
+ * unseen-completion are orthogonal attention/completion signals and must not
+ * be folded into phase.
  */
 export type ThreadPresentationPhase =
   | "approval"
@@ -87,7 +88,12 @@ export function classifyThreadPresentation(
     phase = "working";
   } else if (thread.session?.status === "starting") {
     phase = "starting";
-  } else if (thread.session?.status === "error") {
+  } else if (
+    thread.session?.status === "error" ||
+    thread.session?.status === "interrupted" ||
+    thread.latestTurn?.state === "error" ||
+    thread.latestTurn?.state === "interrupted"
+  ) {
     phase = "failed";
   } else {
     phase = "ready";
@@ -129,8 +135,8 @@ export function toSidebarV2Status(state: ThreadPresentationState): SidebarV2Stat
 /**
  * Conversation summary for worktree/project aggregates.
  *
- * Session error is always stale (never done), even when the latest turn
- * completed — the failure must remain visible in aggregate counters.
+ * Failed presentation is always stale (never done), even when another settled
+ * signal exists — the failure must remain visible in aggregate counters.
  */
 export function toConversationSummaryState(
   state: ThreadPresentationState,

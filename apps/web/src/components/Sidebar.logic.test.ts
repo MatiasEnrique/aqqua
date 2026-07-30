@@ -632,11 +632,17 @@ describe("resolveSidebarV2Status", () => {
     ).toBe("working");
   });
 
-  it("reports failed only while the session status is error", () => {
+  it("reports failed when the session errors or is interrupted", () => {
     expect(
       resolveSidebarV2Status({
         ...idle,
         session: { ...session, status: "error" as const, lastError: "boom" },
+      }),
+    ).toBe("failed");
+    expect(
+      resolveSidebarV2Status({
+        ...idle,
+        session: { ...session, status: "interrupted" as const },
       }),
     ).toBe("failed");
     expect(
@@ -1140,6 +1146,31 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
   });
+
+  it.each(["interrupted", "error"] as const)(
+    "shows failed in red when the latest turn settles as %s",
+    (state) => {
+      expect(
+        resolveThreadStatusPill({
+          thread: {
+            ...baseThread,
+            interactionMode: "default",
+            latestTurn: { ...makeLatestTurn(), state },
+            lastVisitedAt: "2026-03-09T10:04:00.000Z",
+            session: {
+              ...baseThread.session,
+              status: "ready",
+              activeTurnId: null,
+            },
+          },
+        }),
+      ).toMatchObject({
+        label: "Failed",
+        colorClass: expect.stringContaining("text-red-600"),
+        pulse: false,
+      });
+    },
+  );
 
   it("shows failed for a session error, even when the latest turn completed", () => {
     expect(
