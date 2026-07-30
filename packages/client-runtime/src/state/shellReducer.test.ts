@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import type { OrchestrationShellSnapshot, OrchestrationShellStreamEvent } from "@t3tools/contracts";
+import {
+  BoardId,
+  BoardStepId,
+  CardId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import type {
+  OrchestrationBoard,
+  OrchestrationCard,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamEvent,
+} from "@t3tools/contracts";
 
 import { applyShellStreamEvent } from "./shellReducer.ts";
 
@@ -9,7 +21,46 @@ const baseSnapshot: OrchestrationShellSnapshot = {
   snapshotSequence: 0,
   projects: [],
   threads: [],
+  boards: [],
+  cards: [],
   updatedAt: "2026-04-01T00:00:00.000Z",
+};
+
+const stubBoard: OrchestrationBoard = {
+  id: BoardId.make("board-1"),
+  projectId: ProjectId.make("project-1"),
+  name: "Delivery",
+  steps: [
+    {
+      id: BoardStepId.make("step-1"),
+      name: "Implement",
+      promptTemplate: "Do ${issue_id}",
+      profileName: "implementer" as OrchestrationBoard["steps"][number]["profileName"],
+      continuation: "auto",
+    },
+  ],
+  createdAt: "2026-04-01T00:00:00.000Z",
+  updatedAt: "2026-04-01T00:00:00.000Z",
+  deletedAt: null,
+};
+
+const stubCard: OrchestrationCard = {
+  id: CardId.make("card-1"),
+  boardId: BoardId.make("board-1"),
+  projectId: ProjectId.make("project-1"),
+  title: "T3-482",
+  parameters: { issue_id: "T3-482" },
+  position: { kind: "todo" },
+  status: null,
+  snapshot: null,
+  branch: null,
+  worktreePath: null,
+  stepThreads: [],
+  createdAt: "2026-04-01T00:00:00.000Z",
+  updatedAt: "2026-04-01T00:00:00.000Z",
+  releasedAt: null,
+  completedAt: null,
+  archivedAt: null,
 };
 
 const stubProject = {
@@ -174,6 +225,125 @@ describe("applyShellStreamEvent", () => {
 
       expect(next.threads).toHaveLength(0);
       expect(next.snapshotSequence).toBe(6);
+    });
+  });
+
+  describe("board-upserted", () => {
+    it("adds a new board", () => {
+      const next = applyShellStreamEvent(baseSnapshot, {
+        kind: "board-upserted",
+        sequence: 7,
+        board: stubBoard,
+      });
+
+      expect(next.boards).toHaveLength(1);
+      expect(next.boards[0]?.id).toBe("board-1");
+      expect(next.snapshotSequence).toBe(7);
+    });
+
+    it("replaces an existing board in place", () => {
+      const snapshotWithBoard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        boards: [{ ...stubBoard, id: BoardId.make("board-0") }, stubBoard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithBoard, {
+        kind: "board-upserted",
+        sequence: 8,
+        board: { ...stubBoard, name: "Renamed" },
+      });
+
+      expect(next.boards).toHaveLength(2);
+      expect(next.boards[0]?.id).toBe("board-0");
+      expect(next.boards[1]?.name).toBe("Renamed");
+    });
+
+    it("ignores stale board upserts", () => {
+      const snapshotWithBoard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        snapshotSequence: 9,
+        boards: [stubBoard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithBoard, {
+        kind: "board-upserted",
+        sequence: 9,
+        board: { ...stubBoard, name: "Stale" },
+      });
+
+      expect(next).toBe(snapshotWithBoard);
+      expect(next.boards[0]?.name).toBe("Delivery");
+    });
+  });
+
+  describe("board-removed", () => {
+    it("removes the board and leaves cards to the server's own events", () => {
+      const snapshotWithBoard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        boards: [stubBoard],
+        cards: [stubCard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithBoard, {
+        kind: "board-removed",
+        sequence: 10,
+        boardId: BoardId.make("board-1"),
+      });
+
+      expect(next.boards).toHaveLength(0);
+      expect(next.cards).toHaveLength(1);
+      expect(next.snapshotSequence).toBe(10);
+    });
+  });
+
+  describe("card-upserted", () => {
+    it("adds a new card", () => {
+      const next = applyShellStreamEvent(baseSnapshot, {
+        kind: "card-upserted",
+        sequence: 11,
+        card: stubCard,
+      });
+
+      expect(next.cards).toHaveLength(1);
+      expect(next.cards[0]?.id).toBe("card-1");
+      expect(next.snapshotSequence).toBe(11);
+    });
+
+    it("updates an existing card without reordering it", () => {
+      const otherCard: OrchestrationCard = { ...stubCard, id: CardId.make("card-2") };
+      const snapshotWithCards: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        cards: [stubCard, otherCard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithCards, {
+        kind: "card-upserted",
+        sequence: 12,
+        card: { ...stubCard, position: { kind: "step", stepIndex: 0 }, status: "running" },
+      });
+
+      expect(next.cards).toHaveLength(2);
+      expect(next.cards[0]?.status).toBe("running");
+      expect(next.cards[0]?.position).toEqual({ kind: "step", stepIndex: 0 });
+      expect(next.cards[1]?.id).toBe("card-2");
+    });
+  });
+
+  describe("card-removed", () => {
+    it("removes a card by id", () => {
+      const snapshotWithCard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        cards: [stubCard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithCard, {
+        kind: "card-removed",
+        sequence: 13,
+        cardId: CardId.make("card-1"),
+      });
+
+      expect(next.cards).toHaveLength(0);
+      expect(next.snapshotSequence).toBe(13);
     });
   });
 

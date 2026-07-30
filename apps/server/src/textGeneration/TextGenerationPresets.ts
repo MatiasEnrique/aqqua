@@ -31,6 +31,19 @@ export const customTextGenerationPolicy = (
   ...overrides,
 });
 
+/**
+ * Board card titles: same small-model path as thread titles, with wording
+ * tuned for kanban cards driven by parameter values rather than free chat.
+ * Passed as instructions when a generator accepts policy; otherwise the
+ * message from `buildBoardCardTitleMessage` carries the same intent.
+ */
+export const boardCardTitleTextGenerationPolicy: TextGenerationPolicy = {
+  kind: "custom",
+  threadTitleInstructions:
+    "Title a board card (one unit of coding work). Prefer 3-8 words naming the work from its parameters. Avoid quotes, prefixes, and trailing punctuation.",
+  inferRepositoryConventions: false,
+};
+
 export const textGenerationPresets: Record<
   Exclude<TextGenerationPolicyKind, "custom">,
   TextGenerationPolicy

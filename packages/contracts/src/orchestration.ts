@@ -8,6 +8,8 @@ import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
+  BoardId,
+  CardId,
   CheckpointRef,
   CommandId,
   EventId,
@@ -20,6 +22,39 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
+import {
+  BoardCreateCommand,
+  BoardCreatedPayload,
+  BoardDeleteCommand,
+  BoardDeletedPayload,
+  BoardUpdateCommand,
+  BoardUpdatedPayload,
+  CardArchiveCommand,
+  CardArchivedPayload,
+  CardCancelCommand,
+  CardCancelRequestedPayload,
+  CardCompletedPayload,
+  CardContinueCommand,
+  CardCreateCommand,
+  CardCreatedPayload,
+  CardReleaseCommand,
+  CardReleaseCompleteCommand,
+  CardReleaseFailCommand,
+  CardReleaseRequestedPayload,
+  CardReleasedPayload,
+  CardRetryCommand,
+  CardRetryRequestedPayload,
+  CardStatusSetCommand,
+  CardStatusSetPayload,
+  CardStepAdvanceRequestedPayload,
+  CardStepEnterCommand,
+  CardStepEnteredPayload,
+  CardStepReportCommand,
+  CardTitleSetCommand,
+  CardTitleUpdatedPayload,
+  OrchestrationBoard,
+  OrchestrationCard,
+} from "./board.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
@@ -396,6 +431,8 @@ export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  boards: Schema.Array(OrchestrationBoard).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  cards: Schema.Array(OrchestrationCard).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -446,6 +483,8 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),
+  boards: Schema.Array(OrchestrationBoard).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  cards: Schema.Array(OrchestrationCard).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
@@ -470,6 +509,26 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     kind: Schema.Literal("thread-removed"),
     sequence: NonNegativeInt,
     threadId: ThreadId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("board-upserted"),
+    sequence: NonNegativeInt,
+    board: OrchestrationBoard,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("board-removed"),
+    sequence: NonNegativeInt,
+    boardId: BoardId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("card-upserted"),
+    sequence: NonNegativeInt,
+    card: OrchestrationCard,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("card-removed"),
+    sequence: NonNegativeInt,
+    cardId: CardId,
   }),
 ]);
 export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
@@ -790,6 +849,15 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  BoardCreateCommand,
+  BoardUpdateCommand,
+  BoardDeleteCommand,
+  CardCreateCommand,
+  CardReleaseCommand,
+  CardContinueCommand,
+  CardRetryCommand,
+  CardCancelCommand,
+  CardArchiveCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -815,6 +883,15 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  BoardCreateCommand,
+  BoardUpdateCommand,
+  BoardDeleteCommand,
+  CardCreateCommand,
+  CardReleaseCommand,
+  CardContinueCommand,
+  CardRetryCommand,
+  CardCancelCommand,
+  CardArchiveCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -891,6 +968,12 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  CardReleaseCompleteCommand,
+  CardReleaseFailCommand,
+  CardStepEnterCommand,
+  CardStepReportCommand,
+  CardStatusSetCommand,
+  CardTitleSetCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -927,10 +1010,24 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "board.created",
+  "board.updated",
+  "board.deleted",
+  "card.created",
+  "card.title-updated",
+  "card.release-requested",
+  "card.released",
+  "card.step-entered",
+  "card.step-advance-requested",
+  "card.status-set",
+  "card.completed",
+  "card.retry-requested",
+  "card.cancel-requested",
+  "card.archived",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread", "board", "card"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1144,7 +1241,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, BoardId, CardId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -1282,6 +1379,76 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.created"),
+    payload: BoardCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.updated"),
+    payload: BoardUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("board.deleted"),
+    payload: BoardDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.created"),
+    payload: CardCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.title-updated"),
+    payload: CardTitleUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.release-requested"),
+    payload: CardReleaseRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.released"),
+    payload: CardReleasedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.step-entered"),
+    payload: CardStepEnteredPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.step-advance-requested"),
+    payload: CardStepAdvanceRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.status-set"),
+    payload: CardStatusSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.completed"),
+    payload: CardCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.retry-requested"),
+    payload: CardRetryRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.cancel-requested"),
+    payload: CardCancelRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.archived"),
+    payload: CardArchivedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

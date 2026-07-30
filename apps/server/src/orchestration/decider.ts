@@ -1,5 +1,6 @@
 import {
   EventId,
+  isContinuableCardStatus,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
@@ -14,6 +15,12 @@ import {
   listThreadsByParentThreadId,
   listThreadsByProjectId,
   requireActiveProjectWorkspaceRootAbsent,
+  requireBoard,
+  requireBoardAbsent,
+  requireBoardNotDeleted,
+  requireCard,
+  requireCardAbsent,
+  requireCardNotArchived,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -21,6 +28,13 @@ import {
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
+/**
+ * Blocked-on-you work derived from the thread's retained activities: an
+ * approval or user-input request with no later resolution for the same
+ * requestId. Shared with the board reactor so status transitions match
+ * settle/snooze gates. (Projector-capped activity stream; see boardCardHelpers.)
+ */
+import { hasOpenBlockingRequest } from "./boardCardHelpers.ts";
 import { projectEvent } from "./projector.ts";
 import { selectTopLevelThreadsForBatchDelete } from "./threadDeletion.ts";
 
@@ -30,63 +44,6 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 // window is a failed/stale start, not pending work. Mirrors the client's
 // QUEUED_TURN_START_GRACE_MS in client-runtime threadSettled.ts.
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
-
-/**
- * Blocked-on-you work derived from the thread's retained activities: an
- * approval or user-input request with no later resolution for the same
- * requestId. The server-side twin of the shell's hasPendingApprovals /
- * hasPendingUserInput flags, which the decider read model does not carry.
- * The clearing rules MUST match ProjectionPipeline's pending accounting —
- * resolved activities always clear, respond.failed clears only when the
- * failure detail marks the request stale/unknown — or settle would be
- * rejected on threads whose shell flags read as clear.
- */
-function isStaleRequestFailureDetail(payload: Record<string, unknown> | null): boolean {
-  const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
-  if (detail === null) return false;
-  return (
-    detail.includes("stale pending approval request") ||
-    detail.includes("unknown pending approval request") ||
-    detail.includes("unknown pending permission request") ||
-    detail.includes("stale pending user-input request") ||
-    detail.includes("unknown pending user-input request") ||
-    detail.includes("unknown pending user input request") ||
-    detail.includes("unknown pending codex user input request")
-  );
-}
-
-// Scans the read model's activities, which the projector caps at the most
-// recent 500. That bound is safe here: an OPEN approval/user-input request
-// blocks its turn, so the thread cannot accumulate hundreds of later
-// activities while one is outstanding — a request that has scrolled out of
-// the window is one whose turn kept running, i.e. it was resolved or went
-// stale. (The projection pipeline's pendingApprovalCount reads the same
-// capped stream and stays consistent with this view.)
-function hasOpenBlockingRequest(thread: {
-  readonly activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>;
-}): boolean {
-  const openRequestIds = new Set<string>();
-  for (const activity of thread.activities) {
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
-    if (requestId === null) continue;
-    if (activity.kind === "approval.requested" || activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
-    } else if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
-    } else if (
-      (activity.kind === "provider.approval.respond.failed" ||
-        activity.kind === "provider.user-input.respond.failed") &&
-      isStaleRequestFailureDetail(payload)
-    ) {
-      openRequestIds.delete(requestId);
-    }
-  }
-  return openRequestIds.size > 0;
-}
 
 /**
  * A queued turn start — a user message no turn has picked up yet — is work
@@ -1235,6 +1192,549 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [unsettledEvent, activityAppendedEvent];
+    }
+
+    case "board.create": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireBoardAbsent({
+        readModel,
+        command,
+        boardId: command.boardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.boardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "board.created",
+        payload: {
+          boardId: command.boardId,
+          projectId: command.projectId,
+          name: command.name,
+          steps: command.steps,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "board.update": {
+      yield* requireBoardNotDeleted({
+        readModel,
+        command,
+        boardId: command.boardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.boardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "board.updated",
+        payload: {
+          boardId: command.boardId,
+          name: command.name,
+          steps: command.steps,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "board.delete": {
+      yield* requireBoard({
+        readModel,
+        command,
+        boardId: command.boardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "board",
+          aggregateId: command.boardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "board.deleted",
+        payload: {
+          boardId: command.boardId,
+          deletedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.create": {
+      const board = yield* requireBoardNotDeleted({
+        readModel,
+        command,
+        boardId: command.boardId,
+      });
+      yield* requireCardAbsent({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.created",
+        payload: {
+          cardId: command.cardId,
+          boardId: command.boardId,
+          projectId: board.projectId,
+          title: command.title,
+          parameters: command.parameters,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.release": {
+      const card = yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.position.kind !== "todo") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be in todo to release.`,
+        });
+      }
+      const board = yield* requireBoardNotDeleted({
+        readModel,
+        command,
+        boardId: card.boardId,
+      });
+      if (board.steps.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Board '${board.id}' must have at least one step to release a card.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.release-requested",
+        payload: {
+          cardId: command.cardId,
+          snapshot: {
+            name: board.name,
+            steps: board.steps,
+          },
+          requestedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.release.complete": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.position.kind !== "todo" || card.snapshot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be in todo with a release snapshot to complete release.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.released",
+        payload: {
+          cardId: command.cardId,
+          branch: command.branch,
+          worktreePath: command.worktreePath,
+          releasedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.release.fail": {
+      yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.status-set",
+        payload: {
+          cardId: command.cardId,
+          status: "failed",
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.step.enter": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.releasedAt === null || card.snapshot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be released before entering a step.`,
+        });
+      }
+      if (command.stepIndex >= card.snapshot.steps.length) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Step index ${command.stepIndex} is out of range for card '${command.cardId}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.step-entered",
+        payload: {
+          cardId: command.cardId,
+          stepIndex: command.stepIndex,
+          threadId: command.threadId,
+          enteredAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.step.report": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.position.kind !== "step" || card.position.stepIndex !== command.stepIndex) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is not at step ${command.stepIndex} for command '${command.type}'.`,
+        });
+      }
+      const currentStepThread = [...card.stepThreads]
+        .toReversed()
+        .find((entry) => entry.stepIndex === command.stepIndex);
+      if (currentStepThread === undefined || currentStepThread.threadId !== command.threadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Stale step report for card '${command.cardId}': thread '${command.threadId}' is not the current thread for step ${command.stepIndex}.`,
+        });
+      }
+      if (card.snapshot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' has no board snapshot for step report.`,
+        });
+      }
+      const step = card.snapshot.steps[command.stepIndex];
+      if (step === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Step index ${command.stepIndex} is out of range for card '${command.cardId}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const base = yield* withEventBase({
+        aggregateKind: "card",
+        aggregateId: command.cardId,
+        occurredAt,
+        commandId: command.commandId,
+      });
+
+      if (command.outcome === "blocked") {
+        return {
+          ...base,
+          type: "card.status-set",
+          payload: {
+            cardId: command.cardId,
+            status: "needs-input",
+            updatedAt: occurredAt,
+          },
+        };
+      }
+
+      // success
+      if (step.continuation === "manual") {
+        return {
+          ...base,
+          type: "card.status-set",
+          payload: {
+            cardId: command.cardId,
+            status: "paused",
+            updatedAt: occurredAt,
+          },
+        };
+      }
+
+      const isLastStep = command.stepIndex === card.snapshot.steps.length - 1;
+      if (isLastStep) {
+        return {
+          ...base,
+          type: "card.completed",
+          payload: {
+            cardId: command.cardId,
+            completedAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        };
+      }
+
+      return {
+        ...base,
+        type: "card.step-advance-requested",
+        payload: {
+          cardId: command.cardId,
+          toStepIndex: command.stepIndex + 1,
+          requestedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.continue": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      // User override to advance past a stuck or gated step. Paused is the
+      // manual-continuation path; needs-input/failed/cancelled are "mark step
+      // done, advance" from the card UI when the agent cannot finish cleanly.
+      if (card.position.kind !== "step" || !isContinuableCardStatus(card.status)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be at a step with status paused, needs-input, failed, or cancelled to continue.`,
+        });
+      }
+      if (card.snapshot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' has no board snapshot to continue.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const base = yield* withEventBase({
+        aggregateKind: "card",
+        aggregateId: command.cardId,
+        occurredAt,
+        commandId: command.commandId,
+      });
+      const isLastStep = card.position.stepIndex === card.snapshot.steps.length - 1;
+      if (isLastStep) {
+        return {
+          ...base,
+          type: "card.completed",
+          payload: {
+            cardId: command.cardId,
+            completedAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        };
+      }
+      return {
+        ...base,
+        type: "card.step-advance-requested",
+        payload: {
+          cardId: command.cardId,
+          toStepIndex: card.position.stepIndex + 1,
+          requestedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.retry": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      // Same gate as continue: while running, Cancel first so two agents never
+      // share the card worktree.
+      if (
+        card.position.kind !== "step" ||
+        card.releasedAt === null ||
+        !isContinuableCardStatus(card.status)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be released at a step with status paused, needs-input, failed, or cancelled to retry.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.retry-requested",
+        payload: {
+          cardId: command.cardId,
+          stepIndex: card.position.stepIndex,
+          requestedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.cancel": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.position.kind !== "step") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be at a step to cancel.`,
+        });
+      }
+      const stepIndex = card.position.stepIndex;
+      const occurredAt = yield* nowIso;
+      const currentStepThread = [...card.stepThreads]
+        .toReversed()
+        .find((entry) => entry.stepIndex === stepIndex);
+      const cancelRequested: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.cancel-requested",
+        payload: {
+          cardId: command.cardId,
+          threadId: currentStepThread?.threadId ?? null,
+          requestedAt: occurredAt,
+        },
+      };
+      const statusSet: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.status-set",
+        payload: {
+          cardId: command.cardId,
+          status: "cancelled",
+          updatedAt: occurredAt,
+        },
+      };
+      return [cancelRequested, statusSet];
+    }
+
+    case "card.archive": {
+      const card = yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.position.kind !== "done") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be done to archive.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.archived",
+        payload: {
+          cardId: command.cardId,
+          archivedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.status.set": {
+      yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.status-set",
+        payload: {
+          cardId: command.cardId,
+          status: command.status,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.title.set": {
+      yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.title-updated",
+        payload: {
+          cardId: command.cardId,
+          title: command.title,
+          updatedAt: occurredAt,
+        },
+      };
     }
 
     default: {

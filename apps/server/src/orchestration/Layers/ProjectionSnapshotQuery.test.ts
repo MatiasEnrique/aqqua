@@ -1730,6 +1730,125 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(shellSnapshot.threads.length, 0);
     }),
   );
+
+  it.effect("includes active boards and all cards in the shell snapshot", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_boards`;
+      yield* sql`DELETE FROM projection_cards`;
+
+      yield* sql`
+        INSERT INTO projection_boards (
+          board_id,
+          project_id,
+          name,
+          steps_json,
+          created_at,
+          updated_at,
+          deleted_at
+        ) VALUES
+          (
+            'board-active',
+            'project-1',
+            'Active',
+            '[]',
+            '2026-04-05T00:00:01.000Z',
+            '2026-04-05T00:00:01.000Z',
+            NULL
+          ),
+          (
+            'board-deleted',
+            'project-1',
+            'Deleted',
+            '[]',
+            '2026-04-05T00:00:02.000Z',
+            '2026-04-05T00:00:03.000Z',
+            '2026-04-05T00:00:03.000Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_cards (
+          card_id,
+          board_id,
+          project_id,
+          title,
+          parameters_json,
+          position_kind,
+          position_step_index,
+          status,
+          snapshot_json,
+          branch,
+          worktree_path,
+          step_threads_json,
+          released_at,
+          completed_at,
+          archived_at,
+          created_at,
+          updated_at
+        ) VALUES
+          (
+            'card-todo',
+            'board-active',
+            'project-1',
+            'Todo card',
+            '{}',
+            'todo',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            '[]',
+            NULL,
+            NULL,
+            NULL,
+            '2026-04-05T00:00:04.000Z',
+            '2026-04-05T00:00:04.000Z'
+          ),
+          (
+            'card-archived',
+            'board-active',
+            'project-1',
+            'Archived card',
+            '{}',
+            'done',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            '[]',
+            NULL,
+            '2026-04-05T00:00:05.000Z',
+            '2026-04-05T00:00:06.000Z',
+            '2026-04-05T00:00:04.000Z',
+            '2026-04-05T00:00:06.000Z'
+          )
+      `;
+
+      const shell = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(
+        shell.boards.map((board) => board.id),
+        ["board-active"],
+      );
+      assert.deepEqual(shell.cards.map((card) => card.id).toSorted(), [
+        "card-archived",
+        "card-todo",
+      ]);
+
+      const command = yield* snapshotQuery.getCommandReadModel();
+      assert.equal(command.boards.length, 2);
+      assert.equal(command.cards.length, 2);
+      assert.equal(command.cards.find((card) => card.id === "card-todo")?.position.kind, "todo");
+      assert.equal(
+        command.cards.find((card) => card.id === "card-archived")?.archivedAt,
+        "2026-04-05T00:00:06.000Z",
+      );
+    }),
+  );
 });
 
 it.effect(

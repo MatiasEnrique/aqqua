@@ -1,4 +1,6 @@
 import type {
+  BoardId,
+  CardId,
   OrchestrationEvent,
   OrchestrationReadModel,
   ProjectId,
@@ -62,8 +64,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: "project" | "thread" | "board" | "card";
+  readonly aggregateId: ProjectId | ThreadId | BoardId | CardId;
 } {
   switch (command.type) {
     case "project.create":
@@ -72,6 +74,29 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
+      };
+    case "board.create":
+    case "board.update":
+    case "board.delete":
+      return {
+        aggregateKind: "board",
+        aggregateId: command.boardId,
+      };
+    case "card.create":
+    case "card.release":
+    case "card.continue":
+    case "card.retry":
+    case "card.cancel":
+    case "card.archive":
+    case "card.release.complete":
+    case "card.release.fail":
+    case "card.step.enter":
+    case "card.step.report":
+    case "card.status.set":
+    case "card.title.set":
+      return {
+        aggregateKind: "card",
+        aggregateId: command.cardId,
       };
     default:
       return {

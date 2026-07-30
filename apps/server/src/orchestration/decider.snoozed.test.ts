@@ -57,6 +57,8 @@ function makeReadModel(input: {
         session: null,
       },
     ],
+    boards: [],
+    cards: [],
     updatedAt: NOW,
   };
 }

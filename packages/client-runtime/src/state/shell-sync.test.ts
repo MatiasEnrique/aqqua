@@ -44,6 +44,8 @@ const LIVE_SHELL_SNAPSHOT: OrchestrationShellSnapshot = {
   snapshotSequence: 1,
   projects: [],
   threads: [],
+  boards: [],
+  cards: [],
   updatedAt: "2026-06-06T00:00:00.000Z",
 };
 
@@ -156,6 +158,8 @@ describe("environment shell synchronization", () => {
         snapshotSequence: 5,
         projects: [],
         threads: [{ id: "stale-thread" } as never],
+        boards: [],
+        cards: [],
         updatedAt: "2026-06-06T00:00:00.000Z",
       };
       const httpSnapshot: OrchestrationShellSnapshot = {
