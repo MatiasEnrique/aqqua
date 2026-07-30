@@ -6,7 +6,9 @@ import {
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
+  resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
+  resolveSidebarWorktreeSettleAction,
   sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeGroup,
 } from "./Sidebar.worktreeGroups";
@@ -290,6 +292,60 @@ describe("buildSidebarWorktreeGroups", () => {
       stale: 2,
       settled: 0,
     });
+  });
+});
+
+describe("worktree action availability", () => {
+  it("disables settlement with a visible reason when there is nothing to settle", () => {
+    expect(
+      resolveSidebarWorktreeSettleAction({
+        conversationCount: 0,
+        settlementSupported: true,
+        hasBlockedConversation: false,
+        isSettling: false,
+        isRemoving: false,
+      }),
+    ).toEqual({
+      enabled: false,
+      disabledReason: "No conversations to settle.",
+    });
+  });
+
+  it("enables settlement only when conversations are ready", () => {
+    expect(
+      resolveSidebarWorktreeSettleAction({
+        conversationCount: 2,
+        settlementSupported: true,
+        hasBlockedConversation: false,
+        isSettling: false,
+        isRemoving: false,
+      }),
+    ).toEqual({ enabled: true, disabledReason: null });
+  });
+
+  it("explains why the current checkout cannot be deleted", () => {
+    expect(
+      resolveSidebarWorktreeDeleteAction({
+        isProjectCheckout: true,
+        worktreeCreated: true,
+        isRemoving: false,
+        isSettling: false,
+      }),
+    ).toEqual({
+      enabled: false,
+      disabledReason: "The current checkout cannot be deleted.",
+    });
+  });
+
+  it("enables deletion for an idle secondary worktree", () => {
+    expect(
+      resolveSidebarWorktreeDeleteAction({
+        isProjectCheckout: false,
+        worktreeCreated: true,
+        isRemoving: false,
+        isSettling: false,
+      }),
+    ).toEqual({ enabled: true, disabledReason: null });
   });
 });
 

@@ -13,9 +13,9 @@ In worktree mode:
   nonzero state: blue **Working**, violet **Needs input**, green **Done**, gray **Stale**, and yellow
   **Settled**. There is no separate total-conversation counter. Pending user input and pending
   approvals both count as Needs input, so one worktree can report several states without hiding
-  any of them. Hover a worktree card for the same status breakdown with readable labels and
-  descriptions. Settled-only cards have no expand affordance because their conversations already
-  live in the shared Settled shelf.
+  any of them. Open the three-dot menu at the end of a worktree card for the same status breakdown
+  with readable labels and descriptions. Settled-only cards have no expand affordance because
+  their conversations already live in the shared Settled shelf.
 - Active conversations use shorter, flat rows so they read as children of the worktree card.
   Each one-line row shows the conversation name, provider icon, recent activity, and a persistent
   **Working**, **Done**, or **Stale** state. Recent activity hides when the sidebar narrows so
@@ -34,14 +34,15 @@ In worktree mode:
 - Settled conversations live in one shared **Settled** section below every worktree rather than
   inside individual worktree groups. These history rows omit the extra project/message glyph.
 
-Worktree headers have a check button that settles every conversation in that checkout. Snoozed
-conversations are woken first; running conversations or conversations waiting for attention keep
-the batch action disabled. Settling preserves every conversation in the shared **Settled** shelf.
+The worktree three-dot menu includes **Settle all** and **Delete** actions. Snoozed conversations
+are woken first; no conversations to settle, running conversations, or conversations waiting for
+attention keep the batch action disabled. Settling preserves every conversation in the shared
+**Settled** shelf.
 
-Secondary worktrees also have a separate delete action. T3 Code inspects the worktree and asks for
-confirmation before permanently deleting both the filesystem worktree and its live, settled, and
-archived conversations. Deleted conversation history does not appear in **Settled**. The current
-project checkout cannot be deleted from this action. If the directory was already removed outside
+Secondary worktrees can use **Delete** from the same menu. T3 Code inspects the worktree and asks
+for confirmation before permanently deleting both the filesystem worktree and its live, settled,
+and archived conversations. Deleted conversation history does not appear in **Settled**. The
+current project checkout shows the action disabled. If the directory was already removed outside
 T3 Code, retrying the action deletes its remaining conversation history and cleans up the stale
 sidebar entry.
 

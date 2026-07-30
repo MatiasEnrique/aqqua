@@ -144,7 +144,9 @@ import {
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
+  resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
+  resolveSidebarWorktreeSettleAction,
   sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeConversationLocation,
   type SidebarWorktreeGroup,
@@ -185,8 +187,7 @@ import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./u
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
-import { HoverCard, HoverCardPopup, HoverCardTrigger } from "./ui/hover-card";
+import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 
@@ -477,10 +478,10 @@ function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCount
   );
 }
 
-function SidebarWorktreeStatusHoverCard(props: { group: SidebarWorktreeGroup }) {
+function SidebarWorktreeStatusDetails(props: { group: SidebarWorktreeGroup }) {
   const states = worktreeStatePresentations(props.group.stateCounts);
   return (
-    <HoverCardPopup className="w-72">
+    <>
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold text-foreground">{props.group.label}</div>
         <div className="mt-0.5 text-[11px] text-muted-foreground">
@@ -528,7 +529,7 @@ function SidebarWorktreeStatusHoverCard(props: { group: SidebarWorktreeGroup }) 
           );
         })}
       </div>
-    </HoverCardPopup>
+    </>
   );
 }
 
@@ -3260,12 +3261,19 @@ export default function SidebarV2() {
                     const worktreeSettlementBlocked = group.unsettled.some(
                       (thread) => !canSettle(thread, { now: new Date().toISOString() }),
                     );
-                    const canSettleWorktree =
-                      settlementSupported &&
-                      group.unsettled.length > 0 &&
-                      !worktreeSettlementBlocked &&
-                      settlingWorktreeKey === null &&
-                      removingWorktreeKey === null;
+                    const settleAction = resolveSidebarWorktreeSettleAction({
+                      conversationCount: group.unsettled.length,
+                      settlementSupported,
+                      hasBlockedConversation: worktreeSettlementBlocked,
+                      isSettling: settlingWorktreeKey !== null,
+                      isRemoving: removingWorktreeKey !== null,
+                    });
+                    const deleteAction = resolveSidebarWorktreeDeleteAction({
+                      isProjectCheckout: group.isProjectCheckout,
+                      worktreeCreated: group.workspaceRoot !== null && group.projectRoot !== null,
+                      isRemoving: removingWorktreeKey !== null,
+                      isSettling: settlingWorktreeKey !== null,
+                    });
                     const hasVisibleChildren = sidebarWorktreeHasVisibleChildren(group);
                     // A routed descendant does not override the user's collapse:
                     // the conversation remains open in chat while its sidebar
@@ -3278,95 +3286,120 @@ export default function SidebarV2() {
                         data-thread-selection-safe
                         className="mb-1 mt-1 flex items-center gap-1 rounded-lg"
                       >
-                        <HoverCard>
-                          <HoverCardTrigger
-                            delay={350}
-                            closeDelay={150}
+                        <button
+                          type="button"
+                          aria-expanded={hasVisibleChildren ? expanded : undefined}
+                          onClick={
+                            hasVisibleChildren
+                              ? () => setWorktreeExpanded(group.key, !expanded)
+                              : undefined
+                          }
+                          onContextMenu={(event) => {
+                            const location = resolveSidebarWorktreeConversationLocation(group);
+                            if (location === null) return;
+                            handleLocationContextMenu(event, {
+                              projectRef: scopeProjectRef(
+                                group.environmentId as EnvironmentId,
+                                group.projectId as ProjectId,
+                              ),
+                              location,
+                            });
+                          }}
+                          className={cn(
+                            "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
+                            hasVisibleChildren
+                              ? "cursor-pointer active:scale-[0.96]"
+                              : "cursor-default",
+                          )}
+                        >
+                          {hasVisibleChildren ? (
+                            expanded ? (
+                              <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                            ) : (
+                              <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                            )
+                          ) : (
+                            <span aria-hidden className="size-3.5 shrink-0" />
+                          )}
+                          <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium">
+                              {group.label}
+                            </span>
+                            <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
+                              <SidebarWorktreeStateCounters counts={group.stateCounts} />
+                              <span aria-hidden>·</span>
+                              <span className="truncate">
+                                {group.isProjectCheckout ? "Current checkout" : "Worktree"}
+                              </span>
+                            </span>
+                          </span>
+                        </button>
+                        <Popover>
+                          <PopoverTrigger
                             render={
                               <button
                                 type="button"
-                                aria-expanded={hasVisibleChildren ? expanded : undefined}
-                                onClick={
-                                  hasVisibleChildren
-                                    ? () => setWorktreeExpanded(group.key, !expanded)
-                                    : undefined
-                                }
-                                onContextMenu={(event) => {
-                                  const location =
-                                    resolveSidebarWorktreeConversationLocation(group);
-                                  if (location === null) return;
-                                  handleLocationContextMenu(event, {
-                                    projectRef: scopeProjectRef(
-                                      group.environmentId as EnvironmentId,
-                                      group.projectId as ProjectId,
-                                    ),
-                                    location,
-                                  });
-                                }}
-                                className={cn(
-                                  "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
-                                  hasVisibleChildren
-                                    ? "cursor-pointer active:scale-[0.96]"
-                                    : "cursor-default",
-                                )}
+                                aria-label={`Worktree actions for ${group.label}`}
+                                className="mr-1 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] motion-reduce:transform-none"
                               />
                             }
                           >
-                            {hasVisibleChildren ? (
-                              expanded ? (
-                                <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
-                              ) : (
-                                <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
-                              )
-                            ) : (
-                              <span aria-hidden className="size-3.5 shrink-0" />
-                            )}
-                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium">
-                                {group.label}
-                              </span>
-                              <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
-                                <SidebarWorktreeStateCounters counts={group.stateCounts} />
-                                <span aria-hidden>·</span>
-                                <span className="truncate">
-                                  {group.isProjectCheckout ? "Current checkout" : "Worktree"}
-                                </span>
-                              </span>
-                            </span>
-                          </HoverCardTrigger>
-                          <SidebarWorktreeStatusHoverCard group={group} />
-                        </HoverCard>
-                        {settlementSupported && group.unsettled.length > 0 ? (
-                          <button
-                            type="button"
-                            aria-label={`Settle all conversations in ${group.label}`}
-                            title={
-                              worktreeSettlementBlocked
-                                ? `Finish or interrupt active conversations before settling ${group.label}`
-                                : `Settle all conversations in ${group.label}`
-                            }
-                            disabled={!canSettleWorktree}
-                            onClick={() => attemptSettleWorktree(group)}
-                            className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 motion-reduce:transform-none"
+                            <EllipsisIcon aria-hidden className="size-4" />
+                          </PopoverTrigger>
+                          <PopoverPopup
+                            side="right"
+                            align="start"
+                            className="w-80"
+                            viewportClassName="p-3"
                           >
-                            <CheckCheckIcon aria-hidden className="size-3.5" />
-                          </button>
-                        ) : null}
-                        {!group.isProjectCheckout &&
-                        group.workspaceRoot !== null &&
-                        group.projectRoot !== null ? (
-                          <button
-                            type="button"
-                            aria-label={`Delete worktree ${group.label}`}
-                            title={`Delete worktree ${group.label}`}
-                            disabled={removingWorktreeKey !== null || settlingWorktreeKey !== null}
-                            onClick={() => attemptDeleteWorktree(group)}
-                            className="mr-1 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-destructive-foreground active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transform-none"
-                          >
-                            <Trash2Icon aria-hidden className="size-3.5" />
-                          </button>
-                        ) : null}
+                            <SidebarWorktreeStatusDetails group={group} />
+                            <div className="mt-3 grid gap-2 border-t border-border/60 pt-3">
+                              <div>
+                                <PopoverClose
+                                  render={
+                                    <Button
+                                      size="lg"
+                                      variant="outline"
+                                      disabled={!settleAction.enabled}
+                                      onClick={() => attemptSettleWorktree(group)}
+                                      className="h-10 w-full justify-start px-3"
+                                    />
+                                  }
+                                >
+                                  <CheckCheckIcon aria-hidden />
+                                  Settle all
+                                </PopoverClose>
+                                {settleAction.disabledReason ? (
+                                  <p className="px-1 pt-1.5 text-[11px] leading-4 text-muted-foreground text-pretty">
+                                    {settleAction.disabledReason}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div>
+                                <PopoverClose
+                                  render={
+                                    <Button
+                                      size="lg"
+                                      variant="destructive-outline"
+                                      disabled={!deleteAction.enabled}
+                                      onClick={() => attemptDeleteWorktree(group)}
+                                      className="h-10 w-full justify-start px-3"
+                                    />
+                                  }
+                                >
+                                  <Trash2Icon aria-hidden />
+                                  Delete worktree
+                                </PopoverClose>
+                                {deleteAction.disabledReason ? (
+                                  <p className="px-1 pt-1.5 text-[11px] leading-4 text-muted-foreground text-pretty">
+                                    {deleteAction.disabledReason}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                          </PopoverPopup>
+                        </Popover>
                       </div>,
                     );
                     if (!expanded) {

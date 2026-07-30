@@ -39,6 +39,63 @@ export interface SidebarWorktreeStateCounts {
   readonly settled: number;
 }
 
+export interface SidebarWorktreeActionAvailability {
+  readonly enabled: boolean;
+  readonly disabledReason: string | null;
+}
+
+export function resolveSidebarWorktreeSettleAction(input: {
+  readonly conversationCount: number;
+  readonly settlementSupported: boolean;
+  readonly hasBlockedConversation: boolean;
+  readonly isSettling: boolean;
+  readonly isRemoving: boolean;
+}): SidebarWorktreeActionAvailability {
+  if (input.conversationCount === 0) {
+    return { enabled: false, disabledReason: "No conversations to settle." };
+  }
+  if (!input.settlementSupported) {
+    return {
+      enabled: false,
+      disabledReason: "Settlement is unavailable for this environment.",
+    };
+  }
+  if (input.hasBlockedConversation) {
+    return {
+      enabled: false,
+      disabledReason: "Finish or interrupt active conversations before settling.",
+    };
+  }
+  if (input.isSettling) {
+    return { enabled: false, disabledReason: "Another worktree is being settled." };
+  }
+  if (input.isRemoving) {
+    return { enabled: false, disabledReason: "A worktree is being deleted." };
+  }
+  return { enabled: true, disabledReason: null };
+}
+
+export function resolveSidebarWorktreeDeleteAction(input: {
+  readonly isProjectCheckout: boolean;
+  readonly worktreeCreated: boolean;
+  readonly isRemoving: boolean;
+  readonly isSettling: boolean;
+}): SidebarWorktreeActionAvailability {
+  if (input.isProjectCheckout) {
+    return { enabled: false, disabledReason: "The current checkout cannot be deleted." };
+  }
+  if (!input.worktreeCreated) {
+    return { enabled: false, disabledReason: "This worktree has not been created yet." };
+  }
+  if (input.isRemoving) {
+    return { enabled: false, disabledReason: "Another worktree is being deleted." };
+  }
+  if (input.isSettling) {
+    return { enabled: false, disabledReason: "A worktree is being settled." };
+  }
+  return { enabled: true, disabledReason: null };
+}
+
 export type SidebarWorktreeConversationLocation = {
   readonly branch: string;
   readonly worktreePath: string | null;
