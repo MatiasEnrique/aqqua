@@ -278,10 +278,19 @@ export function buildSidebarWorktreeGroups(input: {
     });
   }
 
-  const renderedActiveKeys =
+  // `renderedActive` is the flattened thread tree: it decides both which active
+  // threads render (collapsed sub-agents are absent) and in what order (each
+  // orchestrator immediately followed by its sub-agents). Grouping is bucketing
+  // only — re-emitting `group.active` in its own arrival order would put a
+  // sub-agent row at its sort position instead of under its parent.
+  const renderedActiveOrder =
     input.renderedActive === undefined
       ? null
-      : new Set(input.renderedActive.map((thread) => `${thread.environmentId}:${thread.id}`));
+      : new Map(
+          input.renderedActive.map(
+            (thread, index) => [`${thread.environmentId}:${thread.id}`, index] as const,
+          ),
+        );
 
   return [...groups.entries()]
     .map(([key, group]): SidebarWorktreeGroup => {
@@ -310,11 +319,15 @@ export function buildSidebarWorktreeGroups(input: {
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:
-          renderedActiveKeys === null
+          renderedActiveOrder === null
             ? group.active
-            : group.active.filter((thread) =>
-                renderedActiveKeys.has(`${thread.environmentId}:${thread.id}`),
-              ),
+            : group.active
+                .filter((thread) => renderedActiveOrder.has(`${thread.environmentId}:${thread.id}`))
+                .toSorted(
+                  (left, right) =>
+                    renderedActiveOrder.get(`${left.environmentId}:${left.id}`)! -
+                    renderedActiveOrder.get(`${right.environmentId}:${right.id}`)!,
+                ),
         snoozed: group.snoozed,
         unsettled: [...group.active, ...group.snoozed],
         conversationCount: unsettledConversationCount + group.settledCount,

@@ -251,6 +251,46 @@ describe("buildSidebarWorktreeGroups", () => {
     ]);
   });
 
+  it("renders active rows in rendered-tree order so sub-agents follow their orchestrator", () => {
+    const orchestrator = thread(
+      "orchestrator",
+      "local",
+      null,
+      "main",
+      "2026-01-01T00:00:00.000Z",
+      null,
+      "ready",
+    );
+    const subAgent = thread(
+      "sub-agent",
+      "local",
+      null,
+      "main",
+      "2026-01-04T00:00:00.000Z",
+      "orchestrator",
+      "running",
+    );
+    const other = thread("other", "local", null, "main", "2026-01-03T00:00:00.000Z", null, "ready");
+
+    const groups = buildSidebarWorktreeGroups({
+      // Sorted order (most recent first) interleaves the sub-agent away from
+      // its parent; the rendered tree order is what must survive grouping.
+      active: [subAgent, other, orchestrator],
+      renderedActive: [other, orchestrator, subAgent],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups[0]?.active.map((thread) => thread.id)).toEqual([
+      "other",
+      "orchestrator",
+      "sub-agent",
+    ]);
+  });
+
   it("counts input, approvals, errored, and interrupted work independently", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [
