@@ -518,82 +518,77 @@ function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCount
     )
     .join(", ");
 
+  if (counters.length === 0) return null;
+
   return (
-    <span
-      role="status"
-      aria-label={summary}
-      className="inline-flex h-4 shrink-0 items-center gap-1.5 leading-none tabular-nums"
-    >
-      {counters.map((counter) => {
-        const Icon = counter.icon;
-        return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
           <span
-            key={counter.key}
-            title={`${counter.count} ${counter.label.toLowerCase()}`}
-            aria-hidden
-            className={cn("inline-flex items-center gap-0.5 font-medium", counter.className)}
-          >
-            <Icon className="size-3.5 shrink-0" />
-            <span>{counter.count}</span>
-          </span>
-        );
-      })}
-    </span>
+            role="status"
+            aria-label={summary}
+            className="inline-flex h-4 shrink-0 items-center gap-1.5 leading-none tabular-nums"
+          />
+        }
+      >
+        {counters.map((counter) => {
+          const Icon = counter.icon;
+          return (
+            <span
+              key={counter.key}
+              aria-hidden
+              className={cn("inline-flex items-center gap-0.5 font-medium", counter.className)}
+            >
+              <Icon className="size-3.5 shrink-0" />
+              <span>{counter.count}</span>
+            </span>
+          );
+        })}
+      </TooltipTrigger>
+      <TooltipPopup side="right" align="start" className="w-72 text-left">
+        <SidebarWorktreeStateDetails counts={props.counts} />
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
-function SidebarWorktreeStatusDetails(props: { group: SidebarWorktreeGroup }) {
-  const states = worktreeStatePresentations(props.group.stateCounts);
+function SidebarWorktreeStateDetails(props: { counts: SidebarWorktreeStateCounts }) {
+  const states = worktreeStatePresentations(props.counts);
   return (
-    <>
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-foreground">{props.group.label}</div>
-        <div className="mt-0.5 text-[11px] text-muted-foreground">
-          {props.group.isProjectCheckout ? "Current checkout" : "Worktree"}
-          {props.group.environmentLabel ? ` · ${props.group.environmentLabel}` : ""}
-        </div>
-        <div
-          className="mt-1 truncate font-mono text-[10px] text-muted-foreground/70"
-          title={props.group.workspaceRoot ?? props.group.projectRoot ?? undefined}
-        >
-          {props.group.workspaceRoot ?? props.group.projectRoot ?? "New worktree"}
-        </div>
-      </div>
-      <div className="mt-3 grid gap-1">
-        {states.map((state) => {
-          const Icon = state.icon;
-          return (
-            <div
-              key={state.key}
-              className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 py-1.5"
+    <div className="grid gap-1 p-1">
+      {states.map((state) => {
+        const Icon = state.icon;
+        return (
+          <div
+            key={state.key}
+            className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 py-1.5"
+          >
+            <span
+              className={cn(
+                "inline-flex size-7 items-center justify-center rounded-md bg-foreground/[0.04]",
+                state.className,
+              )}
             >
-              <span
-                className={cn(
-                  "inline-flex size-7 items-center justify-center rounded-md bg-foreground/[0.04]",
-                  state.className,
-                )}
-              >
-                <Icon aria-hidden className="size-3.5" />
+              <Icon aria-hidden className="size-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-foreground">{state.label}</span>
+              <span className="block text-[11px] leading-4 text-muted-foreground text-pretty">
+                {state.description}
               </span>
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-foreground">{state.label}</span>
-                <span className="block text-[11px] leading-4 text-muted-foreground text-pretty">
-                  {state.description}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "self-start pt-0.5 text-xs font-semibold tabular-nums",
-                  state.className,
-                )}
-              >
-                {state.count}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </>
+            </span>
+            <span
+              className={cn(
+                "self-start pt-0.5 text-xs font-semibold tabular-nums",
+                state.className,
+              )}
+            >
+              {state.count}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -3458,11 +3453,10 @@ export default function SidebarV2() {
                           <PopoverPopup
                             side="right"
                             align="start"
-                            className="w-80"
-                            viewportClassName="p-3"
+                            className="w-56"
+                            viewportClassName="p-1"
                           >
-                            <SidebarWorktreeStatusDetails group={group} />
-                            <div className="mt-3 grid gap-2 border-t border-border/60 pt-3">
+                            <div className="grid gap-1">
                               <div>
                                 <PopoverClose
                                   render={
@@ -3470,6 +3464,7 @@ export default function SidebarV2() {
                                       size="lg"
                                       variant="outline"
                                       disabled={!settleAction.enabled}
+                                      title={settleAction.disabledReason ?? undefined}
                                       onClick={() => attemptSettleWorktree(group)}
                                       className="h-10 w-full justify-start px-3"
                                     />
@@ -3478,11 +3473,6 @@ export default function SidebarV2() {
                                   <CheckCheckIcon aria-hidden />
                                   Settle all
                                 </PopoverClose>
-                                {settleAction.disabledReason ? (
-                                  <p className="px-1 pt-1.5 text-[11px] leading-4 text-muted-foreground text-pretty">
-                                    {settleAction.disabledReason}
-                                  </p>
-                                ) : null}
                               </div>
                               <div>
                                 <PopoverClose
@@ -3491,6 +3481,7 @@ export default function SidebarV2() {
                                       size="lg"
                                       variant="destructive-outline"
                                       disabled={!deleteAction.enabled}
+                                      title={deleteAction.disabledReason ?? undefined}
                                       onClick={() => attemptDeleteWorktree(group)}
                                       className="h-10 w-full justify-start px-3"
                                     />
@@ -3499,11 +3490,6 @@ export default function SidebarV2() {
                                   <Trash2Icon aria-hidden />
                                   Delete worktree
                                 </PopoverClose>
-                                {deleteAction.disabledReason ? (
-                                  <p className="px-1 pt-1.5 text-[11px] leading-4 text-muted-foreground text-pretty">
-                                    {deleteAction.disabledReason}
-                                  </p>
-                                ) : null}
                               </div>
                             </div>
                           </PopoverPopup>
