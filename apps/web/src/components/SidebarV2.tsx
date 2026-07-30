@@ -242,55 +242,6 @@ function ProjectNewWorktreeButton(props: {
   );
 }
 
-const SIDEBAR_PROJECT_STATE_PRESENTATIONS: Record<
-  SidebarProjectState,
-  { label: string; className: string }
-> = {
-  needsInput: {
-    label: "Needs input",
-    className: "bg-violet-500 dark:bg-violet-400",
-  },
-  working: {
-    label: "Working",
-    className: "bg-sky-500 dark:bg-sky-400",
-  },
-  done: {
-    label: "Done",
-    className: "bg-emerald-600 dark:bg-emerald-400",
-  },
-  idle: {
-    label: "Idle",
-    className: "bg-muted-foreground/45",
-  },
-};
-
-function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {
-  const presentation = SIDEBAR_PROJECT_STATE_PRESENTATIONS[props.state];
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            role="status"
-            aria-label={`Project status: ${presentation.label}`}
-            className="inline-flex size-4 shrink-0 items-center justify-center"
-          />
-        }
-      >
-        {props.state === "working" ? (
-          <CircleDashedIcon
-            aria-hidden
-            className={cn("size-3.5", SIDEBAR_STATE_PRESENTATIONS.working.className)}
-          />
-        ) : (
-          <span aria-hidden className={cn("size-2 rounded-full", presentation.className)} />
-        )}
-      </TooltipTrigger>
-      <TooltipPopup side="right">{presentation.label}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
@@ -465,7 +416,7 @@ function SnoozePopoverButton(props: {
   );
 }
 
-type SidebarSummaryState = "working" | "done" | "stale" | "settled";
+type SidebarSummaryState = "working" | "needsInput" | "done" | "stale" | "settled";
 
 const SIDEBAR_STATE_PRESENTATIONS = {
   working: {
@@ -499,6 +450,34 @@ const SIDEBAR_STATE_PRESENTATIONS = {
     className: "text-amber-600 dark:text-amber-300",
   },
 } as const;
+
+function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {
+  const presentation =
+    props.state === "idle"
+      ? { ...SIDEBAR_STATE_PRESENTATIONS.stale, label: "Idle" }
+      : SIDEBAR_STATE_PRESENTATIONS[props.state];
+  const Icon = presentation.icon;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role="status"
+            aria-label={`Project status: ${presentation.label}`}
+            className={cn(
+              "inline-flex size-4 shrink-0 items-center justify-center",
+              presentation.className,
+            )}
+          />
+        }
+      >
+        <Icon aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="right">{presentation.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function SidebarSummaryStateLabel(props: { state: SidebarSummaryState; className?: string }) {
   const presentation = SIDEBAR_STATE_PRESENTATIONS[props.state];
@@ -1205,12 +1184,21 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                       <AlarmClockIcon aria-hidden className="size-3" />
                       Woke
                     </span>
-                  ) : (
-                    <span className="text-xs">
-                      {variantAction === "unsettle"
-                        ? settledTimeLabel(thread)
-                        : threadTimeLabel(thread)}
+                  ) : variantAction === "unsettle" ? (
+                    <span
+                      role="status"
+                      aria-label={`Settled ${settledTimeLabel(thread)}`}
+                      title="Settled"
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs",
+                        SIDEBAR_STATE_PRESENTATIONS.settled.className,
+                      )}
+                    >
+                      <CircleCheckIcon aria-hidden className="size-3.5" />
+                      <span className="text-muted-foreground/55">{settledTimeLabel(thread)}</span>
                     </span>
+                  ) : (
+                    <span className="text-xs">{threadTimeLabel(thread)}</span>
                   )}
                 </span>
                 {variantAction === "unsnooze" ? (

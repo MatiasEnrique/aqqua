@@ -444,7 +444,7 @@ describe("resolveSidebarProjectState", () => {
     stateCounts: SidebarWorktreeGroup["stateCounts"],
   ): Pick<SidebarWorktreeGroup, "stateCounts"> => ({ stateCounts });
 
-  it("prioritizes needs input, then working, then done, then idle", () => {
+  it("prioritizes needs input, then working, done, settled, and idle", () => {
     expect(
       resolveSidebarProjectState([
         worktree({ needsInput: 0, working: 1, done: 1, stale: 0, settled: 0 }),
@@ -465,6 +465,11 @@ describe("resolveSidebarProjectState", () => {
     expect(
       resolveSidebarProjectState([
         worktree({ needsInput: 0, working: 0, done: 0, stale: 1, settled: 1 }),
+      ]),
+    ).toBe("settled");
+    expect(
+      resolveSidebarProjectState([
+        worktree({ needsInput: 0, working: 0, done: 0, stale: 1, settled: 0 }),
       ]),
     ).toBe("idle");
     expect(resolveSidebarProjectState([])).toBe("idle");

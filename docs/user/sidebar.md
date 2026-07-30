@@ -29,9 +29,9 @@ In worktree mode:
   draft in that location. Project menus also offer **New worktree here**, which opens the standard
   new-worktree conversation dialog with that project preselected. The branch-plus button at the
   end of each project row opens that dialog directly.
-- Each project row shows one color-only status marker. It prioritizes **Needs input**, then
-  **Working**, then **Done**; projects with only stale or settled conversations (or no
-  conversations) show **Idle**.
+- Each project row shows one compact status icon. It prioritizes **Needs input**, then
+  **Working**, **Done**, and **Settled**; projects with only stale conversations (or no
+  conversations) show **Idle**. The same icon language is used on worktrees and conversations.
   Draft worktrees that have not been created yet do not offer these actions.
 - Repository and worktree sections can stay collapsed even when the open conversation is inside
   them. The same applies to sub-agent branches and the Snoozed and Settled shelves. Collapsing

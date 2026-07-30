@@ -39,7 +39,7 @@ export interface SidebarWorktreeStateCounts {
   readonly settled: number;
 }
 
-export type SidebarProjectState = "needsInput" | "working" | "done" | "idle";
+export type SidebarProjectState = "needsInput" | "working" | "done" | "settled" | "idle";
 
 export function resolveSidebarProjectState(
   worktrees: readonly Pick<SidebarWorktreeGroup, "stateCounts">[],
@@ -52,6 +52,9 @@ export function resolveSidebarProjectState(
   }
   if (worktrees.some((worktree) => worktree.stateCounts.done > 0)) {
     return "done";
+  }
+  if (worktrees.some((worktree) => worktree.stateCounts.settled > 0)) {
+    return "settled";
   }
   return "idle";
 }
@@ -289,10 +292,6 @@ export function buildSidebarWorktreeGroups(input: {
         settled: group.settledCount,
       };
       for (const thread of [...group.active, ...group.snoozed]) {
-        if (thread.hasPendingUserInput || thread.hasPendingApprovals) {
-          stateCounts.needsInput += 1;
-          continue;
-        }
         stateCounts[resolveSidebarConversationSummaryState(thread)] += 1;
       }
       const unsettledConversationCount =

@@ -670,6 +670,23 @@ describe("resolveSidebarConversationSummaryState", () => {
     updatedAt: "2026-03-09T10:00:00.000Z",
   };
 
+  it("prioritizes conversations that need user input", () => {
+    expect(
+      resolveSidebarConversationSummaryState({
+        session,
+        latestTurn: makeLatestTurn(),
+        hasPendingUserInput: true,
+      }),
+    ).toBe("needsInput");
+    expect(
+      resolveSidebarConversationSummaryState({
+        session: { ...session, status: "ready" },
+        latestTurn: makeLatestTurn(),
+        hasPendingApprovals: true,
+      }),
+    ).toBe("needsInput");
+  });
+
   it("reports working while a session is starting or running", () => {
     expect(resolveSidebarConversationSummaryState({ session, latestTurn: makeLatestTurn() })).toBe(
       "working",

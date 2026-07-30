@@ -1,6 +1,8 @@
-export type SidebarConversationSummaryState = "working" | "done" | "stale";
+export type SidebarConversationSummaryState = "working" | "needsInput" | "done" | "stale";
 
 type SidebarConversationSummaryStateInput = {
+  readonly hasPendingApprovals?: boolean;
+  readonly hasPendingUserInput?: boolean;
   readonly latestTurn?: {
     readonly state: "running" | "interrupted" | "completed" | "error";
   } | null;
@@ -19,6 +21,9 @@ type SidebarConversationSummaryStateInput = {
 export function resolveSidebarConversationSummaryState(
   thread: SidebarConversationSummaryStateInput,
 ): SidebarConversationSummaryState {
+  if (thread.hasPendingApprovals || thread.hasPendingUserInput) {
+    return "needsInput";
+  }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
