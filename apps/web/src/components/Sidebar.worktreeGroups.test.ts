@@ -9,6 +9,7 @@ import {
   resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeSettleAction,
+  sidebarLocationContextMenuItems,
   sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeGroup,
 } from "./Sidebar.worktreeGroups";
@@ -512,6 +513,21 @@ describe("resolveSidebarWorktreeConversationLocation", () => {
         workspaceRoot: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("sidebarLocationContextMenuItems", () => {
+  it("offers a new worktree only from an existing worktree location", () => {
+    expect(sidebarLocationContextMenuItems({ isWorktreeLocation: true })).toEqual([
+      { id: "new-conversation", label: "New conversation here" },
+      { id: "new-worktree", label: "New worktree here" },
+    ]);
+  });
+
+  it("keeps project context menus focused on local conversation creation", () => {
+    expect(sidebarLocationContextMenuItems({ isWorktreeLocation: false })).toEqual([
+      { id: "new-conversation", label: "New conversation here" },
+    ]);
   });
 });
 

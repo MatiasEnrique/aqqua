@@ -389,11 +389,15 @@ function useNewWorktreeThreadDialog() {
   const handleNewThread = useNewThreadHandler();
   const [target, setTarget] = useState<{
     readonly projectRef: ScopedProjectRef | null;
+    readonly baseBranch: string | null;
   } | null>(null);
 
-  const open = useCallback((projectRef: ScopedProjectRef | null) => {
-    setTarget({ projectRef });
-  }, []);
+  const open = useCallback(
+    (projectRef: ScopedProjectRef | null, baseBranch: string | null = null) => {
+      setTarget({ projectRef, baseBranch });
+    },
+    [],
+  );
 
   const onCreate = useCallback(
     async (input: {
@@ -419,6 +423,7 @@ function useNewWorktreeThreadDialog() {
     <NewWorktreeThreadDialog
       open={target !== null}
       initialProjectRef={target?.projectRef ?? null}
+      initialBaseBranch={target?.baseBranch ?? null}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) setTarget(null);
       }}
@@ -481,7 +486,10 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.open === "new-worktree") {
-          newWorktreeDialog.open(null);
+          newWorktreeDialog.open(
+            detail.context?.projectRef ?? null,
+            detail.context?.baseBranch ?? null,
+          );
         } else {
           setOpen(true);
         }

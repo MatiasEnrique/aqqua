@@ -1,14 +1,26 @@
+import type { ScopedProjectRef } from "@t3tools/contracts";
+
 // Tiny event bus allowing components to programmatically open the command palette
 // without owning its React state.
 const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
-export interface CommandPaletteOpenDetail {
-  /**
-   * `new-worktree` skips the palette and opens the worktree dialog the palette
-   * hosts, so callers do not have to own that dialog's state either.
-   */
-  readonly open?: "add-project" | "new-thread-in" | "new-worktree";
-}
+export type CommandPaletteOpenDetail =
+  | {
+      /**
+       * `new-worktree` skips the palette and opens the worktree dialog the
+       * palette hosts, so callers do not have to own that dialog's state.
+       */
+      readonly open: "new-worktree";
+      readonly context?: {
+        readonly projectRef: ScopedProjectRef;
+        /** Existing worktree branch to preselect as the new worktree's base. */
+        readonly baseBranch: string;
+      };
+    }
+  | {
+      readonly open?: "add-project" | "new-thread-in";
+      readonly context?: never;
+    };
 
 export function openCommandPalette(detail?: CommandPaletteOpenDetail): void {
   window.dispatchEvent(

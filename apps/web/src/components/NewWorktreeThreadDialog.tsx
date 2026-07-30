@@ -34,6 +34,8 @@ interface NewWorktreeThreadDialogProps {
   open: boolean;
   /** Project to preselect, usually the one the palette was opened from. */
   initialProjectRef: ScopedProjectRef | null;
+  /** Existing worktree branch to preselect when opened contextually. */
+  initialBaseBranch: string | null;
   onOpenChange: (open: boolean) => void;
   onCreate: (input: {
     projectRef: ScopedProjectRef;
@@ -47,6 +49,7 @@ interface NewWorktreeThreadDialogProps {
 export function NewWorktreeThreadDialog({
   open,
   initialProjectRef,
+  initialBaseBranch,
   onOpenChange,
   onCreate,
 }: NewWorktreeThreadDialogProps) {
@@ -85,9 +88,10 @@ export function NewWorktreeThreadDialog({
         : null) ??
       projectOptions[0]?.key ??
       null;
+    const contextualProjectSelected = preselectedKey !== null && resolvedKey === preselectedKey;
     setProjectKey(resolvedKey);
     setName(buildTemporaryWorktreeBranchName(randomHex));
-    setBaseBranch(null);
+    setBaseBranch(contextualProjectSelected ? initialBaseBranch : null);
     setSetupScriptId(null);
     setStartFromOrigin(primaryServerSettings.newWorktreesStartFromOrigin);
     setHasAttemptedSubmit(false);
@@ -101,7 +105,12 @@ export function NewWorktreeThreadDialog({
     };
     // `projectOptions` is deliberately excluded: a project list refresh while
     // the dialog is open must not wipe what the user already typed.
-  }, [open, initialProjectRef, primaryServerSettings.newWorktreesStartFromOrigin]);
+  }, [
+    open,
+    initialBaseBranch,
+    initialProjectRef,
+    primaryServerSettings.newWorktreesStartFromOrigin,
+  ]);
 
   const branches = useBranches({
     environmentId: open && activeProject ? activeProject.environmentId : null,

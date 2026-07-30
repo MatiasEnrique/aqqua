@@ -147,6 +147,7 @@ import {
   resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeSettleAction,
+  sidebarLocationContextMenuItems,
   sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeConversationLocation,
   type SidebarWorktreeGroup,
@@ -2713,11 +2714,25 @@ export default function SidebarV2() {
         if (!api) return;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [{ id: "new-conversation", label: "New conversation here" }],
+            sidebarLocationContextMenuItems({
+              isWorktreeLocation: input.location !== undefined,
+            }),
             position,
           ),
         );
-        if (clicked._tag === "Failure" || clicked.value !== "new-conversation") return;
+        if (clicked._tag === "Failure") return;
+        if (clicked.value === "new-worktree") {
+          if (input.location === undefined) return;
+          openCommandPalette({
+            open: "new-worktree",
+            context: {
+              projectRef: input.projectRef,
+              baseBranch: input.location.branch,
+            },
+          });
+          return;
+        }
+        if (clicked.value !== "new-conversation") return;
 
         const result = await settlePromise(() =>
           handleNewThreadRef.current(input.projectRef, input.location),
