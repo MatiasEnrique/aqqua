@@ -26,8 +26,8 @@ In worktree mode:
   conversations. Worktree summaries stay transparent at rest and use a surface only for hover
   feedback.
 - Right-click a project or an existing worktree and choose **New conversation here** to open a
-  draft in that location. Existing worktrees also offer **New worktree here**, which opens the
-  standard new-worktree conversation dialog with that worktree's project and branch preselected.
+  draft in that location. Project menus also offer **New worktree here**, which opens the standard
+  new-worktree conversation dialog with that project preselected.
   Draft worktrees that have not been created yet do not offer these actions.
 - Repository and worktree sections can stay collapsed even when the open conversation is inside
   them. The same applies to sub-agent branches and the Snoozed and Settled shelves. Collapsing

@@ -2715,19 +2715,18 @@ export default function SidebarV2() {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             sidebarLocationContextMenuItems({
-              isWorktreeLocation: input.location !== undefined,
+              isProjectLocation: input.location === undefined,
             }),
             position,
           ),
         );
         if (clicked._tag === "Failure") return;
         if (clicked.value === "new-worktree") {
-          if (input.location === undefined) return;
+          if (input.location !== undefined) return;
           openCommandPalette({
             open: "new-worktree",
             context: {
               projectRef: input.projectRef,
-              baseBranch: input.location.branch,
             },
           });
           return;

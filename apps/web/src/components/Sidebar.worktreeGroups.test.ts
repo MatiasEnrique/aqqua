@@ -517,16 +517,16 @@ describe("resolveSidebarWorktreeConversationLocation", () => {
 });
 
 describe("sidebarLocationContextMenuItems", () => {
-  it("offers a new worktree only from an existing worktree location", () => {
-    expect(sidebarLocationContextMenuItems({ isWorktreeLocation: true })).toEqual([
+  it("keeps worktree context menus focused on conversation creation", () => {
+    expect(sidebarLocationContextMenuItems({ isProjectLocation: false })).toEqual([
       { id: "new-conversation", label: "New conversation here" },
-      { id: "new-worktree", label: "New worktree here" },
     ]);
   });
 
-  it("keeps project context menus focused on local conversation creation", () => {
-    expect(sidebarLocationContextMenuItems({ isWorktreeLocation: false })).toEqual([
+  it("offers a new worktree from a project location", () => {
+    expect(sidebarLocationContextMenuItems({ isProjectLocation: true })).toEqual([
       { id: "new-conversation", label: "New conversation here" },
+      { id: "new-worktree", label: "New worktree here" },
     ]);
   });
 });

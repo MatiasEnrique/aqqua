@@ -104,14 +104,14 @@ export type SidebarWorktreeConversationLocation = {
 };
 
 export function sidebarLocationContextMenuItems(input: {
-  readonly isWorktreeLocation: boolean;
+  readonly isProjectLocation: boolean;
 }): ReadonlyArray<{
   readonly id: "new-conversation" | "new-worktree";
   readonly label: string;
 }> {
   return [
     { id: "new-conversation", label: "New conversation here" },
-    ...(input.isWorktreeLocation
+    ...(input.isProjectLocation
       ? ([{ id: "new-worktree", label: "New worktree here" }] as const)
       : []),
   ];

@@ -13,8 +13,6 @@ export type CommandPaletteOpenDetail =
       readonly open: "new-worktree";
       readonly context?: {
         readonly projectRef: ScopedProjectRef;
-        /** Existing worktree branch to preselect as the new worktree's base. */
-        readonly baseBranch: string;
       };
     }
   | {

@@ -22,13 +22,13 @@ describe("commandPaletteBus", () => {
 
     openCommandPalette({
       open: "new-worktree",
-      context: { projectRef, baseBranch: "dev-22" },
+      context: { projectRef },
     });
     unsubscribe();
 
     expect(received).toEqual({
       open: "new-worktree",
-      context: { projectRef, baseBranch: "dev-22" },
+      context: { projectRef },
     });
   });
 });

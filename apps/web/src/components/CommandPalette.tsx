@@ -486,10 +486,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.open === "new-worktree") {
-          newWorktreeDialog.open(
-            detail.context?.projectRef ?? null,
-            detail.context?.baseBranch ?? null,
-          );
+          newWorktreeDialog.open(detail.context?.projectRef ?? null);
         } else {
           setOpen(true);
         }
