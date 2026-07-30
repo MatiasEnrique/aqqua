@@ -133,6 +133,7 @@ import {
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebarV2,
   sortThreadsForSidebarV2,
+  type SidebarConversationSummaryState,
 } from "./Sidebar.logic";
 import {
   buildSidebarThreadTree,
@@ -416,7 +417,7 @@ function SnoozePopoverButton(props: {
   );
 }
 
-type SidebarSummaryState = "working" | "needsInput" | "done" | "stale" | "settled";
+type SidebarSummaryState = SidebarConversationSummaryState | "settled";
 
 const SIDEBAR_STATE_PRESENTATIONS = {
   working: {
@@ -1173,6 +1174,20 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 <span className="inline-flex justify-end tabular-nums text-muted-foreground/55 transition-opacity group-hover/v2-row:opacity-0">
                   {variantAction === "unsnooze" ? (
                     <SidebarSummaryStateLabel state={summaryState} className="text-[11px]" />
+                  ) : variantAction === "unsettle" ? (
+                    <span
+                      role="status"
+                      aria-label={`Settled ${settledTimeLabel(thread)}${isWoke ? ", woke from snooze" : ""}`}
+                      title={isWoke ? "Settled · Woke from snooze" : "Settled"}
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs",
+                        SIDEBAR_STATE_PRESENTATIONS.settled.className,
+                      )}
+                    >
+                      <CircleCheckIcon aria-hidden className="size-3.5" />
+                      <span className="text-muted-foreground/55">{settledTimeLabel(thread)}</span>
+                      {isWoke ? <AlarmClockIcon aria-hidden className="size-3" /> : null}
+                    </span>
                   ) : isWoke ? (
                     // A wake can land straight in the settled tail (e.g. PR
                     // merged while snoozed); the signal must survive the trip.
@@ -1183,19 +1198,6 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     >
                       <AlarmClockIcon aria-hidden className="size-3" />
                       Woke
-                    </span>
-                  ) : variantAction === "unsettle" ? (
-                    <span
-                      role="status"
-                      aria-label={`Settled ${settledTimeLabel(thread)}`}
-                      title="Settled"
-                      className={cn(
-                        "inline-flex items-center gap-1 text-xs",
-                        SIDEBAR_STATE_PRESENTATIONS.settled.className,
-                      )}
-                    >
-                      <CircleCheckIcon aria-hidden className="size-3.5" />
-                      <span className="text-muted-foreground/55">{settledTimeLabel(thread)}</span>
                     </span>
                   ) : (
                     <span className="text-xs">{threadTimeLabel(thread)}</span>
