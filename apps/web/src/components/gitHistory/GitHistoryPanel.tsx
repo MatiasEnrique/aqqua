@@ -4,6 +4,7 @@ import type {
   GitHistoryFileChange,
 } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
+import { FileDiff } from "@pierre/diffs/react";
 import {
   ArrowLeft,
   Check,
@@ -17,6 +18,9 @@ import {
 import { useMemo, useState } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useClientSettings } from "../../hooks/useSettings";
+import { useTheme } from "../../hooks/useTheme";
+import { getRenderablePatch, resolveDiffThemeName } from "../../lib/diffRendering";
 import { cn } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
@@ -155,12 +159,26 @@ function CommitRow(props: {
   );
 }
 
-function FileChangeRow({ file }: { file: GitHistoryFileChange }) {
+function FileChangeRow(props: {
+  file: GitHistoryFileChange;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const file = props.file;
   const counts = file.binary
     ? "Binary · counts unavailable"
     : `+${file.insertions ?? 0} −${file.deletions ?? 0}`;
   return (
-    <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-0">
+    <button
+      type="button"
+      onClick={props.onSelect}
+      aria-label={`Show diff for ${file.path}`}
+      aria-pressed={props.selected}
+      className={cn(
+        "flex w-full min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2 text-left text-xs outline-none transition-colors last:border-0 hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        props.selected && "bg-accent",
+      )}
+    >
       <span className="w-16 shrink-0 capitalize text-muted-foreground">
         {file.kind.replace("_", " ")}
       </span>
@@ -170,7 +188,86 @@ function FileChangeRow({ file }: { file: GitHistoryFileChange }) {
       <span className={cn("shrink-0 font-mono", file.binary && "text-muted-foreground")}>
         {counts}
       </span>
-    </div>
+    </button>
+  );
+}
+
+function CommitCodeDiff(props: {
+  commitId: string;
+  file: GitHistoryFileChange;
+  diff: string | undefined;
+  truncated: boolean;
+  isPending: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  const { resolvedTheme } = useTheme();
+  const wordWrap = useClientSettings((settings) => settings.wordWrap);
+  const renderablePatch = useMemo(
+    () => getRenderablePatch(props.diff, `git-history:${props.commitId}`),
+    [props.commitId, props.diff],
+  );
+  const fileDiffs = renderablePatch?.kind === "files" ? renderablePatch.files : [];
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Code diff
+        </span>
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+          {props.file.path}
+        </span>
+      </div>
+      {props.truncated ? (
+        <p className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/8 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+          Code diff was truncated because this file exceeded the preview limit.
+        </p>
+      ) : null}
+      {props.isPending && !renderablePatch ? (
+        <div className="space-y-2" role="status" aria-label={`Loading diff for ${props.file.path}`}>
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-28 w-full" />
+        </div>
+      ) : props.error && !renderablePatch ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs">
+          <p>{props.error}</p>
+          <Button className="mt-2" variant="outline" size="xs" onClick={props.onRetry}>
+            Retry file diff
+          </Button>
+        </div>
+      ) : fileDiffs.length > 0 ? (
+        <div className="diff-render-surface space-y-2 overflow-hidden rounded-md border border-border/60">
+          {fileDiffs.map((fileDiff, index) => (
+            <FileDiff
+              key={fileDiff.cacheKey ?? index}
+              fileDiff={fileDiff}
+              options={{
+                collapsed: false,
+                diffStyle: "unified",
+                overflow: wordWrap ? "wrap" : "scroll",
+                theme: resolveDiffThemeName(resolvedTheme),
+              }}
+            />
+          ))}
+        </div>
+      ) : renderablePatch?.kind === "raw" ? (
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">{renderablePatch.reason}</p>
+          <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/35 p-3 font-mono text-[11px]">
+            {renderablePatch.text}
+          </pre>
+        </div>
+      ) : (
+        <div className="rounded-md border border-border/60 p-3 text-xs text-muted-foreground">
+          {props.truncated
+            ? "Only part of this file's diff is available."
+            : props.file.binary
+              ? "Binary changes cannot be rendered as code."
+              : "No code diff is available for this file."}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -188,6 +285,24 @@ export function GitHistoryCommitDetails(props: {
     }),
   );
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "commit SHA" });
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const selectedFile =
+    details.data?.files.find((file) => file.path === selectedFilePath) ??
+    details.data?.files[0] ??
+    null;
+  const fileDiff = useEnvironmentQuery(
+    selectedFile
+      ? vcsEnvironment.commitFileDiff({
+          environmentId: props.environmentId,
+          input: {
+            cwd: props.cwd,
+            commitId: props.commit.id,
+            path: selectedFile.path,
+            previousPath: selectedFile.previousPath,
+          },
+        })
+      : null,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-l border-border/60 bg-background">
@@ -336,6 +451,8 @@ export function GitHistoryCommitDetails(props: {
                       <FileChangeRow
                         key={`${file.previousPath ?? ""}:${file.path}:${file.kind}`}
                         file={file}
+                        selected={file.path === selectedFile?.path}
+                        onSelect={() => setSelectedFilePath(file.path)}
                       />
                     ))
                   ) : (
@@ -348,6 +465,17 @@ export function GitHistoryCommitDetails(props: {
                   </p>
                 ) : null}
               </section>
+              {selectedFile ? (
+                <CommitCodeDiff
+                  commitId={details.data.commitId}
+                  file={selectedFile}
+                  diff={fileDiff.data?.diff}
+                  truncated={fileDiff.data?.truncated ?? false}
+                  isPending={fileDiff.isPending}
+                  error={fileDiff.error}
+                  onRetry={fileDiff.refresh}
+                />
+              ) : null}
             </>
           ) : null}
         </div>
@@ -504,6 +632,7 @@ export function GitHistoryPanel(props: {
 
         {selectedCommit ? (
           <GitHistoryCommitDetails
+            key={selectedCommit.id}
             environmentId={props.environmentId}
             cwd={props.cwd}
             commit={selectedCommit}

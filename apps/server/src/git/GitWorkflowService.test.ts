@@ -196,6 +196,36 @@ describe("GitWorkflowService", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("delegates a selected commit file diff after detecting Git", () => {
+    const commitId = "0123456789abcdef0123456789abcdef01234567" as const;
+    const getFileDiff = vi.fn(() =>
+      Effect.succeed({ commitId, path: "README.md", diff: "patch", truncated: false }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          detect: () => Effect.succeed({ kind: "git" } as never),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({ getFileDiff })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.getCommitFileDiff({
+        cwd: "/repo",
+        commitId,
+        path: "README.md",
+        previousPath: null,
+      });
+
+      assert.equal(result.diff, "patch");
+      assert.equal(getFileDiff.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("rejects commit details when no repository is detected", () => {
     const getDetails = vi.fn();
     const layer = GitWorkflowService.layer.pipe(

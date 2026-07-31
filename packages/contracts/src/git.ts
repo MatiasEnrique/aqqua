@@ -206,6 +206,16 @@ export const VcsGetCommitDetailsInput = Schema.Struct({
 });
 export type VcsGetCommitDetailsInput = typeof VcsGetCommitDetailsInput.Type;
 
+const GitHistoryPath = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(16_384));
+
+export const VcsGetCommitFileDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  commitId: GitObjectId,
+  path: GitHistoryPath,
+  previousPath: Schema.NullOr(GitHistoryPath),
+});
+export type VcsGetCommitFileDiffInput = typeof VcsGetCommitFileDiffInput.Type;
+
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -418,6 +428,14 @@ export const VcsGetCommitDetailsResult = Schema.Struct({
   filesTruncated: Schema.Boolean,
 });
 export type VcsGetCommitDetailsResult = typeof VcsGetCommitDetailsResult.Type;
+
+export const VcsGetCommitFileDiffResult = Schema.Struct({
+  commitId: GitObjectId,
+  path: GitHistoryPath,
+  diff: Schema.String,
+  truncated: Schema.Boolean,
+});
+export type VcsGetCommitFileDiffResult = typeof VcsGetCommitFileDiffResult.Type;
 
 export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,

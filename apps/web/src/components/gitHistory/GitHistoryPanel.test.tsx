@@ -1,28 +1,23 @@
-import { EnvironmentId, type GitHistoryCommitSummary, type GitObjectId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type GitHistoryCommitSummary,
+  type GitObjectId,
+  type VcsGetCommitFileDiffResult,
+  type VcsGetCommitDetailsResult,
+} from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   details: {
-    data: null as {
-      commitId: GitObjectId;
-      committerName: string;
-      committerEmail: string;
-      committedAt: string;
-      body: string;
-      bodyTruncated: boolean;
-      comparisonParentId: GitObjectId | null;
-      files: Array<{
-        path: string;
-        previousPath: string | null;
-        kind: "renamed";
-        insertions: number | null;
-        deletions: number | null;
-        binary: boolean;
-      }>;
-      filesTruncated: boolean;
-    } | null,
+    data: null as VcsGetCommitDetailsResult | null,
+    error: null as string | null,
+    isPending: false,
+    refresh: vi.fn(),
+  },
+  fileDiff: {
+    data: null as VcsGetCommitFileDiffResult | null,
     error: null as string | null,
     isPending: false,
     refresh: vi.fn(),
@@ -49,13 +44,32 @@ vi.mock("./gitHistoryQuery", () => ({
   usePaginatedGitHistory: () => testState.history,
 }));
 vi.mock("../../state/query", () => ({
-  useEnvironmentQuery: () => testState.details,
+  useEnvironmentQuery: (target: { kind?: string } | null) =>
+    target?.kind === "file-diff" ? testState.fileDiff : testState.details,
+}));
+vi.mock("../../state/vcs", () => ({
+  vcsEnvironment: {
+    commitDetails: () => ({ kind: "details" }),
+    commitFileDiff: () => ({ kind: "file-diff" }),
+  },
 }));
 vi.mock("../../hooks/useCopyToClipboard", () => ({
   useCopyToClipboard: () => ({
     copyToClipboard: testState.copyToClipboard,
     isCopied: false,
   }),
+}));
+vi.mock("../../hooks/useSettings", () => ({
+  useClientSettings: (selector: (settings: { wordWrap: boolean }) => unknown) =>
+    selector({ wordWrap: true }),
+}));
+vi.mock("../../hooks/useTheme", () => ({
+  useTheme: () => ({ resolvedTheme: "light" }),
+}));
+vi.mock("@pierre/diffs/react", () => ({
+  FileDiff: ({ fileDiff }: { fileDiff: { name?: string; prevName?: string } }) => (
+    <div data-testid="commit-code-diff">{fileDiff.name ?? fileDiff.prevName}</div>
+  ),
 }));
 
 import { GitHistoryCommitDetails, GitHistoryPanel } from "./GitHistoryPanel";
@@ -101,6 +115,10 @@ beforeEach(() => {
   testState.details.error = null;
   testState.details.isPending = false;
   testState.details.refresh.mockReset();
+  testState.fileDiff.data = null;
+  testState.fileDiff.error = null;
+  testState.fileDiff.isPending = false;
+  testState.fileDiff.refresh.mockReset();
 });
 
 describe("GitHistoryPanel", () => {
@@ -198,6 +216,12 @@ describe("GitHistoryPanel", () => {
       ],
       filesTruncated: true,
     };
+    testState.fileDiff.data = {
+      commitId,
+      path: "new.bin",
+      diff: "diff --git a/old.bin b/new.bin\nBinary files a/old.bin and b/new.bin differ\n",
+      truncated: true,
+    };
 
     const markup = renderToStaticMarkup(
       <GitHistoryCommitDetails
@@ -216,5 +240,100 @@ describe("GitHistoryPanel", () => {
     expect(markup).toContain("Binary · counts unavailable");
     expect(markup).toContain("Commit message was truncated");
     expect(markup).toContain("Changed-file details were truncated");
+    expect(markup).toContain("Code diff was truncated");
+  });
+
+  it("renders the first changed file as a selectable code diff", () => {
+    testState.details.data = {
+      commitId,
+      committerName: "Test Committer",
+      committerEmail: "committer@example.com",
+      committedAt: "2026-07-29T12:30:00.000Z",
+      body: "",
+      bodyTruncated: false,
+      comparisonParentId: null,
+      files: [
+        {
+          path: "README.md",
+          previousPath: null,
+          kind: "modified",
+          insertions: 1,
+          deletions: 0,
+          binary: false,
+        },
+      ],
+      filesTruncated: false,
+    };
+    testState.fileDiff.data = {
+      commitId,
+      path: "README.md",
+      diff: [
+        "diff --git a/README.md b/README.md",
+        "index 5626abf..f719efd 100644",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1 +1,2 @@",
+        " one",
+        "+two",
+      ].join("\n"),
+      truncated: false,
+    };
+
+    const markup = renderToStaticMarkup(
+      <GitHistoryCommitDetails
+        environmentId={EnvironmentId.make("environment-test")}
+        cwd="/tmp/repo"
+        commit={commit}
+        timestampFormat="24-hour"
+        onBack={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Show diff for README.md"');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('data-testid="commit-code-diff"');
+    expect(markup).toContain(">README.md</div>");
+  });
+
+  it("keeps commit details visible while a file diff loads or fails", () => {
+    testState.details.data = {
+      commitId,
+      committerName: "Test Committer",
+      committerEmail: "committer@example.com",
+      committedAt: "2026-07-29T12:30:00.000Z",
+      body: "",
+      bodyTruncated: false,
+      comparisonParentId: null,
+      files: [
+        {
+          path: "README.md",
+          previousPath: null,
+          kind: "modified",
+          insertions: 1,
+          deletions: 0,
+          binary: false,
+        },
+      ],
+      filesTruncated: false,
+    };
+    testState.fileDiff.isPending = true;
+
+    const renderDetails = () =>
+      renderToStaticMarkup(
+        <GitHistoryCommitDetails
+          environmentId={EnvironmentId.make("environment-test")}
+          cwd="/tmp/repo"
+          commit={commit}
+          timestampFormat="24-hour"
+          onBack={() => undefined}
+        />,
+      );
+
+    expect(renderDetails()).toContain('aria-label="Loading diff for README.md"');
+
+    testState.fileDiff.isPending = false;
+    testState.fileDiff.error = "File diff is unavailable on this server.";
+    expect(renderDetails()).toContain("File diff is unavailable on this server.");
+    expect(renderDetails()).toContain("Retry file diff");
   });
 });

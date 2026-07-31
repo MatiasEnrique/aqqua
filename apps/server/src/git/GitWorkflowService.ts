@@ -11,6 +11,8 @@ import {
   type VcsCreateRefResult,
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
+  type VcsGetCommitFileDiffInput,
+  type VcsGetCommitFileDiffResult,
   type VcsGetCommitDetailsInput,
   type VcsGetCommitDetailsResult,
   type VcsListHistoryInput,
@@ -75,6 +77,9 @@ export class GitWorkflowService extends Context.Service<
     readonly getCommitDetails: (
       input: VcsGetCommitDetailsInput,
     ) => Effect.Effect<VcsGetCommitDetailsResult, GitCommandError>;
+    readonly getCommitFileDiff: (
+      input: VcsGetCommitFileDiffInput,
+    ) => Effect.Effect<VcsGetCommitFileDiffResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -335,6 +340,21 @@ export const make = Effect.gen(function* () {
             : Effect.fail(
                 new GitCommandError({
                   operation: "GitWorkflowService.getCommitDetails",
+                  command: "vcs-route",
+                  cwd: input.cwd,
+                  detail: "No Git repository was detected for the selected commit.",
+                }),
+              ),
+        ),
+      ),
+    getCommitFileDiff: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.getCommitFileDiff", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository
+            ? gitHistory.getFileDiff(input)
+            : Effect.fail(
+                new GitCommandError({
+                  operation: "GitWorkflowService.getCommitFileDiff",
                   command: "vcs-route",
                   cwd: input.cwd,
                   detail: "No Git repository was detected for the selected commit.",

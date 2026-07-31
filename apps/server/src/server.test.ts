@@ -5443,6 +5443,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 filesTruncated: false,
               });
             },
+            getFileDiff: (input) =>
+              Effect.succeed({
+                commitId: input.commitId,
+                path: input.path,
+                diff: "diff --git a/README.md b/README.md\n",
+                truncated: false,
+              }),
           },
           vcsStatusBroadcaster: {
             refreshStatus: () => {
@@ -5471,9 +5478,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+      const fileDiff = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsGetCommitFileDiff]({
+            cwd: "/tmp/repo",
+            commitId,
+            path: "README.md",
+            previousPath: null,
+          }),
+        ),
+      );
 
       assert.equal(listed.commits[0]?.id, commitId);
       assert.equal(details.files[0]?.path, "README.md");
+      assert.equal(fileDiff.path, "README.md");
       assert.deepStrictEqual(listInputs, [{ cwd: "/tmp/repo", cursor: historyCursor, limit: 50 }]);
       assert.deepStrictEqual(detailInputs, [{ cwd: "/tmp/repo", commitId }]);
       assert.equal(refreshCalls, 0);
