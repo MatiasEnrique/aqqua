@@ -26,6 +26,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
 import { formatChatTimestampTooltip, formatRelativeTimeLabel } from "../../timestampFormat";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -490,9 +491,11 @@ export function GitHistoryPanel(props: {
   repositoryRefName?: string | null;
   timestampFormat: TimestampFormat;
 }) {
+  const [includeOrigin, setIncludeOrigin] = useState(false);
   const history = usePaginatedGitHistory({
     environmentId: props.environmentId,
     cwd: props.cwd,
+    includeOrigin,
   });
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
   const selectedCommit = history.commits.find((commit) => commit.id === selectedCommitId) ?? null;
@@ -504,6 +507,10 @@ export function GitHistoryPanel(props: {
     setSelectedCommitId(null);
     history.refresh();
   };
+  const toggleOrigin = (checked: boolean) => {
+    setSelectedCommitId(null);
+    setIncludeOrigin(checked);
+  };
 
   return (
     <div className="@container/history flex h-full min-h-0 flex-col bg-background">
@@ -514,6 +521,15 @@ export function GitHistoryPanel(props: {
             {refName ? `${repositoryName} · ${refName}` : repositoryName}
           </div>
         </div>
+        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Checkbox
+            className="size-3.5"
+            aria-label="Include origin commits"
+            checked={includeOrigin}
+            onCheckedChange={(checked) => toggleOrigin(checked === true)}
+          />
+          <span>Include origin</span>
+        </label>
         <Tooltip>
           <TooltipTrigger
             render={

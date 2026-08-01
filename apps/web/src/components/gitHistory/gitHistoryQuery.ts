@@ -51,8 +51,9 @@ export function combineHistoryPages(
 export function usePaginatedGitHistory(target: {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
+  readonly includeOrigin: boolean;
 }) {
-  const targetKey = JSON.stringify([target.environmentId, target.cwd]);
+  const targetKey = JSON.stringify([target.environmentId, target.cwd, target.includeOrigin]);
   const [pagination, setPagination] = useState<{
     readonly targetKey: string;
     /** Opaque cursors only — never interpret server tokens as offsets. */
@@ -66,12 +67,13 @@ export function usePaginatedGitHistory(target: {
           environmentId: target.environmentId,
           input: {
             cwd: target.cwd,
+            includeOrigin: target.includeOrigin,
             ...(cursor === undefined ? {} : { cursor }),
             limit: HISTORY_PAGE_SIZE,
           },
         }),
       ),
-    [cursors, target.cwd, target.environmentId],
+    [cursors, target.cwd, target.environmentId, target.includeOrigin],
   );
   const pagesAtom = useMemo(
     () =>

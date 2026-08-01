@@ -9,6 +9,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => ({
+  historyTarget: null as {
+    environmentId: EnvironmentId;
+    cwd: string;
+    includeOrigin: boolean;
+  } | null,
   copyToClipboard: vi.fn(),
   details: {
     data: null as VcsGetCommitDetailsResult | null,
@@ -41,7 +46,14 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("./gitHistoryQuery", () => ({
-  usePaginatedGitHistory: () => testState.history,
+  usePaginatedGitHistory: (target: {
+    environmentId: EnvironmentId;
+    cwd: string;
+    includeOrigin: boolean;
+  }) => {
+    testState.historyTarget = target;
+    return testState.history;
+  },
 }));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: (target: { kind?: string } | null) =>
@@ -101,6 +113,7 @@ function renderPanel(): string {
 }
 
 beforeEach(() => {
+  testState.historyTarget = null;
   testState.history.data = null;
   testState.history.commits = [];
   testState.history.initialError = null;
@@ -122,6 +135,14 @@ beforeEach(() => {
 });
 
 describe("GitHistoryPanel", () => {
+  it("defaults to local commits and renders the origin opt-in", () => {
+    const markup = renderPanel();
+
+    expect(markup).toContain("Include origin");
+    expect(markup).toContain('aria-label="Include origin commits"');
+    expect(testState.historyTarget).toMatchObject({ includeOrigin: false });
+  });
+
   it("renders loading, initial error, and unborn repository states distinctly", () => {
     testState.history.isPending = true;
     expect(renderPanel()).toContain('aria-label="Loading Git history"');

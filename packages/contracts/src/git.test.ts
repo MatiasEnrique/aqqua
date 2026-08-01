@@ -80,9 +80,17 @@ describe("Git history contracts", () => {
   it("enforces history pagination limits and opaque cursors", () => {
     const opaqueCursor = "v1.eyJ2IjoxLCJ0aXBzIjpbXSwic2tpcCI6MH0";
     expect(decodeListHistoryInput({ cwd: "/repo" })).toEqual({ cwd: "/repo" });
-    expect(decodeListHistoryInput({ cwd: "/repo", cursor: opaqueCursor, limit: 200 })).toEqual({
+    expect(
+      decodeListHistoryInput({
+        cwd: "/repo",
+        cursor: opaqueCursor,
+        includeOrigin: true,
+        limit: 200,
+      }),
+    ).toEqual({
       cwd: "/repo",
       cursor: opaqueCursor,
+      includeOrigin: true,
       limit: 200,
     });
     expect(() => decodeListHistoryInput({ cwd: "/repo", limit: 201 })).toThrow();

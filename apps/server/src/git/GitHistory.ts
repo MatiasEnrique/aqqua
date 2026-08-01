@@ -47,11 +47,15 @@ const GIT_ENV = Object.freeze({
  *   walk that fixed tip set so later ref advances cannot insert or drop
  *   commits mid-pagination.
  * - `skip`: deterministic topo-order offset within that frozen walk.
+ * - `includeOrigin`: the ref scope selected for the first page. Continuations
+ *   must use the same scope so an origin-inclusive cursor cannot bypass a
+ *   later local-only request.
  */
 const HistoryCursorPayload = Schema.Struct({
   v: Schema.Literal(HISTORY_CURSOR_VERSION),
   tips: Schema.Array(GitObjectId).check(Schema.isMinLength(1)),
   skip: NonNegativeInt,
+  includeOrigin: Schema.Boolean,
 });
 type HistoryCursorPayload = typeof HistoryCursorPayload.Type;
 
@@ -96,12 +100,14 @@ function parseObjectId(value: string): GitObjectIdType | null {
 function encodeHistoryCursor(payload: {
   readonly tips: ReadonlyArray<GitObjectIdType>;
   readonly skip: number;
+  readonly includeOrigin: boolean;
 }): VcsListHistoryCursor {
   return base64UrlEncode(
     encodeHistoryCursorPayloadJson({
       v: HISTORY_CURSOR_VERSION,
       tips: payload.tips,
       skip: payload.skip,
+      includeOrigin: payload.includeOrigin,
     }),
   ) as VcsListHistoryCursor;
 }
@@ -137,12 +143,13 @@ function collectHistoryTips(
   headId: GitObjectIdType | null,
   refsByCommit: ReadonlyMap<GitObjectIdType, ReadonlyArray<GitHistoryRef>>,
   currentRef: string | null,
+  includeOrigin: boolean,
 ): GitObjectIdType[] {
   const tips = new Set<GitObjectIdType>();
   if (headId) tips.add(headId);
 
   const branchNames = currentHistoryBranchNames(currentRef);
-  if (branchNames) {
+  if (includeOrigin && branchNames) {
     for (const [objectId, refs] of refsByCommit) {
       if (refs.some((ref) => ref.kind === "remote_branch" && ref.name === branchNames.origin)) {
         tips.add(objectId);
@@ -153,13 +160,17 @@ function collectHistoryTips(
   return [...tips].sort((left, right) => left.localeCompare(right));
 }
 
-function isVisibleHistoryRef(ref: GitHistoryRef, currentRef: string | null): boolean {
+function isVisibleHistoryRef(
+  ref: GitHistoryRef,
+  currentRef: string | null,
+  includeOrigin: boolean,
+): boolean {
   if (ref.kind === "tag") return true;
   const branchNames = currentHistoryBranchNames(currentRef);
   if (!branchNames) return false;
   return ref.kind === "local_branch"
     ? ref.name === branchNames.local
-    : ref.name === branchNames.origin;
+    : includeOrigin && ref.name === branchNames.origin;
 }
 
 function parseCommitLog(
@@ -453,7 +464,8 @@ export const make = Effect.gen(function* () {
         : null;
     const limit = input.limit ?? DEFAULT_HISTORY_LIMIT;
     const refsByCommit = parseRefs(refsResult.stdout, currentRef, refsResult.stdoutTruncated);
-    const liveTips = collectHistoryTips(headId, refsByCommit, currentRef);
+    const includeOrigin = input.includeOrigin === true;
+    const liveTips = collectHistoryTips(headId, refsByCommit, currentRef, includeOrigin);
 
     let tips: ReadonlyArray<GitObjectIdType>;
     let skip: number;
@@ -462,6 +474,13 @@ export const make = Effect.gen(function* () {
       skip = 0;
     } else {
       const decoded = yield* decodeHistoryCursor(input.cursor, input.cwd);
+      if (decoded.includeOrigin !== includeOrigin) {
+        return yield* historyError(
+          "GitHistory.list.cursor",
+          input.cwd,
+          "Git history cursor is unusable.",
+        );
+      }
       tips = decoded.tips;
       skip = decoded.skip;
     }
@@ -519,13 +538,13 @@ export const make = Effect.gen(function* () {
       ...commit,
       isHead: commit.id === headId,
       refs: (refsByCommit.get(commit.id) ?? []).filter((ref) =>
-        isVisibleHistoryRef(ref, currentRef),
+        isVisibleHistoryRef(ref, currentRef, includeOrigin),
       ),
     }));
     return {
       commits,
       isRepo: true,
-      nextCursor: hasMore ? encodeHistoryCursor({ tips, skip: skip + limit }) : null,
+      nextCursor: hasMore ? encodeHistoryCursor({ tips, skip: skip + limit, includeOrigin }) : null,
       referencesTruncated: refsResult.stdoutTruncated,
     };
   });

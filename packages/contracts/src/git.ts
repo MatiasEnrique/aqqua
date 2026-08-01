@@ -196,6 +196,7 @@ export type VcsListHistoryCursor = typeof VcsListHistoryCursor.Type;
 export const VcsListHistoryInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   cursor: Schema.optional(VcsListHistoryCursor),
+  includeOrigin: Schema.optional(Schema.Boolean),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_HISTORY_MAX_LIMIT))),
 });
 export type VcsListHistoryInput = typeof VcsListHistoryInput.Type;

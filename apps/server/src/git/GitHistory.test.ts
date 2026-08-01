@@ -20,6 +20,7 @@ const HistoryCursorPayloadJson = Schema.fromJsonString(
     v: Schema.Literal(1),
     tips: Schema.Array(GitObjectId).check(Schema.isMinLength(1)),
     skip: NonNegativeInt,
+    includeOrigin: Schema.Boolean,
   }),
 );
 const encodeTestHistoryCursor = Schema.encodeSync(HistoryCursorPayloadJson);
@@ -235,7 +236,12 @@ it.layer(TestLayer)("GitHistory", (it) => {
         assert.equal(numeric.detail, "Git history cursor is invalid.");
 
         const missingTips = base64UrlEncode(
-          encodeTestHistoryCursor({ v: 1, tips: ["f".repeat(40)], skip: 0 }),
+          encodeTestHistoryCursor({
+            v: 1,
+            tips: ["f".repeat(40)],
+            skip: 0,
+            includeOrigin: false,
+          }),
         );
         const unusable = yield* Effect.flip(history.list({ cwd, cursor: missingTips }));
         assert.equal(unusable._tag, "GitCommandError");
@@ -244,7 +250,7 @@ it.layer(TestLayer)("GitHistory", (it) => {
       }),
     );
 
-    it.effect("lists only the current local branch and its matching origin branch", () =>
+    it.effect("lists the local branch by default and includes matching origin on request", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepo(cwd);
@@ -288,7 +294,20 @@ it.layer(TestLayer)("GitHistory", (it) => {
         const stashCommit = yield* git(cwd, ["rev-parse", "refs/stash"]);
 
         const history = yield* GitHistory.GitHistory;
-        const result = yield* history.list({ cwd, limit: 1 });
+        const localOnly = yield* history.list({ cwd, limit: 10 });
+
+        assert.deepStrictEqual(
+          new Set(localOnly.commits.map((commit) => commit.id)),
+          new Set([localLatest, initial]),
+        );
+        assert.equal(
+          localOnly.commits
+            .flatMap((commit) => commit.refs)
+            .some((ref) => ref.kind === "remote_branch"),
+          false,
+        );
+
+        const result = yield* history.list({ cwd, includeOrigin: true, limit: 1 });
 
         assert.equal(result.isRepo, true);
         assert.equal(result.commits.length, 1);
@@ -296,9 +315,16 @@ it.layer(TestLayer)("GitHistory", (it) => {
         assert.notEqual(result.nextCursor, null);
         assert.equal(typeof result.nextCursor, "string");
 
+        const mismatchedCursor = yield* Effect.flip(
+          history.list({ cwd, cursor: result.nextCursor ?? undefined, limit: 10 }),
+        );
+        assert.equal(mismatchedCursor.operation, "GitHistory.list.cursor");
+        assert.equal(mismatchedCursor.detail, "Git history cursor is unusable.");
+
         const older = yield* history.list({
           cwd,
           cursor: result.nextCursor ?? undefined,
+          includeOrigin: true,
           limit: 10,
         });
         const allCommits = [...result.commits, ...older.commits];
@@ -742,7 +768,14 @@ describe("GitHistory bounded-output parsing", () => {
   it.effect("walks pinned tip object ids from the cursor instead of live ref names", () => {
     const tipA = "a".repeat(40);
     const tipB = "b".repeat(40);
-    const cursor = base64UrlEncode(encodeTestHistoryCursor({ v: 1, tips: [tipA, tipB], skip: 2 }));
+    const cursor = base64UrlEncode(
+      encodeTestHistoryCursor({
+        v: 1,
+        tips: [tipA, tipB],
+        skip: 2,
+        includeOrigin: false,
+      }),
+    );
     let logArgs: ReadonlyArray<string> | undefined;
     const gitLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       execute: (input) => {

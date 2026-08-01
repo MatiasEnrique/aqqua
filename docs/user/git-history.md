@@ -1,9 +1,9 @@
 # Git history
 
-Open **History** from the workspace toolbar to inspect the current branch's commit graph. The
-history includes commits reachable from the checked-out local branch and its matching
-`origin/<branch>` ref, so local-only and fetched-but-unpulled commits remain visible together.
-Other local and remote branches do not expand the graph.
+Open **History** from the workspace toolbar to inspect the current branch's commit graph. History
+shows commits reachable from the checked-out local branch by default. Select **Include origin** to
+also show commits reachable from the matching `origin/<branch>` ref, including fetched-but-unpulled
+commits. Other local and remote branches do not expand the graph.
 
 Select a commit to inspect its metadata, changed files, and code diff. The first changed file is
 shown automatically; select another file to switch the diff preview. Merge commits are compared
