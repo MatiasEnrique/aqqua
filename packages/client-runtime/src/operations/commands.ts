@@ -1,7 +1,7 @@
 import {
+  type ClientOrchestrationCommand,
   CommandId,
   ORCHESTRATION_WS_METHODS,
-  type ClientOrchestrationCommand,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -26,7 +26,7 @@ type CommandInput<T extends CommandType> = Omit<
     ? {
         readonly createdAt?: CommandOf<T>["createdAt"];
       }
-    : {});
+    : Record<never, never>);
 
 export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
@@ -55,8 +55,11 @@ export type CreateCardInput = CommandInput<"card.create">;
 export type ReleaseCardInput = CommandInput<"card.release">;
 export type ContinueCardInput = CommandInput<"card.continue">;
 export type RetryCardInput = CommandInput<"card.retry">;
-export type CancelCardInput = CommandInput<"card.cancel">;
+export type ResetCardInput = CommandInput<"card.reset">;
+export type SettleCardInput = CommandInput<"card.settle">;
+export type UnsettleCardInput = CommandInput<"card.unsettle">;
 export type ArchiveCardInput = CommandInput<"card.archive">;
+export type DeleteCardInput = CommandInput<"card.delete">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
 type CommandEffect = Effect.Effect<
@@ -378,12 +381,32 @@ export const retryCard: (input: RetryCardInput) => CommandEffect = Effect.fn(
   });
 });
 
-export const cancelCard: (input: CancelCardInput) => CommandEffect = Effect.fn(
-  "EnvironmentCommands.cancelCard",
+export const resetCard: (input: ResetCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.resetCard",
 )(function* (input) {
   return yield* dispatch({
     ...input,
-    type: "card.cancel",
+    type: "card.reset",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const settleCard: (input: SettleCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.settleCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.settle",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const unsettleCard: (input: UnsettleCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.unsettleCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.unsettle",
     commandId: yield* commandId(input),
   });
 });
@@ -394,6 +417,16 @@ export const archiveCard: (input: ArchiveCardInput) => CommandEffect = Effect.fn
   return yield* dispatch({
     ...input,
     type: "card.archive",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const deleteCard: (input: DeleteCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.deleteCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.delete",
     commandId: yield* commandId(input),
   });
 });

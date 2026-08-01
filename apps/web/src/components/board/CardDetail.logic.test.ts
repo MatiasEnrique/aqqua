@@ -4,6 +4,7 @@ import {
   BoardId,
   BoardStepId,
   CardId,
+  CardOperationId,
   ProjectId,
   ThreadId,
   type BoardStep,
@@ -11,9 +12,15 @@ import {
   type OrchestrationCard,
 } from "@t3tools/contracts";
 
+import type { CardOperationKind } from "@t3tools/client-runtime/state/boards";
+
 import {
+  artifactCompletionRevision,
   buildCardTree,
+  cardComposerOperation,
   defaultCardSelection,
+  isPendingOperationResolved,
+  type PendingCardOperation,
   formatArtifactSize,
   formatCardSelection,
   formatDiffFilesLabel,
@@ -57,6 +64,8 @@ function card(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard {
     parameters: {},
     position: { kind: "step", stepIndex: 1 },
     status: "running",
+    operation: null,
+    lastError: null,
     snapshot: null,
     branch: "board/t3-482",
     worktreePath: "/tmp/wt",
@@ -72,6 +81,7 @@ function card(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard {
     updatedAt: "2026-04-01T00:00:00.000Z",
     releasedAt: "2026-04-01T00:00:00.000Z",
     completedAt: null,
+    settledAt: null,
     archivedAt: null,
     ...overrides,
   };
@@ -219,13 +229,16 @@ describe("buildCardTree", () => {
 
     const failed = tree({ card: card({ status: "failed" }) });
     expect(failed.steps[1]?.status).toBe("failed");
+
+    const deleting = tree({ card: card({ status: "deleting" }) });
+    expect(deleting.steps[1]?.status).toBe("idle");
   });
 
-  it("hangs sub-agents, the diff, and the artifact off their step", () => {
+  it("hangs sub-agents and the diff off active steps, and artifacts only off finished steps", () => {
     const rows = tree().steps;
 
     expect(rows[0]?.leaves.map((leaf) => leaf.kind)).toEqual(["diff", "artifact"]);
-    expect(rows[1]?.leaves.map((leaf) => leaf.kind)).toEqual(["subagent", "diff", "artifact"]);
+    expect(rows[1]?.leaves.map((leaf) => leaf.kind)).toEqual(["subagent", "diff"]);
     // A step that has not run has no thread and no artifact on disk yet.
     expect(rows[2]?.leaves).toHaveLength(0);
   });
@@ -237,12 +250,18 @@ describe("buildCardTree", () => {
     expect(unknown).toMatchObject({ label: "Changes", stat: null });
   });
 
-  it("shows an artifact's size once it is on disk and 'draft' until then", () => {
+  it("shows an artifact's size once its step is done and never exposes a draft row", () => {
     const written = tree().steps[0]?.leaves.find((leaf) => leaf.kind === "artifact");
-    expect(written).toMatchObject({ fileName: "Plan.md", trailing: "3.4 KB", draft: false });
+    expect(written).toMatchObject({ fileName: "Plan.md", trailing: "3.4 KB" });
 
     const pending = tree().steps[1]?.leaves.find((leaf) => leaf.kind === "artifact");
-    expect(pending).toMatchObject({ fileName: "Implement.md", trailing: "draft", draft: true });
+    expect(pending).toBeUndefined();
+
+    const paused = tree({ card: card({ status: "paused" }) });
+    expect(paused.steps[1]?.leaves.find((leaf) => leaf.kind === "artifact")).toMatchObject({
+      fileName: "Implement.md",
+      trailing: null,
+    });
   });
 
   it("times a finished step to its last update and a running one to now", () => {
@@ -274,5 +293,68 @@ describe("tree labels", () => {
       "1 file changed",
     );
     expect(formatDiffFilesLabel(null)).toBe("Changes");
+  });
+});
+
+describe("artifactCompletionRevision", () => {
+  it("changes from absent to the card revision only when a step finishes", () => {
+    expect(artifactCompletionRevision(card(), 1)).toBeNull();
+    expect(
+      artifactCompletionRevision(
+        card({ status: "paused", updatedAt: "2026-04-01T02:00:00.000Z" }),
+        1,
+      ),
+    ).toBe("2026-04-01T02:00:00.000Z");
+    expect(
+      artifactCompletionRevision(
+        card({ position: { kind: "step", stepIndex: 2 }, updatedAt: "2026-04-01T03:00:00.000Z" }),
+        1,
+      ),
+    ).toBe("2026-04-01T03:00:00.000Z");
+  });
+});
+
+describe("the composer's pending-operation guard", () => {
+  const pending: PendingCardOperation = {
+    kind: "advancing",
+    cardUpdatedAt: "2026-04-01T00:00:00.000Z",
+  };
+
+  function withOperation(subject: OrchestrationCard, kind: CardOperationKind): OrchestrationCard {
+    return {
+      ...subject,
+      operation: {
+        kind,
+        operationId: CardOperationId.make("operation-1"),
+        requestedAt: "2026-04-02T00:00:00.000Z",
+        stepIndex: 0,
+      } as NonNullable<OrchestrationCard["operation"]>,
+    };
+  }
+
+  it("shows the clicked operation before the server has projected anything", () => {
+    expect(cardComposerOperation(card({ updatedAt: pending.cardUpdatedAt }), pending)).toBe(
+      "advancing",
+    );
+  });
+
+  it("hands over to the server's own operation the moment it lands", () => {
+    const retrying = withOperation(card({ updatedAt: pending.cardUpdatedAt }), "retrying");
+    expect(cardComposerOperation(retrying, pending)).toBe("retrying");
+    expect(isPendingOperationResolved(pending, retrying)).toBe(true);
+  });
+
+  it("holds the guard while the card is untouched, and releases it once it moves", () => {
+    const untouched = card({ updatedAt: pending.cardUpdatedAt });
+    expect(isPendingOperationResolved(pending, untouched)).toBe(false);
+
+    const moved = card({ updatedAt: "2026-04-01T00:00:05.000Z", status: "paused" });
+    expect(isPendingOperationResolved(pending, moved)).toBe(true);
+    expect(cardComposerOperation(moved, null)).toBeNull();
+  });
+
+  it("releases the guard when the card leaves the board entirely", () => {
+    expect(isPendingOperationResolved(pending, null)).toBe(true);
+    expect(cardComposerOperation(null, pending)).toBeNull();
   });
 });

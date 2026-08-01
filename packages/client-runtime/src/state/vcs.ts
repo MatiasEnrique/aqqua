@@ -283,6 +283,11 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.vcsGetCommitDetails,
       staleTimeMs: 5 * 60_000,
     }),
+    commitDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:commit-diff",
+      tag: WS_METHODS.vcsGetCommitDiff,
+      staleTimeMs: 5 * 60_000,
+    }),
     commitFileDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:vcs:commit-file-diff",
       tag: WS_METHODS.vcsGetCommitFileDiff,

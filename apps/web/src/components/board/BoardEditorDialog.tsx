@@ -1,92 +1,89 @@
-import type { OrchestrationBoard } from "@t3tools/contracts";
-import { ArrowDownIcon, ArrowUpIcon, LayoutGridIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type {
+  BoardStepId,
+  EnvironmentId,
+  OrchestrationBoard,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  LayoutGridIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
+import { Fragment, useMemo, useRef, useState } from "react";
 
-import { randomUUID } from "~/lib/utils";
-import { usePrimarySettings } from "../../hooks/useSettings";
-import { buildAgentProfileRows } from "../settings/AgentProfilesSettings.logic";
+import { cn } from "~/lib/utils";
+import type { ProviderWorkspaceSkillsState } from "../../lib/providerSkillsState";
 import { Button } from "../ui/button";
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "../ui/dialog";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
-import { Input } from "../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
-import {
-  type BoardDraft,
   type BoardStepDraft,
   CONTINUATION_OPTIONS,
-  createStepDraft,
-  draftFromBoard,
-  isBoardDraftSubmittable,
-  makeBoardStepId,
-  moveStep,
-  removeStep,
-  toBoardSteps,
-  updateStep,
-  validateBoardDraft,
+  insertSkillToken,
+  segmentTemplate,
+  type TemplatePlaceholderOption,
 } from "./BoardEditorDialog.logic";
+import { PromptEditor, SkillsMenu } from "./BoardPromptEditor";
+import { type BoardEditorSubmit, useBoardEditorController } from "./useBoardEditorController";
 
-const EMPTY_DRAFT: BoardDraft = { name: "", steps: [] };
+export type { BoardEditorSubmit } from "./useBoardEditorController";
 
-export interface BoardEditorSubmit {
-  readonly name: string;
-  readonly steps: ReturnType<typeof toBoardSteps>;
+/** Deterministic accent for a profile chip, so a profile keeps its color everywhere. */
+const PROFILE_DOT_CLASSES = [
+  "bg-violet-500",
+  "bg-sky-500",
+  "bg-pink-500",
+  "bg-teal-500",
+  "bg-orange-500",
+  "bg-indigo-500",
+] as const;
+
+function profileDotClass(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return PROFILE_DOT_CLASSES[Math.abs(hash) % PROFILE_DOT_CLASSES.length] ?? "bg-violet-500";
 }
 
 export function BoardEditorDialog({
   open,
   board,
+  environmentId,
+  projectTitle,
+  workspaceRoot,
   onOpenChange,
   onSubmit,
 }: {
   readonly open: boolean;
   /** `null` creates a board; a board edits it in place. */
   readonly board: OrchestrationBoard | null;
+  readonly environmentId: EnvironmentId;
+  readonly projectTitle?: string;
+  /** Project root the step threads run in; scopes native-skill discovery. */
+  readonly workspaceRoot?: string | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly onSubmit: (input: BoardEditorSubmit) => Promise<void> | void;
 }) {
-  const agentProfiles = usePrimarySettings((settings) => settings.agentProfiles);
-  const profileNames = useMemo(
-    () => buildAgentProfileRows(agentProfiles).map((row) => row.name),
-    [agentProfiles],
-  );
-  const defaultProfileName = profileNames[0] ?? "implementer";
-
-  const [draft, setDraft] = useState<BoardDraft>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
-  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
-  // Reopening always shows the persisted board, never the last edit session.
-  useEffect(() => {
-    if (!open) return;
-    setDraft(
-      board === null
-        ? { name: "", steps: [createStepDraft(makeBoardStepId(randomUUID()), defaultProfileName)] }
-        : draftFromBoard(board),
-    );
-    setHasAttemptedSubmit(false);
-    setIsSaving(false);
-  }, [open, board, defaultProfileName]);
-
-  const errors = validateBoardDraft(draft);
-  const canSubmit = !isSaving && isBoardDraftSubmittable(errors);
-
-  const patchStep = (index: number, patch: Partial<Omit<BoardStepDraft, "id">>) =>
-    setDraft((current) => ({ ...current, steps: updateStep(current.steps, index, patch) }));
-
-  const handleSubmit = async () => {
-    setHasAttemptedSubmit(true);
-    if (!canSubmit) return;
+  const handleSave = async (input: BoardEditorSubmit) => {
     setIsSaving(true);
     try {
-      await onSubmit({ name: draft.name.trim(), steps: toBoardSteps(draft) });
+      await onSubmit(input);
     } finally {
       setIsSaving(false);
     }
@@ -100,90 +97,144 @@ export function BoardEditorDialog({
         if (!isSaving) onOpenChange(nextOpen);
       }}
     >
-      <DialogPopup className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LayoutGridIcon className="size-4" />
+      <DialogPopup showCloseButton={false} className="h-[min(50rem,85dvh)] max-w-3xl">
+        {/* The popup unmounts its children after the close transition, so each
+            open mounts a fresh form seeded from the persisted board. */}
+        <BoardEditorForm
+          board={board}
+          environmentId={environmentId}
+          projectTitle={projectTitle}
+          workspaceRoot={workspaceRoot}
+          isSaving={isSaving}
+          onSave={handleSave}
+        />
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function BoardEditorForm({
+  board,
+  environmentId,
+  projectTitle,
+  workspaceRoot,
+  isSaving,
+  onSave,
+}: {
+  readonly board: OrchestrationBoard | null;
+  readonly environmentId: EnvironmentId;
+  readonly projectTitle?: string | undefined;
+  readonly workspaceRoot?: string | null | undefined;
+  readonly isSaving: boolean;
+  readonly onSave: (input: BoardEditorSubmit) => Promise<void>;
+}) {
+  const controller = useBoardEditorController({
+    board,
+    environmentId,
+    workspaceRoot,
+    isSaving,
+    onSave,
+  });
+  const {
+    addStep,
+    boardNameRef,
+    cardFieldCount,
+    draft,
+    errors,
+    focusStep,
+    focusedPlaceholderOptions,
+    focusedSkillsProvider,
+    focusedStepId,
+    focusedStepSkills,
+    handleKeyDown,
+    handleSubmit,
+    hasAttemptedSubmit,
+    isMac,
+    patchStep,
+    profileNames,
+    registerNameRef,
+    removeStepById,
+    reorderSteps,
+    setBoardName,
+  } = controller;
+
+  return (
+    // Keyboard shortcuts listen here, on the popup's content root, so they
+    // catch events bubbling from any of the form's inputs.
+    <section
+      aria-label="Board editor"
+      className="flex min-h-0 flex-1 flex-col"
+      onKeyDown={handleKeyDown}
+    >
+      <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5 rounded-sm bg-muted px-2 py-0.5">
+            <LayoutGridIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+            <span className="truncate font-medium text-foreground/80 text-xs">
+              {projectTitle ?? "Project"}
+            </span>
+          </span>
+          <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+          <DialogTitle className="shrink-0 font-medium font-sans text-muted-foreground text-xs leading-none">
             {board === null ? "New board" : "Edit board"}
           </DialogTitle>
-          <DialogDescription>
-            Steps run left to right, one fresh thread each. Cards released before a change keep the
-            board they were released with.
+        </div>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+          esc to close
+        </span>
+      </div>
+
+      <div className="px-4 pt-2 pb-3">
+        <input
+          ref={boardNameRef}
+          aria-label="Board name"
+          aria-invalid={hasAttemptedSubmit && errors.name !== null}
+          placeholder="Board name"
+          value={draft.name}
+          className="w-full bg-transparent font-medium text-[21px] text-foreground tracking-[-0.015em] outline-none placeholder:text-muted-foreground/50"
+          onChange={(event) => setBoardName(event.target.value)}
+        />
+        {hasAttemptedSubmit && errors.name !== null ? (
+          <p className="mt-1 text-[13px] text-destructive-foreground">{errors.name}</p>
+        ) : (
+          <DialogDescription className="mt-1 text-[13px]">
+            Describe the pipeline. Each step runs in its own thread, in order.
           </DialogDescription>
-        </DialogHeader>
-        <DialogPanel className="max-h-[60vh] space-y-4 overflow-y-auto">
-          <label className="grid gap-1.5">
-            <span className="font-medium text-foreground text-xs">Board name</span>
-            <Input
-              size="sm"
-              placeholder="Delivery"
-              value={draft.name}
-              aria-invalid={hasAttemptedSubmit && errors.name !== null}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            {hasAttemptedSubmit && errors.name ? (
-              <span className="text-[11px] text-destructive">{errors.name}</span>
-            ) : null}
-          </label>
+        )}
+      </div>
 
-          <div className="space-y-3">
-            {draft.steps.map((step, index) => (
-              <StepEditor
-                key={step.id}
-                index={index}
-                step={step}
-                stepCount={draft.steps.length}
-                profileNames={profileNames}
-                error={hasAttemptedSubmit ? (errors.steps[step.id] ?? null) : null}
-                onPatch={(patch) => patchStep(index, patch)}
-                onMove={(direction) =>
-                  setDraft((current) => ({
-                    ...current,
-                    steps: moveStep(current.steps, index, direction),
-                  }))
-                }
-                onRemove={() =>
-                  setDraft((current) => ({ ...current, steps: removeStep(current.steps, index) }))
-                }
-              />
-            ))}
-          </div>
+      <StepListSection
+        steps={draft.steps}
+        focusedStepId={focusedStepId}
+        stepErrors={hasAttemptedSubmit ? errors.steps : null}
+        profileNames={profileNames}
+        skills={focusedSkillsProvider === null ? null : focusedStepSkills}
+        skillsDriver={focusedSkillsProvider?.driver ?? null}
+        placeholderOptions={focusedPlaceholderOptions}
+        isMac={isMac}
+        registerNameRef={registerNameRef}
+        onReorder={reorderSteps}
+        onFocusStep={focusStep}
+        onPatchStep={patchStep}
+        onRemoveStep={removeStepById}
+        onAddStep={addStep}
+      />
 
-          {hasAttemptedSubmit && errors.general ? (
-            <span className="block text-[11px] text-destructive">{errors.general}</span>
+      <div className="flex items-center justify-between gap-3 rounded-b-[calc(var(--radius-2xl)-1px)] border-t bg-muted/40 px-3.5 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          {cardFieldCount > 0 ? (
+            <span className="flex h-[26px] shrink-0 items-center rounded-md border border-border px-2 font-medium text-muted-foreground text-xs">
+              {cardFieldCount} card field{cardFieldCount === 1 ? "" : "s"}
+            </span>
           ) : null}
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() =>
-              setDraft((current) => ({
-                ...current,
-                steps: [
-                  ...current.steps,
-                  createStepDraft(makeBoardStepId(randomUUID()), defaultProfileName),
-                ],
-              }))
-            }
-          >
-            <PlusIcon className="size-3.5" />
-            Add step
-          </Button>
-        </DialogPanel>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isSaving}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
+          {hasAttemptedSubmit && errors.general !== null ? (
+            <span className="truncate text-destructive-foreground text-xs">{errors.general}</span>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
+          <span className="font-mono text-[10px] text-muted-foreground/70">
+            {isMac ? "⌘⇧⏎" : "Ctrl+Shift+⏎"} to {board === null ? "create" : "save"}
+          </span>
           <Button
             type="button"
             size="sm"
@@ -194,141 +245,493 @@ export function BoardEditorDialog({
           >
             {isSaving ? "Saving..." : board === null ? "Create board" : "Save board"}
           </Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function StepEditor({
+function StepListSection({
+  steps,
+  focusedStepId,
+  stepErrors,
+  profileNames,
+  skills,
+  skillsDriver,
+  placeholderOptions,
+  isMac,
+  registerNameRef,
+  onReorder,
+  onFocusStep,
+  onPatchStep,
+  onRemoveStep,
+  onAddStep,
+}: {
+  readonly steps: ReadonlyArray<BoardStepDraft>;
+  readonly focusedStepId: BoardStepId | null;
+  /** `null` until a submit attempt surfaces validation. */
+  readonly stepErrors: Readonly<Record<string, string>> | null;
+  readonly profileNames: ReadonlyArray<string>;
+  readonly skills: ProviderWorkspaceSkillsState | null;
+  readonly skillsDriver: ProviderDriverKind | null;
+  readonly placeholderOptions: ReadonlyArray<TemplatePlaceholderOption>;
+  readonly isMac: boolean;
+  readonly registerNameRef: (id: BoardStepId, node: HTMLInputElement | null) => void;
+  readonly onReorder: (activeId: string, overId: string) => void;
+  readonly onFocusStep: (id: BoardStepId) => void;
+  readonly onPatchStep: (index: number, patch: Partial<Omit<BoardStepDraft, "id">>) => void;
+  readonly onRemoveStep: (id: BoardStepId) => void;
+  readonly onAddStep: () => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // A completed drag still fires the row's click; swallow that one expand.
+  const dragActiveRef = useRef(false);
+  const settleDrag = () => {
+    window.setTimeout(() => {
+      dragActiveRef.current = false;
+    }, 0);
+  };
+  const handleDragEnd = (event: DragEndEvent) => {
+    settleDrag();
+    const { active, over } = event;
+    if (over === null || active.id === over.id) return;
+    onReorder(String(active.id), String(over.id));
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="flex items-center justify-between px-2.5 pt-1 pb-2">
+        <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-[0.05em]">
+          Steps
+        </span>
+        <span className="font-mono text-[10px] text-muted-foreground/70">
+          {isMac ? "⌥" : "Alt+"}↑↓ reorder
+        </span>
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+        onDragStart={() => {
+          dragActiveRef.current = true;
+        }}
+        onDragEnd={handleDragEnd}
+        onDragCancel={settleDrag}
+      >
+        <SortableContext
+          items={steps.map((step) => step.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {steps.map((step, index) => {
+            const expanded = step.id === focusedStepId;
+            const previousExpanded = index > 0 && steps[index - 1]?.id === focusedStepId;
+            const error = stepErrors === null ? null : (stepErrors[step.id] ?? null);
+            return (
+              <Fragment key={step.id}>
+                {index > 0 && !expanded && !previousExpanded ? (
+                  <div aria-hidden className="mx-2.5 h-px bg-border/60" />
+                ) : null}
+                <SortableStepRow id={step.id}>
+                  {(drag) =>
+                    expanded ? (
+                      <ExpandedStep
+                        index={index}
+                        step={step}
+                        drag={drag}
+                        profileNames={profileNames}
+                        skills={skills}
+                        skillsDriver={skillsDriver}
+                        placeholderOptions={placeholderOptions}
+                        error={error}
+                        nameRef={(node) => registerNameRef(step.id, node)}
+                        onPatch={(patch) => onPatchStep(index, patch)}
+                        onRemove={() => onRemoveStep(step.id)}
+                      />
+                    ) : (
+                      <CollapsedStep
+                        index={index}
+                        step={step}
+                        drag={drag}
+                        hasError={error !== null}
+                        onExpand={() => {
+                          if (dragActiveRef.current) return;
+                          onFocusStep(step.id);
+                        }}
+                        onRemove={() => onRemoveStep(step.id)}
+                      />
+                    )
+                  }
+                </SortableStepRow>
+              </Fragment>
+            );
+          })}
+        </SortableContext>
+      </DndContext>
+
+      <button
+        type="button"
+        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onAddStep}
+      >
+        <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full border border-border border-dashed">
+          <PlusIcon aria-hidden className="size-2.5 text-muted-foreground" />
+        </span>
+        <span className="font-medium text-[13px] text-muted-foreground">Add step</span>
+        <span className="font-mono text-[10px] text-muted-foreground/70">
+          {isMac ? "⌘⏎" : "Ctrl+⏎"}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function StepNumber({
+  index,
+  variant,
+}: {
+  readonly index: number;
+  readonly variant: "default" | "active" | "error";
+}) {
+  return (
+    <span
+      className={cn(
+        "mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full font-mono text-[9px]",
+        variant === "active"
+          ? "bg-primary font-semibold text-primary-foreground"
+          : variant === "error"
+            ? "border border-destructive/60 font-medium text-destructive-foreground"
+            : "border border-border font-medium text-muted-foreground",
+      )}
+    >
+      {index + 1}
+    </span>
+  );
+}
+
+type StepDragHandle = {
+  readonly attributes: ReturnType<typeof useSortable>["attributes"];
+  readonly listeners: ReturnType<typeof useSortable>["listeners"];
+  readonly setActivatorNodeRef: (node: HTMLElement | null) => void;
+};
+
+function SortableStepRow({
+  id,
+  children,
+}: {
+  readonly id: string;
+  readonly children: (drag: StepDragHandle) => React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn("relative", isDragging && "z-20 opacity-80")}
+    >
+      {children({ attributes, listeners, setActivatorNodeRef })}
+    </div>
+  );
+}
+
+function CollapsedStep({
   index,
   step,
-  stepCount,
-  profileNames,
-  error,
-  onPatch,
-  onMove,
+  drag,
+  hasError,
+  onExpand,
   onRemove,
 }: {
   readonly index: number;
   readonly step: BoardStepDraft;
-  readonly stepCount: number;
-  readonly profileNames: ReadonlyArray<string>;
-  readonly error: string | null;
-  readonly onPatch: (patch: Partial<Omit<BoardStepDraft, "id">>) => void;
-  readonly onMove: (direction: "up" | "down") => void;
+  readonly drag: StepDragHandle;
+  readonly hasError: boolean;
+  readonly onExpand: () => void;
   readonly onRemove: () => void;
 }) {
-  const continuation =
-    CONTINUATION_OPTIONS.find((option) => option.value === step.continuation) ??
-    CONTINUATION_OPTIONS[0]!;
+  // Newlines collapse so the one-line preview truncates instead of clipping.
+  const previewSegments = useMemo(
+    () => segmentTemplate(step.promptTemplate.replace(/\s+/g, " ").trim()),
+    [step.promptTemplate],
+  );
 
   return (
-    <div className="space-y-3 rounded-lg border border-border/70 p-3 dark:border-transparent dark:bg-white/[0.035]">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[11px] text-muted-foreground">{index + 1}</span>
-        <Input
-          size="sm"
-          className="flex-1"
-          placeholder="Step name"
-          aria-label={`Step ${index + 1} name`}
-          value={step.name}
-          aria-invalid={error !== null}
-          onChange={(event) => onPatch({ name: event.target.value })}
+    <div className="group/step relative flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-muted/40">
+      {/* Positioned overlay paints above the static row content, so it takes
+          the whole row's clicks and drags; the trash opts back in below. */}
+      <button
+        type="button"
+        ref={drag.setActivatorNodeRef}
+        {...drag.attributes}
+        {...drag.listeners}
+        aria-label={`Edit step ${index + 1}: ${step.name.trim() === "" ? "Untitled step" : step.name}`}
+        className="absolute inset-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onExpand}
+      />
+      <StepNumber index={index} variant={hasError ? "error" : "default"} />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span
+          className={cn(
+            "truncate font-medium text-sm leading-[18px]",
+            step.name.trim() === "" ? "text-muted-foreground/60" : "text-foreground/90",
+          )}
+        >
+          {step.name.trim() === "" ? "Untitled step" : step.name}
+        </span>
+        <span className="truncate font-mono text-[11px] text-muted-foreground leading-[17px]">
+          {previewSegments.length === 0 ? (
+            <span className="text-muted-foreground/50">No prompt yet</span>
+          ) : (
+            previewSegments.map((segment, segmentIndex) =>
+              segment.kind === "text" ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+                <span key={segmentIndex}>{segment.text}</span>
+              ) : (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+                  key={segmentIndex}
+                  className={cn(
+                    "rounded-sm px-1",
+                    segment.kind === "artifact"
+                      ? "bg-success/12 text-success-foreground"
+                      : segment.kind === "skill"
+                        ? "bg-violet-500/12 text-violet-600 dark:text-violet-400"
+                        : "bg-primary/12 text-primary",
+                  )}
+                >
+                  {segment.kind === "skill" ? segment.text : segment.body}
+                </span>
+              ),
+            )
+          )}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <StepChip dotClass={profileDotClass(step.profileName)} label={step.profileName} />
+        <StepChip
+          dotClass={step.continuation === "auto" ? "bg-success" : "bg-warning"}
+          label={step.continuation === "auto" ? "auto-continue" : "waits"}
         />
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Move step ${index + 1} up`}
-          disabled={index === 0}
-          onClick={() => onMove("up")}
-        >
-          <ArrowUpIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Move step ${index + 1} down`}
-          disabled={index === stepCount - 1}
-          onClick={() => onMove("down")}
-        >
-          <ArrowDownIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
           aria-label={`Remove step ${index + 1}`}
+          className="relative z-10 flex size-[22px] items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/step:opacity-100 pointer-coarse:opacity-100 hover:bg-destructive/10 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:text-muted-foreground hover:[&_svg]:text-destructive-foreground"
           onClick={onRemove}
         >
-          <Trash2Icon className="size-3.5" />
-        </Button>
-      </div>
+          <Trash2Icon aria-hidden className="size-3.5" />
+        </button>
+      </span>
+    </div>
+  );
+}
 
-      <label className="grid gap-1.5">
-        <span className="font-medium text-foreground text-xs">Prompt template</span>
-        <Textarea
-          size="sm"
-          className="font-mono"
-          placeholder={"Implement ${issue_id}. Write your summary to ${artifact}."}
-          value={step.promptTemplate}
-          onChange={(event) => onPatch({ promptTemplate: event.target.value })}
-        />
-        <span className="text-[11px] text-muted-foreground">
-          {
-            "${placeholders} become card fields. ${artifact} and ${artifact:step-name} resolve to earlier artifact paths."
-          }
+function StepChip({ dotClass, label }: { readonly dotClass: string; readonly label: string }) {
+  return (
+    <span className="flex h-[22px] items-center gap-1.5 rounded-sm border border-border px-1.5">
+      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
+      <span className="max-w-28 truncate font-medium text-[11px] text-muted-foreground">
+        {label}
+      </span>
+    </span>
+  );
+}
+
+function ChipMenu({
+  dotClass,
+  label,
+  ariaLabel,
+  children,
+}: {
+  readonly dotClass: string;
+  readonly label: string;
+  readonly ariaLabel: string;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label={ariaLabel}
+        className="flex h-[22px] items-center gap-1.5 rounded-sm border border-border bg-background/40 px-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
+        <span className="max-w-28 truncate font-medium text-[11px] text-foreground/85">
+          {label}
         </span>
-      </label>
+        <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup align="end">{children}</MenuPopup>
+    </Menu>
+  );
+}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1.5">
-          <span className="font-medium text-foreground text-xs">Agent profile</span>
-          <Select
-            value={step.profileName}
-            onValueChange={(value) =>
-              onPatch({ profileName: typeof value === "string" ? value : step.profileName })
-            }
-          >
-            <SelectTrigger size="sm" className="w-full" aria-label="Agent profile">
-              <SelectValue>{step.profileName || "Select a profile"}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="start" alignItemWithTrigger={false}>
-              {profileNames.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </label>
+function ExpandedStep({
+  index,
+  step,
+  drag,
+  profileNames,
+  skills,
+  skillsDriver,
+  placeholderOptions,
+  error,
+  nameRef,
+  onPatch,
+  onRemove,
+}: {
+  readonly index: number;
+  readonly step: BoardStepDraft;
+  readonly drag: StepDragHandle;
+  readonly profileNames: ReadonlyArray<string>;
+  /** `null` when the step's profile resolves to no configured provider. */
+  readonly skills: ProviderWorkspaceSkillsState | null;
+  readonly skillsDriver: ProviderDriverKind | null;
+  readonly placeholderOptions: ReadonlyArray<TemplatePlaceholderOption>;
+  readonly error: string | null;
+  readonly nameRef: (node: HTMLInputElement | null) => void;
+  readonly onPatch: (patch: Partial<Omit<BoardStepDraft, "id">>) => void;
+  readonly onRemove: () => void;
+}) {
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
-        <label className="grid gap-1.5">
-          <span className="font-medium text-foreground text-xs">Continuation</span>
-          <Select
-            value={step.continuation}
-            onValueChange={(value) => {
-              if (value === "auto" || value === "manual") onPatch({ continuation: value });
-            }}
-          >
-            <SelectTrigger size="sm" className="w-full" aria-label="Continuation mode">
-              <SelectValue>{continuation.label}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="start" alignItemWithTrigger={false}>
-              {CONTINUATION_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <span className="text-[11px] text-muted-foreground">{continuation.description}</span>
-        </label>
+  const insertSkill = (skillName: string) => {
+    const textarea = promptRef.current;
+    const next = insertSkillToken(
+      step.promptTemplate,
+      textarea?.selectionStart ?? step.promptTemplate.length,
+      skillName,
+    );
+    onPatch({ promptTemplate: next.text });
+    requestAnimationFrame(() => {
+      const node = promptRef.current;
+      if (node === null) return;
+      node.focus();
+      node.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
+  return (
+    <div className="starting:translate-y-1 starting:opacity-0 flex items-start gap-2.5 rounded-lg bg-muted/50 px-2.5 py-3 transition-[opacity,translate] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
+      <button
+        type="button"
+        ref={drag.setActivatorNodeRef}
+        {...drag.attributes}
+        {...drag.listeners}
+        aria-label={`Drag step ${index + 1} to reorder`}
+        className="shrink-0 cursor-grab touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+      >
+        <StepNumber index={index} variant="active" />
+      </button>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex items-center justify-between gap-2.5">
+          <input
+            ref={nameRef}
+            aria-label={`Step ${index + 1} name`}
+            aria-invalid={error !== null}
+            placeholder="Step name"
+            value={step.name}
+            className="min-w-0 flex-1 bg-transparent font-semibold text-foreground text-sm outline-none placeholder:text-muted-foreground/50"
+            onChange={(event) => onPatch({ name: event.target.value })}
+          />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ChipMenu
+              ariaLabel={`Step ${index + 1} agent profile`}
+              dotClass={profileDotClass(step.profileName)}
+              label={step.profileName || "profile"}
+            >
+              <MenuRadioGroup
+                value={step.profileName}
+                onValueChange={(value) => {
+                  if (typeof value === "string") onPatch({ profileName: value });
+                }}
+              >
+                {profileNames.map((name) => (
+                  <MenuRadioItem key={name} value={name}>
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className={cn("size-1.5 rounded-full", profileDotClass(name))}
+                      />
+                      {name}
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </ChipMenu>
+            <ChipMenu
+              ariaLabel={`Step ${index + 1} continuation`}
+              dotClass={step.continuation === "auto" ? "bg-success" : "bg-warning"}
+              label={step.continuation === "auto" ? "auto-continue" : "waits"}
+            >
+              <MenuRadioGroup
+                value={step.continuation}
+                onValueChange={(value) => {
+                  if (value === "auto" || value === "manual") onPatch({ continuation: value });
+                }}
+              >
+                {CONTINUATION_OPTIONS.map((option) => (
+                  <MenuRadioItem key={option.value} value={option.value} className="items-start">
+                    <span className="flex max-w-64 flex-col gap-0.5 py-0.5">
+                      <span className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            option.value === "auto" ? "bg-success" : "bg-warning",
+                          )}
+                        />
+                        {option.value === "auto" ? "auto-continue" : "waits"}
+                      </span>
+                      <span className="text-muted-foreground text-xs">{option.description}</span>
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </ChipMenu>
+            <button
+              type="button"
+              aria-label={`Remove step ${index + 1}`}
+              className="flex size-[22px] items-center justify-center rounded-sm outline-none transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:text-muted-foreground hover:[&_svg]:text-destructive-foreground"
+              onClick={onRemove}
+            >
+              <Trash2Icon aria-hidden className="size-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {error !== null ? <p className="text-[11px] text-destructive-foreground">{error}</p> : null}
+
+        <PromptEditor
+          ariaLabel={`Step ${index + 1} prompt template`}
+          textareaRef={promptRef}
+          value={step.promptTemplate}
+          skills={skills}
+          skillsDriver={skillsDriver}
+          placeholderOptions={placeholderOptions}
+          onChange={(value) => onPatch({ promptTemplate: value })}
+        />
+
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          <span className="rounded-sm bg-muted px-1 py-0.5 font-medium font-mono text-[10px] text-muted-foreground">
+            {"${"}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            insert a card field or an artifact from an earlier step
+          </span>
+          {skills === null ? null : (
+            <>
+              <span aria-hidden className="mx-0.5 h-3 w-px shrink-0 bg-border" />
+              <SkillsMenu skills={skills} onInsert={insertSkill} />
+            </>
+          )}
+        </div>
       </div>
-
-      {error === null ? null : <span className="text-[11px] text-destructive">{error}</span>}
     </div>
   );
 }

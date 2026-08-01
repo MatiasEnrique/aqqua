@@ -3,7 +3,7 @@ import {
   type ChatAttachment,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
-  ThreadId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,30 +12,14 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-
-import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
-import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
-import { ProjectionBoardRepository } from "../../persistence/Services/ProjectionBoards.ts";
-import { ProjectionCardRepository } from "../../persistence/Services/ProjectionCards.ts";
-import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
-import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
-import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
-import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
-import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import {
-  type ProjectionThreadMessage,
-  ProjectionThreadMessageRepository,
-} from "../../persistence/Services/ProjectionThreadMessages.ts";
-import {
-  type ProjectionThreadProposedPlan,
-  ProjectionThreadProposedPlanRepository,
-} from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
-import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import {
-  type ProjectionTurn,
-  ProjectionTurnRepository,
-} from "../../persistence/Services/ProjectionTurns.ts";
-import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+  attachmentRelativePath,
+  parseAttachmentIdFromRelativePath,
+  parseThreadSegmentFromAttachmentId,
+  toSafeThreadAttachmentSegment,
+} from "../../attachmentStore.ts";
+import { ServerConfig } from "../../config.ts";
+import { type ProjectionRepositoryError, toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { ProjectionBoardRepositoryLive } from "../../persistence/Layers/ProjectionBoards.ts";
 import { ProjectionCardRepositoryLive } from "../../persistence/Layers/ProjectionCards.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
@@ -45,20 +29,37 @@ import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
-import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
-import { ServerConfig } from "../../config.ts";
+import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
+import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionBoardRepository } from "../../persistence/Services/ProjectionBoards.ts";
+import { ProjectionCardRepository } from "../../persistence/Services/ProjectionCards.ts";
+import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
+import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
+import {
+  type ProjectionThreadActivity,
+  ProjectionThreadActivityRepository,
+} from "../../persistence/Services/ProjectionThreadActivities.ts";
+import {
+  type ProjectionThreadMessage,
+  ProjectionThreadMessageRepository,
+} from "../../persistence/Services/ProjectionThreadMessages.ts";
+import {
+  type ProjectionThreadProposedPlan,
+  ProjectionThreadProposedPlanRepository,
+} from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
+import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
+import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import {
+  type ProjectionTurn,
+  ProjectionTurnRepository,
+} from "../../persistence/Services/ProjectionTurns.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
 import { isTransientThreadActivity } from "../transientThreadActivity.ts";
-import {
-  attachmentRelativePath,
-  parseAttachmentIdFromRelativePath,
-  parseThreadSegmentFromAttachmentId,
-  toSafeThreadAttachmentSegment,
-} from "../../attachmentStore.ts";
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
@@ -1731,7 +1732,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               stepThreads: [],
               releasedAt: null,
               completedAt: null,
+              settledAt: null,
               archivedAt: null,
+              operation: null,
+              lastError: null,
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
             });
@@ -1762,6 +1766,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionCardRepository.upsert({
               ...existingRow.value,
               snapshot: event.payload.snapshot,
+              status: null,
+              lastError: null,
+              operation:
+                event.payload.operationId === undefined
+                  ? existingRow.value.operation
+                  : {
+                      kind: "starting" as const,
+                      operationId: event.payload.operationId,
+                      requestedAt: event.payload.requestedAt,
+                      threadId: event.payload.threadId ?? null,
+                    },
               updatedAt: event.payload.requestedAt,
             });
             return;
@@ -1796,6 +1811,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               positionKind: "step",
               positionStepIndex: event.payload.stepIndex,
               status: "running",
+              operation: null,
               stepThreads: [
                 ...existingRow.value.stepThreads,
                 {
@@ -1836,6 +1852,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               positionKind: "done",
               positionStepIndex: null,
               status: null,
+              operation: null,
               completedAt: event.payload.completedAt,
               updatedAt: event.payload.updatedAt,
             });
@@ -1857,8 +1874,216 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             return;
           }
 
-          case "card.step-advance-requested":
-          case "card.retry-requested":
+          case "card.delete-requested": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            if (event.payload.operationId === undefined) {
+              yield* projectionCardRepository.upsert({
+                ...existingRow.value,
+                status: "deleting",
+                updatedAt: event.payload.requestedAt,
+              });
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              lastError: null,
+              operation: {
+                kind: "deleting",
+                operationId: event.payload.operationId,
+                requestedAt: event.payload.requestedAt,
+                cleanupStage:
+                  existingRow.value.operation?.kind === "deleting" &&
+                  existingRow.value.operation.operationId === event.payload.operationId
+                    ? (existingRow.value.operation.cleanupStage ?? "pending")
+                    : "pending",
+              },
+              updatedAt: event.payload.requestedAt,
+            });
+            return;
+          }
+
+          case "card.deleted": {
+            yield* projectionCardRepository.deleteById({
+              cardId: event.payload.cardId,
+            });
+            return;
+          }
+
+          case "card.settled": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              settledAt: event.payload.settledAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.unsettled": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              settledAt: null,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.reset-requested": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              lastError: null,
+              operation: {
+                kind: "resetting",
+                operationId: event.payload.operationId,
+                requestedAt: event.payload.requestedAt,
+                activeThreadId: event.payload.activeThreadId,
+                threadIds: event.payload.threadIds,
+                cleanupStage:
+                  existingRow.value.operation?.kind === "resetting" &&
+                  existingRow.value.operation.operationId === event.payload.operationId
+                    ? (existingRow.value.operation.cleanupStage ?? "pending")
+                    : "pending",
+              },
+              updatedAt: event.payload.requestedAt,
+            });
+            return;
+          }
+
+          case "card.reset": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              positionKind: "todo",
+              positionStepIndex: null,
+              status: null,
+              operation: null,
+              lastError: null,
+              snapshot: null,
+              stepThreads: [],
+              releasedAt: null,
+              completedAt: null,
+              settledAt: null,
+              updatedAt: event.payload.resetAt,
+            });
+            return;
+          }
+
+          case "card.operation-failed": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            const existingOperation = existingRow.value.operation;
+            const destructiveCleanupStarted =
+              ((event.payload.kind === "resetting" && existingOperation?.kind === "resetting") ||
+                (event.payload.kind === "deleting" && existingOperation?.kind === "deleting")) &&
+              (existingOperation.cleanupStage ?? "pending") !== "pending";
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              operation: destructiveCleanupStarted ? existingOperation : null,
+              lastError: event.payload.reason,
+              status: event.payload.kind === "starting" ? "failed" : existingRow.value.status,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "card.cleanup-progressed": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (
+              Option.isNone(existingRow) ||
+              existingRow.value.operation?.operationId !== event.payload.operationId ||
+              existingRow.value.operation.kind !== event.payload.kind
+            ) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              operation: {
+                ...existingRow.value.operation,
+                cleanupStage: event.payload.stage,
+              },
+              lastError: null,
+              updatedAt: event.payload.progressedAt,
+            });
+            return;
+          }
+
+          case "card.step-advance-requested": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow) || event.payload.operationId === undefined) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              lastError: null,
+              operation: {
+                kind: "advancing" as const,
+                operationId: event.payload.operationId,
+                requestedAt: event.payload.requestedAt,
+                toStepIndex: event.payload.toStepIndex,
+                threadId: event.payload.threadId ?? null,
+              },
+              updatedAt: event.payload.requestedAt,
+            });
+            return;
+          }
+
+          case "card.retry-requested": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow) || event.payload.operationId === undefined) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              lastError: null,
+              operation: {
+                kind: "retrying" as const,
+                operationId: event.payload.operationId,
+                requestedAt: event.payload.requestedAt,
+                stepIndex: event.payload.stepIndex,
+                threadId: event.payload.threadId ?? null,
+              },
+              updatedAt: event.payload.requestedAt,
+            });
+            return;
+          }
+
           case "card.cancel-requested":
             // Reactor signals only — card projection rows are unchanged.
             return;

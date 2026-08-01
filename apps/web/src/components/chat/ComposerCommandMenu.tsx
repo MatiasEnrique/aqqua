@@ -4,7 +4,7 @@ import {
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
-import { BotIcon } from "lucide-react";
+import { BotIcon, BracesIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
@@ -56,6 +56,14 @@ export type ComposerCommandItem =
       type: "skill";
       provider: ProviderDriverKind;
       skill: ServerProviderSkill;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "template-placeholder";
+      /** Full `${...}` text inserted on accept. */
+      token: string;
       label: string;
       description: string;
     };
@@ -277,8 +285,18 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           <SkillGlyph className="size-3.5" />
         </span>
       ) : null}
+      {props.item.type === "template-placeholder" ? (
+        <BracesIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+      ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0">{props.item.label}</span>
+        <span
+          className={cn(
+            "shrink-0",
+            props.item.type === "template-placeholder" && "font-mono text-xs",
+          )}
+        >
+          {props.item.label}
+        </span>
         {skillSourceBadge ? (
           <span className="shrink-0 rounded-md border border-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground/80">
             {skillSourceBadge}

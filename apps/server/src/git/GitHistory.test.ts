@@ -435,6 +435,52 @@ it.layer(TestLayer)("GitHistory", (it) => {
     );
   });
 
+  describe("getDiff", () => {
+    it.effect("returns every file in a commit as one bounded patch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepo(cwd);
+        yield* writeFile(cwd, "first.txt", "one\n");
+        yield* writeFile(cwd, "second.txt", "one\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Root"]);
+        yield* writeFile(cwd, "first.txt", "one\ntwo\n");
+        yield* writeFile(cwd, "second.txt", "one\nthree\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Change two files"]);
+        const commitId = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const history = yield* GitHistory.GitHistory;
+        const result = yield* history.getDiff({ cwd, commitId });
+
+        assert.equal(result.commitId, commitId);
+        assert.match(result.diff, /diff --git a\/first\.txt b\/first\.txt/);
+        assert.match(result.diff, /diff --git a\/second\.txt b\/second\.txt/);
+        assert.match(result.diff, /^\+two$/m);
+        assert.match(result.diff, /^\+three$/m);
+        assert.equal(result.truncated, false);
+      }),
+    );
+
+    it.effect("compares a root commit with an empty tree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepo(cwd);
+        yield* writeFile(cwd, "root.txt", "root contents\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Root"]);
+        const commitId = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const history = yield* GitHistory.GitHistory;
+        const result = yield* history.getDiff({ cwd, commitId });
+
+        assert.match(result.diff, /diff --git a\/root\.txt b\/root\.txt/);
+        assert.match(result.diff, /^\+root contents$/m);
+        assert.equal(result.truncated, false);
+      }),
+    );
+  });
+
   describe("getDetails", () => {
     it.effect("returns the message body and first-parent file statistics", () =>
       Effect.gen(function* () {

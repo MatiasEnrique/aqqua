@@ -1,0 +1,142 @@
+import { EventId, type OrchestrationCard } from "@t3tools/contracts";
+
+import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
+
+/**
+ * Rebuilds the hot events for durable in-flight operations after restart.
+ * Handlers re-check operation id and kind before performing side effects.
+ */
+export function makeBoardReconciliationEvents(
+  cards: ReadonlyArray<OrchestrationCard>,
+): ReadonlyArray<BoardReactorEvent> {
+  const events: BoardReactorEvent[] = [];
+  for (const card of cards) {
+    const operation = card.operation;
+    if (operation === null) {
+      // Legacy status:deleting without a durable claim.
+      if (card.status === "deleting") {
+        events.push({
+          type: "card.delete-requested",
+          eventId: EventId.make(`board-reconcile-delete-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: card.updatedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            requestedAt: card.updatedAt,
+          },
+        } as BoardReactorEvent);
+      }
+      continue;
+    }
+
+    switch (operation.kind) {
+      case "starting":
+        events.push({
+          type: "card.release-requested",
+          eventId: EventId.make(`board-reconcile-start-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: operation.requestedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            snapshot: card.snapshot ?? { name: "board", steps: [] },
+            requestedAt: operation.requestedAt,
+            operationId: operation.operationId,
+          },
+        } as BoardReactorEvent);
+        break;
+      case "advancing":
+        events.push({
+          type: "card.step-advance-requested",
+          eventId: EventId.make(`board-reconcile-advance-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: operation.requestedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            toStepIndex: operation.toStepIndex,
+            requestedAt: operation.requestedAt,
+            operationId: operation.operationId,
+          },
+        } as BoardReactorEvent);
+        break;
+      case "retrying":
+        events.push({
+          type: "card.retry-requested",
+          eventId: EventId.make(`board-reconcile-retry-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: operation.requestedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            stepIndex: operation.stepIndex,
+            requestedAt: operation.requestedAt,
+            operationId: operation.operationId,
+          },
+        } as BoardReactorEvent);
+        break;
+      case "resetting":
+        events.push({
+          type: "card.reset-requested",
+          eventId: EventId.make(`board-reconcile-reset-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: operation.requestedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            operationId: operation.operationId,
+            activeThreadId: operation.activeThreadId,
+            threadIds: operation.threadIds,
+            requestedAt: operation.requestedAt,
+          },
+        } as BoardReactorEvent);
+        break;
+      case "deleting":
+        events.push({
+          type: "card.delete-requested",
+          eventId: EventId.make(`board-reconcile-delete-op-${card.id}`),
+          aggregateKind: "card",
+          aggregateId: card.id,
+          sequence: 0,
+          occurredAt: operation.requestedAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            cardId: card.id,
+            requestedAt: operation.requestedAt,
+            operationId: operation.operationId,
+          },
+        } as BoardReactorEvent);
+        break;
+    }
+  }
+  return events;
+}

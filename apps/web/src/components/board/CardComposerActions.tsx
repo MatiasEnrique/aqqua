@@ -1,4 +1,7 @@
-import type { CardActionAvailability } from "@t3tools/client-runtime/state/boards";
+import type {
+  CardActionAvailability,
+  CardOperationKind,
+} from "@t3tools/client-runtime/state/boards";
 import { ArrowRightIcon, BanIcon, CheckIcon, ChevronDownIcon, RotateCcwIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
@@ -14,28 +17,54 @@ export interface CardComposerActionsProps {
   readonly promptHasText: boolean;
   readonly disabled: boolean;
   readonly availability: CardActionAvailability;
+  /**
+   * The operation the card is under — the server's once it has projected one,
+   * this client's own click until then. Every action waits on it, so a card
+   * cannot be advanced, retried, or reset twice from one intent.
+   */
+  readonly operation: CardOperationKind | null;
+  /** A paused step can advance from Resume without sending a message. */
+  readonly canResumeWithoutMessage: boolean;
   /** `Resume step`: continue a paused card, otherwise put the caret in the composer. */
   readonly onResume: () => void;
   readonly onRetry: () => void;
   readonly onMarkDone: () => void;
-  readonly onCancel: () => void;
+  readonly onReset: () => void;
   /** The last step's gate lands in Done rather than the next column. */
   readonly isLastStep: boolean;
 }
+
+/** What the primary button says while the card is busy. */
+const OPERATION_LABELS: Record<CardOperationKind, string> = {
+  starting: "Starting…",
+  advancing: "Resuming…",
+  retrying: "Retrying…",
+  resetting: "Resetting…",
+  deleting: "Deleting…",
+};
 
 export function CardComposerActions({
   promptHasText,
   disabled,
   availability,
+  operation,
+  canResumeWithoutMessage,
   onResume,
   onRetry,
   onMarkDone,
-  onCancel,
+  onReset,
   isLastStep,
 }: CardComposerActionsProps) {
+  const busy = operation !== null;
+
   if (promptHasText) {
     return (
-      <Button type="submit" size="sm" className="h-9 rounded-full px-4 sm:h-8" disabled={disabled}>
+      <Button
+        type="submit"
+        size="sm"
+        className="h-9 rounded-full px-4 sm:h-8"
+        disabled={disabled || busy}
+      >
         Send &amp; resume
       </Button>
     );
@@ -47,10 +76,10 @@ export function CardComposerActions({
         type="button"
         size="sm"
         className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
-        disabled={disabled}
+        disabled={disabled || busy || !canResumeWithoutMessage}
         onClick={onResume}
       >
-        Resume
+        {operation === null ? "Resume" : OPERATION_LABELS[operation]}
       </Button>
       <Menu>
         <MenuTrigger
@@ -60,29 +89,33 @@ export function CardComposerActions({
               variant="default"
               className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
               aria-label="Card actions"
-              disabled={disabled}
+              disabled={disabled || busy}
             />
           }
         >
           <ChevronDownIcon className="size-3.5" />
         </MenuTrigger>
         <MenuPopup align="end" side="top" className="w-58">
-          <MenuItem onClick={onResume}>
+          <MenuItem onClick={onResume} disabled={busy || !canResumeWithoutMessage}>
             <ArrowRightIcon />
             Resume step
           </MenuItem>
-          <MenuItem onClick={onRetry} disabled={!availability.canRetry}>
+          <MenuItem onClick={onRetry} disabled={busy || !availability.canRetry}>
             <RotateCcwIcon />
             Retry step fresh
           </MenuItem>
-          <MenuItem onClick={onMarkDone} disabled={!availability.canContinue}>
+          <MenuItem onClick={onMarkDone} disabled={busy || !availability.canContinue}>
             <CheckIcon />
             {isLastStep ? "Mark done, go to Done" : "Mark step done, advance"}
           </MenuItem>
           <MenuSeparator />
-          <MenuItem variant="destructive" onClick={onCancel} disabled={!availability.canCancel}>
+          <MenuItem
+            variant="destructive"
+            onClick={onReset}
+            disabled={busy || !availability.canReset}
+          >
             <BanIcon />
-            Cancel card
+            Reset card
           </MenuItem>
         </MenuPopup>
       </Menu>

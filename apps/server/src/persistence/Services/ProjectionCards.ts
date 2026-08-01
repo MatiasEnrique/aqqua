@@ -10,6 +10,7 @@ import {
   BoardId,
   BoardSnapshot,
   CardId,
+  CardOperation,
   CardParameters,
   CardStatus,
   CardStepThread,
@@ -43,7 +44,10 @@ export const ProjectionCard = Schema.Struct({
   stepThreads: Schema.Array(CardStepThread),
   releasedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
+  settledAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
+  operation: Schema.NullOr(CardOperation),
+  lastError: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

@@ -4,6 +4,7 @@ import {
   BoardId,
   BoardStepId,
   CardId,
+  CardOperationId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -15,7 +16,15 @@ import type {
   OrchestrationShellStreamEvent,
 } from "@t3tools/contracts";
 
+import { cardOperationFailure, groupBoardCards, selectNextCardAfter } from "./boards.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
+
+/** A card the server has claimed for deletion, as it arrives on the stream. */
+const deletingClaim = {
+  kind: "deleting",
+  operationId: CardOperationId.make("operation-1"),
+  requestedAt: "2026-04-02T00:00:00.000Z",
+} as const satisfies NonNullable<OrchestrationCard["operation"]>;
 
 const baseSnapshot: OrchestrationShellSnapshot = {
   snapshotSequence: 0,
@@ -52,6 +61,8 @@ const stubCard: OrchestrationCard = {
   parameters: { issue_id: "T3-482" },
   position: { kind: "todo" },
   status: null,
+  operation: null,
+  lastError: null,
   snapshot: null,
   branch: null,
   worktreePath: null,
@@ -60,6 +71,7 @@ const stubCard: OrchestrationCard = {
   updatedAt: "2026-04-01T00:00:00.000Z",
   releasedAt: null,
   completedAt: null,
+  settledAt: null,
   archivedAt: null,
 };
 
@@ -326,6 +338,45 @@ describe("applyShellStreamEvent", () => {
       expect(next.cards[0]?.status).toBe("running");
       expect(next.cards[0]?.position).toEqual({ kind: "step", stepIndex: 0 });
       expect(next.cards[1]?.id).toBe("card-2");
+    });
+
+    it("drops a card out of the board's sections as soon as the delete operation projects", () => {
+      const snapshotWithCard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        cards: [stubCard],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithCard, {
+        kind: "card-upserted",
+        sequence: 12,
+        card: { ...stubCard, operation: deletingClaim },
+      });
+
+      // The card is still in the snapshot — the server owns when it physically
+      // goes — but the board no longer offers it anywhere the user can act.
+      expect(next.cards).toHaveLength(1);
+      const sections = groupBoardCards(next.cards);
+      expect(sections.todo).toHaveLength(0);
+      expect(sections.deleting.map((card) => card.id)).toEqual(["card-1"]);
+      expect(selectNextCardAfter(sections, CardId.make("card-2"))).toBeNull();
+    });
+
+    it("returns a card to its section, with its reason, when the deletion fails", () => {
+      const snapshotWithCard: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        cards: [{ ...stubCard, operation: deletingClaim }],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithCard, {
+        kind: "card-upserted",
+        sequence: 13,
+        card: { ...stubCard, operation: null, lastError: "worktree is locked" },
+      });
+
+      const sections = groupBoardCards(next.cards);
+      expect(sections.todo.map((card) => card.id)).toEqual(["card-1"]);
+      expect(sections.deleting).toHaveLength(0);
+      expect(cardOperationFailure(next.cards[0] as OrchestrationCard)).toBe("worktree is locked");
     });
   });
 

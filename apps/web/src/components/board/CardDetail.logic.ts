@@ -1,12 +1,14 @@
-import type { OrchestrationBoard, OrchestrationCard, ThreadId } from "@t3tools/contracts";
 import {
   boardArtifactFileName,
+  type CardOperationKind,
+  type CardStepState,
   cardCurrentStepIndex,
+  cardOperation,
   cardStepThreadId,
   selectCardSteps,
   selectSubAgentThreads,
-  type CardStepState,
 } from "@t3tools/client-runtime/state/boards";
+import type { OrchestrationBoard, OrchestrationCard, ThreadId } from "@t3tools/contracts";
 
 import { formatElapsed } from "./BoardRunTable.logic";
 
@@ -18,7 +20,11 @@ import { formatElapsed } from "./BoardRunTable.logic";
  */
 export type CardSelection =
   | { readonly kind: "step"; readonly stepIndex: number }
-  | { readonly kind: "subagent"; readonly stepIndex: number; readonly threadId: ThreadId }
+  | {
+      readonly kind: "subagent";
+      readonly stepIndex: number;
+      readonly threadId: ThreadId;
+    }
   | { readonly kind: "artifact"; readonly stepIndex: number };
 
 /** URL form of a selection — short enough to read in the address bar. */
@@ -101,6 +107,46 @@ export function selectionThreadId(
   return cardStepThreadId(card, selection.stepIndex);
 }
 
+// ── Pending operations ─────────────────────────────────────────
+
+/**
+ * A card operation this client has submitted and not yet seen come back. The
+ * server stays the authority — this only covers the gap between the click and
+ * the projection, so one Continue cannot be sent twice.
+ */
+export interface PendingCardOperation {
+  readonly kind: CardOperationKind;
+  /** What the card's revision was when the command went out. */
+  readonly cardUpdatedAt: string;
+}
+
+/**
+ * The operation the composer presents. The server's own operation wins as soon
+ * as it exists; until then the click carries the UI, so the buttons never sit
+ * enabled over a command already in flight.
+ */
+export function cardComposerOperation(
+  card: OrchestrationCard | null,
+  pending: PendingCardOperation | null,
+): CardOperationKind | null {
+  if (card === null) return null;
+  return cardOperation(card) ?? pending?.kind ?? null;
+}
+
+/**
+ * When the local guard can be dropped: the server took the operation, the card
+ * moved under it, or the card left the board. Anything else and the command is
+ * still on the wire.
+ */
+export function isPendingOperationResolved(
+  pending: PendingCardOperation,
+  card: OrchestrationCard | null,
+): boolean {
+  if (card === null) return true;
+  if (cardOperation(card) !== null) return true;
+  return card.updatedAt !== pending.cardUpdatedAt;
+}
+
 // ── Tree model ─────────────────────────────────────────────────
 
 /** Icon states of the app's sidebar status map, at the board's badge colors. */
@@ -148,8 +194,7 @@ export type CardTreeLeaf =
       readonly stepIndex: number;
       readonly stepName: string;
       readonly fileName: string;
-      readonly trailing: string;
-      readonly draft: boolean;
+      readonly trailing: string | null;
     };
 
 export interface CardTreeStepRow {
@@ -185,6 +230,7 @@ function stepIconState(
     case "failed":
       return "failed";
     case "cancelled":
+    case "deleting":
     case null:
       return "idle";
   }
@@ -216,6 +262,27 @@ export function formatArtifactSize(sizeBytes: number): string {
 export function formatDiffFilesLabel(stat: CardTreeDiffStat | null): string {
   if (stat === null) return "Changes";
   return `${stat.filesChanged} file${stat.filesChanged === 1 ? "" : "s"} changed`;
+}
+
+/**
+ * The artifact becomes user-facing only after the step reports success. A
+ * manual continuation parks that successful step as `paused`; automatic
+ * continuation moves it behind the current step (or the card to Done).
+ *
+ * The revision doubles as the artifact-query invalidation key because the
+ * file write itself happens outside the websocket projection stream.
+ */
+export function artifactCompletionRevision(
+  card: OrchestrationCard,
+  stepIndex: number,
+): string | null {
+  if (card.position.kind === "done") return card.updatedAt;
+  if (card.position.kind !== "step") return null;
+  if (stepIndex < card.position.stepIndex) return card.updatedAt;
+  if (stepIndex === card.position.stepIndex && card.status === "paused") {
+    return card.updatedAt;
+  }
+  return null;
 }
 
 /**
@@ -265,16 +332,16 @@ export function buildCardTree(input: {
       });
     }
 
-    const artifact = input.artifactByStepIndex.get(step.stepIndex) ?? null;
-    if (step.state !== "pending") {
+    const artifactRevision = artifactCompletionRevision(card, step.stepIndex);
+    if (artifactRevision !== null) {
+      const artifact = input.artifactByStepIndex.get(step.stepIndex) ?? null;
       leaves.push({
         kind: "artifact",
         stepIndex: step.stepIndex,
         stepName: step.name,
         fileName: boardArtifactFileName(step.name),
         trailing:
-          artifact === null || !artifact.exists ? "draft" : formatArtifactSize(artifact.sizeBytes),
-        draft: artifact === null || !artifact.exists,
+          artifact === null || !artifact.exists ? null : formatArtifactSize(artifact.sizeBytes),
       });
     }
 

@@ -1,14 +1,33 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  type CardOperationKind,
   cardActionAvailability,
   cardArtifactProvenance,
   cardStepThreadId,
+  isCardDeleting,
+  isCardStarting,
   selectSubAgentThreads,
 } from "@t3tools/client-runtime/state/boards";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { CardId, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { InfoIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-
+import { InfoIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { threadPanelOwner, useRightPanelStore } from "../../rightPanelStore";
+import { boardArtifacts, boardEnvironment, useBoard, useCard } from "../../state/boards";
+import {
+  useThreadDetail,
+  useThreadShell,
+  useThreadShells,
+  useThreadStatus,
+} from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { resolveThreadSyncPhase } from "../../threadSync";
 import ChatView from "../ChatView";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
 import { useRelativeTimeTick } from "../settings/settingsLayout";
@@ -22,29 +41,25 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { boardArtifacts, boardEnvironment, useCard, useProjectBoard } from "../../state/boards";
-import {
-  useThreadDetail,
-  useThreadShell,
-  useThreadShells,
-  useThreadStatus,
-} from "../../state/entities";
-import { useEnvironmentQuery } from "../../state/query";
-import { useAtomCommand } from "../../state/use-atom-command";
-import { resolveThreadSyncPhase } from "../../threadSync";
-import { threadPanelOwner, useRightPanelStore } from "../../rightPanelStore";
+import { Spinner } from "../ui/spinner";
+import { stackedThreadToast, toastManager } from "../ui/toast";
+import { cardFailureNote } from "./BoardRunTable.logic";
 import { CardArtifactPane } from "./CardArtifactPane";
 import { CardComposerActions } from "./CardComposerActions";
 import {
+  artifactCompletionRevision,
   buildCardTree,
-  formatCardSelection,
-  parseCardSelection,
-  resolveCardSelection,
-  selectionThreadId,
   type CardSelection,
   type CardTreeArtifactStat,
   type CardTreeDiffStat,
   type CardTreeThread,
+  cardComposerOperation,
+  formatCardSelection,
+  isPendingOperationResolved,
+  type PendingCardOperation,
+  parseCardSelection,
+  resolveCardSelection,
+  selectionThreadId,
 } from "./CardDetail.logic";
 import { CardTree } from "./CardTree";
 
@@ -57,12 +72,24 @@ export interface CardDetailViewProps {
   readonly onSelectionChange: (next: string) => void;
 }
 
-type PendingConfirmation = "retry" | "cancel" | null;
+type PendingConfirmation = "retry" | "reset" | null;
+
+/** The card command a composer action sends, and the operation it starts. */
+type CardCommandKind = "continue" | "retry" | "reset";
+
+const COMMAND_OPERATIONS: Record<CardCommandKind, CardOperationKind> = {
+  continue: "advancing",
+  retry: "retrying",
+  reset: "resetting",
+};
 
 /** Why a card is parked, in the composer's own banner stack. */
 const CARD_STATUS_NOTES: Record<
   string,
-  { readonly variant: ComposerBannerStackItem["variant"]; readonly text: string } | null
+  {
+    readonly variant: ComposerBannerStackItem["variant"];
+    readonly text: string;
+  } | null
 > = {
   none: null,
   running: null,
@@ -80,7 +107,11 @@ const CARD_STATUS_NOTES: Record<
   },
   cancelled: {
     variant: "info",
-    text: "You cancelled this step. Send a message to pick it back up, or retry it fresh.",
+    text: "This step was cancelled. Reply here to resume it, retry it fresh, reset the card, or mark it done.",
+  },
+  deleting: {
+    variant: "info",
+    text: "Deleting this card's conversations, worktree, and artifacts…",
   },
 };
 
@@ -101,16 +132,24 @@ export function CardDetailView({
     () => scopeProjectRef(environmentId, projectId),
     [environmentId, projectId],
   );
-  const board = useProjectBoard(projectRef);
   const card = useCard(projectRef, cardId);
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  // Projects can hold several boards; the card knows which one it runs on.
+  const board = useBoard(environmentId, card?.boardId ?? null);
   const nowMs = useRelativeTimeTick();
   const allThreadShells = useThreadShells();
   const openRightPanel = useRightPanelStore((state) => state.open);
 
   const continueCard = useAtomCommand(boardEnvironment.continueCard);
   const retryCard = useAtomCommand(boardEnvironment.retryCard);
-  const cancelCard = useAtomCommand(boardEnvironment.cancelCard);
+  const resetCard = useAtomCommand(boardEnvironment.resetCard);
+  const deleteCard = useAtomCommand(boardEnvironment.deleteCard);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>(null);
+  // Local only, and only until the projection catches up: the server decides
+  // what actually happens to the card, this just keeps one click from being
+  // submitted twice while the command is on the wire.
+  const [pendingOperation, setPendingOperation] = useState<PendingCardOperation | null>(null);
+  const [cleanupRetryPending, setCleanupRetryPending] = useState(false);
 
   const threads = useMemo<ReadonlyArray<CardTreeThread>>(
     () =>
@@ -122,7 +161,7 @@ export function CardDetailView({
           parentThreadId: shell.parentThreadId ?? null,
           createdAt: shell.createdAt,
           updatedAt: shell.updatedAt,
-          isWorking: shell.session?.status === "running",
+          isWorking: shell.session?.status === "running" || shell.session?.status === "starting",
           needsInput: shell.hasPendingApprovals || shell.hasPendingUserInput,
         })),
     [allThreadShells, environmentId],
@@ -159,7 +198,10 @@ export function CardDetailView({
     const byPath = new Map<string, { additions: number; deletions: number }>();
     for (const checkpoint of threadDetail.checkpoints) {
       for (const file of checkpoint.files) {
-        const existing = byPath.get(file.path) ?? { additions: 0, deletions: 0 };
+        const existing = byPath.get(file.path) ?? {
+          additions: 0,
+          deletions: 0,
+        };
         byPath.set(file.path, {
           additions: existing.additions + file.additions,
           deletions: existing.deletions + file.deletions,
@@ -187,13 +229,40 @@ export function CardDetailView({
   const selectedArtifact = useEnvironmentQuery(
     artifactStepName === null
       ? null
-      : boardArtifacts.artifact({ environmentId, input: { cardId, stepName: artifactStepName } }),
+      : boardArtifacts.artifact({
+          environmentId,
+          input: { cardId, stepName: artifactStepName },
+        }),
   );
   const currentArtifact = useEnvironmentQuery(
     currentStepName === null || currentStepName === artifactStepName
       ? null
-      : boardArtifacts.artifact({ environmentId, input: { cardId, stepName: currentStepName } }),
+      : boardArtifacts.artifact({
+          environmentId,
+          input: { cardId, stepName: currentStepName },
+        }),
   );
+
+  const selectedArtifactRevision =
+    card === null || selection.kind !== "artifact"
+      ? null
+      : artifactCompletionRevision(card, selection.stepIndex);
+  const currentArtifactRevision =
+    card === null || currentStepIndex === null || currentStepName === artifactStepName
+      ? null
+      : artifactCompletionRevision(card, currentStepIndex);
+
+  // Artifact files are written by the provider outside the projection stream.
+  // The card completion event is therefore the precise signal to invalidate
+  // the cached read for an artifact that is already visible or selected.
+  useEffect(() => {
+    if (selectedArtifactRevision === null) return;
+    void selectedArtifact.refresh().catch(() => undefined);
+  }, [selectedArtifact.refresh, selectedArtifactRevision]);
+  useEffect(() => {
+    if (currentArtifactRevision === null) return;
+    void currentArtifact.refresh().catch(() => undefined);
+  }, [currentArtifact.refresh, currentArtifactRevision]);
 
   const artifactByStepIndex = useMemo(() => {
     const map = new Map<number, CardTreeArtifactStat>();
@@ -235,17 +304,79 @@ export function CardDetailView({
     [onSelectionChange],
   );
 
-  const availability = card === null ? null : cardActionAvailability(card);
+  const availability = useMemo(() => {
+    if (card === null) return null;
+    const base = cardActionAvailability(card);
+    return {
+      ...base,
+      canReset: base.canReset && serverConfig?.environment.capabilities.boardCardReset === true,
+    };
+  }, [card, serverConfig?.environment.capabilities.boardCardReset]);
   const isLastStep = currentStepIndex !== null && currentStepIndex === steps.length - 1;
 
   const runCardCommand = useCallback(
-    (kind: "continue" | "retry" | "cancel") => {
-      const command =
-        kind === "continue" ? continueCard : kind === "retry" ? retryCard : cancelCard;
-      void command({ environmentId, input: { cardId } });
+    (kind: CardCommandKind) => {
+      if (card === null) return;
+      const command = kind === "continue" ? continueCard : kind === "retry" ? retryCard : resetCard;
+      setPendingOperation({
+        kind: COMMAND_OPERATIONS[kind],
+        cardUpdatedAt: card.updatedAt,
+      });
+      void command({ environmentId, input: { cardId } }).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        // A rejected command starts nothing — hand the buttons straight back.
+        setPendingOperation(null);
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title:
+              kind === "reset"
+                ? "Could not reset card"
+                : kind === "retry"
+                  ? "Could not retry card"
+                  : "Could not continue card",
+            description: error instanceof Error ? error.message : "The card command failed.",
+          }),
+        );
+      });
     },
-    [cancelCard, cardId, continueCard, environmentId, retryCard],
+    [card, cardId, continueCard, environmentId, resetCard, retryCard],
   );
+
+  const retryCleanup = useCallback(() => {
+    if (
+      card === null ||
+      (card.operation?.kind !== "resetting" && card.operation?.kind !== "deleting")
+    ) {
+      return;
+    }
+    const kind = card.operation.kind;
+    const command = kind === "resetting" ? resetCard : deleteCard;
+    setCleanupRetryPending(true);
+    void command({ environmentId, input: { cardId } }).then((result) => {
+      setCleanupRetryPending(false);
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: kind === "resetting" ? "Could not resume reset" : "Could not resume deletion",
+          description: error instanceof Error ? error.message : "The cleanup command failed.",
+        }),
+      );
+    });
+  }, [card, cardId, deleteCard, environmentId, resetCard]);
+
+  // The guard is a bridge, never a state: it lasts exactly until the card comes
+  // back changed, carries its own operation, or leaves the board.
+  useEffect(() => {
+    if (pendingOperation === null) return;
+    if (isPendingOperationResolved(pendingOperation, card)) setPendingOperation(null);
+  }, [card, pendingOperation]);
+
+  const cardOperationInFlight = cardComposerOperation(card, pendingOperation);
+  const failureNote = card === null ? null : cardFailureNote(card);
 
   const renderComposerIdlePrimaryAction = useMemo(() => {
     // Sub-agents keep the plain send arrow: only the step can move the card.
@@ -258,6 +389,8 @@ export function CardDetailView({
         promptHasText={state.promptHasText}
         disabled={state.disabled}
         availability={availability}
+        operation={cardOperationInFlight}
+        canResumeWithoutMessage={card.status === "paused"}
         isLastStep={isLastStep}
         onResume={() => {
           if (card.status === "paused") {
@@ -268,10 +401,18 @@ export function CardDetailView({
         }}
         onRetry={() => setPendingConfirmation("retry")}
         onMarkDone={() => runCardCommand("continue")}
-        onCancel={() => setPendingConfirmation("cancel")}
+        onReset={() => setPendingConfirmation("reset")}
       />
     );
-  }, [availability, card, currentStepIndex, isLastStep, runCardCommand, selection]);
+  }, [
+    availability,
+    card,
+    cardOperationInFlight,
+    currentStepIndex,
+    isLastStep,
+    runCardCommand,
+    selection,
+  ]);
 
   const composerBanners = useMemo<ReadonlyArray<ComposerBannerStackItem>>(() => {
     if (selection.kind === "subagent") {
@@ -292,10 +433,23 @@ export function CardDetailView({
         },
       ];
     }
+    if (selection.stepIndex !== currentStepIndex) return [];
+    // An operation that failed says so first, and keeps saying so: it is the
+    // reason a card is back where the user thought it had left.
+    if (failureNote !== null) {
+      return [
+        {
+          id: `board-card-failure:${cardId}`,
+          variant: "error",
+          icon: <InfoIcon />,
+          title: <span className="font-normal text-muted-foreground">{failureNote}</span>,
+        },
+      ];
+    }
     // Why the card is sitting still, said once, next to the actions that
     // resolve it. The badge in the rail says the same thing at a glance.
     const note = card === null ? null : CARD_STATUS_NOTES[card.status ?? "none"];
-    if (note === null || note === undefined || selection.stepIndex !== currentStepIndex) {
+    if (note === null || note === undefined) {
       return [];
     }
     return [
@@ -306,13 +460,13 @@ export function CardDetailView({
         title: <span className="font-normal text-muted-foreground">{note.text}</span>,
       },
     ];
-  }, [card, cardId, currentStepIndex, selection, threadShell]);
+  }, [card, cardId, currentStepIndex, failureNote, selection, threadShell]);
 
   const timelineOverride = useMemo(() => {
     if (selection.kind !== "artifact" || card === null || board === null) return undefined;
     const stepName = artifactStepName;
     if (stepName === null) return undefined;
-    return (
+    return (contentInsetEndAdjustment: number) => (
       <CardArtifactPane
         key={`${cardId}:${stepName}`}
         environmentId={environmentId}
@@ -323,6 +477,7 @@ export function CardDetailView({
         provenance={cardArtifactProvenance(card, board, selection.stepIndex)}
         editable={card.status !== "running" || selection.stepIndex !== currentStepIndex}
         cwd={card.worktreePath}
+        contentInsetEndAdjustment={contentInsetEndAdjustment}
       />
     );
   }, [artifactStepName, board, card, cardId, currentStepIndex, environmentId, selection]);
@@ -358,18 +513,18 @@ export function CardDetailView({
         <AlertDialogPopup>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingConfirmation === "retry" ? "Retry this step?" : `Cancel '${card.title}'?`}
+              {pendingConfirmation === "retry" ? "Retry this step?" : `Reset '${card.title}'?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingConfirmation === "retry"
                 ? "The step's thread is discarded and a fresh one runs the same prompt again. The worktree keeps whatever the previous attempt changed."
-                : "This interrupts the running turn. The card stays where it is and can be resumed or retried afterwards."}
+                : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest board configuration and keeps the existing worktree changes."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Keep going</AlertDialogClose>
             <Button
-              variant={pendingConfirmation === "cancel" ? "destructive" : "default"}
+              variant={pendingConfirmation === "reset" ? "destructive" : "default"}
               onClick={() => {
                 const kind = pendingConfirmation;
                 setPendingConfirmation(null);
@@ -377,21 +532,86 @@ export function CardDetailView({
                 runCardCommand(kind);
               }}
             >
-              {pendingConfirmation === "retry" ? "Retry step" : "Cancel card"}
+              {pendingConfirmation === "retry" ? "Retry step" : "Reset card"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
     );
 
-  if (threadRef === null || threadShell === null) {
+  if (isCardDeleting(card)) {
     return (
       <div className="flex h-full min-h-0">
         {rail}
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-muted-foreground text-sm">
-          {card.position.kind === "todo"
-            ? "This card has not been released yet — start it from the board."
-            : "This step has not spawned its thread yet."}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+          <Trash2Icon aria-hidden className="size-5 text-destructive-foreground" />
+          <span className="font-medium text-foreground">
+            {card.lastError === null ? "Deleting card…" : "Deletion needs another attempt"}
+          </span>
+          <span className="max-w-md text-muted-foreground">
+            {card.lastError ??
+              "Removing its conversations, worktree, and artifacts. The card has already left the board; this view closes when cleanup finishes."}
+          </span>
+          {card.lastError === null ? null : (
+            <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
+              {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
+              Retry cleanup
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (card.operation?.kind === "resetting") {
+    return (
+      <div className="flex h-full min-h-0">
+        {rail}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+          {card.lastError === null ? (
+            <Spinner className="size-5" />
+          ) : (
+            <RotateCcwIcon aria-hidden className="size-5 text-warning-foreground" />
+          )}
+          <span className="font-medium text-foreground">
+            {card.lastError === null ? "Resetting card…" : "Reset needs another attempt"}
+          </span>
+          <span className="max-w-md text-muted-foreground">
+            {card.lastError ??
+              "Archiving its conversations and removing artifacts. The card returns to To-Do when cleanup finishes."}
+          </span>
+          {card.lastError === null ? null : (
+            <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
+              {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
+              Retry cleanup
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (threadRef === null || threadShell === null) {
+    // Between Start and the first step thread the server is doing real work
+    // (worktree, checkout, setup script) — show that instead of a dead pane.
+    const starting = isCardStarting(card);
+    const preparingStep = card.position.kind === "step";
+    return (
+      <div className="flex h-full min-h-0">
+        {rail}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
+          {starting || preparingStep ? (
+            <>
+              <Spinner className="size-4" />
+              <span>
+                {starting
+                  ? "Starting this card — creating its worktree and checking out the branch…"
+                  : "Preparing this step's thread…"}
+              </span>
+            </>
+          ) : (
+            "This card has not been released yet — start it from the board."
+          )}
         </div>
         {confirmation}
       </div>

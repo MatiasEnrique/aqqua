@@ -50,6 +50,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server can key right-panel terminal processes and history by a canonical
       workspace root instead of by the conversation that opened them. */
   workspaceTerminalSessions: Schema.optionalKey(Schema.Boolean),
+  /** Server understands the destructive card.reset lifecycle. Absent on
+      older servers, so clients hide Reset instead of falling back to the
+      legacy cancel-only command. */
+  boardCardReset: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */

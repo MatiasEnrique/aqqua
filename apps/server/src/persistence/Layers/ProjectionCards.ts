@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
-import { BoardSnapshot, CardParameters, CardStepThread } from "@t3tools/contracts";
+import { BoardSnapshot, CardOperation, CardParameters, CardStepThread } from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionCardInput,
@@ -20,6 +20,7 @@ const ProjectionCardDbRow = ProjectionCard.mapFields(
     parameters: Schema.fromJsonString(CardParameters),
     snapshot: Schema.NullOr(Schema.fromJsonString(BoardSnapshot)),
     stepThreads: Schema.fromJsonString(Schema.Array(CardStepThread)),
+    operation: Schema.NullOr(Schema.fromJsonString(CardOperation)),
   }),
 );
 type ProjectionCardDbRow = typeof ProjectionCardDbRow.Type;
@@ -46,7 +47,10 @@ const makeProjectionCardRepository = Effect.gen(function* () {
           step_threads_json,
           released_at,
           completed_at,
+          settled_at,
           archived_at,
+          operation_json,
+          last_error,
           created_at,
           updated_at
         )
@@ -65,7 +69,10 @@ const makeProjectionCardRepository = Effect.gen(function* () {
           ${JSON.stringify(row.stepThreads)},
           ${row.releasedAt},
           ${row.completedAt},
+          ${row.settledAt},
           ${row.archivedAt},
+          ${row.operation !== null ? JSON.stringify(row.operation) : null},
+          ${row.lastError},
           ${row.createdAt},
           ${row.updatedAt}
         )
@@ -84,7 +91,10 @@ const makeProjectionCardRepository = Effect.gen(function* () {
           step_threads_json = excluded.step_threads_json,
           released_at = excluded.released_at,
           completed_at = excluded.completed_at,
+          settled_at = excluded.settled_at,
           archived_at = excluded.archived_at,
+          operation_json = excluded.operation_json,
+          last_error = excluded.last_error,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `,
@@ -110,7 +120,10 @@ const makeProjectionCardRepository = Effect.gen(function* () {
           step_threads_json AS "stepThreads",
           released_at AS "releasedAt",
           completed_at AS "completedAt",
+          settled_at AS "settledAt",
           archived_at AS "archivedAt",
+          operation_json AS "operation",
+          last_error AS "lastError",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_cards
@@ -138,7 +151,10 @@ const makeProjectionCardRepository = Effect.gen(function* () {
           step_threads_json AS "stepThreads",
           released_at AS "releasedAt",
           completed_at AS "completedAt",
+          settled_at AS "settledAt",
           archived_at AS "archivedAt",
+          operation_json AS "operation",
+          last_error AS "lastError",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_cards

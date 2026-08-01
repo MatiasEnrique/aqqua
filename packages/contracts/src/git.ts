@@ -207,6 +207,12 @@ export const VcsGetCommitDetailsInput = Schema.Struct({
 });
 export type VcsGetCommitDetailsInput = typeof VcsGetCommitDetailsInput.Type;
 
+export const VcsGetCommitDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  commitId: GitObjectId,
+});
+export type VcsGetCommitDiffInput = typeof VcsGetCommitDiffInput.Type;
+
 const GitHistoryPath = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(16_384));
 
 export const VcsGetCommitFileDiffInput = Schema.Struct({
@@ -429,6 +435,13 @@ export const VcsGetCommitDetailsResult = Schema.Struct({
   filesTruncated: Schema.Boolean,
 });
 export type VcsGetCommitDetailsResult = typeof VcsGetCommitDetailsResult.Type;
+
+export const VcsGetCommitDiffResult = Schema.Struct({
+  commitId: GitObjectId,
+  diff: Schema.String,
+  truncated: Schema.Boolean,
+});
+export type VcsGetCommitDiffResult = typeof VcsGetCommitDiffResult.Type;
 
 export const VcsGetCommitFileDiffResult = Schema.Struct({
   commitId: GitObjectId,

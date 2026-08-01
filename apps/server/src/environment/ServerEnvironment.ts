@@ -143,6 +143,7 @@ export const make = Effect.gen(function* () {
       threadSettlement: true,
       threadSnooze: true,
       workspaceTerminalSessions: true,
+      boardCardReset: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
     },
   };

@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
+  BOARD_WS_METHODS,
   BoardCreateCommand,
   BoardCreatedPayload,
   BoardReadArtifactInput,
@@ -10,6 +11,7 @@ import {
   BoardStep,
   BoardWriteArtifactInput,
   CardCreateCommand,
+  CardOperation,
   CardPosition,
   CardReleaseCompleteCommand,
   CardStatus,
@@ -18,7 +20,6 @@ import {
   isContinuableCardStatus,
   OrchestrationBoard,
   OrchestrationCard,
-  BOARD_WS_METHODS,
 } from "./board.ts";
 import {
   ClientOrchestrationCommand,
@@ -38,6 +39,7 @@ const decodeCardCreateCommand = Schema.decodeUnknownEffect(CardCreateCommand);
 const decodeCardStepReportCommand = Schema.decodeUnknownEffect(CardStepReportCommand);
 const decodeCardReleaseCompleteCommand = Schema.decodeUnknownEffect(CardReleaseCompleteCommand);
 const decodeBoardCreatedPayload = Schema.decodeUnknownEffect(BoardCreatedPayload);
+const decodeCardOperation = Schema.decodeUnknownEffect(CardOperation);
 const decodeCardPosition = Schema.decodeUnknownEffect(CardPosition);
 const decodeCardStatus = Schema.decodeUnknownEffect(CardStatus);
 const decodeBoardReadArtifactInput = Schema.decodeUnknownEffect(BoardReadArtifactInput);
@@ -79,6 +81,8 @@ const sampleCard = {
   parameters: { ticket_id: "SHIP-1" },
   position: { kind: "todo" as const },
   status: null,
+  operation: null,
+  lastError: null,
   snapshot: null,
   branch: null,
   worktreePath: null,
@@ -87,6 +91,7 @@ const sampleCard = {
   updatedAt: "2026-01-01T00:00:00.000Z",
   releasedAt: null,
   completedAt: null,
+  settledAt: null,
   archivedAt: null,
 };
 
@@ -164,6 +169,64 @@ it.effect("roundtrips OrchestrationBoard and OrchestrationCard", () =>
     assert.strictEqual(card.position.kind, "step");
     assert.strictEqual(card.status, "running");
     assert.strictEqual(card.stepThreads.length, 1);
+
+    const {
+      settledAt: _settledAt,
+      operation: _operation,
+      lastError: _lastError,
+      ...legacyCard
+    } = sampleCard;
+    const decodedLegacyCard = yield* decodeOrchestrationCard(legacyCard);
+    assert.strictEqual(decodedLegacyCard.settledAt, null);
+    assert.strictEqual(decodedLegacyCard.operation, null);
+    assert.strictEqual(decodedLegacyCard.lastError, null);
+
+    const withOperation = yield* decodeOrchestrationCard({
+      ...sampleCard,
+      operation: {
+        kind: "starting",
+        operationId: "op-1",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+      },
+      lastError: "previous failure",
+    });
+    assert.strictEqual(withOperation.operation?.kind, "starting");
+    assert.strictEqual(withOperation.lastError, "previous failure");
+
+    // Historical agent status still decodes for re-projection compatibility.
+    const deletingStatus = yield* decodeCardStatus("deleting");
+    assert.strictEqual(deletingStatus, "deleting");
+
+    const resetting = yield* decodeCardOperation({
+      kind: "resetting",
+      operationId: "op-reset",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      activeThreadId: "thread-1",
+      threadIds: ["thread-1", "thread-2"],
+    });
+    assert.strictEqual(resetting.kind, "resetting");
+
+    // Legacy step-entry ops without threadId default to null.
+    const legacyStarting = yield* decodeCardOperation({
+      kind: "starting",
+      operationId: "op-start-legacy",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(legacyStarting.kind, "starting");
+    if (legacyStarting.kind === "starting") {
+      assert.strictEqual(legacyStarting.threadId, null);
+    }
+
+    const startingWithThread = yield* decodeCardOperation({
+      kind: "starting",
+      operationId: "op-start",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      threadId: "board-op-thread:op-start",
+    });
+    assert.strictEqual(startingWithThread.kind, "starting");
+    if (startingWithThread.kind === "starting") {
+      assert.strictEqual(startingWithThread.threadId, "board-op-thread:op-start");
+    }
   }),
 );
 
@@ -233,7 +296,37 @@ it.effect("decodes client board and card commands", () =>
       commandId: "cmd-release-1",
       cardId: "card-1",
     });
+    const settle = yield* decodeClientOrchestrationCommand({
+      type: "card.settle",
+      commandId: "cmd-settle-1",
+      cardId: "card-1",
+    });
+    const unsettle = yield* decodeClientOrchestrationCommand({
+      type: "card.unsettle",
+      commandId: "cmd-unsettle-1",
+      cardId: "card-1",
+    });
+    const deleteCard = yield* decodeClientOrchestrationCommand({
+      type: "card.delete",
+      commandId: "cmd-delete-1",
+      cardId: "card-1",
+    });
+    const reset = yield* decodeClientOrchestrationCommand({
+      type: "card.reset",
+      commandId: "cmd-reset-1",
+      cardId: "card-1",
+    });
+    const cancelLegacy = yield* decodeClientOrchestrationCommand({
+      type: "card.cancel",
+      commandId: "cmd-cancel-1",
+      cardId: "card-1",
+    });
     assert.strictEqual(viaUnion.type, "card.release");
+    assert.strictEqual(settle.type, "card.settle");
+    assert.strictEqual(unsettle.type, "card.unsettle");
+    assert.strictEqual(deleteCard.type, "card.delete");
+    assert.strictEqual(reset.type, "card.reset");
+    assert.strictEqual(cancelLegacy.type, "card.cancel");
   }),
 );
 
@@ -251,6 +344,7 @@ it.effect("decodes internal card commands via OrchestrationCommand", () =>
       type: "card.release.complete",
       commandId: "cmd-rel-complete",
       cardId: "card-1",
+      operationId: "op-release-1",
       branch: "board/card-1",
       worktreePath: "/tmp/wt",
     });
@@ -260,10 +354,46 @@ it.effect("decodes internal card commands via OrchestrationCommand", () =>
       cardId: "card-1",
       status: "paused",
     });
+    const deleteComplete = yield* decodeOrchestrationCommand({
+      type: "card.delete.complete",
+      commandId: "cmd-delete-complete-1",
+      cardId: "card-1",
+      operationId: "op-delete-1",
+    });
+    const deleteFail = yield* decodeOrchestrationCommand({
+      type: "card.delete.fail",
+      commandId: "cmd-delete-fail-1",
+      cardId: "card-1",
+      operationId: "op-delete-1",
+      reason: "cleanup failed",
+    });
+    const resetComplete = yield* decodeOrchestrationCommand({
+      type: "card.reset.complete",
+      commandId: "cmd-reset-complete-1",
+      cardId: "card-1",
+      operationId: "op-reset-1",
+    });
+    const operationFail = yield* decodeOrchestrationCommand({
+      type: "card.operation.fail",
+      commandId: "cmd-operation-fail-1",
+      cardId: "card-1",
+      operationId: "op-retry-1",
+      kind: "retrying",
+      reason: "archive failed",
+    });
 
     assert.strictEqual(report.outcome, "success");
     assert.strictEqual(complete.branch, "board/card-1");
+    assert.strictEqual(complete.operationId, "op-release-1");
     assert.strictEqual(viaUnion.type, "card.status.set");
+    assert.strictEqual(deleteComplete.type, "card.delete.complete");
+    assert.strictEqual(deleteFail.type, "card.delete.fail");
+    assert.strictEqual(resetComplete.type, "card.reset.complete");
+    assert.strictEqual(operationFail.type, "card.operation.fail");
+    if (operationFail.type === "card.operation.fail") {
+      assert.strictEqual(operationFail.kind, "retrying");
+      assert.strictEqual(operationFail.reason, "archive failed");
+    }
   }),
 );
 
@@ -293,7 +423,14 @@ it.effect("decodes board and card event payloads and union membership", () =>
       "card.completed",
       "card.retry-requested",
       "card.cancel-requested",
+      "card.reset-requested",
+      "card.reset",
+      "card.operation-failed",
+      "card.settled",
+      "card.unsettled",
       "card.archived",
+      "card.delete-requested",
+      "card.deleted",
     ] as const;
 
     for (const type of eventTypes) {

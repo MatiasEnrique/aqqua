@@ -6,11 +6,15 @@ import type { OrchestrationBoard } from "@t3tools/contracts";
 import {
   type BoardDraft,
   type BoardStepDraft,
+  buildPlaceholderOptions,
   createStepDraft,
   draftFromBoard,
+  insertSkillToken,
   isBoardDraftSubmittable,
   moveStep,
   removeStep,
+  resolveProfileSkillsProvider,
+  segmentTemplate,
   toBoardSteps,
   updateStep,
   validateBoardDraft,
@@ -155,5 +159,156 @@ describe("board <-> draft round trip", () => {
       profileName: "cc",
       continuation: "auto",
     });
+  });
+});
+
+describe("segmentTemplate", () => {
+  it("round-trips the template text verbatim", () => {
+    const template =
+      "Implement ${issue_id} per ${artifact:Plan}.\nWrite to ${artifact}. ${bad name} ${}";
+    const joined = segmentTemplate(template)
+      .map((segment) => segment.text)
+      .join("");
+    expect(joined).toBe(template);
+  });
+
+  it("classifies parameters, artifacts, and invalid tokens", () => {
+    const kinds = segmentTemplate(
+      "${issue_id} ${artifact} ${artifact:Plan} ${card_title} ${not valid}",
+    ).map((segment) => segment.kind);
+    expect(kinds).toEqual([
+      "parameter",
+      "text",
+      "artifact",
+      "text",
+      "artifact",
+      "text",
+      "parameter",
+      "text",
+      "text",
+    ]);
+  });
+
+  it("exposes the token body without delimiters", () => {
+    const segments = segmentTemplate("${artifact:Plan}");
+    expect(segments).toEqual([
+      { kind: "artifact", text: "${artifact:Plan}", body: "artifact:Plan" },
+    ]);
+  });
+});
+
+describe("skill tokens", () => {
+  it("highlights $skill references on word boundaries, including at end of input", () => {
+    const segments = segmentTemplate("Run $tdd first then $code-review");
+    expect(segments).toEqual([
+      { kind: "text", text: "Run " },
+      { kind: "skill", text: "$tdd", body: "tdd" },
+      { kind: "text", text: " first then " },
+      { kind: "skill", text: "$code-review", body: "code-review" },
+    ]);
+  });
+
+  it("does not treat ${...} placeholders or mid-word dollars as skills", () => {
+    const segments = segmentTemplate("Pay us$5 for ${issue_id}");
+    expect(segments.map((segment) => segment.kind)).toEqual(["text", "parameter"]);
+  });
+
+  it("round-trips templates containing skill tokens", () => {
+    const template = "Use $tdd\n$plan and finish.";
+    const joined = segmentTemplate(template)
+      .map((segment) => segment.text)
+      .join("");
+    expect(joined).toBe(template);
+  });
+});
+
+describe("insertSkillToken", () => {
+  it("pads with spaces so the token sits on word boundaries", () => {
+    expect(insertSkillToken("Implement the fix.", 18, "tdd")).toEqual({
+      text: "Implement the fix. $tdd ",
+      caret: 24,
+    });
+  });
+
+  it("reuses existing whitespace instead of doubling it", () => {
+    expect(insertSkillToken("before  after", 7, "tdd")).toEqual({
+      text: "before $tdd after",
+      caret: 11,
+    });
+  });
+
+  it("inserts into an empty template without a leading space", () => {
+    expect(insertSkillToken("", 0, "tdd")).toEqual({ text: "$tdd ", caret: 5 });
+  });
+});
+
+describe("resolveProfileSkillsProvider", () => {
+  const provider = (overrides: Record<string, unknown>) =>
+    ({
+      instanceId: "claude-1",
+      driver: "claude",
+      enabled: true,
+      ...overrides,
+    }) as unknown as Parameters<typeof resolveProfileSkillsProvider>[1][number];
+
+  it("pins an instance target even when disabled", () => {
+    const pinned = provider({ instanceId: "codex-2", driver: "codex", enabled: false });
+    expect(
+      resolveProfileSkillsProvider({ kind: "instance", instanceId: pinned.instanceId }, [
+        provider({}),
+        pinned,
+      ]),
+    ).toBe(pinned);
+  });
+
+  it("falls back to the first enabled instance of a driver target", () => {
+    const disabled = provider({ instanceId: "claude-0", enabled: false });
+    const enabled = provider({ instanceId: "claude-1" });
+    expect(
+      resolveProfileSkillsProvider({ kind: "driver", driver: enabled.driver }, [disabled, enabled]),
+    ).toBe(enabled);
+  });
+
+  it("returns null for a missing profile target", () => {
+    expect(resolveProfileSkillsProvider(null, [provider({})])).toBeNull();
+  });
+});
+
+describe("buildPlaceholderOptions", () => {
+  const steps = [
+    stepDraft({ id: BoardStepId.make("a"), name: "Plan", promptTemplate: "Plan ${issue_id}" }),
+    stepDraft({ id: BoardStepId.make("b"), name: "Implement", promptTemplate: "Do ${scope}" }),
+    stepDraft({ id: BoardStepId.make("c"), name: "Review", promptTemplate: "Check" }),
+  ];
+
+  it("offers no artifact tokens for the first step", () => {
+    const tokens = buildPlaceholderOptions(steps, 0).map((option) => option.token);
+    expect(tokens).toEqual(["${issue_id}", "${scope}", "${card_title}"]);
+  });
+
+  it("offers the previous artifact and earlier steps only", () => {
+    const tokens = buildPlaceholderOptions(steps, 2).map((option) => option.token);
+    expect(tokens).toEqual([
+      "${artifact}",
+      "${artifact:Plan}",
+      "${artifact:Implement}",
+      "${issue_id}",
+      "${scope}",
+      "${card_title}",
+    ]);
+  });
+
+  it("names the previous step in the ${artifact} description", () => {
+    const artifact = buildPlaceholderOptions(steps, 1).find(
+      (option) => option.token === "${artifact}",
+    );
+    expect(artifact?.description).toContain("Plan");
+  });
+
+  it("skips unnamed steps for named artifact tokens", () => {
+    const unnamed = [stepDraft({ id: BoardStepId.make("a"), name: "  " }), steps[1]!];
+    const tokens = buildPlaceholderOptions(unnamed, 1).map((option) => option.token);
+    expect(tokens).not.toContainEqual(expect.stringContaining("${artifact:"));
+    expect(tokens).toContain("${artifact}");
   });
 });

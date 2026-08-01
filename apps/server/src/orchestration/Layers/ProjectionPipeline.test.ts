@@ -1,3 +1,5 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
 import {
   CheckpointRef,
   CommandId,
@@ -5,18 +7,16 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
   TurnId,
-  ProviderInstanceId,
 } from "@t3tools/contracts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-
+import { ServerConfig } from "../../config.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import {
@@ -25,15 +25,14 @@ import {
 } from "../../persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
   ORCHESTRATION_PROJECTOR_NAMES,
   OrchestrationProjectionPipelineLive,
 } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
-import { ServerConfig } from "../../config.ts";
 
 const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
   OrchestrationProjectionPipelineLive.pipe(
@@ -324,6 +323,22 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           deletedAt: now,
         },
       });
+      yield* eventStore.append({
+        type: "card.settled",
+        eventId: EventId.make("evt-card-settled"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-settled"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-card-settled"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          settledAt: now,
+          updatedAt: now,
+        },
+      });
 
       yield* projectionPipeline.bootstrap;
 
@@ -344,17 +359,74 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         readonly cardId: string;
         readonly positionKind: string;
         readonly snapshotJson: string | null;
+        readonly settledAt: string | null;
       }>`
         SELECT
           card_id AS "cardId",
           position_kind AS "positionKind",
-          snapshot_json AS "snapshotJson"
+          snapshot_json AS "snapshotJson",
+          settled_at AS "settledAt"
         FROM projection_cards
       `;
       assert.equal(cardRows.length, 1);
       assert.equal(cardRows[0]?.cardId, "card-1");
       assert.equal(cardRows[0]?.positionKind, "todo");
       assert.ok(cardRows[0]?.snapshotJson?.includes("Delivery"));
+      assert.equal(cardRows[0]?.settledAt, now);
+
+      const deleteRequested = yield* eventStore.append({
+        type: "card.delete-requested",
+        eventId: EventId.make("evt-card-delete-requested"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-delete-requested"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-card-delete-requested"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          requestedAt: now,
+          operationId: "op-delete" as never,
+        },
+      });
+      yield* projectionPipeline.projectEvent(deleteRequested);
+      const deletingRows = yield* sql<{
+        readonly status: string | null;
+        readonly operationJson: string | null;
+      }>`
+        SELECT
+          status,
+          operation_json AS "operationJson"
+        FROM projection_cards
+        WHERE card_id = 'card-1'
+      `;
+      assert.equal(deletingRows.length, 1);
+      assert.equal(deletingRows[0]?.status, null);
+      assert.ok(deletingRows[0]?.operationJson?.includes("deleting"));
+      assert.ok(deletingRows[0]?.operationJson?.includes("op-delete"));
+
+      const deleted = yield* eventStore.append({
+        type: "card.deleted",
+        eventId: EventId.make("evt-card-deleted"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-deleted"),
+        causationEventId: deleteRequested.eventId,
+        correlationId: CommandId.make("cmd-card-delete-requested"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          deletedAt: now,
+          operationId: "op-delete" as never,
+        },
+      });
+      yield* projectionPipeline.projectEvent(deleted);
+      const deletedRows = yield* sql`
+        SELECT card_id FROM projection_cards WHERE card_id = 'card-1'
+      `;
+      assert.equal(deletedRows.length, 0);
     }),
   );
 });
@@ -1631,7 +1703,11 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         ORDER BY requested_at
       `;
       assert.deepEqual(rows, [
-        { turnId: oldTurnId, state: "completed", completedAt: "2026-01-01T00:00:30.000Z" },
+        {
+          turnId: oldTurnId,
+          state: "completed",
+          completedAt: "2026-01-01T00:00:30.000Z",
+        },
         { turnId: newTurnId, state: "running", completedAt: null },
       ]);
     }),
@@ -1759,7 +1835,10 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 
       yield* projectionPipeline.bootstrap;
 
-      const messageRows = yield* sql<{ readonly text: string; readonly isStreaming: unknown }>`
+      const messageRows = yield* sql<{
+        readonly text: string;
+        readonly isStreaming: unknown;
+      }>`
         SELECT
           text,
           is_streaming AS "isStreaming"
@@ -1912,8 +1991,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
-          { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
+          {
+            turnId: "turn-completed",
+            checkpointTurnCount: 1,
+            status: "completed",
+          },
+          {
+            turnId: "turn-interrupted",
+            checkpointTurnCount: null,
+            status: "interrupted",
+          },
         ]);
       }),
   );
@@ -2901,7 +2988,10 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         createdAt,
       });
 
-      const projectRows = yield* sql<{ readonly title: string; readonly scriptsJson: string }>`
+      const projectRows = yield* sql<{
+        readonly title: string;
+        readonly scriptsJson: string;
+      }>`
         SELECT
           title,
           scripts_json AS "scriptsJson"
@@ -2910,7 +3000,9 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       `;
       assert.deepEqual(projectRows, [{ title: "Live Project", scriptsJson: "[]" }]);
 
-      const projectorRows = yield* sql<{ readonly lastAppliedSequence: number }>`
+      const projectorRows = yield* sql<{
+        readonly lastAppliedSequence: number;
+      }>`
         SELECT
           last_applied_sequence AS "lastAppliedSequence"
         FROM projection_state

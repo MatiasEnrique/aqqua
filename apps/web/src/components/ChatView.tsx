@@ -495,8 +495,8 @@ const SCRIPT_TERMINAL_ROWS = 30;
 export interface ChatViewSurfaceSlots {
   /** Rail rendered left of the message column, under the app's top bar. */
   leftRail?: ReactNode;
-  /** Replaces the message timeline; the composer and footer stay. */
-  timelineOverride?: ReactNode;
+  /** Replaces the timeline and receives the floating composer's measured inset. */
+  timelineOverride?: (contentInsetEndAdjustment: number) => ReactNode;
   /** Extra banners stacked above the composer (card status, sub-agent hint). */
   composerBanners?: ReadonlyArray<ComposerBannerStackItem> | undefined;
   renderComposerIdlePrimaryAction?: ComposerIdlePrimaryActionRenderer | undefined;
@@ -5979,6 +5979,9 @@ function ChatViewContent(props: ChatViewProps) {
           cwd={gitStatusCwd}
           repositoryRefName={gitStatusQuery.data?.refName ?? null}
           timestampFormat={timestampFormat}
+          composerDraftTarget={composerDraftTarget}
+          threadRef={activeThreadRef}
+          workspaceRef={activeWorkspacePanelRef}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
@@ -6103,7 +6106,7 @@ function ChatViewContent(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-              {timelineOverride ?? (
+              {timelineOverride?.(composerOverlayHeight) ?? (
                 <>
                   {/* Messages — LegendList handles virtualization and scrolling internally */}
                   <MessagesTimeline

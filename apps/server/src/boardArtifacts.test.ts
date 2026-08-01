@@ -92,7 +92,10 @@ it.layer(BoardArtifactsTestLayer)("boardArtifacts IO", (it) => {
         stepThreads: [],
         releasedAt: null,
         completedAt: null,
+        settledAt: null,
         archivedAt: null,
+        operation: null,
+        lastError: null,
         createdAt: NOW,
         updatedAt: NOW,
       });

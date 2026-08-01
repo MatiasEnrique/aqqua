@@ -1,12 +1,13 @@
+import { describe, expect, it } from "@effect/vitest";
 import {
+  CardId,
+  type ClientOrchestrationCommand,
   CommandId,
   EnvironmentId,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ThreadId,
-  type ClientOrchestrationCommand,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,15 +16,16 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import {
   AVAILABLE_CONNECTION_STATE,
-  PrimaryConnectionTarget,
   type PreparedConnection,
+  PrimaryConnectionTarget,
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
-import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
+import type * as RpcSession from "../rpc/session.ts";
 import {
   archiveThread,
   createProject,
+  resetCard,
   settleThread,
   stopThreadSession,
   unsettleThread,
@@ -167,6 +169,26 @@ describe("environment commands", () => {
           commandId: "unsettle-command",
           threadId: "thread-1",
           reason: "user",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dispatches the distinct card.reset command", () =>
+    Effect.gen(function* () {
+      const dispatched: ClientOrchestrationCommand[] = [];
+      const supervisor = yield* makeSupervisor(dispatched);
+
+      yield* resetCard({
+        commandId: CommandId.make("reset-command"),
+        cardId: CardId.make("card-1"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(dispatched).toEqual([
+        {
+          type: "card.reset",
+          commandId: "reset-command",
+          cardId: "card-1",
         },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),

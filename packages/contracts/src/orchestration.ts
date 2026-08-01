@@ -4,8 +4,6 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
-import { ProviderOptionSelections } from "./model.ts";
-import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
   BoardId,
@@ -33,17 +31,33 @@ import {
   CardArchivedPayload,
   CardCancelCommand,
   CardCancelRequestedPayload,
+  CardCleanupProgressCommand,
+  CardCleanupProgressedPayload,
   CardCompletedPayload,
   CardContinueCommand,
   CardCreateCommand,
   CardCreatedPayload,
+  CardDeleteCommand,
+  CardDeleteCompleteCommand,
+  CardDeletedPayload,
+  CardDeleteFailCommand,
+  CardDeleteRequestedPayload,
+  CardOperationFailCommand,
+  CardOperationFailedPayload,
   CardReleaseCommand,
   CardReleaseCompleteCommand,
+  CardReleasedPayload,
   CardReleaseFailCommand,
   CardReleaseRequestedPayload,
-  CardReleasedPayload,
+  CardResetCommand,
+  CardResetCompleteCommand,
+  CardResetFailCommand,
+  CardResetPayload,
+  CardResetRequestedPayload,
   CardRetryCommand,
   CardRetryRequestedPayload,
+  CardSettleCommand,
+  CardSettledPayload,
   CardStatusSetCommand,
   CardStatusSetPayload,
   CardStepAdvanceRequestedPayload,
@@ -52,9 +66,13 @@ import {
   CardStepReportCommand,
   CardTitleSetCommand,
   CardTitleUpdatedPayload,
+  CardUnsettleCommand,
+  CardUnsettledPayload,
   OrchestrationBoard,
   OrchestrationCard,
 } from "./board.ts";
+import { RepositoryIdentity } from "./environment.ts";
+import { ProviderOptionSelections } from "./model.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
@@ -856,8 +874,12 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   CardReleaseCommand,
   CardContinueCommand,
   CardRetryCommand,
+  CardResetCommand,
   CardCancelCommand,
+  CardSettleCommand,
+  CardUnsettleCommand,
   CardArchiveCommand,
+  CardDeleteCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -890,8 +912,12 @@ export const ClientOrchestrationCommand = Schema.Union([
   CardReleaseCommand,
   CardContinueCommand,
   CardRetryCommand,
+  CardResetCommand,
   CardCancelCommand,
+  CardSettleCommand,
+  CardUnsettleCommand,
   CardArchiveCommand,
+  CardDeleteCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -974,6 +1000,12 @@ const InternalOrchestrationCommand = Schema.Union([
   CardStepReportCommand,
   CardStatusSetCommand,
   CardTitleSetCommand,
+  CardResetCompleteCommand,
+  CardResetFailCommand,
+  CardDeleteCompleteCommand,
+  CardDeleteFailCommand,
+  CardCleanupProgressCommand,
+  CardOperationFailCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1023,7 +1055,15 @@ export const OrchestrationEventType = Schema.Literals([
   "card.completed",
   "card.retry-requested",
   "card.cancel-requested",
+  "card.reset-requested",
+  "card.reset",
+  "card.operation-failed",
+  "card.cleanup-progressed",
+  "card.settled",
+  "card.unsettled",
   "card.archived",
+  "card.delete-requested",
+  "card.deleted",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1447,8 +1487,48 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("card.reset-requested"),
+    payload: CardResetRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.reset"),
+    payload: CardResetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.operation-failed"),
+    payload: CardOperationFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.cleanup-progressed"),
+    payload: CardCleanupProgressedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.settled"),
+    payload: CardSettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.unsettled"),
+    payload: CardUnsettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("card.archived"),
     payload: CardArchivedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.delete-requested"),
+    payload: CardDeleteRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.deleted"),
+    payload: CardDeletedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

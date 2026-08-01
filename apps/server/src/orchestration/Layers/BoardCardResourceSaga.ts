@@ -1,0 +1,431 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
+import {
+  type CardCleanupStage,
+  type CardId,
+  type CardStatus,
+  CommandId,
+  type OrchestrationCard,
+} from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import * as Crypto from "effect/Crypto";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
+
+import { boardArtifactsRoot } from "../../boardArtifacts.ts";
+import { ServerConfig } from "../../config.ts";
+import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { buildBoardCardTitleMessage } from "../../textGeneration/TextGenerationPrompts.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  deleteWorktreeOwned,
+  listActiveThreadsForWorktreePath,
+} from "../Services/WorktreeDeletion.ts";
+import { WorktreePathCoordination } from "../Services/WorktreePathCoordination.ts";
+import { cardOperationMatches } from "./BoardReactorState.ts";
+import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
+
+export const makeBoardCardResourceSaga = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
+  const randomUUID = crypto.randomUUIDv4;
+  const serverCommandId = (tag: string) =>
+    randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:board:${tag}:${uuid}`)));
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const gitWorkflow = yield* GitWorkflowService;
+  const settings = yield* ServerSettingsService;
+  const config = yield* ServerConfig;
+  const fs = yield* FileSystem.FileSystem;
+  const textGeneration = yield* TextGeneration;
+  const pathCoordination = yield* WorktreePathCoordination;
+
+  const dispatch = (command: Parameters<typeof orchestrationEngine.dispatch>[0]) =>
+    orchestrationEngine.dispatch(command);
+
+  const setCardStatus = Effect.fn("BoardCardResourceSaga.setCardStatus")(function* (
+    cardId: CardId,
+    status: CardStatus | null,
+  ) {
+    yield* dispatch({
+      type: "card.status.set",
+      commandId: yield* serverCommandId("status-set"),
+      cardId,
+      status,
+    });
+  });
+
+  const failCardOperation = Effect.fn("BoardCardResourceSaga.failCardOperation")(function* (
+    card: OrchestrationCard,
+    reason: string,
+  ) {
+    const operation = card.operation;
+    if (operation === null) {
+      yield* setCardStatus(card.id, "failed");
+      return;
+    }
+    yield* dispatch({
+      type: "card.operation.fail",
+      commandId: yield* serverCommandId("operation-fail"),
+      cardId: card.id,
+      operationId: operation.operationId,
+      kind: operation.kind,
+      reason,
+    });
+  });
+
+  const progressCardCleanup = Effect.fn("BoardCardResourceSaga.progressCardCleanup")(function* (
+    card: OrchestrationCard,
+    kind: "resetting" | "deleting",
+    stage: CardCleanupStage,
+  ) {
+    const operation = card.operation;
+    if (operation?.kind !== kind) return;
+    yield* dispatch({
+      type: "card.cleanup.progress",
+      commandId: yield* serverCommandId("cleanup-progress"),
+      cardId: card.id,
+      operationId: operation.operationId,
+      kind,
+      stage,
+    });
+  });
+
+  const processCardCreated = Effect.fn("BoardReactor.processCardCreated")(function* (
+    event: Extract<BoardReactorEvent, { type: "card.created" }>,
+  ) {
+    // Fire-and-forget title generation: never block release or fail creation.
+    const cardId = event.payload.cardId;
+    const parameters = event.payload.parameters;
+    const placeholderTitle = event.payload.title;
+    const projectId = event.payload.projectId;
+
+    yield* Effect.gen(function* () {
+      const serverSettings = yield* settings.getSettings;
+      const modelSelection = serverSettings.textGenerationModelSelection;
+      if (!modelSelection) {
+        return;
+      }
+
+      const project = yield* projectionSnapshotQuery
+        .getProjectShellById(projectId)
+        .pipe(Effect.map(Option.getOrUndefined));
+      const cwd = project?.workspaceRoot ?? process.cwd();
+      const message = buildBoardCardTitleMessage({
+        parameters,
+        placeholderTitle,
+      });
+
+      const generated = yield* textGeneration.generateThreadTitle({
+        cwd,
+        message,
+        modelSelection,
+      });
+      if (!generated.title.trim()) {
+        return;
+      }
+
+      // Skip if the card was already retitled (unlikely race).
+      const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
+      if (Option.isNone(cardOption)) {
+        return;
+      }
+      if (cardOption.value.title !== placeholderTitle) {
+        return;
+      }
+
+      yield* dispatch({
+        type: "card.title.set",
+        commandId: yield* serverCommandId("title-set"),
+        cardId,
+        title: generated.title.trim().slice(0, 255),
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logDebug("board reactor skipped card title generation", {
+          cardId,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+  });
+
+  const processCardArchived = Effect.fn("BoardReactor.processCardArchived")(function* (
+    event: Extract<BoardReactorEvent, { type: "card.archived" }>,
+  ) {
+    const cardId = event.payload.cardId;
+    // Re-read for worktree path (archived cards stay in projection).
+    const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
+    if (Option.isNone(cardOption)) {
+      return;
+    }
+    const card = cardOption.value;
+
+    // Artifacts first (independent of worktree membership).
+    const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
+    yield* fs.remove(artifactDir, { recursive: true }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("board reactor failed to remove card artifact directory", {
+          cardId,
+          artifactDir,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+
+    if (card.worktreePath === null) {
+      return;
+    }
+
+    const project = yield* projectionSnapshotQuery
+      .getProjectShellById(card.projectId)
+      .pipe(Effect.map(Option.getOrUndefined));
+    const cwd = project?.workspaceRoot ?? card.worktreePath;
+
+    yield* deleteWorktreeOwned(
+      {
+        cwd,
+        path: card.worktreePath,
+      },
+      {
+        inspectWorktreeRemoval: (input) => gitWorkflow.inspectWorktreeRemoval(input),
+        removeWorktree: (input) => gitWorkflow.removeWorktree(input),
+        listMemberThreads: (worktreePath) =>
+          Effect.gen(function* () {
+            const [live, archived] = yield* Effect.all([
+              projectionSnapshotQuery.getShellSnapshot(),
+              projectionSnapshotQuery.getArchivedShellSnapshot(),
+            ]);
+            const members = [...live.threads, ...archived.threads].map((thread) => ({
+              id: thread.id,
+              parentThreadId: thread.parentThreadId,
+              worktreePath: thread.worktreePath,
+              deletedAt: null,
+              archivedAt: thread.archivedAt,
+            }));
+            return listActiveThreadsForWorktreePath(members, worktreePath);
+          }).pipe(
+            Effect.mapError((error) => ({
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to load worktree conversation membership.",
+            })),
+          ),
+        dispatchThreadDelete: ({ commandId, threadId }) =>
+          orchestrationEngine
+            .dispatch({
+              type: "thread.delete",
+              commandId,
+              threadId,
+            })
+            .pipe(
+              Effect.asVoid,
+              Effect.mapError((error) => ({
+                message: error instanceof Error ? error.message : String(error),
+              })),
+            ),
+        allocateCommandId: (tag) =>
+          serverCommandId(tag).pipe(
+            Effect.mapError((error) => ({
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to allocate worktree deletion command id.",
+            })),
+          ),
+        pathCoordination,
+      },
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("board reactor failed to delete card worktree on archive", {
+          cardId,
+          worktreePath: card.worktreePath,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+  });
+
+  const processCardDeleteRequested = Effect.fn("BoardReactor.processCardDeleteRequested")(
+    function* (event: Extract<BoardReactorEvent, { type: "card.delete-requested" }>) {
+      const cardId = event.payload.cardId;
+      const operationId = event.payload.operationId;
+      const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
+      if (Option.isNone(cardOption)) {
+        return;
+      }
+      const card = cardOption.value;
+
+      // Durable deleting claim (preferred) or legacy status: deleting.
+      const isLegacyDeleting = card.status === "deleting" && card.operation === null;
+      if (operationId !== undefined && !cardOperationMatches(card, operationId, ["deleting"])) {
+        if (!isLegacyDeleting) {
+          return;
+        }
+      } else if (card.operation?.kind !== "deleting" && !isLegacyDeleting) {
+        return;
+      }
+
+      const failDelete = (reason: string) => failCardOperation(card, reason);
+      let cleanupStage =
+        card.operation?.kind === "deleting"
+          ? (card.operation.cleanupStage ?? "pending")
+          : "pending";
+
+      if (card.operation?.kind === "deleting" && cleanupStage === "pending") {
+        yield* progressCardCleanup(card, "deleting", "cleanup-started");
+        cleanupStage = "cleanup-started";
+      }
+
+      if (
+        card.worktreePath !== null &&
+        cleanupStage !== "worktree-removed" &&
+        cleanupStage !== "artifacts-removed"
+      ) {
+        const project = yield* projectionSnapshotQuery
+          .getProjectShellById(card.projectId)
+          .pipe(Effect.map(Option.getOrUndefined));
+        const cwd = project?.workspaceRoot ?? card.worktreePath;
+        const cleanup = yield* deleteWorktreeOwned(
+          { cwd, path: card.worktreePath, force: true },
+          {
+            inspectWorktreeRemoval: (input) => gitWorkflow.inspectWorktreeRemoval(input),
+            removeWorktree: (input) => gitWorkflow.removeWorktree(input),
+            listMemberThreads: (worktreePath) =>
+              Effect.gen(function* () {
+                const [live, archived] = yield* Effect.all([
+                  projectionSnapshotQuery.getShellSnapshot(),
+                  projectionSnapshotQuery.getArchivedShellSnapshot(),
+                ]);
+                return listActiveThreadsForWorktreePath(
+                  [...live.threads, ...archived.threads].map((thread) => ({
+                    id: thread.id,
+                    parentThreadId: thread.parentThreadId,
+                    worktreePath: thread.worktreePath,
+                    deletedAt: null,
+                    archivedAt: thread.archivedAt,
+                  })),
+                  worktreePath,
+                );
+              }).pipe(
+                Effect.mapError((error) => ({
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to load worktree conversation membership.",
+                })),
+              ),
+            dispatchThreadDelete: ({ commandId, threadId }) =>
+              orchestrationEngine.dispatch({ type: "thread.delete", commandId, threadId }).pipe(
+                Effect.asVoid,
+                Effect.mapError((error) => ({
+                  message: error instanceof Error ? error.message : String(error),
+                })),
+              ),
+            allocateCommandId: (tag) =>
+              serverCommandId(tag).pipe(
+                Effect.mapError((error) => ({
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to allocate worktree deletion command id.",
+                })),
+              ),
+            pathCoordination,
+          },
+        ).pipe(Effect.result);
+
+        if (Result.isFailure(cleanup)) {
+          yield* failDelete(
+            `Delete failed: ${cleanup.failure instanceof Error ? cleanup.failure.message : String(cleanup.failure)}`,
+          );
+          return;
+        }
+        if (cleanup.success.status !== "completed") {
+          if (
+            cleanup.success.status === "partial" &&
+            cleanup.success.stage === "worktree" &&
+            cleanupStage === "cleanup-started"
+          ) {
+            yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+          }
+          const detail =
+            cleanup.success.status === "partial"
+              ? cleanup.success.detail
+              : `Worktree cleanup was rejected (${cleanup.success.reason}).`;
+          yield* failDelete(`Delete failed: ${detail}`);
+          return;
+        }
+        if (cleanupStage === "cleanup-started") {
+          yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+        }
+        yield* progressCardCleanup(card, "deleting", "worktree-removed");
+      } else if (
+        card.worktreePath === null &&
+        cleanupStage !== "worktree-removed" &&
+        cleanupStage !== "artifacts-removed"
+      ) {
+        if (cleanupStage === "cleanup-started") {
+          yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+        }
+        yield* progressCardCleanup(card, "deleting", "worktree-removed");
+      }
+
+      if (cleanupStage !== "artifacts-removed") {
+        const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
+        const artifactCleanup = yield* fs
+          .remove(artifactDir, { recursive: true })
+          .pipe(Effect.result);
+        if (Result.isFailure(artifactCleanup)) {
+          yield* failDelete(
+            `Delete failed while removing artifacts: ${artifactCleanup.failure instanceof Error ? artifactCleanup.failure.message : String(artifactCleanup.failure)}`,
+          );
+          return;
+        }
+        const beforeArtifactProgress = yield* projectionSnapshotQuery.getCardById(cardId);
+        if (Option.isSome(beforeArtifactProgress)) {
+          yield* progressCardCleanup(beforeArtifactProgress.value, "deleting", "artifacts-removed");
+        }
+      }
+
+      const latest = yield* projectionSnapshotQuery.getCardById(cardId);
+      if (Option.isNone(latest)) {
+        return;
+      }
+      const claimedOperationId = latest.value.operation?.operationId ?? operationId;
+      if (claimedOperationId === undefined) {
+        // Legacy status:deleting rows had no operation id; complete without it
+        // is rejected by the new decider — only durable deletes complete here.
+        if (latest.value.status === "deleting") {
+          yield* Effect.logWarning(
+            "board reactor cannot complete legacy deleting card without operation id",
+            { cardId },
+          );
+        }
+        return;
+      }
+      if (!cardOperationMatches(latest.value, claimedOperationId, ["deleting"])) {
+        return;
+      }
+
+      yield* dispatch({
+        type: "card.delete.complete",
+        commandId: yield* serverCommandId("delete-complete"),
+        cardId,
+        operationId: claimedOperationId,
+      });
+    },
+  );
+
+  return {
+    processCardArchived,
+    processCardCreated,
+    processCardDeleteRequested,
+  } as const;
+});

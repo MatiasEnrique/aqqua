@@ -1,11 +1,4 @@
-import type {
-  CardId,
-  OrchestrationBoard,
-  OrchestrationCard,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -14,20 +7,9 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { projectBoardEvent } from "./boardProjector.ts";
+import { type OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
 import {
-  BoardCreatedPayload,
-  BoardDeletedPayload,
-  BoardUpdatedPayload,
-  CardArchivedPayload,
-  CardCompletedPayload,
-  CardCreatedPayload,
-  CardReleasedPayload,
-  CardReleaseRequestedPayload,
-  CardStatusSetPayload,
-  CardStepEnteredPayload,
-  CardTitleUpdatedPayload,
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
@@ -39,19 +21,18 @@ import {
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
+  ThreadRevertedPayload,
   ThreadRuntimeModeSetPayload,
+  ThreadSessionSetPayload,
   ThreadSettledPayload,
   ThreadSnoozedPayload,
+  ThreadTurnDiffCompletedPayload,
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
   ThreadUnsnoozedPayload,
-  ThreadRevertedPayload,
-  ThreadSessionSetPayload,
-  ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
-type CardPatch = Partial<Omit<OrchestrationCard, "id" | "boardId" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
@@ -90,14 +71,6 @@ function updateThread(
   patch: ThreadPatch,
 ): OrchestrationThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
-}
-
-function updateCard(
-  cards: ReadonlyArray<OrchestrationCard>,
-  cardId: CardId,
-  patch: CardPatch,
-): OrchestrationCard[] {
-  return cards.map((card) => (card.id === cardId ? { ...card, ...patch } : card));
 }
 
 function decodeForEvent<A>(
@@ -229,6 +202,10 @@ export function projectEvent(
     snapshotSequence: event.sequence,
     updatedAt: event.occurredAt,
   };
+
+  if (event.aggregateKind === "board" || event.aggregateKind === "card") {
+    return projectBoardEvent(nextBase, event);
+  }
 
   switch (event.type) {
     case "project.created":
@@ -776,198 +753,6 @@ export function projectEvent(
             }),
           };
         }),
-      );
-
-    case "board.created":
-      return decodeForEvent(BoardCreatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const nextBoard: OrchestrationBoard = {
-            id: payload.boardId,
-            projectId: payload.projectId,
-            name: payload.name,
-            steps: payload.steps,
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
-            deletedAt: null,
-          };
-          const boards = nextBase.boards ?? [];
-          const existing = boards.find((entry) => entry.id === payload.boardId);
-          return {
-            ...nextBase,
-            boards: existing
-              ? boards.map((entry) => (entry.id === payload.boardId ? nextBoard : entry))
-              : [...boards, nextBoard],
-          };
-        }),
-      );
-
-    case "board.updated":
-      return decodeForEvent(BoardUpdatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          boards: (nextBase.boards ?? []).map((board) =>
-            board.id === payload.boardId
-              ? {
-                  ...board,
-                  name: payload.name,
-                  steps: payload.steps,
-                  updatedAt: payload.updatedAt,
-                }
-              : board,
-          ),
-        })),
-      );
-
-    case "board.deleted":
-      return decodeForEvent(BoardDeletedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          boards: (nextBase.boards ?? []).map((board) =>
-            board.id === payload.boardId
-              ? {
-                  ...board,
-                  deletedAt: payload.deletedAt,
-                  updatedAt: payload.deletedAt,
-                }
-              : board,
-          ),
-        })),
-      );
-
-    case "card.created":
-      return decodeForEvent(CardCreatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const nextCard: OrchestrationCard = {
-            id: payload.cardId,
-            boardId: payload.boardId,
-            projectId: payload.projectId,
-            title: payload.title,
-            parameters: payload.parameters,
-            position: { kind: "todo" },
-            status: null,
-            snapshot: null,
-            branch: null,
-            worktreePath: null,
-            stepThreads: [],
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
-            releasedAt: null,
-            completedAt: null,
-            archivedAt: null,
-          };
-          const cards = nextBase.cards ?? [];
-          const existing = cards.find((entry) => entry.id === payload.cardId);
-          return {
-            ...nextBase,
-            cards: existing
-              ? cards.map((entry) => (entry.id === payload.cardId ? nextCard : entry))
-              : [...cards, nextCard],
-          };
-        }),
-      );
-
-    case "card.title-updated":
-      return decodeForEvent(CardTitleUpdatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            title: payload.title,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
-    case "card.release-requested":
-      return decodeForEvent(CardReleaseRequestedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            snapshot: payload.snapshot,
-            updatedAt: payload.requestedAt,
-          }),
-        })),
-      );
-
-    case "card.released":
-      return decodeForEvent(CardReleasedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            branch: payload.branch,
-            worktreePath: payload.worktreePath,
-            releasedAt: payload.releasedAt,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
-    case "card.step-entered":
-      return decodeForEvent(CardStepEnteredPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const cards = nextBase.cards ?? [];
-          const card = cards.find((entry) => entry.id === payload.cardId);
-          if (!card) {
-            return nextBase;
-          }
-          const stepThreads = [
-            ...card.stepThreads,
-            {
-              stepIndex: payload.stepIndex,
-              threadId: payload.threadId,
-              spawnedAt: payload.enteredAt,
-            },
-          ];
-          return {
-            ...nextBase,
-            cards: updateCard(cards, payload.cardId, {
-              position: { kind: "step", stepIndex: payload.stepIndex },
-              status: "running",
-              stepThreads,
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
-
-    case "card.step-advance-requested":
-    case "card.retry-requested":
-    case "card.cancel-requested":
-      // Reactor signals: no card projection fields change.
-      return Effect.succeed(nextBase);
-
-    case "card.status-set":
-      return decodeForEvent(CardStatusSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            status: payload.status,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
-    case "card.completed":
-      return decodeForEvent(CardCompletedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            position: { kind: "done" },
-            status: null,
-            completedAt: payload.completedAt,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
-    case "card.archived":
-      return decodeForEvent(CardArchivedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
-            archivedAt: payload.archivedAt,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
       );
 
     default:

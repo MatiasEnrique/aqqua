@@ -5391,6 +5391,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         "eyJ2IjoxLCJ0aXBzIjpbImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiXSwic2tpcCI6MTAwfQ";
       const listInputs: unknown[] = [];
       const detailInputs: unknown[] = [];
+      const diffInputs: unknown[] = [];
       let refreshCalls = 0;
       yield* buildAppUnderTest({
         config: { cwd: "/tmp/repo" },
@@ -5443,6 +5444,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 filesTruncated: false,
               });
             },
+            getDiff: (input) => {
+              diffInputs.push(input);
+              return Effect.succeed({
+                commitId: input.commitId,
+                diff: "diff --git a/README.md b/README.md\n",
+                truncated: false,
+              });
+            },
             getFileDiff: (input) =>
               Effect.succeed({
                 commitId: input.commitId,
@@ -5478,6 +5487,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+      const diff = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsGetCommitDiff]({
+            cwd: "/tmp/repo",
+            commitId,
+          }),
+        ),
+      );
       const fileDiff = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsGetCommitFileDiff]({
@@ -5491,9 +5508,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(listed.commits[0]?.id, commitId);
       assert.equal(details.files[0]?.path, "README.md");
+      assert.match(diff.diff, /README\.md/);
       assert.equal(fileDiff.path, "README.md");
       assert.deepStrictEqual(listInputs, [{ cwd: "/tmp/repo", cursor: historyCursor, limit: 50 }]);
       assert.deepStrictEqual(detailInputs, [{ cwd: "/tmp/repo", commitId }]);
+      assert.deepStrictEqual(diffInputs, [{ cwd: "/tmp/repo", commitId }]);
       assert.equal(refreshCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

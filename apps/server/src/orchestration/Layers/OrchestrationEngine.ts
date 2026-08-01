@@ -1,12 +1,12 @@
 import type {
   BoardId,
   CardId,
+  OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import type { OrchestrationCommand } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -27,29 +27,29 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   metricAttributes,
   orchestrationCommandAckDuration,
-  orchestrationCommandsTotal,
   orchestrationCommandDuration,
+  orchestrationCommandsTotal,
 } from "../../observability/Metrics.ts";
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
-import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { decideOrchestrationCommand } from "../decider.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
-import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
-import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
-  layer as WorktreePathCoordinationLive,
   WorktreePathCoordination,
+  layer as WorktreePathCoordinationLive,
 } from "../Services/WorktreePathCoordination.ts";
 
 const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
@@ -87,9 +87,19 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "card.continue":
     case "card.retry":
     case "card.cancel":
+    case "card.reset":
+    case "card.settle":
+    case "card.unsettle":
     case "card.archive":
+    case "card.delete":
+    case "card.delete.complete":
+    case "card.delete.fail":
     case "card.release.complete":
     case "card.release.fail":
+    case "card.reset.complete":
+    case "card.reset.fail":
+    case "card.cleanup.progress":
+    case "card.operation.fail":
     case "card.step.enter":
     case "card.step.report":
     case "card.status.set":

@@ -638,9 +638,18 @@ const makeWsRpcLayer = (
           case "card.completed":
           case "card.retry-requested":
           case "card.cancel-requested":
+          case "card.reset":
           case "card.archived":
-            // v1 never emits card-removed; archived cards stay for clients to filter.
+          case "card.delete-requested":
             return cardUpsert(event.payload.cardId, event.sequence);
+          case "card.deleted":
+            return Effect.succeed(
+              Option.some({
+                kind: "card-removed" as const,
+                sequence: event.sequence,
+                cardId: event.payload.cardId,
+              }),
+            );
           case "thread.deleted":
           case "thread.archived":
             return Effect.succeed(
@@ -1983,6 +1992,10 @@ const makeWsRpcLayer = (
           }),
         [WS_METHODS.vcsGetCommitDetails]: (input) =>
           observeRpcEffect(WS_METHODS.vcsGetCommitDetails, gitWorkflow.getCommitDetails(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsGetCommitDiff]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsGetCommitDiff, gitWorkflow.getCommitDiff(input), {
             "rpc.aggregate": "vcs",
           }),
         [WS_METHODS.vcsGetCommitFileDiff]: (input) =>

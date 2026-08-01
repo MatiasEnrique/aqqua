@@ -3,6 +3,7 @@ import {
   BoardSnapshot,
   BoardStep,
   CardId,
+  CardOperation,
   CardParameters,
   CardStepThread,
   ChatAttachment,
@@ -88,6 +89,7 @@ const ProjectionCardDbRowSchema = ProjectionCard.mapFields(
     parameters: Schema.fromJsonString(CardParameters),
     snapshot: Schema.NullOr(Schema.fromJsonString(BoardSnapshot)),
     stepThreads: Schema.fromJsonString(Schema.Array(CardStepThread)),
+    operation: Schema.NullOr(Schema.fromJsonString(CardOperation)),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -292,6 +294,8 @@ function mapCardRow(row: Schema.Schema.Type<typeof ProjectionCardDbRowSchema>): 
     parameters: row.parameters,
     position,
     status: row.status,
+    operation: row.operation,
+    lastError: row.lastError,
     snapshot: row.snapshot,
     branch: row.branch,
     worktreePath: row.worktreePath,
@@ -300,6 +304,7 @@ function mapCardRow(row: Schema.Schema.Type<typeof ProjectionCardDbRowSchema>): 
     updatedAt: row.updatedAt,
     releasedAt: row.releasedAt,
     completedAt: row.completedAt,
+    settledAt: row.settledAt,
     archivedAt: row.archivedAt,
   };
 }
@@ -418,7 +423,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           step_threads_json AS "stepThreads",
           released_at AS "releasedAt",
           completed_at AS "completedAt",
+          settled_at AS "settledAt",
           archived_at AS "archivedAt",
+          operation_json AS "operation",
+          last_error AS "lastError",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_cards
@@ -464,7 +472,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           step_threads_json AS "stepThreads",
           released_at AS "releasedAt",
           completed_at AS "completedAt",
+          settled_at AS "settledAt",
           archived_at AS "archivedAt",
+          operation_json AS "operation",
+          last_error AS "lastError",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_cards

@@ -3,7 +3,7 @@ import type {
   BoardStepContinuation,
   CardId,
   CardStatus,
-  EnvironmentId,
+  CardOperationKind as ContractCardOperationKind,
   OrchestrationBoard,
   OrchestrationCard,
   OrchestrationShellSnapshot,
@@ -11,49 +11,57 @@ import type {
   ScopedProjectRef,
   ThreadId,
 } from "@t3tools/contracts";
-import { BOARD_WS_METHODS, CONTINUABLE_CARD_STATUSES } from "@t3tools/contracts";
+import { BOARD_WS_METHODS, CONTINUABLE_CARD_STATUSES, EnvironmentId } from "@t3tools/contracts";
 import { extractBoardTemplatePlaceholders } from "@t3tools/shared/boardTemplate";
-import * as Crypto from "effect/Crypto";
+import type * as Crypto from "effect/Crypto";
 import { Atom } from "effect/unstable/reactivity";
-
+import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
   type ArchiveCardInput,
-  type CancelCardInput,
+  archiveCard,
   type ContinueCardInput,
   type CreateBoardInput,
   type CreateCardInput,
-  type DeleteBoardInput,
-  type ReleaseCardInput,
-  type RetryCardInput,
-  type UpdateBoardInput,
-  archiveCard,
-  cancelCard,
   continueCard,
   createBoard,
   createCard,
+  type DeleteBoardInput,
+  type DeleteCardInput,
   deleteBoard,
+  deleteCard,
+  type ReleaseCardInput,
+  type ResetCardInput,
+  type RetryCardInput,
   releaseCard,
+  resetCard,
   retryCard,
+  type SettleCardInput,
+  settleCard,
+  type UnsettleCardInput,
+  type UpdateBoardInput,
+  unsettleCard,
   updateBoard,
 } from "../operations/commands.ts";
-import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { arrayElementsEqual, parseProjectKey, projectKey } from "./entities.ts";
 import {
   createAtomCommandScheduler,
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
 } from "./runtime.ts";
-import { arrayElementsEqual, parseProjectKey, projectKey } from "./entities.ts";
 
 export type {
   ArchiveCardInput,
-  CancelCardInput,
   ContinueCardInput,
   CreateBoardInput,
   CreateCardInput,
   DeleteBoardInput,
+  DeleteCardInput,
   ReleaseCardInput,
+  ResetCardInput,
   RetryCardInput,
+  SettleCardInput,
+  UnsettleCardInput,
   UpdateBoardInput,
 } from "../operations/commands.ts";
 
@@ -99,25 +107,51 @@ export function selectBoardCards(
   return matches.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
+/** Unarchived cards from every live board in a project, oldest first. */
+export function selectProjectCards(
+  cards: ReadonlyArray<OrchestrationCard>,
+  boards: ReadonlyArray<OrchestrationBoard>,
+): ReadonlyArray<OrchestrationCard> {
+  if (boards.length === 0) return EMPTY_CARDS;
+  const boardIds = new Set(boards.map((board) => board.id as string));
+  const matches = cards.filter(
+    (card) => boardIds.has(card.boardId as string) && card.archivedAt === null,
+  );
+  if (matches.length === 0) return EMPTY_CARDS;
+  return matches.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
 export interface BoardCardSections {
   /** Backlog: no worktree, no snapshot — the Start action lives here. */
   readonly todo: ReadonlyArray<OrchestrationCard>;
   /** Released and still inside the step pipeline. */
   readonly inFlight: ReadonlyArray<OrchestrationCard>;
-  /** Finished the pipeline; the Archive action lives here. */
+  /** Finished the pipeline and still on the working board. */
   readonly done: ReadonlyArray<OrchestrationCard>;
+  /** Done cards explicitly moved out of the working board. */
+  readonly settled: ReadonlyArray<OrchestrationCard>;
+  /**
+   * Accepted for deletion and on their way out. Held apart from every normal
+   * section so a card leaves the board the moment the server takes the
+   * operation, rather than lingering until physical cleanup finishes.
+   */
+  readonly deleting: ReadonlyArray<OrchestrationCard>;
 }
 
 const EMPTY_SECTIONS: BoardCardSections = Object.freeze({
   todo: EMPTY_CARDS,
   inFlight: EMPTY_CARDS,
   done: EMPTY_CARDS,
+  settled: EMPTY_CARDS,
+  deleting: EMPTY_CARDS,
 });
 
 /**
- * Split a board's cards into the run table's three sections. In-flight rows
+ * Split a board's cards by position plus the settled lifecycle. In-flight rows
  * keep their release order (most recent first) so the active work reads top
- * down; To-Do and Done stay in creation order.
+ * down; To-Do and Done stay in creation order. A card being deleted is pulled
+ * out of all of them; if its deletion fails the operation clears and the card
+ * drops straight back into the section it came from.
  */
 export function groupBoardCards(cards: ReadonlyArray<OrchestrationCard>): BoardCardSections {
   if (cards.length === 0) {
@@ -126,7 +160,17 @@ export function groupBoardCards(cards: ReadonlyArray<OrchestrationCard>): BoardC
   const todo: OrchestrationCard[] = [];
   const inFlight: OrchestrationCard[] = [];
   const done: OrchestrationCard[] = [];
+  const settled: OrchestrationCard[] = [];
+  const deleting: OrchestrationCard[] = [];
   for (const card of cards) {
+    if (isCardDeleting(card)) {
+      deleting.push(card);
+      continue;
+    }
+    if (card.settledAt !== null) {
+      settled.push(card);
+      continue;
+    }
     switch (card.position.kind) {
       case "todo":
         todo.push(card);
@@ -140,7 +184,35 @@ export function groupBoardCards(cards: ReadonlyArray<OrchestrationCard>): BoardC
     }
   }
   inFlight.sort((left, right) => (right.releasedAt ?? "").localeCompare(left.releasedAt ?? ""));
-  return { todo, inFlight, done };
+  settled.sort((left, right) => (right.settledAt ?? "").localeCompare(left.settledAt ?? ""));
+  return { todo, inFlight, done, settled, deleting };
+}
+
+const URGENT_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>([
+  "needs-input",
+  "paused",
+  "failed",
+]);
+
+/**
+ * Where a route lands when the card it was showing leaves the board: the most
+ * urgent card that is not the departing one, in the sidebar's own reading order
+ * — flagged work, then active runs, then backlog, Done, and Settled history.
+ * Cards being deleted are not in `sections` at all, so a freed route can never
+ * bounce onto one that is itself on its way out.
+ */
+export function selectNextCardAfter(
+  sections: BoardCardSections,
+  departingCardId: CardId,
+): CardId | null {
+  const urgent = sections.inFlight.filter(
+    (card) => card.status !== null && URGENT_STATUSES.has(card.status),
+  );
+  const active = sections.inFlight.filter(
+    (card) => card.status === null || !URGENT_STATUSES.has(card.status),
+  );
+  const ordered = [...urgent, ...active, ...sections.todo, ...sections.done, ...sections.settled];
+  return ordered.find((card) => card.id !== departingCardId)?.id ?? null;
 }
 
 /**
@@ -297,7 +369,11 @@ export function cardArtifactProvenance(
     if (index <= stepIndex) return;
     for (const placeholder of extractBoardTemplatePlaceholders(step.promptTemplate)) {
       if (placeholder.kind === "artifact-previous" && index === stepIndex + 1) {
-        readBy.push({ stepIndex: index, stepName: step.name, placeholder: "${artifact}" });
+        readBy.push({
+          stepIndex: index,
+          stepName: step.name,
+          placeholder: `\${artifact}`,
+        });
       }
       if (placeholder.kind === "artifact-step" && placeholder.stepName === source.name) {
         readBy.push({
@@ -311,19 +387,91 @@ export function cardArtifactProvenance(
   return { writtenBy: { stepIndex, stepName: source.name }, readBy };
 }
 
+// ── Card operations ────────────────────────────────────────────
+
+/**
+ * What the server is doing to a card right now, as the durable `operation`
+ * claim spells it. One vocabulary for badges, sidebar grouping, action
+ * availability, and the detail composer, so a card never says "Deleting" in
+ * one place and "Running" in another.
+ */
+export type CardOperationKind = ContractCardOperationKind;
+
+/**
+ * The operation a card is under, preferring the server's durable claim. Rows
+ * projected before that column existed still have to read correctly: deletion
+ * was a status then, and a released card with no step thread yet is starting.
+ */
+export function cardOperation(card: OrchestrationCard): CardOperationKind | null {
+  if (card.operation !== null) return card.operation.kind;
+  if (card.status === "deleting") return "deleting";
+  return isCardStarting(card) ? "starting" : null;
+}
+
+/** True while a card is on its way off the board. */
+export function isCardDeleting(card: OrchestrationCard): boolean {
+  return cardOperation(card) === "deleting";
+}
+
+/**
+ * Why the last operation failed, as the server persisted it. Survives a reload
+ * — a deletion that failed while the tab was closed still explains itself.
+ */
+export function cardOperationFailure(card: OrchestrationCard): string | null {
+  const trimmed = card.lastError?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * True from the moment Start is accepted until the first step thread exists:
+ * release captured a snapshot (`card.release-requested`) but the card is still
+ * in To-Do while the server creates the worktree, checks out the branch, and
+ * launches the setup script. A failed release drops back out via `failed`.
+ */
+export function isCardStarting(card: OrchestrationCard): boolean {
+  return card.position.kind === "todo" && card.snapshot !== null && card.status !== "failed";
+}
+
+/**
+ * A card may be deleted once no release or turn can still mutate its owned
+ * worktree. Any operation the server has claimed — not just a deletion — holds
+ * the action: cleanup must not race work already under way, and the server
+ * rejects it anyway. Running cards must be reset first. A deletion that failed
+ * leaves the card stable and offers the action again.
+ */
+export function canDeleteCard(card: OrchestrationCard): boolean {
+  if (card.archivedAt !== null) return false;
+  // Subsumes the pre-operation reading of "starting" — `cardOperation` reports
+  // a released-but-unstarted card as starting whether or not a claim exists.
+  if (cardOperation(card) !== null) return false;
+  switch (card.position.kind) {
+    case "todo":
+      return true;
+    case "step":
+      return card.status !== null && card.status !== "running";
+    case "done":
+      return true;
+  }
+}
+
 const NEEDS_YOU_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(["needs-input", "paused"]);
 
 /** Cards waiting on the user — `needs-input` and `paused` count the same. */
 export function countCardsNeedingYou(cards: ReadonlyArray<OrchestrationCard>): number {
   return cards.filter(
     (card) =>
-      card.position.kind === "step" && card.status !== null && NEEDS_YOU_STATUSES.has(card.status),
+      card.position.kind === "step" &&
+      card.status !== null &&
+      NEEDS_YOU_STATUSES.has(card.status) &&
+      !isCardDeleting(card),
   ).length;
 }
 
 export interface CardActionAvailability {
-  /** Interrupt the running turn. */
-  readonly canCancel: boolean;
+  /** The operation already in flight, if any — every action waits on it. */
+  readonly operation: CardOperationKind | null;
+  /** Reset the whole released card to To-Do; an active turn is interrupted. */
+  readonly canReset: boolean;
   /** Discard the step thread and spawn a fresh one from the same template. */
   readonly canRetry: boolean;
   /** Mark the step done and advance — the manual gate and the flagged override. */
@@ -336,17 +484,21 @@ const CONTINUABLE_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(
 
 /**
  * Which recovery actions a card offers. Only in-flight cards have any: To-Do
- * cards start, Done cards archive.
+ * cards start, while Done cards settle or delete through separate actions.
+ * An operation the server is already running suspends all of them — it is the
+ * authority, and a second submission would only be rejected.
  */
 export function cardActionAvailability(card: OrchestrationCard): CardActionAvailability {
-  if (card.position.kind !== "step") {
-    return { canCancel: false, canRetry: false, canContinue: false };
+  const operation = cardOperation(card);
+  if (card.position.kind !== "step" || operation !== null) {
+    return { operation, canReset: false, canRetry: false, canContinue: false };
   }
   const flagged = card.status !== null && CONTINUABLE_STATUSES.has(card.status);
   return {
-    canCancel: card.status === "running",
+    operation,
+    canReset: true,
     // Retry while a turn runs would put two agents in one worktree — the
-    // decider rejects it too; Cancel first is the running-card path.
+    // decider rejects it too; full-card Cancel is the running-card path.
     canRetry: flagged,
     canContinue: flagged,
   };
@@ -372,6 +524,21 @@ export function createEnvironmentBoardAtoms(input: {
         get(input.snapshotAtom(environmentId))?.cards ?? EMPTY_CARDS,
     ).pipe(Atom.withLabel(`environment-cards:${environmentId}`)),
   );
+
+  const environmentsBoardsAtomFamily = Atom.family((key: string) => {
+    const environmentIds = (JSON.parse(key) as ReadonlyArray<string>).map((id) =>
+      EnvironmentId.make(id),
+    );
+    let previous: ReadonlyArray<OrchestrationBoard> = EMPTY_BOARDS;
+    return Atom.make((get) => {
+      const next = environmentIds.flatMap((environmentId) =>
+        get(environmentBoardsAtom(environmentId)),
+      );
+      if (arrayElementsEqual(previous, next)) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-boards-many:${key}`));
+  });
 
   const projectBoardsAtomFamily = Atom.family((key: string) => {
     const ref = parseProjectKey(key);
@@ -399,11 +566,10 @@ export function createEnvironmentBoardAtoms(input: {
     const ref = parseProjectKey(key);
     let previous: ReadonlyArray<OrchestrationCard> = EMPTY_CARDS;
     return Atom.make((get) => {
-      const board = get(projectBoardAtomFamily(key));
-      const next =
-        board === null
-          ? EMPTY_CARDS
-          : selectBoardCards(get(environmentCardsAtom(ref.environmentId)), board.id);
+      const next = selectProjectCards(
+        get(environmentCardsAtom(ref.environmentId)),
+        get(projectBoardsAtomFamily(key)),
+      );
       if (arrayElementsEqual(previous, next)) {
         return previous;
       }
@@ -420,6 +586,8 @@ export function createEnvironmentBoardAtoms(input: {
 
   return {
     environmentBoardsAtom,
+    environmentsBoardsAtom: (environmentIds: ReadonlyArray<EnvironmentId>) =>
+      environmentsBoardsAtomFamily(JSON.stringify(environmentIds)),
     environmentCardsAtom,
     projectBoardsAtom: (ref: ScopedProjectRef) => projectBoardsAtomFamily(projectKey(ref)),
     projectBoardAtom: (ref: ScopedProjectRef) => projectBoardAtomFamily(projectKey(ref)),
@@ -489,15 +657,33 @@ export function createBoardEnvironmentAtoms<R, E>(
       scheduler: cardScheduler,
       concurrency: cardConcurrency,
     }),
-    cancelCard: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:card:cancel",
-      execute: (input: CancelCardInput) => cancelCard(input),
+    resetCard: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:card:reset",
+      execute: (input: ResetCardInput) => resetCard(input),
+      scheduler: cardScheduler,
+      concurrency: cardConcurrency,
+    }),
+    settleCard: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:card:settle",
+      execute: (input: SettleCardInput) => settleCard(input),
+      scheduler: cardScheduler,
+      concurrency: cardConcurrency,
+    }),
+    unsettleCard: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:card:unsettle",
+      execute: (input: UnsettleCardInput) => unsettleCard(input),
       scheduler: cardScheduler,
       concurrency: cardConcurrency,
     }),
     archiveCard: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:card:archive",
       execute: (input: ArchiveCardInput) => archiveCard(input),
+      scheduler: cardScheduler,
+      concurrency: cardConcurrency,
+    }),
+    deleteCard: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:card:delete",
+      execute: (input: DeleteCardInput) => deleteCard(input),
       scheduler: cardScheduler,
       concurrency: cardConcurrency,
     }),

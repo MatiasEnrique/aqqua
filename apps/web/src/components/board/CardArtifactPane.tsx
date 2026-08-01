@@ -25,6 +25,14 @@ export interface CardArtifactPaneProps {
    */
   readonly editable: boolean;
   readonly cwd: string | null;
+  /** Measured height of the floating composer that covers the scrollport. */
+  readonly contentInsetEndAdjustment: number;
+}
+
+const ARTIFACT_END_GUTTER_PX = 32;
+
+export function artifactContentBottomPadding(contentInsetEndAdjustment: number): number {
+  return Math.max(0, contentInsetEndAdjustment) + ARTIFACT_END_GUTTER_PX;
 }
 
 /**
@@ -41,6 +49,7 @@ export function CardArtifactPane({
   provenance,
   editable,
   cwd,
+  contentInsetEndAdjustment,
 }: CardArtifactPaneProps) {
   const artifact = useEnvironmentQuery(
     boardArtifacts.artifact({ environmentId, input: { cardId, stepName } }),
@@ -131,7 +140,10 @@ export function CardArtifactPane({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-5 pt-4 pb-40">
+      <div
+        className="mx-auto w-full max-w-3xl px-5 pt-4"
+        style={{ paddingBottom: artifactContentBottomPadding(contentInsetEndAdjustment) }}
+      >
         <ArtifactProvenance provenance={provenance} fileName={fileName} stepIndex={stepIndex} />
 
         <div className="mt-4 flex items-center gap-2 px-1 text-muted-foreground/70 text-xs">

@@ -13,6 +13,8 @@ import {
   type GitHistoryFileChangeKind,
   type GitHistoryRef,
   type GitObjectId as GitObjectIdType,
+  type VcsGetCommitDiffInput,
+  type VcsGetCommitDiffResult,
   type VcsGetCommitFileDiffInput,
   type VcsGetCommitFileDiffResult,
   type VcsGetCommitDetailsInput,
@@ -72,6 +74,9 @@ export class GitHistory extends Context.Service<
     readonly getDetails: (
       input: VcsGetCommitDetailsInput,
     ) => Effect.Effect<VcsGetCommitDetailsResult, GitCommandError>;
+    readonly getDiff: (
+      input: VcsGetCommitDiffInput,
+    ) => Effect.Effect<VcsGetCommitDiffResult, GitCommandError>;
     readonly getFileDiff: (
       input: VcsGetCommitFileDiffInput,
     ) => Effect.Effect<VcsGetCommitFileDiffResult, GitCommandError>;
@@ -739,7 +744,72 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return GitHistory.of({ list, getDetails, getFileDiff });
+  const getDiff: GitHistory["Service"]["getDiff"] = Effect.fn("GitHistory.getDiff")(
+    function* (input) {
+      const parentsResult = yield* execute(
+        "GitHistory.getDiff.parents",
+        input.cwd,
+        ["show", "-s", "--format=%P", input.commitId],
+        { allowNonZeroExit: true },
+      );
+      if (parentsResult.exitCode !== 0) {
+        return yield* historyError(
+          "GitHistory.getDiff",
+          input.cwd,
+          "The selected commit could not be resolved.",
+        );
+      }
+
+      const parentValues = parentsResult.stdout.trim().split(" ").filter(Boolean);
+      const parentIds = parentValues.map(parseObjectId);
+      if (parentIds.some((parentId) => parentId === null)) {
+        return yield* historyError(
+          "GitHistory.getDiff.parseParents",
+          input.cwd,
+          "Git commit metadata contained an invalid parent id.",
+        );
+      }
+      const comparisonParentId = (parentIds[0] ?? null) as GitObjectIdType | null;
+      const patchArgs = comparisonParentId
+        ? [
+            "diff",
+            "--no-ext-diff",
+            "--find-renames",
+            "--find-copies",
+            "--patch",
+            "--no-color",
+            "--no-textconv",
+            comparisonParentId,
+            input.commitId,
+            "--",
+          ]
+        : [
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "-r",
+            "--find-renames",
+            "--find-copies",
+            "--patch",
+            "--no-color",
+            "--no-textconv",
+            input.commitId,
+            "--",
+          ];
+      const patchResult = yield* execute("GitHistory.getDiff.patch", input.cwd, patchArgs, {
+        maxOutputBytes: HISTORY_DIFF_MAX_OUTPUT_BYTES,
+        truncateOutput: true,
+      });
+
+      return {
+        commitId: input.commitId,
+        diff: patchResult.stdout,
+        truncated: patchResult.stdoutTruncated,
+      };
+    },
+  );
+
+  return GitHistory.of({ list, getDetails, getDiff, getFileDiff });
 });
 
 export const layer = Layer.effect(GitHistory, make);

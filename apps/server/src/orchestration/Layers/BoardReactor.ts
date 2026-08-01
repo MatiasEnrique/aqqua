@@ -2,17 +2,14 @@
 import * as NodePath from "node:path";
 
 import {
-  type AgentProfileName,
-  type BoardSnapshot,
+  type CardCleanupStage,
+  type CardId,
+  type CardOperation,
   type CardStatus,
-  CardId,
   CommandId,
   type OrchestrationCard,
-  type OrchestrationEvent,
-  MessageId,
-  ThreadId,
+  type ThreadId,
 } from "@t3tools/contracts";
-import { sanitizeBranchFragment } from "@t3tools/shared/git";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -23,73 +20,69 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
-
-import { resolveAgentProfile } from "../../agent-control/Profiles.ts";
-import { boardArtifactsRoot, resolveBoardArtifactPath } from "../../boardArtifacts.ts";
+import { boardArtifactsRoot } from "../../boardArtifacts.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { ProjectSetupScriptRunner } from "../../project/ProjectSetupScriptRunner.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
-import { buildBoardCardTitleMessage } from "../../textGeneration/TextGenerationPrompts.ts";
-import { assembleBoardStepPrompt } from "../boardPrompt.ts";
-import { findCardForCurrentStepThread, hasOpenBlockingRequest } from "../boardCardHelpers.ts";
+import {
+  findCardForCurrentStepThread,
+  hasOpenBlockingRequest,
+  isProviderTurnLive,
+  resolveStepEntryThreadId,
+} from "../boardCardHelpers.ts";
 import { BoardReactor, type BoardReactorShape } from "../Services/BoardReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import {
-  deleteWorktreeOwned,
-  listActiveThreadsForWorktreePath,
-} from "../Services/WorktreeDeletion.ts";
 import { WorktreePathCoordination } from "../Services/WorktreePathCoordination.ts";
+import { makeBoardCardResourceSaga } from "./BoardCardResourceSaga.ts";
+import { makeBoardHandlerDefectRecovery } from "./BoardHandlerDefectRecovery.ts";
+import { BoardReactorHandlerDefectInjection, isBoardReactorEvent } from "./BoardReactorEvent.ts";
+import {
+  cardOperationMatches,
+  collectThreadLineage,
+  currentStepRootThreadId,
+} from "./BoardReactorState.ts";
+import { makeBoardReconciliationEvents } from "./BoardReconciliation.ts";
+import { type BoardReactorEvent, makeBoardStepEntrySaga } from "./BoardStepEntrySaga.ts";
 
 // Re-export pure helpers for tests that imported them from this module.
-export { findCardForCurrentStepThread, hasOpenBlockingRequest as threadHasOpenBlockingRequest };
+export {
+  boardOperationMessageId,
+  boardOperationThreadId,
+  decideBoardStepTurnStart,
+  findCardForCurrentStepThread,
+  hasOpenBlockingRequest as threadHasOpenBlockingRequest,
+  isProviderTurnLive,
+  resolveStepEntryThreadId,
+} from "../boardCardHelpers.ts";
+export { BoardReactorHandlerDefectInjection } from "./BoardReactorEvent.ts";
+export {
+  boardCardBranchName,
+  boardStepThreadTitle,
+  cardOperationOwnsThreadForHandlerFailure,
+  collectThreadLineage,
+  type ThreadLineageMember,
+} from "./BoardReactorState.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
+/**
+ * Statuses a card may leave via an explicit user turn on the step thread
+ * (chat-to-resume). Cancelled is deliberate: sending a message picks the
+ * step back up.
+ */
 const REENGAGE_STATUSES = new Set<CardStatus | null>(["needs-input", "failed", "cancelled"]);
 
 /**
- * Branch for a released card: `board/<slugified-title>-<short-id>`.
- * Short id is the trailing 8 chars of the card id for uniqueness.
+ * Statuses that may re-engage from a mere session "running" signal. Excludes
+ * "cancelled": the interrupted turn keeps streaming status messages for a
+ * moment after cancel, and those must not flip the card back to running —
+ * only an explicit user turn (REENGAGE_STATUSES above) may do that.
  */
-export function boardCardBranchName(input: {
-  readonly title: string;
-  readonly cardId: string;
-}): string {
-  const slug = sanitizeBranchFragment(input.title);
-  const shortId = input.cardId.replace(/[^a-zA-Z0-9]/g, "").slice(-8) || "card";
-  return `board/${slug}-${shortId}`;
-}
-
-/**
- * Step thread title shown in the sidebar: `<card title> · <n> <step name>`.
- * Step numbers are 1-based for humans.
- */
-export function boardStepThreadTitle(input: {
-  readonly cardTitle: string;
-  readonly stepIndex: number;
-  readonly stepName: string;
-}): string {
-  return `${input.cardTitle} · ${input.stepIndex + 1} ${input.stepName}`;
-}
-
-type BoardReactorEvent = Extract<
-  OrchestrationEvent,
-  {
-    type:
-      | "card.release-requested"
-      | "card.step-advance-requested"
-      | "card.retry-requested"
-      | "card.cancel-requested"
-      | "card.created"
-      | "card.archived"
-      | "thread.session-set"
-      | "thread.activity-appended"
-      | "thread.turn-start-requested";
-  }
->;
+const SESSION_REENGAGE_STATUSES = new Set<CardStatus | null>(["needs-input", "failed"]);
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -98,13 +91,19 @@ const make = Effect.gen(function* () {
     randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:board:${tag}:${uuid}`)));
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-  const gitWorkflow = yield* GitWorkflowService;
-  const settings = yield* ServerSettingsService;
-  const registry = yield* ProviderAdapterRegistry;
+  const handlerDefectInjection = yield* Effect.serviceOption(BoardReactorHandlerDefectInjection);
+  const _gitWorkflow = yield* GitWorkflowService;
+  const _settings = yield* ServerSettingsService;
+  const _registry = yield* ProviderAdapterRegistry;
   const config = yield* ServerConfig;
   const fs = yield* FileSystem.FileSystem;
-  const textGeneration = yield* TextGeneration;
-  const pathCoordination = yield* WorktreePathCoordination;
+  const _textGeneration = yield* TextGeneration;
+  const _pathCoordination = yield* WorktreePathCoordination;
+  const _setupScriptRunner = yield* ProjectSetupScriptRunner;
+
+  // Per-process: after turn.start is accepted for a stable step thread, do not
+  // re-dispatch until a session receipt arrives (or the process restarts).
+  const _turnStartDispatchedForThread = new Set<string>();
 
   const dispatch = (command: Parameters<typeof orchestrationEngine.dispatch>[0]) =>
     orchestrationEngine.dispatch(command);
@@ -115,7 +114,11 @@ const make = Effect.gen(function* () {
     reason?: string,
   ) {
     if (reason) {
-      yield* Effect.logDebug("board reactor setting card status", { cardId, status, reason });
+      yield* Effect.logDebug("board reactor setting card status", {
+        cardId,
+        status,
+        reason,
+      });
     }
     yield* dispatch({
       type: "card.status.set",
@@ -136,19 +139,54 @@ const make = Effect.gen(function* () {
     yield* setCardStatus(cardId, "failed", reason);
   });
 
-  const failRelease = Effect.fn("BoardReactor.failRelease")(function* (
-    cardId: CardId,
+  /**
+   * Fail the card's durable operation (or fall back to agent status when the
+   * card has no claim). Uses the generic `card.operation.fail` command so every
+   * kind persists `lastError` via `card.operation-failed`. Destructive reset
+   * and delete claims remain held so partial cleanup cannot visually roll back.
+   */
+  const failCardOperation = Effect.fn("BoardReactor.failCardOperation")(function* (
+    card: OrchestrationCard,
     reason: string,
   ) {
-    yield* Effect.logWarning("board reactor release failed", {
-      cardId,
+    const operation = card.operation;
+    if (operation === null) {
+      // Legacy path / residual agent failure without a durable claim.
+      yield* setCardFailed(card.id, reason);
+      return;
+    }
+
+    yield* Effect.logWarning("board reactor failing card operation", {
+      cardId: card.id,
+      kind: operation.kind,
+      operationId: operation.operationId,
       reason,
     });
+
     yield* dispatch({
-      type: "card.release.fail",
-      commandId: yield* serverCommandId("release-fail"),
-      cardId,
+      type: "card.operation.fail",
+      commandId: yield* serverCommandId("operation-fail"),
+      cardId: card.id,
+      operationId: operation.operationId,
+      kind: operation.kind,
       reason,
+    });
+  });
+
+  const progressCardCleanup = Effect.fn("BoardReactor.progressCardCleanup")(function* (
+    card: OrchestrationCard,
+    kind: "resetting" | "deleting",
+    stage: CardCleanupStage,
+  ) {
+    const operation = card.operation;
+    if (operation?.kind !== kind) return;
+    yield* dispatch({
+      type: "card.cleanup.progress",
+      commandId: yield* serverCommandId("cleanup-progress"),
+      cardId: card.id,
+      operationId: operation.operationId,
+      kind,
+      stage,
     });
   });
 
@@ -157,318 +195,284 @@ const make = Effect.gen(function* () {
     return shell.cards;
   });
 
-  const instanceCandidates = Effect.gen(function* () {
-    const ids = yield* registry.listInstances();
-    const candidates: Array<{
-      readonly instanceId: (typeof ids)[number];
-      readonly driverKind: import("@t3tools/contracts").ProviderDriverKind;
-      readonly enabled: boolean;
-    }> = [];
-    for (const instanceId of ids) {
-      const info = yield* registry.getInstanceInfo(instanceId).pipe(Effect.option);
-      if (Option.isNone(info)) continue;
-      candidates.push({
-        instanceId: info.value.instanceId,
-        driverKind: info.value.driverKind,
-        enabled: info.value.enabled,
-      });
-    }
-    return candidates;
+  const _getThreadSession = Effect.fn("BoardReactor.getThreadSession")(function* (
+    threadId: ThreadId,
+  ) {
+    const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+    return shell.threads.find((thread) => thread.id === threadId)?.session ?? null;
   });
 
-  const resolveBaseBranch = Effect.fn("BoardReactor.resolveBaseBranch")(function* (
-    projectCwd: string,
-  ) {
-    const refs = yield* gitWorkflow.listRefs({ cwd: projectCwd });
-    const localRefs = refs.refs.filter((ref) => ref.isRemote !== true);
-    return (
-      localRefs.find((ref) => ref.isDefault)?.name ??
-      localRefs.find((ref) => ref.current)?.name ??
-      localRefs[0]?.name ??
-      "main"
-    );
-  });
-
-  const ensureArtifactDirectory = Effect.fn("BoardReactor.ensureArtifactDirectory")(function* (
-    cardId: string,
-  ) {
-    const dir = NodePath.join(boardArtifactsRoot(config.stateDir), cardId);
-    yield* fs.makeDirectory(dir, { recursive: true });
-  });
+  const { enterStep, loadAllThreadShells, processReleaseRequested } = yield* makeBoardStepEntrySaga;
 
   /**
-   * Spawn a fresh top-level step thread and mark the card as entered.
-   * Uses the card snapshot only — never the live board definition.
+   * Interrupt every live member of the given root lineage. Returns whether any
+   * live member was found (caller must wait for session truth) or whether an
+   * interrupt command dispatch failed (operation already failed).
    */
-  const enterStep = Effect.fn("BoardReactor.enterStep")(function* (input: {
+  const interruptLiveLineage = Effect.fn("BoardReactor.interruptLiveLineage")(function* (input: {
     readonly card: OrchestrationCard;
-    readonly stepIndex: number;
+    readonly roots: ReadonlyArray<ThreadId>;
+    readonly reasonPrefix: string;
   }) {
-    const { card, stepIndex } = input;
-    const snapshot = card.snapshot;
-    if (snapshot === null) {
-      yield* setCardFailed(card.id, `Card '${card.id}' has no board snapshot.`);
-      return;
-    }
-    if (card.branch === null || card.worktreePath === null) {
-      yield* setCardFailed(
-        card.id,
-        `Card '${card.id}' is missing branch/worktreePath for step entry.`,
-      );
-      return;
+    const allThreads = yield* loadAllThreadShells();
+    const lineage = collectThreadLineage(input.roots, allThreads);
+    const liveMembers = lineage.filter((member) => isProviderTurnLive(member.session));
+    if (liveMembers.length === 0) {
+      return { staged: false as const, failed: false as const };
     }
 
-    const step = snapshot.steps[stepIndex];
-    if (step === undefined) {
-      yield* setCardFailed(
-        card.id,
-        `Step index ${stepIndex} is out of range for card '${card.id}'.`,
-      );
-      return;
-    }
-
-    const project = yield* projectionSnapshotQuery
-      .getProjectShellById(card.projectId)
-      .pipe(Effect.map(Option.getOrUndefined));
-    if (!project) {
-      yield* setCardFailed(card.id, `Project '${card.projectId}' was not found for card step.`);
-      return;
-    }
-
-    const serverSettings = yield* settings.getSettings;
-    const instances = yield* instanceCandidates;
-    const resolved = resolveAgentProfile({
-      profile: step.profileName as AgentProfileName,
-      profiles: serverSettings.agentProfiles,
-      instances,
-      projectDefaultModelSelection: project.defaultModelSelection ?? null,
-    });
-    if (Result.isFailure(resolved)) {
-      yield* setCardFailed(
-        card.id,
-        `Agent profile '${step.profileName}' is unavailable: ${resolved.failure.message}`,
-      );
-      return;
-    }
-
-    const prompt = assembleBoardStepPrompt({
-      template: step.promptTemplate,
-      parameters: card.parameters,
-      cardTitle: card.title,
-      cardId: card.id,
-      stepIndex,
-      steps: snapshot.steps,
-      stateDir: config.stateDir,
-    });
-    if (!prompt.ok) {
-      yield* setCardFailed(card.id, prompt.reason);
-      return;
-    }
-
-    const outputPath = resolveBoardArtifactPath({
-      stateDir: config.stateDir,
-      cardId: card.id,
-      stepName: step.name,
-    });
-    if (outputPath === null) {
-      yield* setCardFailed(card.id, `Invalid artifact step name '${step.name}'.`);
-      return;
-    }
-    yield* ensureArtifactDirectory(card.id);
-
-    const threadId = ThreadId.make(yield* randomUUID);
     const createdAt = yield* nowIso;
-    const title = boardStepThreadTitle({
-      cardTitle: card.title,
-      stepIndex,
-      stepName: step.name,
-    });
-
-    yield* dispatch({
-      type: "thread.create",
-      commandId: yield* serverCommandId("thread-create"),
-      threadId,
-      projectId: card.projectId,
-      parentThreadId: null,
-      title,
-      modelSelection: resolved.success.modelSelection,
-      runtimeMode: resolved.success.runtimeMode,
-      interactionMode: resolved.success.interactionMode,
-      branch: card.branch,
-      worktreePath: card.worktreePath,
-      createdAt,
-    });
-
-    yield* dispatch({
-      type: "thread.turn.start",
-      commandId: yield* serverCommandId("turn-start"),
-      threadId,
-      message: {
-        messageId: MessageId.make(yield* randomUUID),
-        role: "user",
-        text: prompt.text,
-        attachments: [],
-      },
-      modelSelection: resolved.success.modelSelection,
-      runtimeMode: resolved.success.runtimeMode,
-      interactionMode: resolved.success.interactionMode,
-      createdAt,
-    });
-
-    yield* dispatch({
-      type: "card.step.enter",
-      commandId: yield* serverCommandId("step-enter"),
-      cardId: card.id,
-      stepIndex,
-      threadId,
-    });
-  });
-
-  const processReleaseRequested = Effect.fn("BoardReactor.processReleaseRequested")(function* (
-    event: Extract<BoardReactorEvent, { type: "card.release-requested" }>,
-  ) {
-    const cardId = event.payload.cardId;
-    const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
-    if (Option.isNone(cardOption)) {
-      yield* failRelease(cardId, `Card '${cardId}' was not found after release-requested.`);
-      return;
+    for (const member of liveMembers) {
+      const interruptResult = yield* dispatch({
+        type: "thread.turn.interrupt",
+        commandId: yield* serverCommandId("lineage-interrupt"),
+        threadId: member.id,
+        createdAt,
+      }).pipe(Effect.result);
+      if (Result.isFailure(interruptResult)) {
+        const detail =
+          interruptResult.failure instanceof Error
+            ? interruptResult.failure.message
+            : String(interruptResult.failure);
+        const latest = yield* projectionSnapshotQuery.getCardById(input.card.id);
+        if (Option.isSome(latest)) {
+          yield* failCardOperation(
+            latest.value,
+            `${input.reasonPrefix}: interrupt dispatch failed for '${member.id}': ${detail}`,
+          );
+        }
+        return { staged: true as const, failed: true as const };
+      }
     }
-    const card = cardOption.value;
-    const snapshot: BoardSnapshot | null = card.snapshot ?? event.payload.snapshot;
-    if (snapshot === null || snapshot.steps.length === 0) {
-      yield* failRelease(cardId, `Card '${cardId}' has no steps in its release snapshot.`);
-      return;
-    }
-
-    const project = yield* projectionSnapshotQuery
-      .getProjectShellById(card.projectId)
-      .pipe(Effect.map(Option.getOrUndefined));
-    if (!project) {
-      yield* failRelease(cardId, `Project '${card.projectId}' was not found for release.`);
-      return;
-    }
-
-    const branch = boardCardBranchName({ title: card.title, cardId: card.id });
-
-    const releaseResult = yield* Effect.gen(function* () {
-      const baseBranch = yield* resolveBaseBranch(project.workspaceRoot);
-      return yield* gitWorkflow.createWorktree({
-        cwd: project.workspaceRoot,
-        refName: baseBranch,
-        newRefName: branch,
-        baseRefName: baseBranch,
-        path: null,
-      });
-    }).pipe(
-      Effect.map((worktree) => ({ ok: true as const, worktree })),
-      Effect.catchCause((cause) =>
-        Effect.succeed({
-          ok: false as const,
-          reason: Cause.pretty(cause),
-        }),
-      ),
-    );
-
-    if (!releaseResult.ok) {
-      yield* failRelease(cardId, releaseResult.reason);
-      return;
-    }
-
-    yield* dispatch({
-      type: "card.release.complete",
-      commandId: yield* serverCommandId("release-complete"),
-      cardId,
-      branch: releaseResult.worktree.worktree.refName,
-      worktreePath: releaseResult.worktree.worktree.path,
-    });
-
-    const releasedCardOption = yield* projectionSnapshotQuery.getCardById(cardId);
-    if (Option.isNone(releasedCardOption)) {
-      yield* setCardFailed(cardId, `Card '${cardId}' disappeared after release.complete.`);
-      return;
-    }
-
-    yield* enterStep({
-      card: {
-        ...releasedCardOption.value,
-        snapshot: releasedCardOption.value.snapshot ?? snapshot,
-      },
-      stepIndex: 0,
-    });
+    return { staged: true as const, failed: false as const };
   });
 
   const processStepAdvanceRequested = Effect.fn("BoardReactor.processStepAdvanceRequested")(
     function* (event: Extract<BoardReactorEvent, { type: "card.step-advance-requested" }>) {
       const cardId = event.payload.cardId;
+      const operationId = event.payload.operationId;
       const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
       if (Option.isNone(cardOption)) {
-        yield* setCardFailed(cardId, `Card '${cardId}' was not found for step advance.`);
         return;
       }
+      const card = cardOption.value;
+      if (operationId !== undefined && !cardOperationMatches(card, operationId, ["advancing"])) {
+        return;
+      }
+      if (card.operation?.kind !== "advancing") {
+        return;
+      }
+      const claimedOperationId = card.operation.operationId;
+
+      // Interrupt the whole current-step lineage before entering the next step.
+      const root = currentStepRootThreadId(card);
+      if (root !== null) {
+        const interrupt = yield* interruptLiveLineage({
+          card,
+          roots: [root],
+          reasonPrefix: "Advance failed",
+        });
+        if (interrupt.failed) {
+          return;
+        }
+        if (interrupt.staged) {
+          return;
+        }
+      }
+
       yield* enterStep({
-        card: cardOption.value,
+        card,
         stepIndex: event.payload.toStepIndex,
+        operationId: claimedOperationId,
       });
     },
   );
+
+  /**
+   * Finalize a retrying claim: archive the entire old step lineage, then enter
+   * one fresh step exactly once. Caller must ensure no lineage member is live.
+   */
+  const finalizeRetry = Effect.fn("BoardReactor.finalizeRetry")(function* (
+    card: OrchestrationCard,
+    operation: Extract<CardOperation, { kind: "retrying" }>,
+  ) {
+    if (!cardOperationMatches(card, operation.operationId, ["retrying"])) {
+      return;
+    }
+
+    const oldRoot = [...card.stepThreads]
+      .toReversed()
+      .find((entry) => entry.stepIndex === operation.stepIndex)?.threadId;
+    if (oldRoot !== undefined) {
+      const allThreads = yield* loadAllThreadShells();
+      const lineage = collectThreadLineage([oldRoot], allThreads);
+      for (const member of lineage) {
+        if (member.archivedAt != null) {
+          continue;
+        }
+        // Missing-from-shell roots still need an archive attempt when present live.
+        const archiveResult = yield* dispatch({
+          type: "thread.archive",
+          commandId: yield* serverCommandId("retry-archive"),
+          threadId: member.id,
+        }).pipe(Effect.result);
+
+        if (Result.isFailure(archiveResult)) {
+          const detail =
+            archiveResult.failure instanceof Error
+              ? archiveResult.failure.message
+              : String(archiveResult.failure);
+          const latest = yield* projectionSnapshotQuery.getCardById(card.id);
+          if (Option.isSome(latest)) {
+            yield* failCardOperation(
+              latest.value,
+              `Retry failed while archiving lineage thread '${member.id}': ${detail}`,
+            );
+          }
+          return;
+        }
+      }
+    }
+
+    const latest = yield* projectionSnapshotQuery.getCardById(card.id);
+    if (
+      Option.isNone(latest) ||
+      !cardOperationMatches(latest.value, operation.operationId, ["retrying"])
+    ) {
+      return;
+    }
+
+    yield* enterStep({
+      card: latest.value,
+      stepIndex: operation.stepIndex,
+      operationId: operation.operationId,
+    });
+  });
+
+  /**
+   * Finalize a resetting claim: archive all captured roots + descendants, clear
+   * artifacts, then dispatch reset.complete exactly once.
+   */
+  const finalizeReset = Effect.fn("BoardReactor.finalizeReset")(function* (
+    card: OrchestrationCard,
+    operation: Extract<CardOperation, { kind: "resetting" }>,
+  ) {
+    if (!cardOperationMatches(card, operation.operationId, ["resetting"])) {
+      return;
+    }
+
+    let cleanupStage = operation.cleanupStage ?? "pending";
+
+    if (cleanupStage === "pending") {
+      yield* progressCardCleanup(card, "resetting", "cleanup-started");
+      cleanupStage = "cleanup-started";
+    }
+
+    if (cleanupStage === "cleanup-started") {
+      const allThreads = yield* loadAllThreadShells();
+      const lineage = collectThreadLineage(operation.threadIds, allThreads);
+
+      for (const member of lineage) {
+        if (member.archivedAt != null) continue;
+        const archiveResult = yield* dispatch({
+          type: "thread.archive",
+          commandId: yield* serverCommandId("reset-archive"),
+          threadId: member.id,
+        }).pipe(Effect.result);
+        if (Result.isFailure(archiveResult)) {
+          const detail =
+            archiveResult.failure instanceof Error
+              ? archiveResult.failure.message
+              : String(archiveResult.failure);
+          const latest = yield* projectionSnapshotQuery.getCardById(card.id);
+          if (Option.isSome(latest)) {
+            yield* failCardOperation(
+              latest.value,
+              `Reset failed while archiving thread '${member.id}': ${detail}`,
+            );
+          }
+          return;
+        }
+      }
+
+      yield* progressCardCleanup(card, "resetting", "threads-archived");
+      cleanupStage = "threads-archived";
+    }
+
+    if (cleanupStage === "threads-archived") {
+      const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
+      const artifactExists = yield* fs
+        .exists(artifactDir)
+        .pipe(Effect.catchCause(() => Effect.succeed(false)));
+      if (artifactExists) {
+        const artifactCleanup = yield* fs
+          .remove(artifactDir, { recursive: true })
+          .pipe(Effect.result);
+        if (Result.isFailure(artifactCleanup)) {
+          const detail =
+            artifactCleanup.failure instanceof Error
+              ? artifactCleanup.failure.message
+              : String(artifactCleanup.failure);
+          const latest = yield* projectionSnapshotQuery.getCardById(card.id);
+          if (Option.isSome(latest)) {
+            yield* failCardOperation(
+              latest.value,
+              `Reset failed while removing artifacts: ${detail}`,
+            );
+          }
+          return;
+        }
+      }
+      yield* progressCardCleanup(card, "resetting", "artifacts-removed");
+      cleanupStage = "artifacts-removed";
+    }
+
+    if (cleanupStage !== "artifacts-removed") return;
+
+    yield* dispatch({
+      type: "card.reset.complete",
+      commandId: yield* serverCommandId("reset-complete"),
+      cardId: card.id,
+      operationId: operation.operationId,
+    });
+  });
 
   const processRetryRequested = Effect.fn("BoardReactor.processRetryRequested")(function* (
     event: Extract<BoardReactorEvent, { type: "card.retry-requested" }>,
   ) {
     const cardOption = yield* projectionSnapshotQuery.getCardById(event.payload.cardId);
     if (Option.isNone(cardOption)) {
-      yield* setCardFailed(
-        event.payload.cardId,
-        `Card '${event.payload.cardId}' was not found for retry.`,
-      );
       return;
     }
     const card = cardOption.value;
+    const operationId = event.payload.operationId;
+    if (operationId !== undefined && !cardOperationMatches(card, operationId, ["retrying"])) {
+      return;
+    }
+    if (card.operation?.kind !== "retrying") {
+      return;
+    }
+    const operation = card.operation;
 
-    // Spec: discard the old step thread before spawning a fresh one. Interrupt
-    // any in-flight turn, then archive so it leaves the main sidebar. Failures
-    // are logged — retry must still work when the old thread is already gone.
-    const oldThread = [...card.stepThreads]
+    const oldRoot = [...card.stepThreads]
       .toReversed()
-      .find((entry) => entry.stepIndex === event.payload.stepIndex);
-    if (oldThread !== undefined) {
-      const createdAt = yield* nowIso;
-      yield* dispatch({
-        type: "thread.turn.interrupt",
-        commandId: yield* serverCommandId("retry-interrupt"),
-        threadId: oldThread.threadId,
-        createdAt,
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("board reactor failed to interrupt old step thread on retry", {
-            cardId: card.id,
-            threadId: oldThread.threadId,
-            cause: Cause.pretty(cause),
-          }),
-        ),
-      );
-      yield* dispatch({
-        type: "thread.archive",
-        commandId: yield* serverCommandId("retry-archive"),
-        threadId: oldThread.threadId,
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("board reactor failed to archive old step thread on retry", {
-            cardId: card.id,
-            threadId: oldThread.threadId,
-            cause: Cause.pretty(cause),
-          }),
-        ),
-      );
+      .find((entry) => entry.stepIndex === operation.stepIndex)?.threadId;
+    if (oldRoot !== undefined) {
+      const interrupt = yield* interruptLiveLineage({
+        card,
+        roots: [oldRoot],
+        reasonPrefix: "Retry failed",
+      });
+      if (interrupt.failed || interrupt.staged) {
+        return;
+      }
     }
 
-    // Fresh thread from the same snapshot template + inputs (enterStep).
-    yield* enterStep({
-      card,
-      stepIndex: event.payload.stepIndex,
-    });
+    yield* finalizeRetry(card, operation);
   });
 
+  // Compatibility for persisted pre-reset cancel events. New flows emit
+  // `card.reset-requested` and use processCardResetRequested below.
   const processCancelRequested = Effect.fn("BoardReactor.processCancelRequested")(function* (
     event: Extract<BoardReactorEvent, { type: "card.cancel-requested" }>,
   ) {
@@ -476,7 +480,6 @@ const make = Effect.gen(function* () {
     if (threadId === null) {
       return;
     }
-    // Decider already set status cancelled; interrupt the running turn.
     yield* dispatch({
       type: "thread.turn.interrupt",
       commandId: yield* serverCommandId("turn-interrupt"),
@@ -493,27 +496,177 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const processCardResetRequested = Effect.fn("BoardReactor.processCardResetRequested")(function* (
+    event: Extract<BoardReactorEvent, { type: "card.reset-requested" }>,
+  ) {
+    const cardOption = yield* projectionSnapshotQuery.getCardById(event.payload.cardId);
+    if (Option.isNone(cardOption)) {
+      return;
+    }
+    const card = cardOption.value;
+    if (!cardOperationMatches(card, event.payload.operationId, ["resetting"])) {
+      return;
+    }
+    const operation = card.operation;
+    if (operation.kind !== "resetting") {
+      return;
+    }
+
+    const interrupt = yield* interruptLiveLineage({
+      card,
+      roots: operation.threadIds,
+      reasonPrefix: "Reset failed",
+    });
+    if (interrupt.failed || interrupt.staged) {
+      return;
+    }
+
+    yield* finalizeReset(card, operation);
+  });
+
+  /**
+   * When a staged advance/retry/reset is waiting on live lineage turns, session
+   * truth re-checks the whole lineage and finalizes only once none are live.
+   */
+  const maybeFinalizePendingInterruptSaga = Effect.fn(
+    "BoardReactor.maybeFinalizePendingInterruptSaga",
+  )(function* (threadId: ThreadId) {
+    const cards = yield* listCards();
+    const allThreads = yield* loadAllThreadShells();
+
+    for (const card of cards) {
+      const operation = card.operation;
+      if (operation === null) {
+        continue;
+      }
+
+      if (operation.kind === "advancing") {
+        const root = currentStepRootThreadId(card);
+        if (root === null) {
+          continue;
+        }
+        const lineage = collectThreadLineage([root], allThreads);
+        if (!lineage.some((member) => member.id === threadId)) {
+          continue;
+        }
+        if (lineage.some((member) => isProviderTurnLive(member.session))) {
+          return;
+        }
+        yield* enterStep({
+          card,
+          stepIndex: operation.toStepIndex,
+          operationId: operation.operationId,
+        });
+        return;
+      }
+
+      if (operation.kind === "retrying") {
+        const oldRoot = [...card.stepThreads]
+          .toReversed()
+          .find((entry) => entry.stepIndex === operation.stepIndex)?.threadId;
+        if (oldRoot === undefined) {
+          continue;
+        }
+        const lineage = collectThreadLineage([oldRoot], allThreads);
+        if (!lineage.some((member) => member.id === threadId)) {
+          continue;
+        }
+        if (lineage.some((member) => isProviderTurnLive(member.session))) {
+          return;
+        }
+        yield* finalizeRetry(card, operation);
+        return;
+      }
+
+      if (operation.kind === "resetting") {
+        const lineage = collectThreadLineage(operation.threadIds, allThreads);
+        if (!lineage.some((member) => member.id === threadId)) {
+          continue;
+        }
+        if (lineage.some((member) => isProviderTurnLive(member.session))) {
+          return;
+        }
+        yield* finalizeReset(card, operation);
+        return;
+      }
+    }
+  });
+
+  /**
+   * Typed receipt for turn-start: ProviderCommandReactor projects session
+   * starting/running (or a terminal status). Re-enter enterStep to clear the
+   * claim exactly once the stable operation thread has a session.
+   */
+  const maybeCompleteStepEntryOnSession = Effect.fn("BoardReactor.maybeCompleteStepEntryOnSession")(
+    function* (threadId: ThreadId) {
+      const cards = yield* listCards();
+      for (const card of cards) {
+        const operation = card.operation;
+        if (operation === null) {
+          continue;
+        }
+        if (
+          operation.kind !== "starting" &&
+          operation.kind !== "advancing" &&
+          operation.kind !== "retrying"
+        ) {
+          continue;
+        }
+        const claimedThreadId = resolveStepEntryThreadId(operation);
+        if (claimedThreadId !== threadId) {
+          continue;
+        }
+        const stepIndex =
+          operation.kind === "advancing"
+            ? operation.toStepIndex
+            : operation.kind === "retrying"
+              ? operation.stepIndex
+              : 0;
+        yield* enterStep({
+          card,
+          stepIndex,
+          operationId: operation.operationId,
+        });
+        return;
+      }
+    },
+  );
+
   /**
    * Status signals from the current step thread's session lifecycle.
    *
    * We watch `thread.session-set` (projected from provider turn.completed /
    * turn.started / errors via ProviderRuntimeIngestion) rather than polling:
+   * - session receipt for a claimed step-entry thread → complete enterStep
    * - ready + still running on that step → turn finished without board_complete → needs-input
    * - error → failed
    * - running while stuck (needs-input/failed/cancelled) → re-engage → running
+   * - also unblocks staged retry/reset finalization once the turn is no longer live
    */
   const processSessionSet = Effect.fn("BoardReactor.processSessionSet")(function* (
     event: Extract<BoardReactorEvent, { type: "thread.session-set" }>,
   ) {
+    // Step-entry receipt first: clears starting/advancing/retrying claims.
+    yield* maybeCompleteStepEntryOnSession(event.payload.threadId);
+    yield* maybeFinalizePendingInterruptSaga(event.payload.threadId);
+
     const cards = yield* listCards();
     const card = findCardForCurrentStepThread(cards, event.payload.threadId);
     if (card === null) {
       return;
     }
 
+    // While a durable lifecycle op is claimed, residual session signals from the
+    // old turn must not recolor the card (same rationale as cancelled cards).
+    if (card.operation !== null) {
+      return;
+    }
+
     const sessionStatus = event.payload.session.status;
     if (sessionStatus === "error") {
-      if (card.status !== "failed") {
+      // A cancelled card stays cancelled: interrupting the turn often surfaces
+      // as a session error, which is expected fallout, not a step failure.
+      if (card.status !== "failed" && card.status !== "cancelled") {
         yield* setCardStatus(card.id, "failed", "step thread session error");
       }
       return;
@@ -527,7 +680,7 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    if (sessionStatus === "running" && REENGAGE_STATUSES.has(card.status)) {
+    if (sessionStatus === "running" && SESSION_REENGAGE_STATUSES.has(card.status)) {
       yield* setCardStatus(card.id, "running", "step thread session running (re-engage)");
     }
   });
@@ -536,6 +689,53 @@ const make = Effect.gen(function* () {
     event: Extract<BoardReactorEvent, { type: "thread.activity-appended" }>,
   ) {
     const kind = event.payload.activity.kind;
+
+    // Provider interrupt failure on any lineage member fails the staged claim.
+    if (kind === "provider.turn.interrupt.failed") {
+      const cards = yield* listCards();
+      const threadId = event.payload.threadId;
+      const detail =
+        typeof event.payload.activity.payload === "object" &&
+        event.payload.activity.payload !== null &&
+        "detail" in event.payload.activity.payload &&
+        typeof (event.payload.activity.payload as { detail?: unknown }).detail === "string"
+          ? (event.payload.activity.payload as { detail: string }).detail
+          : "Provider turn interrupt failed";
+      const allThreads = yield* loadAllThreadShells();
+
+      for (const card of cards) {
+        const operation = card.operation;
+        if (operation === null) {
+          continue;
+        }
+
+        const roots: ThreadId[] = [];
+        if (operation.kind === "advancing") {
+          const root = currentStepRootThreadId(card);
+          if (root !== null) roots.push(root);
+        } else if (operation.kind === "retrying") {
+          const oldRoot = [...card.stepThreads]
+            .toReversed()
+            .find((entry) => entry.stepIndex === operation.stepIndex)?.threadId;
+          if (oldRoot !== undefined) roots.push(oldRoot);
+        } else if (operation.kind === "resetting") {
+          roots.push(...operation.threadIds);
+        } else {
+          continue;
+        }
+
+        const lineage = collectThreadLineage(roots, allThreads);
+        if (lineage.some((member) => member.id === threadId)) {
+          yield* failCardOperation(
+            card,
+            `Provider interrupt failed during ${operation.kind}: ${detail}`,
+          );
+          return;
+        }
+      }
+      return;
+    }
+
     if (
       kind !== "approval.requested" &&
       kind !== "user-input.requested" &&
@@ -551,8 +751,15 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    // Durable lifecycle ops own residual activity from the interrupted turn.
+    if (card.operation !== null) {
+      return;
+    }
+
     if (kind === "approval.requested" || kind === "user-input.requested") {
-      if (card.status !== "needs-input") {
+      // The dying turn of a cancelled card may still surface blocking requests
+      // before the interrupt lands; they must not resurrect the card.
+      if (card.status !== "needs-input" && card.status !== "cancelled") {
         yield* setCardStatus(card.id, "needs-input", `blocking request: ${kind}`);
       }
       return;
@@ -580,7 +787,7 @@ const make = Effect.gen(function* () {
   ) {
     const cards = yield* listCards();
     const card = findCardForCurrentStepThread(cards, event.payload.threadId);
-    if (card === null) {
+    if (card === null || card.operation !== null) {
       return;
     }
     // Chat-to-resume / re-engage: a new user turn on the current step thread.
@@ -589,163 +796,33 @@ const make = Effect.gen(function* () {
     }
   });
 
-  const processCardCreated = Effect.fn("BoardReactor.processCardCreated")(function* (
-    event: Extract<BoardReactorEvent, { type: "card.created" }>,
-  ) {
-    // Fire-and-forget title generation: never block release or fail creation.
-    const cardId = event.payload.cardId;
-    const parameters = event.payload.parameters;
-    const placeholderTitle = event.payload.title;
-    const projectId = event.payload.projectId;
-
-    yield* Effect.gen(function* () {
-      const serverSettings = yield* settings.getSettings;
-      const modelSelection = serverSettings.textGenerationModelSelection;
-      if (!modelSelection) {
+  const processTurnInterruptRequested = Effect.fn("BoardReactor.processTurnInterruptRequested")(
+    function* (event: Extract<BoardReactorEvent, { type: "thread.turn-interrupt-requested" }>) {
+      const cards = yield* listCards();
+      const card = findCardForCurrentStepThread(cards, event.payload.threadId);
+      if (
+        card === null ||
+        card.operation !== null ||
+        (card.status !== "running" && card.status !== "needs-input")
+      ) {
         return;
       }
+      yield* setCardStatus(card.id, "cancelled", "current step conversation interrupted");
+    },
+  );
 
-      const project = yield* projectionSnapshotQuery
-        .getProjectShellById(projectId)
-        .pipe(Effect.map(Option.getOrUndefined));
-      const cwd = project?.workspaceRoot ?? process.cwd();
-      const message = buildBoardCardTitleMessage({
-        parameters,
-        placeholderTitle,
-      });
-
-      const generated = yield* textGeneration.generateThreadTitle({
-        cwd,
-        message,
-        modelSelection,
-      });
-      if (!generated.title.trim()) {
-        return;
-      }
-
-      // Skip if the card was already retitled (unlikely race).
-      const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
-      if (Option.isNone(cardOption)) {
-        return;
-      }
-      if (cardOption.value.title !== placeholderTitle) {
-        return;
-      }
-
-      yield* dispatch({
-        type: "card.title.set",
-        commandId: yield* serverCommandId("title-set"),
-        cardId,
-        title: generated.title.trim().slice(0, 255),
-      });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logDebug("board reactor skipped card title generation", {
-          cardId,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-  });
-
-  const processCardArchived = Effect.fn("BoardReactor.processCardArchived")(function* (
-    event: Extract<BoardReactorEvent, { type: "card.archived" }>,
-  ) {
-    const cardId = event.payload.cardId;
-    // Re-read for worktree path (archived cards stay in projection).
-    const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
-    if (Option.isNone(cardOption)) {
-      return;
-    }
-    const card = cardOption.value;
-
-    // Artifacts first (independent of worktree membership).
-    const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
-    yield* fs.remove(artifactDir, { recursive: true }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("board reactor failed to remove card artifact directory", {
-          cardId,
-          artifactDir,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-
-    if (card.worktreePath === null) {
-      return;
-    }
-
-    const project = yield* projectionSnapshotQuery
-      .getProjectShellById(card.projectId)
-      .pipe(Effect.map(Option.getOrUndefined));
-    const cwd = project?.workspaceRoot ?? card.worktreePath;
-
-    yield* deleteWorktreeOwned(
-      {
-        cwd,
-        path: card.worktreePath,
-      },
-      {
-        inspectWorktreeRemoval: (input) => gitWorkflow.inspectWorktreeRemoval(input),
-        removeWorktree: (input) => gitWorkflow.removeWorktree(input),
-        listMemberThreads: (worktreePath) =>
-          Effect.gen(function* () {
-            const [live, archived] = yield* Effect.all([
-              projectionSnapshotQuery.getShellSnapshot(),
-              projectionSnapshotQuery.getArchivedShellSnapshot(),
-            ]);
-            const members = [...live.threads, ...archived.threads].map((thread) => ({
-              id: thread.id,
-              parentThreadId: thread.parentThreadId,
-              worktreePath: thread.worktreePath,
-              deletedAt: null,
-              archivedAt: thread.archivedAt,
-            }));
-            return listActiveThreadsForWorktreePath(members, worktreePath);
-          }).pipe(
-            Effect.mapError((error) => ({
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to load worktree conversation membership.",
-            })),
-          ),
-        dispatchThreadDelete: ({ commandId, threadId }) =>
-          orchestrationEngine
-            .dispatch({
-              type: "thread.delete",
-              commandId,
-              threadId,
-            })
-            .pipe(
-              Effect.asVoid,
-              Effect.mapError((error) => ({
-                message: error instanceof Error ? error.message : String(error),
-              })),
-            ),
-        allocateCommandId: (tag) =>
-          serverCommandId(tag).pipe(
-            Effect.mapError((error) => ({
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to allocate worktree deletion command id.",
-            })),
-          ),
-        pathCoordination,
-      },
-    ).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("board reactor failed to delete card worktree on archive", {
-          cardId,
-          worktreePath: card.worktreePath,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-  });
+  const { processCardArchived, processCardCreated, processCardDeleteRequested } =
+    yield* makeBoardCardResourceSaga;
 
   const processEvent = Effect.fn("BoardReactor.processEvent")(function* (event: BoardReactorEvent) {
+    if (
+      Option.isSome(handlerDefectInjection) &&
+      handlerDefectInjection.value.shouldFail({ type: event.type })
+    ) {
+      return yield* Effect.die(
+        new Error(`injected board reactor handler defect for ${event.type}`),
+      );
+    }
     switch (event.type) {
       case "card.release-requested":
         return yield* processReleaseRequested(event);
@@ -755,46 +832,59 @@ const make = Effect.gen(function* () {
         return yield* processRetryRequested(event);
       case "card.cancel-requested":
         return yield* processCancelRequested(event);
+      case "card.reset-requested":
+        return yield* processCardResetRequested(event);
       case "card.created":
         return yield* processCardCreated(event);
       case "card.archived":
         return yield* processCardArchived(event);
+      case "card.delete-requested":
+        return yield* processCardDeleteRequested(event);
       case "thread.session-set":
         return yield* processSessionSet(event);
       case "thread.activity-appended":
         return yield* processActivityAppended(event);
+      case "thread.turn-interrupt-requested":
+        return yield* processTurnInterruptRequested(event);
       case "thread.turn-start-requested":
         return yield* processTurnStartRequested(event);
     }
   });
 
+  const failMatchingClaimsAfterHandlerDefect = yield* makeBoardHandlerDefectRecovery;
   const processEventSafely = (event: BoardReactorEvent) =>
     processEvent(event).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return Effect.logWarning("board reactor failed to process event", {
-          eventType: event.type,
-          cause: Cause.pretty(cause),
+        return Effect.gen(function* () {
+          yield* Effect.logWarning("board reactor failed to process event", {
+            eventType: event.type,
+            cause: Cause.pretty(cause),
+          });
+          // Unexpected handler failures must not strand a durable claim —
+          // including thread receipt handlers (session-set / activity / turn-start).
+          yield* failMatchingClaimsAfterHandlerDefect(event, cause);
         });
       }),
     );
 
   const worker = yield* makeDrainableWorker(processEventSafely);
 
-  const isBoardReactorEvent = (event: OrchestrationEvent): event is BoardReactorEvent =>
-    event.type === "card.release-requested" ||
-    event.type === "card.step-advance-requested" ||
-    event.type === "card.retry-requested" ||
-    event.type === "card.cancel-requested" ||
-    event.type === "card.created" ||
-    event.type === "card.archived" ||
-    event.type === "thread.session-set" ||
-    event.type === "thread.activity-appended" ||
-    event.type === "thread.turn-start-requested";
+  const reconcilePendingOperations = Effect.fn("BoardReactor.reconcilePendingOperations")(
+    function* () {
+      const cards = yield* listCards();
+      for (const event of makeBoardReconciliationEvents(cards)) {
+        yield* worker.enqueue(event);
+      }
+    },
+  );
 
   const start: BoardReactorShape["start"] = Effect.fn("start")(function* () {
+    // Subscribe first so completion events produced by reconcile (and by any
+    // concurrent client traffic) are observed. Reconciliation then enqueues
+    // resume work onto the same drainable worker — drain stays deterministic.
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
         if (!isBoardReactorEvent(event)) {
@@ -802,6 +892,20 @@ const make = Effect.gen(function* () {
         }
         return worker.enqueue(event);
       }),
+    );
+
+    // Yield so the scoped subscription fiber can attach before we dispatch
+    // resume side effects whose follow-up events must not be dropped.
+    yield* Effect.yieldNow;
+
+    // Resume unfinished durable operations from the projected read model.
+    // Title generation is not replayed — only lifecycle claims.
+    yield* reconcilePendingOperations().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("board reactor failed to reconcile pending card operations", {
+          cause: Cause.pretty(cause),
+        }),
+      ),
     );
   });
 

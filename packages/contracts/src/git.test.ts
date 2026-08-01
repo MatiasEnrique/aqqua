@@ -6,6 +6,8 @@ import {
   VcsCreateWorktreeInput,
   VcsDeleteWorktreeInput,
   VcsDeleteWorktreeResult,
+  VcsGetCommitDiffInput,
+  VcsGetCommitDiffResult,
   VcsGetCommitFileDiffInput,
   VcsGetCommitFileDiffResult,
   VcsGetCommitDetailsResult,
@@ -23,6 +25,8 @@ const decodeGitObjectId = Schema.decodeUnknownSync(GitObjectId);
 const decodeListHistoryInput = Schema.decodeUnknownSync(VcsListHistoryInput);
 const decodeListHistoryResult = Schema.decodeUnknownSync(VcsListHistoryResult);
 const decodeCommitDetailsResult = Schema.decodeUnknownSync(VcsGetCommitDetailsResult);
+const decodeCommitDiffInput = Schema.decodeUnknownSync(VcsGetCommitDiffInput);
+const decodeCommitDiffResult = Schema.decodeUnknownSync(VcsGetCommitDiffResult);
 const decodeCommitFileDiffInput = Schema.decodeUnknownSync(VcsGetCommitFileDiffInput);
 const decodeCommitFileDiffResult = Schema.decodeUnknownSync(VcsGetCommitFileDiffResult);
 const decodeInspectWorktreeRemovalResult = Schema.decodeUnknownSync(
@@ -187,6 +191,22 @@ describe("Git history contracts", () => {
         truncated: true,
       }),
     ).toMatchObject({ path: "src/é\tfile.ts", diff: "diff --git ...", truncated: true });
+
+    expect(decodeCommitDiffInput({ cwd: "/repo", commitId: sha1 })).toEqual({
+      cwd: "/repo",
+      commitId: sha1,
+    });
+    expect(
+      decodeCommitDiffResult({
+        commitId: sha1,
+        diff: "diff --git a/one.ts b/one.ts\ndiff --git a/two.ts b/two.ts\n",
+        truncated: false,
+      }),
+    ).toMatchObject({
+      commitId: sha1,
+      diff: "diff --git a/one.ts b/one.ts\ndiff --git a/two.ts b/two.ts\n",
+      truncated: false,
+    });
   });
 });
 

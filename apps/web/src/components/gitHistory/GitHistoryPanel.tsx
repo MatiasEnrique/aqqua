@@ -1,30 +1,11 @@
-import type {
-  EnvironmentId,
-  GitHistoryCommitSummary,
-  GitHistoryFileChange,
-} from "@t3tools/contracts";
+import type { EnvironmentId, GitHistoryCommitSummary } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
-import { FileDiff } from "@pierre/diffs/react";
-import {
-  ArrowLeft,
-  Check,
-  Copy,
-  GitBranch,
-  GitCommitHorizontal,
-  LoaderCircle,
-  RefreshCw,
-  Tag,
-} from "lucide-react";
+import { GitBranch, LoaderCircle, RefreshCw, Tag } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { useClientSettings } from "../../hooks/useSettings";
-import { useTheme } from "../../hooks/useTheme";
-import { getRenderablePatch, resolveDiffThemeName } from "../../lib/diffRendering";
 import { cn } from "../../lib/utils";
-import { useEnvironmentQuery } from "../../state/query";
-import { vcsEnvironment } from "../../state/vcs";
 import { formatChatTimestampTooltip, formatRelativeTimeLabel } from "../../timestampFormat";
+import DiffPanel, { type DiffPanelProps } from "../DiffPanel";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { ScrollArea } from "../ui/scroll-area";
@@ -160,337 +141,49 @@ function CommitRow(props: {
   );
 }
 
-function FileChangeRow(props: {
-  file: GitHistoryFileChange;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const file = props.file;
-  const counts = file.binary
-    ? "Binary · counts unavailable"
-    : `+${file.insertions ?? 0} −${file.deletions ?? 0}`;
+type GitHistoryDiffContext = {
+  composerDraftTarget: DiffPanelProps["composerDraftTarget"];
+  threadRef: Exclude<DiffPanelProps["threadRef"], undefined>;
+  workspaceRef: Exclude<DiffPanelProps["workspaceRef"], undefined>;
+};
+
+export function GitHistoryCommitPane(
+  props: GitHistoryDiffContext & {
+    environmentId: EnvironmentId;
+    cwd: string;
+    commit: GitHistoryCommitSummary;
+    onBack: () => void;
+  },
+) {
   return (
-    <button
-      type="button"
-      onClick={props.onSelect}
-      aria-label={`Show diff for ${file.path}`}
-      aria-pressed={props.selected}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2 text-left text-xs outline-none transition-colors last:border-0 hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        props.selected && "bg-accent",
-      )}
-    >
-      <span className="w-16 shrink-0 capitalize text-muted-foreground">
-        {file.kind.replace("_", " ")}
-      </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={file.path}>
-        {file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
-      </span>
-      <span className={cn("shrink-0 font-mono", file.binary && "text-muted-foreground")}>
-        {counts}
-      </span>
-    </button>
-  );
-}
-
-function CommitCodeDiff(props: {
-  commitId: string;
-  file: GitHistoryFileChange;
-  diff: string | undefined;
-  truncated: boolean;
-  isPending: boolean;
-  error: string | null;
-  onRetry: () => void;
-}) {
-  const { resolvedTheme } = useTheme();
-  const wordWrap = useClientSettings((settings) => settings.wordWrap);
-  const renderablePatch = useMemo(
-    () => getRenderablePatch(props.diff, `git-history:${props.commitId}`),
-    [props.commitId, props.diff],
-  );
-  const fileDiffs = renderablePatch?.kind === "files" ? renderablePatch.files : [];
-
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Code diff
-        </span>
-        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
-          {props.file.path}
-        </span>
-      </div>
-      {props.truncated ? (
-        <p className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/8 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
-          Code diff was truncated because this file exceeded the preview limit.
-        </p>
-      ) : null}
-      {props.isPending && !renderablePatch ? (
-        <div className="space-y-2" role="status" aria-label={`Loading diff for ${props.file.path}`}>
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-28 w-full" />
-        </div>
-      ) : props.error && !renderablePatch ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs">
-          <p>{props.error}</p>
-          <Button className="mt-2" variant="outline" size="xs" onClick={props.onRetry}>
-            Retry file diff
-          </Button>
-        </div>
-      ) : fileDiffs.length > 0 ? (
-        <div className="diff-render-surface space-y-2 overflow-hidden rounded-md border border-border/60">
-          {fileDiffs.map((fileDiff, index) => (
-            <FileDiff
-              key={fileDiff.cacheKey ?? index}
-              fileDiff={fileDiff}
-              options={{
-                collapsed: false,
-                diffStyle: "unified",
-                overflow: wordWrap ? "wrap" : "scroll",
-                theme: resolveDiffThemeName(resolvedTheme),
-              }}
-            />
-          ))}
-        </div>
-      ) : renderablePatch?.kind === "raw" ? (
-        <div className="space-y-1">
-          <p className="text-[11px] text-muted-foreground">{renderablePatch.reason}</p>
-          <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/35 p-3 font-mono text-[11px]">
-            {renderablePatch.text}
-          </pre>
-        </div>
-      ) : (
-        <div className="rounded-md border border-border/60 p-3 text-xs text-muted-foreground">
-          {props.truncated
-            ? "Only part of this file's diff is available."
-            : props.file.binary
-              ? "Binary changes cannot be rendered as code."
-              : "No code diff is available for this file."}
-        </div>
-      )}
-    </section>
-  );
-}
-
-export function GitHistoryCommitDetails(props: {
-  environmentId: EnvironmentId;
-  cwd: string;
-  commit: GitHistoryCommitSummary;
-  timestampFormat: TimestampFormat;
-  onBack: () => void;
-}) {
-  const details = useEnvironmentQuery(
-    vcsEnvironment.commitDetails({
-      environmentId: props.environmentId,
-      input: { cwd: props.cwd, commitId: props.commit.id },
-    }),
-  );
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "commit SHA" });
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const selectedFile =
-    details.data?.files.find((file) => file.path === selectedFilePath) ??
-    details.data?.files[0] ??
-    null;
-  const fileDiff = useEnvironmentQuery(
-    selectedFile
-      ? vcsEnvironment.commitFileDiff({
+    <div className="min-h-0 min-w-0 flex-1" data-history-pane="diff">
+      <DiffPanel
+        mode="embedded"
+        composerDraftTarget={props.composerDraftTarget}
+        initialGitScope="branch"
+        threadRef={props.threadRef}
+        workspaceRef={props.workspaceRef}
+        fallbackCwd={props.cwd}
+        commitTarget={{
           environmentId: props.environmentId,
-          input: {
-            cwd: props.cwd,
-            commitId: props.commit.id,
-            path: selectedFile.path,
-            previousPath: selectedFile.previousPath,
-          },
-        })
-      : null,
-  );
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col border-l border-border/60 bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-2">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="@min-[720px]/history:hidden"
-          onClick={props.onBack}
-          aria-label="Back to Git history"
-        >
-          <ArrowLeft />
-        </Button>
-        <GitCommitHorizontal className="size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {props.commit.subject || "(no commit message)"}
-        </span>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-4">
-          <section>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Commit
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 break-all text-xs">{props.commit.id}</code>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => copyToClipboard(props.commit.id, undefined)}
-                aria-label="Copy full commit SHA"
-              >
-                {isCopied ? <Check /> : <Copy />}
-              </Button>
-            </div>
-          </section>
-
-          {props.commit.refs.length > 0 || props.commit.isHead ? (
-            <section>
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                References
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {props.commit.isHead ? (
-                  <span className="rounded bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-background">
-                    HEAD
-                  </span>
-                ) : null}
-                {props.commit.refs.map((ref) => (
-                  <RefBadge key={`${ref.kind}:${ref.name}`} refName={ref.name} kind={ref.kind} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
-            <span className="text-muted-foreground">Author</span>
-            <span className="min-w-0 break-words">
-              {props.commit.authorName} &lt;{props.commit.authorEmail}&gt;
-            </span>
-            <span className="text-muted-foreground">Authored</span>
-            <span>
-              {formatChatTimestampTooltip(props.commit.authoredAt, props.timestampFormat)}
-            </span>
-            <span className="text-muted-foreground">Committer</span>
-            <span className="min-w-0 break-words">
-              {details.data
-                ? `${details.data.committerName} <${details.data.committerEmail}>`
-                : details.error
-                  ? "Unavailable"
-                  : "Loading…"}
-            </span>
-            <span className="text-muted-foreground">Committed</span>
-            <span>
-              {formatChatTimestampTooltip(
-                details.data?.committedAt ?? props.commit.committedAt,
-                props.timestampFormat,
-              )}
-            </span>
-          </section>
-
-          {props.commit.parentIds.length > 0 ? (
-            <section>
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Parents
-              </div>
-              <div className="space-y-1">
-                {props.commit.parentIds.map((parentId) => (
-                  <code
-                    key={parentId}
-                    className="block break-all text-[11px] text-muted-foreground"
-                  >
-                    {parentId}
-                  </code>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {details.isPending && !details.data ? (
-            <div className="space-y-2" role="status" aria-label="Loading commit details">
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-4/5" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : details.error ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs">
-              <p>{details.error}</p>
-              <Button className="mt-2" variant="outline" size="xs" onClick={details.refresh}>
-                Retry
-              </Button>
-            </div>
-          ) : details.data ? (
-            <>
-              {details.data.body ? (
-                <section>
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Message
-                  </div>
-                  <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/55 p-3 font-sans text-xs">
-                    {details.data.body}
-                  </pre>
-                  {details.data.bodyTruncated ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Commit message was truncated.
-                    </p>
-                  ) : null}
-                </section>
-              ) : null}
-              <section>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Changed files
-                  </span>
-                  {details.data.comparisonParentId ? (
-                    <span className="text-[10px] text-muted-foreground">
-                      Changes against first parent
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground">Root commit</span>
-                  )}
-                </div>
-                <div className="overflow-hidden rounded-md border border-border/60">
-                  {details.data.files.length > 0 ? (
-                    details.data.files.map((file) => (
-                      <FileChangeRow
-                        key={`${file.previousPath ?? ""}:${file.path}:${file.kind}`}
-                        file={file}
-                        selected={file.path === selectedFile?.path}
-                        onSelect={() => setSelectedFilePath(file.path)}
-                      />
-                    ))
-                  ) : (
-                    <div className="p-3 text-xs text-muted-foreground">No file changes.</div>
-                  )}
-                </div>
-                {details.data.filesTruncated ? (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Changed-file details were truncated.
-                  </p>
-                ) : null}
-              </section>
-              {selectedFile ? (
-                <CommitCodeDiff
-                  commitId={details.data.commitId}
-                  file={selectedFile}
-                  diff={fileDiff.data?.diff}
-                  truncated={fileDiff.data?.truncated ?? false}
-                  isPending={fileDiff.isPending}
-                  error={fileDiff.error}
-                  onRetry={fileDiff.refresh}
-                />
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </ScrollArea>
+          cwd: props.cwd,
+          commitId: props.commit.id,
+          label: props.commit.subject || props.commit.id.slice(0, 7),
+          onBack: props.onBack,
+        }}
+      />
     </div>
   );
 }
 
-export function GitHistoryPanel(props: {
-  environmentId: EnvironmentId;
-  cwd: string;
-  repositoryRefName?: string | null;
-  timestampFormat: TimestampFormat;
-}) {
+export function GitHistoryPanel(
+  props: GitHistoryDiffContext & {
+    environmentId: EnvironmentId;
+    cwd: string;
+    repositoryRefName?: string | null;
+    timestampFormat: TimestampFormat;
+  },
+) {
   const [includeOrigin, setIncludeOrigin] = useState(false);
   const history = usePaginatedGitHistory({
     environmentId: props.environmentId,
@@ -548,12 +241,33 @@ export function GitHistoryPanel(props: {
         </Tooltip>
       </div>
 
-      <div className="@min-[720px]/history:grid @min-[720px]/history:grid-cols-[minmax(360px,1fr)_minmax(320px,0.8fr)] flex min-h-0 flex-1">
+      <div className="@min-[720px]/history:grid @min-[720px]/history:grid-cols-[minmax(0,1fr)_minmax(320px,38%)] flex min-h-0 flex-1">
+        {selectedCommit ? (
+          <GitHistoryCommitPane
+            key={selectedCommit.id}
+            environmentId={props.environmentId}
+            cwd={props.cwd}
+            commit={selectedCommit}
+            composerDraftTarget={props.composerDraftTarget}
+            threadRef={props.threadRef}
+            workspaceRef={props.workspaceRef}
+            onBack={() => setSelectedCommitId(null)}
+          />
+        ) : (
+          <div
+            className="@max-[719px]/history:hidden hidden min-h-0 items-center justify-center p-6 text-center text-xs text-muted-foreground @min-[720px]/history:flex"
+            data-history-pane="diff"
+          >
+            Select a commit to view its diff.
+          </div>
+        )}
+
         <div
           className={cn(
-            "min-h-0 min-w-0 flex-1 flex-col",
+            "min-h-0 min-w-0 flex-1 flex-col @min-[720px]/history:border-l @min-[720px]/history:border-border/60",
             selectedCommit ? "hidden @min-[720px]/history:flex" : "flex",
           )}
+          data-history-pane="graph"
         >
           {history.isPending && !history.data ? (
             <div className="space-y-1 p-2" role="status" aria-label="Loading Git history">
@@ -645,21 +359,6 @@ export function GitHistoryPanel(props: {
             </>
           )}
         </div>
-
-        {selectedCommit ? (
-          <GitHistoryCommitDetails
-            key={selectedCommit.id}
-            environmentId={props.environmentId}
-            cwd={props.cwd}
-            commit={selectedCommit}
-            timestampFormat={props.timestampFormat}
-            onBack={() => setSelectedCommitId(null)}
-          />
-        ) : (
-          <div className="@max-[719px]/history:hidden hidden min-h-0 items-center justify-center border-l border-border/60 p-6 text-center text-xs text-muted-foreground @min-[720px]/history:flex">
-            Select a commit to inspect its details.
-          </div>
-        )}
       </div>
     </div>
   );

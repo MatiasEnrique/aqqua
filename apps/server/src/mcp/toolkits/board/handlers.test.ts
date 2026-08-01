@@ -59,6 +59,8 @@ function makeCard(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard
     parameters: {},
     position: { kind: "step", stepIndex: 0 },
     status: "running",
+    operation: null,
+    lastError: null,
     snapshot: { name: "Delivery", steps: STEPS },
     branch: "board/fix-flaky-test-card1",
     worktreePath: "/tmp/wt",
@@ -67,6 +69,7 @@ function makeCard(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard
     updatedAt: NOW,
     releasedAt: NOW,
     completedAt: null,
+    settledAt: null,
     archivedAt: null,
     ...overrides,
   };

@@ -1,16 +1,25 @@
 import {
+  type CardCleanupStage,
+  type CardOperation,
+  CardOperationId,
   EventId,
   isContinuableCardStatus,
+  type OrchestrationCard,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type * as PlatformError from "effect/PlatformError";
-
-import { OrchestrationCommandInvariantError } from "./Errors.ts";
+/**
+ * Blocked-on-you work derived from the thread's retained activities: an
+ * approval or user-input request with no later resolution for the same
+ * requestId. Shared with the board reactor so status transitions match
+ * settle/snooze gates. (Projector-capped activity stream; see boardCardHelpers.)
+ */
+import { boardOperationThreadId, hasOpenBlockingRequest } from "./boardCardHelpers.ts";
 import {
   listThreadsByParentThreadId,
   listThreadsByProjectId,
@@ -24,17 +33,11 @@ import {
   requireProject,
   requireProjectAbsent,
   requireThread,
-  requireThreadArchived,
   requireThreadAbsent,
+  requireThreadArchived,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
-/**
- * Blocked-on-you work derived from the thread's retained activities: an
- * approval or user-input request with no later resolution for the same
- * requestId. Shared with the board reactor so status transitions match
- * settle/snooze gates. (Projector-capped activity stream; see boardCardHelpers.)
- */
-import { hasOpenBlockingRequest } from "./boardCardHelpers.ts";
+import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { projectEvent } from "./projector.ts";
 import { selectTopLevelThreadsForBatchDelete } from "./threadDeletion.ts";
 
@@ -65,7 +68,10 @@ const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
  */
 function threadHasQueuedTurnStart(
   thread: {
-    readonly messages: ReadonlyArray<{ readonly role: string; readonly createdAt: string }>;
+    readonly messages: ReadonlyArray<{
+      readonly role: string;
+      readonly createdAt: string;
+    }>;
     readonly latestTurn: {
       readonly requestedAt: string;
       readonly startedAt: string | null;
@@ -136,6 +142,87 @@ type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
+
+function cardOperationIdFromCommand(commandId: string): CardOperationId {
+  return CardOperationId.make(commandId);
+}
+
+const CLEANUP_STAGES = {
+  resetting: ["pending", "cleanup-started", "threads-archived", "artifacts-removed"],
+  deleting: [
+    "pending",
+    "cleanup-started",
+    "conversations-deleted",
+    "worktree-removed",
+    "artifacts-removed",
+  ],
+} as const satisfies Record<"resetting" | "deleting", ReadonlyArray<CardCleanupStage>>;
+
+function rejectIfCardHasOperation(
+  card: OrchestrationCard,
+  commandType: OrchestrationCommand["type"],
+): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (card.operation === null) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    new OrchestrationCommandInvariantError({
+      commandType,
+      detail: `Card '${card.id}' already has a '${card.operation.kind}' operation in progress.`,
+    }),
+  );
+}
+
+function requireMatchingCardOperation(
+  card: OrchestrationCard,
+  commandType: OrchestrationCommand["type"],
+  operationId: CardOperationId,
+  kinds: ReadonlyArray<CardOperation["kind"]>,
+): Effect.Effect<CardOperation, OrchestrationCommandInvariantError> {
+  if (card.operation === null) {
+    return Effect.fail(
+      new OrchestrationCommandInvariantError({
+        commandType,
+        detail: `Card '${card.id}' has no in-flight operation for command '${commandType}'.`,
+      }),
+    );
+  }
+  if (card.operation.operationId !== operationId) {
+    return Effect.fail(
+      new OrchestrationCommandInvariantError({
+        commandType,
+        detail: `Card '${card.id}' operation '${card.operation.operationId}' does not match '${operationId}'.`,
+      }),
+    );
+  }
+  if (!(kinds as ReadonlyArray<string>).includes(card.operation.kind)) {
+    return Effect.fail(
+      new OrchestrationCommandInvariantError({
+        commandType,
+        detail: `Card '${card.id}' operation kind '${card.operation.kind}' is not valid for command '${commandType}'.`,
+      }),
+    );
+  }
+  return Effect.succeed(card.operation);
+}
+
+/** True while release setup is in flight (durable op or legacy snapshot claim). */
+function cardIsStarting(card: OrchestrationCard): boolean {
+  if (card.operation?.kind === "starting") {
+    return true;
+  }
+  // Legacy rows projected before durable operations existed.
+  return (
+    card.operation === null &&
+    card.position.kind === "todo" &&
+    card.snapshot !== null &&
+    card.status !== "failed"
+  );
+}
+
+function cardIsActivelyRunningStep(card: OrchestrationCard): boolean {
+  return card.position.kind === "step" && (card.status === null || card.status === "running");
+}
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
@@ -1315,6 +1402,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Card '${command.cardId}' must be in todo to release.`,
         });
       }
+      yield* rejectIfCardHasOperation(card, command.type);
       const board = yield* requireBoardNotDeleted({
         readModel,
         command,
@@ -1327,6 +1415,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      const threadId = boardOperationThreadId(operationId);
       return {
         ...(yield* withEventBase({
           aggregateKind: "card",
@@ -1342,6 +1432,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             steps: board.steps,
           },
           requestedAt: occurredAt,
+          operationId,
+          threadId,
         },
       };
     }
@@ -1352,6 +1444,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, ["starting"]);
       if (card.position.kind !== "todo" || card.snapshot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1373,16 +1466,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           releasedAt: occurredAt,
           updatedAt: occurredAt,
+          operationId: command.operationId,
         },
       };
     }
 
     case "card.release.fail": {
-      yield* requireCard({
+      const card = yield* requireCard({
         readModel,
         command,
         cardId: command.cardId,
       });
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, ["starting"]);
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -1391,10 +1486,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         })),
-        type: "card.status-set",
+        type: "card.operation-failed",
         payload: {
           cardId: command.cardId,
-          status: "failed",
+          operationId: command.operationId,
+          kind: "starting",
+          reason: command.reason,
+          failedAt: occurredAt,
           updatedAt: occurredAt,
         },
       };
@@ -1406,6 +1504,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, [
+        "starting",
+        "advancing",
+        "retrying",
+      ]);
       if (card.releasedAt === null || card.snapshot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1433,6 +1536,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           enteredAt: occurredAt,
           updatedAt: occurredAt,
+          operationId: command.operationId,
         },
       };
     }
@@ -1443,6 +1547,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
+      if (card.operation !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' already has a '${card.operation.kind}' operation in progress.`,
+        });
+      }
+      if (card.status === "cancelled") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is cancelled; the interrupted step cannot report an outcome.`,
+        });
+      }
       if (card.position.kind !== "step" || card.position.stepIndex !== command.stepIndex) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1517,6 +1633,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         };
       }
 
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      const threadId = boardOperationThreadId(operationId);
       return {
         ...base,
         type: "card.step-advance-requested",
@@ -1524,6 +1642,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           cardId: command.cardId,
           toStepIndex: command.stepIndex + 1,
           requestedAt: occurredAt,
+          operationId,
+          threadId,
         },
       };
     }
@@ -1534,6 +1654,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
+      yield* rejectIfCardHasOperation(card, command.type);
       // User override to advance past a stuck or gated step. Paused is the
       // manual-continuation path; needs-input/failed/cancelled are "mark step
       // done, advance" from the card UI when the agent cannot finish cleanly.
@@ -1568,6 +1689,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         };
       }
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      const threadId = boardOperationThreadId(operationId);
       return {
         ...base,
         type: "card.step-advance-requested",
@@ -1575,6 +1698,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           cardId: command.cardId,
           toStepIndex: card.position.stepIndex + 1,
           requestedAt: occurredAt,
+          operationId,
+          threadId,
         },
       };
     }
@@ -1585,8 +1710,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
-      // Same gate as continue: while running, Cancel first so two agents never
-      // share the card worktree.
+      yield* rejectIfCardHasOperation(card, command.type);
+      // Same gate as continue: a running step cannot spawn a second agent in
+      // the same card worktree.
       if (
         card.position.kind !== "step" ||
         card.releasedAt === null ||
@@ -1598,6 +1724,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      const threadId = boardOperationThreadId(operationId);
       return {
         ...(yield* withEventBase({
           aggregateKind: "card",
@@ -1610,6 +1738,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           cardId: command.cardId,
           stepIndex: card.position.stepIndex,
           requestedAt: occurredAt,
+          operationId,
+          threadId,
         },
       };
     }
@@ -1620,6 +1750,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         cardId: command.cardId,
       });
+      yield* rejectIfCardHasOperation(card, command.type);
       if (card.position.kind !== "step") {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1662,16 +1793,143 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [cancelRequested, statusSet];
     }
 
+    case "card.reset": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.operation?.kind === "resetting" && card.lastError !== null) {
+        const occurredAt = yield* nowIso;
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "card",
+            aggregateId: command.cardId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "card.reset-requested",
+          payload: {
+            cardId: command.cardId,
+            operationId: card.operation.operationId,
+            activeThreadId: card.operation.activeThreadId,
+            threadIds: card.operation.threadIds,
+            requestedAt: occurredAt,
+          },
+        };
+      }
+      yield* rejectIfCardHasOperation(card, command.type);
+      if (card.position.kind !== "step") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be at a step to reset.`,
+        });
+      }
+      const stepIndex = card.position.stepIndex;
+      const occurredAt = yield* nowIso;
+      const currentStepThread = [...card.stepThreads]
+        .toReversed()
+        .find((entry) => entry.stepIndex === stepIndex);
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.reset-requested",
+        payload: {
+          cardId: command.cardId,
+          operationId,
+          activeThreadId: currentStepThread?.threadId ?? null,
+          threadIds: [...new Set(card.stepThreads.map((entry) => entry.threadId))],
+          requestedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.reset.complete": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const operation = yield* requireMatchingCardOperation(
+        card,
+        command.type,
+        command.operationId,
+        ["resetting"],
+      );
+      if (operation.kind !== "resetting") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is not resetting.`,
+        });
+      }
+      if (operation.cleanupStage !== "artifacts-removed") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' reset cleanup is only at '${operation.cleanupStage ?? "pending"}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.reset",
+        payload: {
+          cardId: command.cardId,
+          operationId: command.operationId,
+          activeThreadId: operation.activeThreadId,
+          threadIds: operation.threadIds,
+          resetAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.reset.fail": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, ["resetting"]);
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.operation-failed",
+        payload: {
+          cardId: command.cardId,
+          operationId: command.operationId,
+          kind: "resetting",
+          reason: command.reason,
+          failedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "card.archive": {
       const card = yield* requireCardNotArchived({
         readModel,
         command,
         cardId: command.cardId,
       });
-      if (card.position.kind !== "done") {
+      yield* rejectIfCardHasOperation(card, command.type);
+      if (card.position.kind !== "done" || card.settledAt === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Card '${command.cardId}' must be done to archive.`,
+          detail: `Card '${command.cardId}' must be settled to archive.`,
         });
       }
       const occurredAt = yield* nowIso;
@@ -1686,6 +1944,257 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           cardId: command.cardId,
           archivedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.delete": {
+      const card = yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.operation?.kind === "deleting" && card.lastError !== null) {
+        const occurredAt = yield* nowIso;
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "card",
+            aggregateId: command.cardId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "card.delete-requested",
+          payload: {
+            cardId: command.cardId,
+            requestedAt: occurredAt,
+            operationId: card.operation.operationId,
+          },
+        };
+      }
+      yield* rejectIfCardHasOperation(card, command.type);
+      if (cardIsStarting(card) || cardIsActivelyRunningStep(card) || card.status === "deleting") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must finish starting or be reset before deletion.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const operationId = cardOperationIdFromCommand(command.commandId);
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.delete-requested",
+        payload: {
+          cardId: command.cardId,
+          requestedAt: occurredAt,
+          operationId,
+        },
+      };
+    }
+
+    case "card.delete.complete": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const operation = yield* requireMatchingCardOperation(
+        card,
+        command.type,
+        command.operationId,
+        ["deleting"],
+      );
+      if (operation.kind !== "deleting" || operation.cleanupStage !== "artifacts-removed") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' delete cleanup is only at '${operation.kind === "deleting" ? (operation.cleanupStage ?? "pending") : operation.kind}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.deleted",
+        payload: {
+          cardId: command.cardId,
+          deletedAt: occurredAt,
+          operationId: command.operationId,
+        },
+      };
+    }
+
+    case "card.delete.fail": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, ["deleting"]);
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.operation-failed",
+        payload: {
+          cardId: command.cardId,
+          operationId: command.operationId,
+          kind: "deleting",
+          reason: command.reason,
+          failedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.operation.fail": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      // Validates both operation id and kind against the durable claim so a
+      // stale reactor fail cannot clear a newer, different operation.
+      yield* requireMatchingCardOperation(card, command.type, command.operationId, [command.kind]);
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.operation-failed",
+        payload: {
+          cardId: command.cardId,
+          operationId: command.operationId,
+          kind: command.kind,
+          reason: command.reason,
+          failedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.cleanup.progress": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      const operation = yield* requireMatchingCardOperation(
+        card,
+        command.type,
+        command.operationId,
+        [command.kind],
+      );
+      if (operation.kind !== "resetting" && operation.kind !== "deleting") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' operation '${operation.kind}' has no cleanup stages.`,
+        });
+      }
+      const stages: ReadonlyArray<CardCleanupStage> = CLEANUP_STAGES[operation.kind];
+      const currentStage = operation.cleanupStage ?? "pending";
+      const currentIndex = stages.indexOf(currentStage);
+      const nextIndex = stages.indexOf(command.stage);
+      if (nextIndex < currentIndex || nextIndex < 1 || nextIndex > currentIndex + 1) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' cleanup cannot move from '${currentStage}' to '${command.stage}'.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.cleanup-progressed",
+        payload: {
+          cardId: command.cardId,
+          operationId: command.operationId,
+          kind: command.kind,
+          stage: command.stage,
+          progressedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.settle": {
+      const card = yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      yield* rejectIfCardHasOperation(card, command.type);
+      if (card.position.kind !== "done") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must be done to settle.`,
+        });
+      }
+      if (card.settledAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is already settled.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.settled",
+        payload: {
+          cardId: command.cardId,
+          settledAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "card.unsettle": {
+      const card = yield* requireCardNotArchived({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      yield* rejectIfCardHasOperation(card, command.type);
+      if (card.settledAt === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is not settled.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "card",
+          aggregateId: command.cardId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "card.unsettled",
+        payload: {
+          cardId: command.cardId,
           updatedAt: occurredAt,
         },
       };
