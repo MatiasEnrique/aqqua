@@ -1016,6 +1016,62 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
     }),
   );
 
+  it.effect("surfaces an xAI terminal error as a failed turn", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-xai-terminal-error");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          T3_ACP_EMIT_XAI_PROMPT_ERROR_THEN_HANG: "1",
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const runtimeEvents: ProviderRuntimeEvent[] = [];
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          runtimeEvents.push(event);
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId: ProviderInstanceId.make("grok"), model: "grok-build" },
+      });
+
+      const error = yield* Effect.flip(
+        adapter.sendTurn({
+          threadId,
+          input: "fail with an xAI terminal error",
+          attachments: [],
+        }),
+      );
+      const failedTurnCompleted = runtimeEvents.find(
+        (event) => event.type === "turn.completed" && event.threadId === threadId,
+      );
+
+      assert.equal(error._tag, "ProviderAdapterRequestError");
+      if (error._tag === "ProviderAdapterRequestError") {
+        assert.equal(
+          error.detail,
+          "API error (status 402 Payment Required): Grok Build usage balance exhausted",
+        );
+      }
+      assert.equal(failedTurnCompleted?.type, "turn.completed");
+      if (failedTurnCompleted?.type === "turn.completed") {
+        assert.equal(failedTurnCompleted.payload.state, "failed");
+        assert.equal(
+          failedTurnCompleted.payload.errorMessage,
+          "API error (status 402 Payment Required): Grok Build usage balance exhausted",
+        );
+      }
+
+      yield* Fiber.interrupt(runtimeEventsFiber);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("ignores replayed session/load updates when resuming a Grok session", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-load-replay-filter");

@@ -299,6 +299,26 @@ describe("XAiAcpExtension", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("fails a hung standard prompt from an xAI error completion", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makePromptCompletionRuntime({
+        T3_ACP_EMIT_XAI_PROMPT_ERROR_THEN_HANG: "1",
+      });
+      yield* runtime.start();
+
+      const error = yield* Effect.flip(
+        runtime.prompt({
+          prompt: [{ type: "text", text: "hi" }],
+        }),
+      );
+
+      expect(error).toMatchObject({
+        _tag: "AcpRequestError",
+        errorMessage: "API error (status 402 Payment Required): Grok Build usage balance exhausted",
+      });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("ignores stale xAI completion from an already settled prompt", () =>
     Effect.gen(function* () {
       const runtime = yield* makePromptCompletionRuntime({

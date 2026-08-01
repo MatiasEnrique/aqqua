@@ -1160,10 +1160,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 ]),
               ),
               Effect.tapError((error) =>
-                Ref.set(
-                  promptFailureMessageRef,
-                  mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error).message,
-                ).pipe(Effect.andThen(prepared.acp.drainEvents)),
+                Ref.set(promptFailureMessageRef, error.message).pipe(
+                  Effect.andThen(prepared.acp.drainEvents),
+                ),
               ),
               Effect.mapError((error) =>
                 mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),

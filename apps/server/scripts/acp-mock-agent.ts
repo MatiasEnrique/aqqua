@@ -20,6 +20,7 @@ const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHO
 const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
 const emitXAiAskUserQuestion = process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION === "1";
 const emitXAiPromptCompleteThenHang = process.env.T3_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG === "1";
+const emitXAiPromptErrorThenHang = process.env.T3_ACP_EMIT_XAI_PROMPT_ERROR_THEN_HANG === "1";
 const emitXAiTrailingChunkAfterPromptComplete =
   process.env.T3_ACP_EMIT_XAI_TRAILING_CHUNK_AFTER_PROMPT_COMPLETE === "1";
 const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
@@ -557,6 +558,18 @@ const program = Effect.gen(function* () {
           ),
           Effect.forkDetach,
         );
+
+        return yield* Effect.never;
+      }
+
+      if (emitXAiPromptErrorThenHang) {
+        writeJsonRpcNotification("_x.ai/session/prompt_complete", {
+          sessionId: requestedSessionId,
+          promptId: promptIdFromRequestMeta(request) ?? "mock-xai-prompt-1",
+          stopReason: "error",
+          agentResult:
+            "API error (status 402 Payment Required): Grok Build usage balance exhausted",
+        });
 
         return yield* Effect.never;
       }

@@ -3,6 +3,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import type * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
@@ -19,7 +20,7 @@ type XAiPromptCompleteNotification = typeof XAiPromptCompleteNotification.Type;
 interface PendingXAiPromptCompletion {
   readonly sessionId: string;
   readonly promptId: string;
-  readonly deferred: Deferred.Deferred<EffectAcpSchema.PromptResponse>;
+  readonly deferred: Deferred.Deferred<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError>;
 }
 
 const completedXAiPromptIdLimit = 128;
@@ -278,7 +279,7 @@ const registerXAiPromptCompletionFallback = (
   sessionId: string,
   promptId: string,
 ) =>
-  Deferred.make<EffectAcpSchema.PromptResponse>().pipe(
+  Deferred.make<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError>().pipe(
     Effect.tap((deferred) =>
       Ref.update(pendingRef, (pending) => [...pending, { sessionId, promptId, deferred }]),
     ),
@@ -287,7 +288,7 @@ const registerXAiPromptCompletionFallback = (
 
 const unregisterXAiPromptCompletionFallback = (
   pendingRef: Ref.Ref<ReadonlyArray<PendingXAiPromptCompletion>>,
-  deferred: Deferred.Deferred<EffectAcpSchema.PromptResponse>,
+  deferred: Deferred.Deferred<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError>,
 ) => Ref.update(pendingRef, (pending) => pending.filter((entry) => entry.deferred !== deferred));
 
 const abortPendingPromptCompletions = (
@@ -357,13 +358,39 @@ const resolveXAiPromptCompletionFallback = ({
         if (!entry) {
           return [Effect.void, pending] as const;
         }
+        const error = promptErrorFromXAi(notification);
         return [
-          Deferred.succeed(entry.deferred, promptResponseFromXAi(notification)).pipe(Effect.asVoid),
+          (error
+            ? Deferred.fail(entry.deferred, error)
+            : Deferred.succeed(entry.deferred, promptResponseFromXAi(notification))
+          ).pipe(Effect.asVoid),
           [...pending.slice(0, index), ...pending.slice(index + 1)],
         ] as const;
       }).pipe(Effect.flatten);
     }),
   );
+
+function promptErrorFromXAi(
+  notification: XAiPromptCompleteNotification,
+): EffectAcpErrors.AcpRequestError | undefined {
+  if (notification.stopReason !== "error") {
+    return undefined;
+  }
+  const message =
+    typeof notification.agentResult === "string" ? trimmed(notification.agentResult) : undefined;
+  return EffectAcpErrors.AcpRequestError.internalError(
+    message ?? "Grok prompt failed.",
+    {
+      stopReason: notification.stopReason,
+      agentResult: notification.agentResult,
+    },
+    {
+      method: "session/prompt",
+      ...(notification.promptId === undefined ? {} : { requestId: notification.promptId }),
+      operation: "receive-response",
+    },
+  );
+}
 
 const rememberCompletedXAiPromptId = (
   completedPromptIdsRef: Ref.Ref<ReadonlyArray<string>>,
