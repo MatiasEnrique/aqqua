@@ -36,7 +36,7 @@ import {
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
 import * as GitManager from "./GitManager.ts";
 import * as GitHistory from "./GitHistory.ts";
@@ -118,7 +118,7 @@ export class GitWorkflowService extends Context.Service<
       readonly newBranch: string;
     }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
   }
->()("t3/git/GitWorkflowService") {}
+>()("aqqua/git/GitWorkflowService") {}
 
 function nonRepositoryLocalStatus(): VcsStatusLocalResult {
   return {

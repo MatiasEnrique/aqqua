@@ -3,7 +3,7 @@ import type {
   EnvironmentId,
   ProjectListEntriesResult,
   ProjectReadFileResult,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
@@ -11,7 +11,7 @@ import { useCallback, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
-import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { executeAtomQuery, squashAtomCommandFailure } from "@aqqua/client-runtime/state/runtime";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 const EMPTY_PROJECT_FILE_PATH = "";

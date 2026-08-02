@@ -5,14 +5,14 @@ import {
   createBoardEnvironmentAtoms,
   createEnvironmentBoardAtoms,
   selectCard,
-} from "@t3tools/client-runtime/state/boards";
+} from "@aqqua/client-runtime/state/boards";
 import type {
   CardId,
   EnvironmentId,
   OrchestrationBoard,
   OrchestrationCard,
   ScopedProjectRef,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 

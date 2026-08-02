@@ -5,19 +5,19 @@ import {
   effectiveSettled,
   effectiveSnoozed,
   threadWokeAt,
-} from "@t3tools/client-runtime/state/thread-settled";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+} from "@aqqua/client-runtime/state/thread-settled";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
+} from "@aqqua/client-runtime/environment";
 import type {
   EnvironmentId,
   ProjectId,
   ScopedThreadRef,
   SidebarProjectGroupingMode,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -59,7 +59,7 @@ import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -1791,7 +1791,7 @@ export default function SidebarV2() {
         scopedThreadKey(scopeThreadRef(entry.thread.environmentId, entry.thread.id));
       // The branch holding the open thread stays open regardless of the default
       // or of a stored collapse — same exception the settled tail and the
-      // snoozed shelf make. Reaching a sub-agent by deep link or by `3T agent`
+      // snoozed shelf make. Reaching a sub-agent by deep link or by `aqqua agent`
       // must not leave the sidebar with nothing highlighted.
       const routeAncestors = new Set(
         routeThreadKey === null

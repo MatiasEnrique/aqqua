@@ -1,4 +1,4 @@
-import type { DesktopUpdateChannel } from "@t3tools/contracts";
+import type { DesktopUpdateChannel } from "@aqqua/contracts";
 
 const NIGHTLY_VERSION_PATTERN = /-nightly\.\d{8}\.\d+$/;
 /** A build produced from a working copy by `dist:desktop:sigma`. The suffix is
@@ -13,7 +13,7 @@ export function isNightlyDesktopVersion(version: string): boolean {
 /**
  * Sigma is the self-built channel: a build made from a working copy that
  * installs beside a released app rather than over it, with its own bundle id,
- * user data, T3 home and no update feed. Sigma is never published, so it is not
+ * user data, aqqua home and no update feed. Sigma is never published, so it is not
  * a `DesktopUpdateChannel`.
  */
 export function isSigmaDesktopVersion(version: string): boolean {

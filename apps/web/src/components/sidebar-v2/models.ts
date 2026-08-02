@@ -1,12 +1,12 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import type { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import type {
   EnvironmentId,
   ProjectId,
   ScopedThreadRef,
   ServerConfig,
   SidebarProjectGroupingMode,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import type { MutableRefObject, MouseEvent as ReactMouseEvent } from "react";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type {

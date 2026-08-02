@@ -1,5 +1,5 @@
-import type { EnvironmentId, GitHistoryCommitSummary } from "@t3tools/contracts";
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+import type { EnvironmentId, GitHistoryCommitSummary } from "@aqqua/contracts";
+import type { TimestampFormat } from "@aqqua/contracts/settings";
 import { GitBranch, LoaderCircle, RefreshCw, Tag } from "lucide-react";
 import { useMemo, useState } from "react";
 

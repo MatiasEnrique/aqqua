@@ -4,9 +4,9 @@ import {
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
-} from "@t3tools/contracts";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+} from "@aqqua/contracts";
+import { parseScopedThreadKey } from "@aqqua/client-runtime/environment";
+import { resolveChatListAnchoredEndSpace } from "@aqqua/shared/chatList";
 import {
   createContext,
   Fragment,
@@ -97,7 +97,7 @@ import {
 } from "~/lib/previewAnnotation";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat } from "@aqqua/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
 
 import {

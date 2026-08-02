@@ -1,5 +1,5 @@
-import { PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL } from "@t3tools/client-runtime/state/provider-skills";
-import type { ProviderDriverKind } from "@t3tools/contracts";
+import { PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL } from "@aqqua/client-runtime/state/provider-skills";
+import type { ProviderDriverKind } from "@aqqua/contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";

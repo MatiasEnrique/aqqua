@@ -1,4 +1,4 @@
-import type { GitHistoryCommitSummary, GitObjectId } from "@t3tools/contracts";
+import type { GitHistoryCommitSummary, GitObjectId } from "@aqqua/contracts";
 
 export interface GitHistoryGraphLane {
   readonly targetId: GitObjectId;

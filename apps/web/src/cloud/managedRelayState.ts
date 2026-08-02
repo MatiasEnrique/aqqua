@@ -4,11 +4,8 @@ import {
   ManagedRelay,
   managedRelaySessionAtom,
   readManagedRelaySnapshotState,
-} from "@t3tools/client-runtime/relay";
-import type {
-  RelayClientDeviceRecord,
-  RelayClientEnvironmentRecord,
-} from "@t3tools/contracts/relay";
+} from "@aqqua/client-runtime/relay";
+import type { RelayClientDeviceRecord, RelayClientEnvironmentRecord } from "@aqqua/contracts/relay";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -47,7 +44,7 @@ export function useManagedRelayEnvironments() {
   const snapshot = readManagedRelaySnapshotState(result);
   useEffect(() => {
     if (snapshot.error) {
-      console.error("[t3-cloud] Relay environment listing failed", {
+      console.error("[aqqua-cloud] Relay environment listing failed", {
         message: snapshot.error,
         traceId: snapshot.errorTraceId,
       });
@@ -74,7 +71,7 @@ export function useManagedRelayDevices() {
   const snapshot = readManagedRelaySnapshotState(result);
   useEffect(() => {
     if (snapshot.error) {
-      console.error("[t3-cloud] Relay device listing failed", {
+      console.error("[aqqua-cloud] Relay device listing failed", {
         message: snapshot.error,
         traceId: snapshot.errorTraceId,
       });

@@ -1,8 +1,5 @@
-import { ProjectId } from "@t3tools/contracts";
-import {
-  projectScriptRuntimeEnv,
-  resolveWorktreeSetupScript,
-} from "@t3tools/shared/projectScripts";
+import { ProjectId } from "@aqqua/contracts";
+import { projectScriptRuntimeEnv, resolveWorktreeSetupScript } from "@aqqua/shared/projectScripts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -84,7 +81,7 @@ export class ProjectSetupScriptRunner extends Context.Service<
       input: ProjectSetupScriptRunnerInput,
     ) => Effect.Effect<ProjectSetupScriptRunnerResult, ProjectSetupScriptRunnerError>;
   }
->()("t3/project/ProjectSetupScriptRunner") {}
+>()("aqqua/project/ProjectSetupScriptRunner") {}
 
 export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;

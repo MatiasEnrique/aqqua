@@ -6,7 +6,7 @@ import {
   RuntimeTaskId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";

@@ -10,7 +10,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - scheduled nightly check every three hours
   - manual `workflow_dispatch` for either channel
 - Runs quality gates first: lint, typecheck, test.
-- Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
+- Reads the shared production aqqua Connect relay URL and Clerk client configuration before packaging clients.
 - Builds four artifacts in parallel for both channels:
   - macOS `arm64` DMG
   - macOS `x64` DMG
@@ -22,7 +22,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `t3`) with OIDC trusted publishing from the same workflow file:
+- Publishes the CLI package (`apps/server`, npm package `aqqua`) with OIDC trusted publishing from the same workflow file:
   - stable releases publish npm dist-tag `latest`
   - nightly releases publish npm dist-tag `nightly`
 - Deploys the hosted web app to Vercel only after a release is published:
@@ -30,7 +30,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - nightly releases are aliased to the `nightly` hosted app channel
 - Signing is optional and auto-detected per platform from secrets.
 
-## T3 Connect relay deployment
+## aqqua Connect relay deployment
 
 The relay is a shared control plane versioned separately from client releases. Stable and nightly
 client builds must point at the same relay so users see the same linked environments when switching
@@ -85,7 +85,7 @@ Personal stages reference the production-owned zones.
 Developers deploy personal stages locally rather than through pull-request automation:
 
 ```sh
-vp run --filter t3code-relay deploy -- --stage "$USER" --env-file .env.local
+vp run --filter aqqua-relay deploy -- --stage "$USER" --env-file .env.local
 ```
 
 ## Hosted web app release deployment
@@ -104,20 +104,20 @@ Required GitHub Actions secrets:
 Optional GitHub Actions variables:
 
 - `VERCEL_TEAM_SLUG`: overrides the Vercel CLI scope when the team slug is preferred over the `VERCEL_ORG_ID` secret.
-- `T3CODE_WEB_ROUTER_URL`: defaults to `https://app.t3.codes`.
-- `T3CODE_WEB_LATEST_DOMAIN`: defaults to `latest.app.t3.codes`.
-- `T3CODE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.t3.codes`.
+- `AQQUA_WEB_ROUTER_URL`: defaults to `https://app.aqqua.codes`.
+- `AQQUA_WEB_LATEST_DOMAIN`: defaults to `latest.app.aqqua.codes`.
+- `AQQUA_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.aqqua.codes`.
 
 Required Vercel domains:
 
-- `app.t3.codes`: the router domain users open, updated by stable releases.
-- `latest.app.t3.codes`: channel alias updated by stable releases.
-- `nightly.app.t3.codes`: channel alias updated by nightly releases.
+- `app.aqqua.codes`: the router domain users open, updated by stable releases.
+- `latest.app.aqqua.codes`: channel alias updated by stable releases.
+- `nightly.app.aqqua.codes`: channel alias updated by nightly releases.
 
 The router domain uses `apps/web/vercel.ts` routes. Users opt into a channel by
-visiting `/__t3code/channel?channel=latest` or
-`/__t3code/channel?channel=nightly`; the router stores the
-`t3code_web_channel` cookie and rewrites future requests on `app.t3.codes` to
+visiting `/__aqqua/channel?channel=latest` or
+`/__aqqua/channel?channel=nightly`; the router stores the
+`aqqua_web_channel` cookie and rewrites future requests on `app.aqqua.codes` to
 the matching channel alias.
 
 The release deploy job rewrites release package versions before upload so the
@@ -126,7 +126,7 @@ same deployment to both the `latest` channel and the router domain so the router
 rules stay current. Nightly deploys only alias the `nightly` channel. The job
 also passes `VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted
 update track selector in the About panel. Changing the selector navigates
-through `/__t3code/channel` on the router domain so the user's channel cookie is
+through `/__aqqua/channel` on the router domain so the user's channel cookie is
 updated before redirecting to the hosted app root.
 
 One-time Vercel dashboard setup:
@@ -137,7 +137,7 @@ One-time Vercel dashboard setup:
    `vercel.ts` setting is the source-of-truth, but disconnecting Git in the
    dashboard is also safe.
 4. Run one stable release deployment, or manually alias the current stable
-   deployment, so `app.t3.codes` points at a deployment containing the router
+   deployment, so `app.aqqua.codes` points at a deployment containing the router
    rules in `apps/web/vercel.ts`. Future stable releases keep this alias current.
 
 ## Nightly builds
@@ -153,7 +153,7 @@ One-time Vercel dashboard setup:
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
 - Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI package (`apps/server`, npm package `t3`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI package (`apps/server`, npm package `aqqua`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
 ## Sigma builds
@@ -166,21 +166,21 @@ update it by pulling and rebuilding.
 npm run dist:desktop:sigma     # host platform/target/arch are auto-detected
 ```
 
-The artifact lands in `release/` as `3T-Code-<version>-<arch>.<ext>` — for example
-`3T-Code-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
+The artifact lands in `release/` as `aqqua-<version>-<arch>.<ext>` — for example
+`aqqua-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
 
 `--sigma` is expressed as a `-sigma` suffix on the version, and that suffix is the entire channel
 signal — `scripts/build-desktop-artifact.ts` reads it when generating the electron-builder config,
 and the running app reads the same suffix through `isSigmaDesktopVersion`. Everything else follows:
 
-|              | Released app         | Sigma build                |
-| ------------ | -------------------- | -------------------------- |
-| Product name | `3T Code (Alpha)`    | `3T Code (Sigma)`          |
-| Bundle id    | `com.t3tools.t3code` | `com.t3tools.t3code.sigma` |
-| User data    | `t3code`             | `t3code-sigma`             |
-| T3 home      | `~/.t3`              | `~/.t3-sigma`              |
-| Update feed  | GitHub releases      | none                       |
-| App icon     | `assets/prod` black  | `assets/sigma` 3T artwork  |
+|              | Released app        | Sigma build                  |
+| ------------ | ------------------- | ---------------------------- |
+| Product name | `aqqua (Alpha)`     | `aqqua (Sigma)`              |
+| Bundle id    | `com.aqqua.aqqua`   | `com.aqqua.aqqua.sigma`      |
+| User data    | `aqqua`             | `aqqua-sigma`                |
+| aqqua home   | `~/.aqqua`          | `~/.aqqua-sigma`             |
+| Update feed  | GitHub releases     | none                         |
+| App icon     | `assets/prod` black | `assets/sigma` aqqua artwork |
 
 The icon matters as much as the name: both apps sit in the Dock at once, and identical tiles leave
 no way to tell which is which. `assets/sigma/` now holds designed artwork, committed directly.
@@ -190,9 +190,9 @@ it writes to the same three paths — running it overwrites the artwork. Restore
 than regenerating. In-app favicons stay on the blueprint `dev` set, which is already distinct from
 production.
 
-The separate T3 home is not cosmetic. Two servers pointed at one `state.sqlite` corrupt the
+The separate aqqua home is not cosmetic. Two servers pointed at one `state.sqlite` corrupt the
 projection and close each other's provider sessions, so a Sigma build must not share a home with an
-installed release. `T3CODE_HOME` still overrides the default if you deliberately want to point one
+installed release. `AQQUA_HOME` still overrides the default if you deliberately want to point one
 somewhere else. Backend ports need no configuration: `resolveDesktopBackendPort` scans upward from
 the default until it finds a free one, so both apps can run at once.
 
@@ -200,15 +200,15 @@ Notes:
 
 - Sigma builds are unsigned unless you pass `--signed`. A locally produced artifact is not
   quarantined, so it opens normally; an app copied from another machine needs
-  `xattr -dr com.apple.quarantine "/Applications/3T Code (Sigma).app"`.
+  `xattr -dr com.apple.quarantine "/Applications/aqqua (Sigma).app"`.
 - A Sigma build carries no `app-update.yml`, and the app reports "This is a Sigma build. Update it
   by pulling and rebuilding." in place of update status.
-- To start over, delete `~/.t3-sigma` — the released app's state is untouched.
+- To start over, delete `~/.aqqua-sigma` — the released app's state is untouched.
 
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-desktop or hosted client version must therefore have a matching `t3@<version>` package available on
+desktop or hosted client version must therefore have a matching `aqqua@<version>` package available on
 npm before users can receive that client.
 
 The workflow enforces this ordering:
@@ -220,7 +220,7 @@ The workflow enforces this ordering:
 Preserve these dependencies when changing the release graph. Publishing a client first would leave
 the **Update server** action targeting a package version that does not exist yet.
 
-For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
+For a release smoke test, confirm `npm view aqqua@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
 reconnects to the matching server. Test one automatic path and the manual or desktop-managed
 guidance when those environments are available.
@@ -234,10 +234,10 @@ guidance when those environments are available.
   - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
 - Provider: GitHub Releases (`provider: github`) configured at build time.
 - Repository slug source:
-  - `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
+  - `AQQUA_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
   - otherwise `GITHUB_REPOSITORY` from GitHub Actions.
 - Temporary private-repo auth workaround:
-  - set `T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN` (or `GH_TOKEN`) in the desktop app runtime environment.
+  - set `AQQUA_DESKTOP_UPDATE_GITHUB_TOKEN` (or `GH_TOKEN`) in the desktop app runtime environment.
   - the app forwards it as an `Authorization: Bearer <token>` request header for updater HTTP calls.
 - Required release assets for updater:
   - platform installers (`.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads)
@@ -254,7 +254,7 @@ the package version to the release tag version.
 
 Checklist:
 
-1. Confirm npm org/user owns package `t3` (or rename package first if needed).
+1. Confirm npm org/user owns package `aqqua` (or rename package first if needed).
 2. In npm package settings, configure Trusted Publisher:
    - Provider: GitHub Actions
    - Repository: this repo
@@ -303,7 +303,7 @@ Checklist:
 
 1. Apple Developer account access:
    - Team has rights to create Developer ID certificates.
-2. Create an explicit App ID for `com.t3tools.t3code` and enable Associated Domains.
+2. Create an explicit App ID for `com.aqqua.aqqua` and enable Associated Domains.
 3. Create a `Developer ID Application` certificate and a compatible provisioning profile for that
    App ID with Associated Domains enabled.
 4. Export the certificate + private key as `.p12` from Keychain.
@@ -316,7 +316,7 @@ Checklist:
    - `APPLE_API_KEY`: contents of the downloaded `.p8`
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
-10. Complete the Clerk Native API and AASA setup in [T3 Connect Clerk Setup](../cloud/t3-connect-clerk.md#desktop-passkeys).
+10. Complete the Clerk Native API and AASA setup in [aqqua Connect Clerk Setup](../cloud/aqqua-connect-clerk.md#desktop-passkeys).
 11. Re-run a tag release and confirm macOS artifacts are signed/notarized and contain the expected
     `com.apple.developer.associated-domains` entitlement.
 
@@ -370,7 +370,7 @@ Checklist:
 
 - macOS build unsigned when expected signed:
   - Check all Apple secrets plus `APPLE_TEAM_ID` are populated and non-empty.
-  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.com.t3tools.t3code` and includes
+  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.com.aqqua.aqqua` and includes
     Associated Domains.
 - Windows build unsigned when expected signed:
   - Check all Azure ATS and auth secrets are populated and non-empty.

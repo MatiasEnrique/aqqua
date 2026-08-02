@@ -9,7 +9,7 @@ import {
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderInstanceId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -18,7 +18,7 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -206,7 +206,7 @@ function runGit(cwd: string, args: ReadonlyArray<string>) {
 }
 
 function createGitRepository() {
-  const cwd = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-handler-"));
+  const cwd = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "aqqua-checkpoint-handler-"));
   runGit(cwd, ["init", "--initial-branch=main"]);
   runGit(cwd, ["config", "user.email", "test@example.com"]);
   runGit(cwd, ["config", "user.name", "Test User"]);
@@ -303,7 +303,7 @@ describe("CheckpointReactor", () => {
     );
 
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-checkpoint-reactor-test-",
+      prefix: "aqqua-checkpoint-reactor-test-",
     });
     const vcsStatusBroadcasterLayer = Layer.succeed(VcsStatusBroadcaster, {
       getStatus: () => Effect.die("getStatus should not be called in this test"),
@@ -534,7 +534,9 @@ describe("CheckpointReactor", () => {
 
   it("adopts the last same-repository command cwd after turn completion", async () => {
     const harness = await createHarness({ seedFilesystemCheckpoints: false });
-    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-worktree-"));
+    const worktree = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "aqqua-checkpoint-worktree-"),
+    );
     NodeFS.rmSync(worktree, { recursive: true, force: true });
     tempDirs.push(worktree);
     runGit(harness.cwd, ["worktree", "add", "-b", "feature/workspace-sync", worktree]);
@@ -593,7 +595,9 @@ describe("CheckpointReactor", () => {
 
   it("clears branch metadata when the adopted worktree has detached HEAD", async () => {
     const harness = await createHarness({ seedFilesystemCheckpoints: false });
-    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-detached-"));
+    const worktree = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "aqqua-checkpoint-detached-"),
+    );
     NodeFS.rmSync(worktree, { recursive: true, force: true });
     tempDirs.push(worktree);
     runGit(harness.cwd, ["worktree", "add", "--detach", worktree]);
@@ -630,7 +634,9 @@ describe("CheckpointReactor", () => {
 
   it("does not reuse a command cwd from an aborted turn", async () => {
     const harness = await createHarness({ seedFilesystemCheckpoints: false });
-    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-aborted-"));
+    const worktree = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "aqqua-checkpoint-aborted-"),
+    );
     NodeFS.rmSync(worktree, { recursive: true, force: true });
     tempDirs.push(worktree);
     runGit(harness.cwd, ["worktree", "add", "-b", "feature/aborted", worktree]);
@@ -986,7 +992,7 @@ describe("CheckpointReactor", () => {
 
   it("falls back to the persisted workspace when the provider session cwd is not a repository", async () => {
     const nonRepositorySessionCwd = NodeFS.mkdtempSync(
-      NodePath.join(NodeOS.tmpdir(), "t3-checkpoint-runtime-non-repo-"),
+      NodePath.join(NodeOS.tmpdir(), "aqqua-checkpoint-runtime-non-repo-"),
     );
     tempDirs.push(nonRepositorySessionCwd);
 

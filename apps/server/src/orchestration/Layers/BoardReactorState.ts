@@ -4,8 +4,8 @@ import {
   type OrchestrationCard,
   type OrchestrationSession,
   ThreadId,
-} from "@t3tools/contracts";
-import { sanitizeBranchFragment } from "@t3tools/shared/git";
+} from "@aqqua/contracts";
+import { sanitizeBranchFragment } from "@aqqua/shared/git";
 
 import { resolveStepEntryThreadId } from "../boardCardHelpers.ts";
 

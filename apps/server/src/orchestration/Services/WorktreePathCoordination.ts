@@ -130,7 +130,7 @@ export interface WorktreePathCoordinationShape {
 export class WorktreePathCoordination extends Context.Service<
   WorktreePathCoordination,
   WorktreePathCoordinationShape
->()("t3/orchestration/Services/WorktreePathCoordination") {}
+>()("aqqua/orchestration/Services/WorktreePathCoordination") {}
 
 const createBlockedError = (path: string): OrchestrationCommandInvariantError =>
   new OrchestrationCommandInvariantError({

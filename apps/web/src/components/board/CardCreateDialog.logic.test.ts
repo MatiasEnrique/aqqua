@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { BoardId, BoardStepId, ProjectId } from "@t3tools/contracts";
-import type { BoardStep, OrchestrationBoard } from "@t3tools/contracts";
+import { BoardId, BoardStepId, ProjectId } from "@aqqua/contracts";
+import type { BoardStep, OrchestrationBoard } from "@aqqua/contracts";
 
 import {
   boardParameterNames,
@@ -58,20 +58,20 @@ describe("boardParameterNames", () => {
 describe("missingParameterNames", () => {
   it("treats whitespace-only values as missing", () => {
     expect(
-      missingParameterNames(["issue_id", "scope"], { issue_id: "T3-482", scope: "  " }),
+      missingParameterNames(["issue_id", "scope"], { issue_id: "aqqua-482", scope: "  " }),
     ).toEqual(["scope"]);
   });
 
   it("is empty once every field is filled", () => {
-    expect(missingParameterNames(["issue_id"], { issue_id: "T3-482" })).toEqual([]);
+    expect(missingParameterNames(["issue_id"], { issue_id: "aqqua-482" })).toEqual([]);
   });
 });
 
 describe("buildPlaceholderCardTitle", () => {
   it("joins the values in template order", () => {
     expect(
-      buildPlaceholderCardTitle(["issue_id", "scope"], { scope: "web", issue_id: "T3-482" }),
-    ).toBe("T3-482 · web");
+      buildPlaceholderCardTitle(["issue_id", "scope"], { scope: "web", issue_id: "aqqua-482" }),
+    ).toBe("aqqua-482 · web");
   });
 
   it("truncates long joins", () => {
@@ -88,7 +88,10 @@ describe("buildPlaceholderCardTitle", () => {
 describe("toCardParameters", () => {
   it("trims values and drops keys the board does not ask for", () => {
     expect(
-      toCardParameters(["issue_id"], { issue_id: "  T3-482 ", leftover: "from an older template" }),
-    ).toEqual({ issue_id: "T3-482" });
+      toCardParameters(["issue_id"], {
+        issue_id: "  aqqua-482 ",
+        leftover: "from an older template",
+      }),
+    ).toEqual({ issue_id: "aqqua-482" });
   });
 });

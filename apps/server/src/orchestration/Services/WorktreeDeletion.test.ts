@@ -1,4 +1,4 @@
-import { CommandId, GitCommandError, ThreadId } from "@t3tools/contracts";
+import { CommandId, GitCommandError, ThreadId } from "@aqqua/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";

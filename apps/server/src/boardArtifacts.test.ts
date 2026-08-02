@@ -1,4 +1,4 @@
-import { BoardId, CardId, ProjectId } from "@t3tools/contracts";
+import { BoardId, CardId, ProjectId } from "@aqqua/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -61,7 +61,7 @@ const BoardArtifactsTestLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
   Layer.provideMerge(ProjectionCardRepositoryLive),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
-  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-board-artifacts-" })),
+  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "aqqua-board-artifacts-" })),
   Layer.provideMerge(NodeServices.layer),
 );
 

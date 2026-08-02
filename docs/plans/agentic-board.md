@@ -67,8 +67,8 @@ Implementation column showing a needs-input badge. Same for failed/cancelled.
 
 - Entering a column spawns a **fresh top-level thread** in the card's worktree
   with the rendered prompt. Fresh context per step is the anti-bias mechanism.
-- Step threads are ordinary 3T threads: they appear in the sidebar, can spawn
-  sub-agents via the existing `3T agent spawn` / `AgentControl` machinery
+- Step threads are ordinary aqqua threads: they appear in the sidebar, can spawn
+  sub-agents via the existing `aqqua agent spawn` / `AgentControl` machinery
   (`parentThreadId` nesting), and support normal chat.
 - Auto-advance is driven by a new **reactor** alongside the existing
   `apps/server/src/orchestration/Layers/*Reactor.ts` files, listening to
@@ -92,11 +92,11 @@ Implementation column showing a needs-input badge. Same for failed/cancelled.
   which resolve to **paths**. The template is the complete, visible truth of what
   the agent sees; nothing is injected implicitly.
 - Repo stays pristine (nothing to gitignore; the commit/PR step cannot
-  accidentally commit a brief). Lifecycle owned by 3T.
+  accidentally commit a brief). Lifecycle owned by aqqua.
 
 ### Completion signal
 
-- New `board` toolkit on 3T's hosted MCP server (`apps/server/src/mcp/toolkits/`,
+- New `board` toolkit on aqqua's hosted MCP server (`apps/server/src/mcp/toolkits/`,
   next to `preview`): `board_complete({outcome: "success" | "blocked"})`.
 - The step prompt template gets an injected instruction requiring the call.
 - `success` on an `auto` step → advance to the next column (or Done). `success`

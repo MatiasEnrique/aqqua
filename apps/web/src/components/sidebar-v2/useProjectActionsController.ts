@@ -2,9 +2,9 @@ import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import type { SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { deriveProjectGroupingOverrideKey } from "../../logicalProject";
 import type {

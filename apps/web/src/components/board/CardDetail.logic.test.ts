@@ -10,9 +10,9 @@ import {
   type BoardStep,
   type OrchestrationBoard,
   type OrchestrationCard,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
-import type { CardOperationKind } from "@t3tools/client-runtime/state/boards";
+import type { CardOperationKind } from "@aqqua/client-runtime/state/boards";
 
 import {
   artifactCompletionRevision,
@@ -60,14 +60,14 @@ function card(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard {
     id: CardId.make("card-1"),
     boardId: BoardId.make("board-1"),
     projectId: ProjectId.make("project-1"),
-    title: "T3-482",
+    title: "aqqua-482",
     parameters: {},
     position: { kind: "step", stepIndex: 1 },
     status: "running",
     operation: null,
     lastError: null,
     snapshot: null,
-    branch: "board/t3-482",
+    branch: "board/aqqua-482",
     worktreePath: "/tmp/wt",
     stepThreads: [
       { stepIndex: 0, threadId: ThreadId.make("thread-plan"), spawnedAt: "2026-04-01T00:00:00Z" },

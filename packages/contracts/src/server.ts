@@ -613,7 +613,7 @@ export class ProviderListSkillsError extends Schema.TaggedErrorClass<ProviderLis
 }
 
 export const ServerSelfUpdateInput = Schema.Struct({
-  /** Exact npm version of the `t3` package to install (never a dist-tag, so
+  /** Exact npm version of the `aqqua` package to install (never a dist-tag, so
       the server and the acknowledging client agree on what was requested). */
   targetVersion: TrimmedNonEmptyString,
 });

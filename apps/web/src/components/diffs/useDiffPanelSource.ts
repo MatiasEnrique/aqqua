@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopedThreadKey, type WorkspacePanelRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, type WorkspacePanelRef } from "@aqqua/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, GitObjectId, ScopedThreadRef } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import type { EnvironmentId, GitObjectId, ScopedThreadRef } from "@aqqua/contracts";
 import { useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../../diffPanelStore";

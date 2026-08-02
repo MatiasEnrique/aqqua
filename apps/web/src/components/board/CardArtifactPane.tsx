@@ -1,5 +1,5 @@
-import type { CardArtifactProvenance } from "@t3tools/client-runtime/state/boards";
-import type { CardId, EnvironmentId } from "@t3tools/contracts";
+import type { CardArtifactProvenance } from "@aqqua/client-runtime/state/boards";
+import type { CardId, EnvironmentId } from "@aqqua/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";

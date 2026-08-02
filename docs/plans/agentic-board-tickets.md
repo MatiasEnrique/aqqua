@@ -6,7 +6,7 @@ Work the **frontier**: any ticket whose blockers are all done. After "Statuses i
 
 ## Design source (applies to every UI ticket)
 
-Designs live in Paper (file "3T Code"): https://app.paper.design/file/01KYSJ1ATPD1QRHJNGPSXPPG0P/1-0 — read `agentic-board-ui-prototypes.md` first; it records the full design decisions.
+Designs live in Paper (file "aqqua"): https://app.paper.design/file/01KYSJ1ATPD1QRHJNGPSXPPG0P/1-0 — read `agentic-board-ui-prototypes.md` first; it records the full design decisions.
 
 - **Card detail** — the three artboards on the canvas: **one layout, three selection states**, all shipped:
   - [V3-i1a dark — step thread selected](https://app.paper.design/file/01KYSJ1ATPD1QRHJNGPSXPPG0P/1-0/2J8-0)
@@ -117,6 +117,6 @@ Rules for frontend work:
 
 **Blocked by:** Cards in the backlog.
 
-- [ ] A card created with only `issue_id: T3-482` gets a descriptive generated title
+- [ ] A card created with only `issue_id: aqqua-482` gets a descriptive generated title
 - [ ] Title generation failure leaves the card usable with its placeholder title
 - [ ] Titles never block card creation or release

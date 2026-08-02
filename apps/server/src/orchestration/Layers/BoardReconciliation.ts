@@ -1,4 +1,4 @@
-import { EventId, type OrchestrationCard } from "@t3tools/contracts";
+import { EventId, type OrchestrationCard } from "@aqqua/contracts";
 
 import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
 

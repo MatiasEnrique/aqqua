@@ -1,5 +1,5 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { normalizeProjectPathForComparison } from "../lib/projectPaths";
 import { resolveSidebarConversationSummaryState } from "./Sidebar.summaryState";
 

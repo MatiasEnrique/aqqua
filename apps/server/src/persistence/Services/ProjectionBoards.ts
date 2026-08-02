@@ -12,7 +12,7 @@ import {
   IsoDateTime,
   ProjectId,
   TrimmedNonEmptyString,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -80,4 +80,4 @@ export interface ProjectionBoardRepositoryShape {
 export class ProjectionBoardRepository extends Context.Service<
   ProjectionBoardRepository,
   ProjectionBoardRepositoryShape
->()("t3/persistence/Services/ProjectionBoards/ProjectionBoardRepository") {}
+>()("aqqua/persistence/Services/ProjectionBoards/ProjectionBoardRepository") {}

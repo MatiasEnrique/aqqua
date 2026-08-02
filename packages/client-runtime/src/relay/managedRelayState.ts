@@ -1,12 +1,9 @@
 import type {
   RelayClientEnvironmentRecord,
   RelayEnvironmentStatusResponse,
-} from "@t3tools/contracts/relay";
-import {
-  RelayEnvironmentConnectScope,
-  RelayEnvironmentStatusScope,
-} from "@t3tools/contracts/relay";
-import { decodeRelayJwt } from "@t3tools/shared/relayJwt";
+} from "@aqqua/contracts/relay";
+import { RelayEnvironmentConnectScope, RelayEnvironmentStatusScope } from "@aqqua/contracts/relay";
+import { decodeRelayJwt } from "@aqqua/shared/relayJwt";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Data from "effect/Data";
@@ -123,7 +120,7 @@ export function createManagedRelaySession(input: ManagedRelaySessionInput): Mana
         try: () => readCachedClerkToken(nowMillis),
         catch: (cause) =>
           new ManagedRelaySessionError({
-            message: "Could not obtain the 3T Connect session token.",
+            message: "Could not obtain the aqqua Connect session token.",
             cause,
           }),
       });
@@ -181,7 +178,7 @@ function readSessionClerkToken(
         ? Effect.succeed(token)
         : Effect.fail(
             new ManagedRelaySessionError({
-              message: "The 3T Connect session token is unavailable.",
+              message: "The aqqua Connect session token is unavailable.",
             }),
           ),
     ),
@@ -226,7 +223,7 @@ function requireClerkToken(
   if (!session || session.accountId !== accountId) {
     return Effect.fail(
       new ManagedRelaySessionError({
-        message: "Sign in to 3T Connect before loading relay data.",
+        message: "Sign in to aqqua Connect before loading relay data.",
       }),
     );
   }
@@ -296,7 +293,7 @@ export function readManagedRelaySnapshotState<A>(
   let errorTraceId: string | null = null;
   if (result._tag === "Failure") {
     const cause = Cause.squash(result.cause);
-    error = cause instanceof Error ? cause.message : "Could not load 3T Connect data.";
+    error = cause instanceof Error ? cause.message : "Could not load aqqua Connect data.";
     errorTraceId = findErrorTraceId(cause);
   }
   return {

@@ -4,8 +4,8 @@ import type {
   ProviderListSkillsInput,
   ProviderListSkillsResult,
   ServerProviderSkill,
-} from "@t3tools/contracts";
-import { WS_METHODS } from "@t3tools/contracts";
+} from "@aqqua/contracts";
+import { WS_METHODS } from "@aqqua/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -150,7 +150,7 @@ export type ProviderWorkspaceSkillsListSkillsTarget = {
 /**
  * Injected memo hook (React `useMemo`). Kept as a dependency so this module never
  * imports React — package consumers already on a cached Vite export map can keep
- * resolving `@t3tools/client-runtime/state/provider-skills` without a new subpath.
+ * resolving `@aqqua/client-runtime/state/provider-skills` without a new subpath.
  */
 export type ProviderWorkspaceSkillsUseMemo = <T>(factory: () => T, deps: readonly unknown[]) => T;
 

@@ -7,8 +7,8 @@ import {
   cardStepThreadId,
   selectCardSteps,
   selectSubAgentThreads,
-} from "@t3tools/client-runtime/state/boards";
-import type { OrchestrationBoard, OrchestrationCard, ThreadId } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/boards";
+import type { OrchestrationBoard, OrchestrationCard, ThreadId } from "@aqqua/contracts";
 
 import { formatElapsed } from "./BoardRunTable.logic";
 

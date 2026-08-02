@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/shared",
+  "name": "@aqqua/shared",
   "private": true,
   "type": "module",
   "exports": {
@@ -95,9 +95,9 @@
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
     },
-    "./t3ProjectFile": {
-      "types": "./src/t3ProjectFile.ts",
-      "import": "./src/t3ProjectFile.ts"
+    "./aqquaProjectFile": {
+      "types": "./src/aqquaProjectFile.ts",
+      "import": "./src/aqquaProjectFile.ts"
     },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
@@ -221,9 +221,9 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@aqqua/contracts": "workspace:*",
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
-    "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
     "jose": "catalog:",
     "yaml": "catalog:"

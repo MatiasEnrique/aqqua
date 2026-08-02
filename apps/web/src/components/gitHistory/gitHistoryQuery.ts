@@ -3,7 +3,7 @@ import type {
   EnvironmentId,
   GitHistoryCommitSummary,
   VcsListHistoryResult,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";

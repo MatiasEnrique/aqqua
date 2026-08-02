@@ -20,9 +20,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { canSettle, canSnooze } from "@t3tools/client-runtime/state/thread-settled";
-import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { canSettle, canSnooze } from "@aqqua/client-runtime/state/thread-settled";
+import { scopeThreadRef, scopedThreadKey } from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef } from "@aqqua/contracts";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { useUiStateStore } from "../../uiStateStore";
 import { useThreadSelectionStore } from "../../threadSelectionStore";

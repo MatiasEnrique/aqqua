@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/tailscale",
+  "name": "@aqqua/tailscale",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,8 +13,8 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@aqqua/shared": "workspace:*",
     "@effect/platform-node": "catalog:",
-    "@t3tools/shared": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

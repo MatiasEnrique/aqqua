@@ -12,13 +12,13 @@ describe("ThreadErrorBanner", () => {
   it("renders a controlled accessible dismiss control when an error is present", () => {
     const markup = renderToStaticMarkup(
       <ThreadErrorBanner
-        error="The T3 Code server restarted while this turn was running."
+        error="The aqqua server restarted while this turn was running."
         onDismiss={() => {}}
       />,
     );
 
     expect(markup).toContain('aria-label="Dismiss error"');
-    expect(markup).toContain("The T3 Code server restarted while this turn was running.");
+    expect(markup).toContain("The aqqua server restarted while this turn was running.");
   });
 
   it("omits the dismiss control when onDismiss is not provided", () => {

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AqquaComposerEditorModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.aqquacomposereditor.AqquaComposerEditorModule"]
+  }
+}

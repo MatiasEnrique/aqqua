@@ -1,13 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { AtomCommand, AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import { effectiveSettled, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { AtomCommand, AtomCommandResult } from "@aqqua/client-runtime/state/runtime";
+import { effectiveSettled, effectiveSnoozed } from "@aqqua/client-runtime/state/thread-settled";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
-import type { ServerConfig, SidebarProjectGroupingMode } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/environment";
+import type { ServerConfig, SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../../logicalProject";

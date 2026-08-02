@@ -5,8 +5,8 @@ import {
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
-} from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+} from "@aqqua/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@aqqua/shared/keybindings";
 import {
   formatShortcutLabel,
   isChatNewShortcut,

@@ -55,9 +55,11 @@ describe("ClientSettings glass opacity", () => {
 });
 
 describe("ClientSettings environment identification", () => {
-  it("defaults to artwork and accepts each presentation mode", () => {
-    expect(decodeClientSettings({}).environmentIdentificationMode).toBe("artwork");
+  it("defaults to the pill and still decodes the legacy artwork value", () => {
+    expect(decodeClientSettings({}).environmentIdentificationMode).toBe("pill");
 
+    // "artwork" is no longer offered, but previously persisted settings carry
+    // it and must still decode rather than throw.
     for (const mode of ["artwork", "pill", "none"] as const) {
       expect(
         decodeClientSettingsPatch({ environmentIdentificationMode: mode })

@@ -1,4 +1,4 @@
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProviderSkill } from "@aqqua/contracts";
 
 const REPO_SKILL_SCOPES = new Set(["repo", "project", "workspace", "local"]);
 

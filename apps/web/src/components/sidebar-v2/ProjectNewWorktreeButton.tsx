@@ -1,5 +1,5 @@
 import { GitBranchPlusIcon } from "lucide-react";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";

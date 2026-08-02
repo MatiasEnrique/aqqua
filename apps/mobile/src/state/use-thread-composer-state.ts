@@ -9,9 +9,9 @@ import {
   type ProviderInteractionMode,
   type RuntimeMode,
   type ThreadId,
-} from "@t3tools/contracts";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
+} from "@aqqua/contracts";
+import { safeErrorLogAttributes } from "@aqqua/client-runtime/errors";
+import { deriveActiveWorkStartedAt } from "@aqqua/shared/orchestrationTiming";
 
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
 import {

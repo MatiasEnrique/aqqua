@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - This host-side fixture creates an isolated local T3 environment.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - This host-side fixture creates an isolated local aqqua environment.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -7,7 +7,7 @@ import * as NodeUtil from "node:util";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 
-export const SHOWCASE_PROJECT_ID = "t3code";
+export const SHOWCASE_PROJECT_ID = "aqqua";
 export const SHOWCASE_THREAD_ID = "remote-command-center";
 export const SHOWCASE_TERMINAL_ID = "term-1";
 
@@ -45,16 +45,16 @@ const PROJECT_SCRIPTS = JSON.stringify([
 ]);
 
 export const SHOWCASE_TERMINAL_BUFFER = [
-  "\u001b[38;5;75m~/Code/t3code\u001b[0m \u001b[38;5;212mfeat/remote-command-center\u001b[0m",
+  "\u001b[38;5;75m~/Code/aqqua\u001b[0m \u001b[38;5;212mfeat/remote-command-center\u001b[0m",
   "$ vp test run --changed",
   "",
-  "  \u001b[38;5;117mt3code-mobile\u001b[0m       184 passed",
+  "  \u001b[38;5;117maqqua-mobile\u001b[0m       184 passed",
   "  \u001b[38;5;213mclient-runtime\u001b[0m      263 passed",
   "  \u001b[38;5;221mserver\u001b[0m              165 passed",
   "",
   "\u001b[32m✨ 612 tests passed\u001b[0m  ·  3 environments online",
   "",
-  "\u001b[38;5;75m~/Code/t3code\u001b[0m \u001b[38;5;212mfeat/remote-command-center\u001b[0m $ ",
+  "\u001b[38;5;75m~/Code/aqqua\u001b[0m \u001b[38;5;212mfeat/remote-command-center\u001b[0m $ ",
 ].join("\r\n");
 
 const BASE_ENVIRONMENT_PRESENCE = `export function environmentLabel(count: number): string {
@@ -83,6 +83,11 @@ export function RemoteHandoffCard(props: { machine: string; latencyMs: number })
 `;
 
 const PROJECT_FAVICONS = {
+  aqqua: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="15" fill="#f5f2eb"/>
+  <path d="M6 43c10-3 18-10 25-22 5 8 11 14 18 18-4 2-8 4-12 5l-6-7c-7 7-15 9-25 6z" fill="#171717"/>
+  <path d="M25 43c10-3 18-10 25-22 5 8 9 13 13 16-4 3-8 5-12 6l-2-2c-7 4-15 5-24 2z" fill="#171717"/>
+</svg>`,
   react: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="15" fill="#20232a"/>
   <g fill="none" stroke="#61dafb" stroke-width="2.8"><ellipse cx="32" cy="32" rx="25" ry="9"/><ellipse cx="32" cy="32" rx="25" ry="9" transform="rotate(60 32 32)"/><ellipse cx="32" cy="32" rx="25" ry="9" transform="rotate(120 32 32)"/></g>
@@ -100,11 +105,11 @@ const PROJECT_FAVICONS = {
 
 export const SHOWCASE_PROJECTS = [
   {
-    id: "t3code",
-    title: "T3 Code",
-    directory: "t3code",
-    repositoryUrl: "https://github.com/pingdotgg/t3code.git",
-    favicon: "",
+    id: "aqqua",
+    title: "aqqua",
+    directory: "aqqua",
+    repositoryUrl: "https://github.com/pingdotgg/aqqua.git",
+    favicon: PROJECT_FAVICONS.aqqua,
   },
   {
     id: "react",
@@ -126,7 +131,7 @@ export const SHOWCASE_ENVIRONMENTS = [
   {
     id: "moonbase-terminal",
     label: "Moonbase Terminal",
-    projectIds: ["t3code"],
+    projectIds: ["aqqua"],
   },
   {
     id: "suspense-station",
@@ -143,18 +148,18 @@ export const SHOWCASE_ENVIRONMENTS = [
 export const SHOWCASE_THREADS = [
   {
     id: SHOWCASE_THREAD_ID,
-    projectId: "t3code",
+    projectId: "aqqua",
     title: "Make remote coding feel local ✦",
     branch: "feat/remote-command-center",
     minutesAgo: 3,
     request:
-      "Give T3 Code a remote-first command center. Make three machines feel one tap away, keep agent work in sync, and make every handoff feel instant.",
+      "Give aqqua a remote-first command center. Make three machines feel one tap away, keep agent work in sync, and make every handoff feel instant.",
     response:
-      "T3 Code now treats every machine like it is right here in the room. ✦\n\n- Moonbase, Suspense Station, and Kernel Cabin stay live together\n- Terminal state follows you without losing a single line\n- Agent work remains perfectly in sync across devices\n- Handoffs land before your train of thought can wander\n\nI also ran the changed workspace: **612 tests passed**.",
+      "aqqua now treats every machine like it is right here in the room. ✦\n\n- Moonbase, Suspense Station, and Kernel Cabin stay live together\n- Terminal state follows you without losing a single line\n- Agent work remains perfectly in sync across devices\n- Handoffs land before your train of thought can wander\n\nI also ran the changed workspace: **612 tests passed**.",
   },
   {
     id: "pocket-command-center",
-    projectId: "t3code",
+    projectId: "aqqua",
     title: "Put the command center in your pocket",
     branch: "feat/pocket-command-center",
     minutesAgo: 21,
@@ -203,7 +208,7 @@ export const SHOWCASE_THREADS = [
   // a store screenshot has to show that history exists, not just imply it.
   {
     id: "handoff-haptics",
-    projectId: "t3code",
+    projectId: "aqqua",
     title: "Tune the handoff haptics",
     branch: "feat/handoff-haptics",
     minutesAgo: 5 * 60,
@@ -264,16 +269,16 @@ async function initializeRepository(input: {
   await runGit(input.workspaceRoot, ["commit", "-m", input.commitMessage]);
 }
 
-async function seedT3CodeWorkspace(workspaceRoot: string): Promise<void> {
+async function seedAqquaWorkspace(workspaceRoot: string): Promise<void> {
   await NodeFSP.mkdir(NodePath.join(workspaceRoot, "apps/mobile/src/features/home"), {
     recursive: true,
   });
   await NodeFSP.writeFile(
     NodePath.join(workspaceRoot, "package.json"),
-    `${JSON.stringify({ name: "t3code", private: true, scripts: { test: "vp test" } }, null, 2)}\n`,
+    `${JSON.stringify({ name: "aqqua", private: true, scripts: { test: "vp test" } }, null, 2)}\n`,
   );
   await NodeFSP.copyFile(
-    new URL("../assets/3t-code-nobg.png", import.meta.url),
+    new URL("../assets/aqqua-nobg.png", import.meta.url),
     NodePath.join(workspaceRoot, "favicon.png"),
   );
   await NodeFSP.writeFile(
@@ -282,7 +287,7 @@ async function seedT3CodeWorkspace(workspaceRoot: string): Promise<void> {
   );
   await initializeRepository({
     workspaceRoot,
-    repositoryUrl: "https://github.com/pingdotgg/t3code.git",
+    repositoryUrl: "https://github.com/pingdotgg/aqqua.git",
     commitMessage: "Show connected environments",
   });
   await runGit(workspaceRoot, ["checkout", "-b", "feat/remote-command-center"]);
@@ -306,7 +311,7 @@ async function seedCompanionWorkspace(input: {
   await NodeFSP.writeFile(NodePath.join(input.workspaceRoot, "favicon.svg"), input.favicon);
   await NodeFSP.writeFile(
     NodePath.join(input.workspaceRoot, "README.md"),
-    `# ${input.title}\n\nSeeded by the T3 Code mobile screenshot harness.\n`,
+    `# ${input.title}\n\nSeeded by the aqqua mobile screenshot harness.\n`,
   );
   await initializeRepository({
     workspaceRoot: input.workspaceRoot,
@@ -577,7 +582,7 @@ export async function seedShowcaseEnvironment(input: {
   if (!workspaceRoot) throw new Error("The primary showcase workspace is not configured.");
   const dbPath = NodePath.join(input.baseDir, "userdata", "state.sqlite");
   if (primaryProject.id === SHOWCASE_PROJECT_ID) {
-    await seedT3CodeWorkspace(workspaceRoot);
+    await seedAqquaWorkspace(workspaceRoot);
   }
   await Promise.all(
     projects

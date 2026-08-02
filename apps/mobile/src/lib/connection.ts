@@ -1,6 +1,6 @@
-import { EnvironmentId } from "@t3tools/contracts";
-import { stripPairingTokenFromUrl } from "@t3tools/shared/remote";
-import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { EnvironmentId } from "@aqqua/contracts";
+import { stripPairingTokenFromUrl } from "@aqqua/shared/remote";
+import { type EnvironmentConnectionPhase } from "@aqqua/client-runtime/connection";
 
 export { authClientMetadata } from "./authClientMetadata";
 

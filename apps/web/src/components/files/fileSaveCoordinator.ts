@@ -1,7 +1,7 @@
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import type * as Cause from "effect/Cause";
 
 /**

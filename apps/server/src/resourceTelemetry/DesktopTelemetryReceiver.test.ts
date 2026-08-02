@@ -70,7 +70,7 @@ describe("DesktopTelemetryReceiver", () => {
     Effect.acquireUseRelease(
       Effect.sync(() => {
         const directory = NodeFS.mkdtempSync(
-          NodePath.join(NodeOS.tmpdir(), "t3-desktop-telemetry-control-test-"),
+          NodePath.join(NodeOS.tmpdir(), "aqqua-desktop-telemetry-control-test-"),
         );
         const path = NodePath.join(directory, "control.ndjson");
         return {
@@ -114,7 +114,7 @@ describe("DesktopTelemetryReceiver", () => {
       Effect.acquireUseRelease(
         Effect.sync(() => {
           const directory = NodeFS.mkdtempSync(
-            NodePath.join(NodeOS.tmpdir(), "t3-desktop-parent-lease-test-"),
+            NodePath.join(NodeOS.tmpdir(), "aqqua-desktop-parent-lease-test-"),
           );
           const path = NodePath.join(directory, "telemetry.ndjson");
           NodeFS.writeFileSync(path, "");
@@ -157,7 +157,7 @@ describe("DesktopTelemetryReceiver", () => {
           Layer.mergeAll(
             ServerSettings.layerTest(),
             ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3-parent-lease-",
+              prefix: "aqqua-parent-lease-",
             }),
           ).pipe(Layer.provideMerge(NodeServices.layer)),
         ),
@@ -190,7 +190,7 @@ describe("DesktopTelemetryReceiver", () => {
           Layer.mergeAll(
             ServerSettings.layerTest(),
             ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3-web-no-parent-lease-",
+              prefix: "aqqua-web-no-parent-lease-",
             }),
           ).pipe(Layer.provideMerge(NodeServices.layer)),
         ),

@@ -3,7 +3,7 @@
 The left sidebar can show conversations as a flat list or group them by worktree.
 
 On web and desktop, the regular sidebar is the worktree-aware view described below. Enable
-**Settings → Beta → Sidebar v2** to use T3 Code's original flat Sidebar V2 instead. Mobile keeps
+**Settings → Beta → Sidebar v2** to use aqqua's original flat Sidebar V2 instead. Mobile keeps
 its separate, device-local **Thread List v2** preference and is not changed by the web/desktop
 sidebar switch.
 
@@ -50,11 +50,11 @@ woken first; no conversations to settle, running conversations, or conversations
 attention keep the batch action disabled. Settling preserves every conversation in the shared
 **Settled** shelf.
 
-Secondary worktrees can use **Delete** from the same menu. T3 Code inspects the worktree and asks
+Secondary worktrees can use **Delete** from the same menu. aqqua inspects the worktree and asks
 for confirmation before permanently deleting both the filesystem worktree and its live, settled,
 and archived conversations. Deleted conversation history does not appear in **Settled**. The
 current project checkout shows the action disabled. If the directory was already removed outside
-T3 Code, retrying the action deletes its remaining conversation history and cleans up the stale
+aqqua, retrying the action deletes its remaining conversation history and cleans up the stale
 sidebar entry.
 
 Settled rows include selection checkboxes. Select multiple rows and use **Delete N** in the

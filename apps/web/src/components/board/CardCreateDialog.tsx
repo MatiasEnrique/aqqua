@@ -1,4 +1,4 @@
-import type { CardParameters, OrchestrationBoard } from "@t3tools/contracts";
+import type { CardParameters, OrchestrationBoard } from "@aqqua/contracts";
 import { SquarePlusIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 

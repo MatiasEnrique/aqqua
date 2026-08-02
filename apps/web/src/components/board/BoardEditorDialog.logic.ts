@@ -5,8 +5,8 @@ import {
   type BoardStepContinuation,
   type OrchestrationBoard,
   type ServerProvider,
-} from "@t3tools/contracts";
-import { collectBoardParameterNames } from "@t3tools/shared/boardTemplate";
+} from "@aqqua/contracts";
+import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
 
 /** Editing shape: plain strings, so a half-typed step is always representable. */
 export interface BoardStepDraft {

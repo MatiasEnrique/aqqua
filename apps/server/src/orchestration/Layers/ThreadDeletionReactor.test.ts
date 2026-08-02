@@ -1,4 +1,4 @@
-import { CommandId, EventId, ThreadId, type OrchestrationEvent } from "@t3tools/contracts";
+import { CommandId, EventId, ThreadId, type OrchestrationEvent } from "@aqqua/contracts";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";

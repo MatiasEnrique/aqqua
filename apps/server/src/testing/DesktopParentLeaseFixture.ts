@@ -39,7 +39,7 @@ const fixture = Effect.scoped(
       Layer.mergeAll(
         ServerSettings.layerTest(),
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "t3-desktop-parent-child-",
+          prefix: "aqqua-desktop-parent-child-",
         }),
       ).pipe(Layer.provideMerge(NodeServices.layer)),
     ),

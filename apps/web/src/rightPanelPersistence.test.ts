@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { panelOwnerKey, workspacePanelOwner } from "./panelOwner";
 import { migratePersistedRightPanelState } from "./rightPanelPersistence";
-import { type EnvironmentId } from "@t3tools/contracts";
+import { type EnvironmentId } from "@aqqua/contracts";
 
 describe("rightPanelPersistence", () => {
   it("rewrites legacy synthetic workspace keys while preserving surfaces", () => {

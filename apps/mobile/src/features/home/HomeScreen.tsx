@@ -6,12 +6,12 @@ import {
 import {
   type EnvironmentProject,
   type EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+} from "@aqqua/client-runtime/state/shell";
 import type {
   EnvironmentId,
   SidebarProjectGroupingMode,
   SidebarThreadSortOrder,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -917,7 +917,7 @@ export function HomeScreen(props: HomeScreenProps) {
                   className="mx-4 mt-2 items-center rounded-lg border border-dashed border-border py-2.5"
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Text className="text-xs font-t3-medium text-foreground-muted">
+                  <Text className="text-xs font-aqqua-medium text-foreground-muted">
                     Show more ({threadListV2Layout.hiddenSettledCount} settled hidden)
                   </Text>
                 </Pressable>

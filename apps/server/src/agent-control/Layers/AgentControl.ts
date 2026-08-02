@@ -14,7 +14,7 @@ import {
   type OrchestrationThread,
   type ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -150,7 +150,7 @@ const make = Effect.gen(function* () {
    * Resolve the orchestrator and refuse a sub-agent's attempt to delegate.
    *
    * Recursion is denied from the persisted `parentThreadId`, not from in-memory
-   * state, so the rule still holds after a T3 restart.
+   * state, so the rule still holds after an aqqua restart.
    */
   const requireOrchestrator = Effect.fn("AgentControl.requireOrchestrator")(function* (
     parentThreadId: ThreadId,

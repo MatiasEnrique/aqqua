@@ -1,6 +1,6 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { canDeleteCard, cardOperation } from "@t3tools/client-runtime/state/boards";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import { canDeleteCard, cardOperation } from "@aqqua/client-runtime/state/boards";
+import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@aqqua/contracts";
 import { CheckCircle2Icon, CheckIcon, ChevronDownIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import { lazy, Suspense, useMemo } from "react";
 

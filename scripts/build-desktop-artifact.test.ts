@@ -48,7 +48,7 @@ import {
   WINDOWS_ASAR_UNPACK,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessArchitecture, HostProcessPlatform } from "@aqqua/shared/hostProcess";
 
 function mockProcess(exitCode: number) {
   return ChildProcessSpawner.makeHandle({
@@ -94,8 +94,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "3T Code (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "3T Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "aqqua (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "aqqua (Nightly)");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -124,7 +124,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                T3CODE_DESKTOP_UPDATE_REPOSITORY: "pingdotgg/t3code",
+                AQQUA_DESKTOP_UPDATE_REPOSITORY: "pingdotgg/aqqua",
               },
             }),
           ),
@@ -135,7 +135,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                GITHUB_REPOSITORY: "pingdotgg/t3code",
+                GITHUB_REPOSITORY: "pingdotgg/aqqua",
               },
             }),
           ),
@@ -145,13 +145,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
         owner: "pingdotgg",
-        repo: "t3code",
+        repo: "aqqua",
         releaseType: "release",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
         owner: "pingdotgg",
-        repo: "t3code",
+        repo: "aqqua",
         releaseType: "prerelease",
         channel: "nightly",
       });
@@ -163,10 +163,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       resolveDesktopRuntimeDependencies(
         {
           "@effect/platform-node": "catalog:",
-          "@t3tools/contracts": "workspace:*",
-          "@t3tools/shared": "workspace:*",
-          "@t3tools/ssh": "workspace:*",
-          "@t3tools/tailscale": "workspace:*",
+          "@aqqua/contracts": "workspace:*",
+          "@aqqua/shared": "workspace:*",
+          "@aqqua/ssh": "workspace:*",
+          "@aqqua/tailscale": "workspace:*",
           effect: "catalog:",
           electron: "41.5.0",
         },
@@ -401,24 +401,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it("derives macOS passkey signing configuration from the Clerk publishable key", () => {
     const configuration = resolveMacPasskeySigningConfiguration({
-      T3CODE_APPLE_TEAM_ID: "abc1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PUBLISHABLE_KEY: `pk_test_${btoa("example.clerk.accounts.dev$")}`,
+      AQQUA_APPLE_TEAM_ID: "abc1234567",
+      AQQUA_MACOS_PROVISIONING_PROFILE: "/tmp/aqqua.provisionprofile",
+      AQQUA_CLERK_PUBLISHABLE_KEY: `pk_test_${btoa("example.clerk.accounts.dev$")}`,
     });
 
     assert.deepStrictEqual(configuration, {
-      appId: "com.t3tools.t3code",
+      appId: "com.aqqua.aqqua",
       teamId: "ABC1234567",
       rpDomains: ["example.clerk.accounts.dev"],
-      provisioningProfilePath: "/tmp/t3code.provisionprofile",
+      provisioningProfilePath: "/tmp/aqqua.provisionprofile",
     });
   });
 
   it("normalizes explicit macOS passkey RP domains and renders required entitlements", () => {
     const configuration = resolveMacPasskeySigningConfiguration({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS:
+      AQQUA_APPLE_TEAM_ID: "ABC1234567",
+      AQQUA_MACOS_PROVISIONING_PROFILE: "/tmp/aqqua.provisionprofile",
+      AQQUA_CLERK_PASSKEY_RP_DOMAINS:
         " Clerk.Example.com,example.clerk.accounts.dev,clerk.example.com ",
     });
     const entitlements = renderMacPasskeyEntitlements(configuration);
@@ -427,7 +427,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "clerk.example.com",
       "example.clerk.accounts.dev",
     ]);
-    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code</string>");
+    assert.include(entitlements, "<string>ABC1234567.com.aqqua.aqqua</string>");
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
@@ -444,21 +444,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     };
 
     const missingProfileError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+      AQQUA_APPLE_TEAM_ID: "ABC1234567",
+      AQQUA_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
     });
     assert.instanceOf(missingProfileError, MissingMacPasskeyProvisioningProfileError);
     assert.equal(
       missingProfileError.message,
-      "T3CODE_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.",
+      "AQQUA_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.",
     );
 
     const unsafeDomain =
       "https://domain-user:domain-secret@example.clerk.accounts.dev/path?token=query-secret";
     const invalidDomainError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS: unsafeDomain,
+      AQQUA_APPLE_TEAM_ID: "ABC1234567",
+      AQQUA_MACOS_PROVISIONING_PROFILE: "/tmp/aqqua.provisionprofile",
+      AQQUA_CLERK_PASSKEY_RP_DOMAINS: unsafeDomain,
     });
     assert.instanceOf(invalidDomainError, InvalidMacPasskeyRpDomainError);
     assert.equal(invalidDomainError.reason, "scheme-not-allowed");
@@ -474,20 +474,20 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.throws(
       () =>
         resolveMacPasskeySigningConfiguration({
-          T3CODE_APPLE_TEAM_ID: "ABC1234567",
-          T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-          T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev:8443",
+          AQQUA_APPLE_TEAM_ID: "ABC1234567",
+          AQQUA_MACOS_PROVISIONING_PROFILE: "/tmp/aqqua.provisionprofile",
+          AQQUA_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev:8443",
         }),
       /Invalid passkey RP domain/u,
     );
     const invalidPublishableKeyError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_%",
+      AQQUA_APPLE_TEAM_ID: "ABC1234567",
+      AQQUA_MACOS_PROVISIONING_PROFILE: "/tmp/aqqua.provisionprofile",
+      AQQUA_CLERK_PUBLISHABLE_KEY: "pk_test_%",
     });
     assert.instanceOf(invalidPublishableKeyError, InvalidMacPasskeyPublishableKeyError);
     assert.ok(invalidPublishableKeyError.cause);
-    assert.equal(invalidPublishableKeyError.message, "T3CODE_CLERK_PUBLISHABLE_KEY is invalid.");
+    assert.equal(invalidPublishableKeyError.message, "AQQUA_CLERK_PUBLISHABLE_KEY is invalid.");
     assert.notProperty(invalidPublishableKeyError, "publishableKey");
     assert.notInclude(invalidPublishableKeyError.message, "pk_test_%");
   });
@@ -518,16 +518,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     Effect.gen(function* () {
       const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {
         entitlementsPath: "/tmp/entitlements.mac.plist",
-        provisioningProfilePath: "/tmp/t3code.provisionprofile",
+        provisioningProfilePath: "/tmp/aqqua.provisionprofile",
       });
 
       const mac = config.mac as Record<string, unknown>;
-      assert.equal(config.appId, "com.t3tools.t3code");
+      assert.equal(config.appId, "com.aqqua.aqqua");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
-      assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
-      assert.deepStrictEqual(mac.protocols, [
-        { name: "3T Code", schemes: ["t3code", "t3code-dev"] },
-      ]);
+      assert.equal(mac.provisioningProfile, "/tmp/aqqua.provisionprofile");
+      assert.deepStrictEqual(mac.protocols, [{ name: "aqqua", schemes: ["aqqua", "aqqua-dev"] }]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
@@ -563,10 +561,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("names a Sigma build apart from the release it installs beside", () => {
-    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "3T Code (Sigma)");
-    assert.equal(resolveDesktopAppId("0.0.28-sigma"), "com.t3tools.t3code.sigma");
-    assert.equal(resolveDesktopAppId("0.0.28"), "com.t3tools.t3code");
-    assert.equal(resolveDesktopAppId("0.0.28-nightly.20260413.42"), "com.t3tools.t3code");
+    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "aqqua (Sigma)");
+    assert.equal(resolveDesktopAppId("0.0.28-sigma"), "com.aqqua.aqqua.sigma");
+    assert.equal(resolveDesktopAppId("0.0.28"), "com.aqqua.aqqua");
+    assert.equal(resolveDesktopAppId("0.0.28-nightly.20260413.42"), "com.aqqua.aqqua");
   });
 
   it("stamps -sigma once, so an already-Sigma version is not doubled", () => {
@@ -591,12 +589,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
 
       assert.notProperty(config, "publish");
-      assert.equal(config.appId, "com.t3tools.t3code.sigma");
-      assert.equal(config.productName, "3T Code (Sigma)");
+      assert.equal(config.appId, "com.aqqua.aqqua.sigma");
+      assert.equal(config.productName, "aqqua (Sigma)");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "t3-tools/t3code" } }),
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "aqqua-tools/aqqua" } }),
         ),
       ),
     ),
@@ -615,11 +613,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
 
       assert.property(config, "publish");
-      assert.equal(config.appId, "com.t3tools.t3code");
+      assert.equal(config.appId, "com.aqqua.aqqua");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "t3-tools/t3code" } }),
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "aqqua-tools/aqqua" } }),
         ),
       ),
     ),
@@ -642,8 +640,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.deepStrictEqual(resolveResourceMonitorRustTargets("win", "arm64"), [
       "aarch64-pc-windows-msvc",
     ]);
-    assert.equal(resourceMonitorExecutableName("mac"), "t3-resource-monitor");
-    assert.equal(resourceMonitorExecutableName("win"), "t3-resource-monitor.exe");
+    assert.equal(resourceMonitorExecutableName("mac"), "aqqua-resource-monitor");
+    assert.equal(resourceMonitorExecutableName("win"), "aqqua-resource-monitor.exe");
   });
   it("promotes target fff binaries to direct staged dependencies", () => {
     assert.deepStrictEqual(resolveFffNativeDependencies("mac", "arm64", "0.9.4"), {
@@ -823,11 +821,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                T3CODE_DESKTOP_SKIP_BUILD: "true",
-                T3CODE_DESKTOP_KEEP_STAGE: "true",
-                T3CODE_DESKTOP_SIGNED: "true",
-                T3CODE_DESKTOP_VERBOSE: "true",
-                T3CODE_DESKTOP_MOCK_UPDATES: "true",
+                AQQUA_DESKTOP_SKIP_BUILD: "true",
+                AQQUA_DESKTOP_KEEP_STAGE: "true",
+                AQQUA_DESKTOP_SIGNED: "true",
+                AQQUA_DESKTOP_VERBOSE: "true",
+                AQQUA_DESKTOP_MOCK_UPDATES: "true",
               },
             }),
           ),

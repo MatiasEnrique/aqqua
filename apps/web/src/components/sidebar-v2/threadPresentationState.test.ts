@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { DEFAULT_RUNTIME_MODE, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 import {
   classifyThreadPresentation,
   resolveSidebarConversationSummaryState,

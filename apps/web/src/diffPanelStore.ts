@@ -1,5 +1,5 @@
-import type { WorkspacePanelRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { WorkspacePanelRef } from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef, TurnId } from "@aqqua/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -181,7 +181,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         }),
     }),
     {
-      name: "t3code:diff-panel-state:v1",
+      name: "aqqua:diff-panel-state:v1",
       version: 3,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),

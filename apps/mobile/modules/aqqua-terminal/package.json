@@ -1,0 +1,17 @@
+{
+  "name": "@aqqua/mobile-terminal-native",
+  "version": "0.0.0",
+  "private": true,
+  "expo-module": {
+    "ios": {
+      "modules": [
+        "AqquaTerminalModule"
+      ]
+    },
+    "android": {
+      "modules": [
+        "expo.modules.aqquaterminal.AqquaTerminalModule"
+      ]
+    }
+  }
+}

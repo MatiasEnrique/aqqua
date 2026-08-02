@@ -1,7 +1,7 @@
-# 3T Code Mobile
+# aqqua Mobile
 
 > [!WARNING]
-> 3T Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> aqqua Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
 
 ## Quickstart
 
@@ -10,13 +10,13 @@
 
 This app has three variants:
 
-- `development`: Expo dev client, installable side-by-side as `3T Code Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `3T Code Preview`
-- `production`: store/release build as `3T Code`
+- `development`: Expo dev client, installable side-by-side as `aqqua Dev`
+- `preview`: persistent internal preview build, installable side-by-side as `aqqua Preview`
+- `production`: store/release build as `aqqua`
 
 Run commands from `apps/mobile`.
 
-3T Connect is optional and disabled in a fresh clone. Public configuration belongs in the
+aqqua Connect is optional and disabled in a fresh clone. Public configuration belongs in the
 repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
 
@@ -39,8 +39,8 @@ reduced-capability local build. Personal Team builds omit the widget and share e
 entitlement, and native Sign in with Apple entitlement; builds without this opt-in are unchanged.
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code.dev \
+AQQUA_IOS_PERSONAL_TEAM=1 \
+AQQUA_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.aqqua.dev \
 vp run ios:dev
 ```
 
@@ -53,8 +53,8 @@ vp run ios:release
 The Personal Team equivalent also needs a unique bundle identifier:
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
+AQQUA_IOS_PERSONAL_TEAM=1 \
+AQQUA_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.aqqua \
 vp run ios:release
 ```
 
@@ -91,8 +91,8 @@ The native lint task runs SwiftLint for Swift plus ktlint and detekt for Kotlin.
 
 CI uses Expo fingerprinting with the `preview:dev` profile to reuse an existing compatible build when possible, or start a new internal EAS build when native runtime inputs change. Production and default local builds continue to use the `appVersion` runtime policy.
 
-For preview or production EAS environments, set `T3CODE_CLERK_PUBLISHABLE_KEY`,
-`T3CODE_CLERK_JWT_TEMPLATE`, and `T3CODE_RELAY_URL`
+For preview or production EAS environments, set `AQQUA_CLERK_PUBLISHABLE_KEY`,
+`AQQUA_CLERK_JWT_TEMPLATE`, and `AQQUA_RELAY_URL`
 as EAS environment variables. Expo config maps the canonical values into the mobile build.
 
 Create a PR preview dev-client build manually:

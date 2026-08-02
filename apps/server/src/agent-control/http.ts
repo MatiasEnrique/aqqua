@@ -1,10 +1,10 @@
 /**
  * Agent-control HTTP surface.
  *
- * The `3T agent` CLI runs inside a provider session's own shell and calls these
+ * The `aqqua agent` CLI runs inside a provider session's own shell and calls these
  * routes. They are authenticated with the same provider-scoped bearer credential
  * the MCP server uses (`McpSessionRegistry`), which is what makes the parent
- * thread trustworthy: it comes from the credential T3 minted for that session, not
+ * thread trustworthy: it comes from the credential aqqua minted for that session, not
  * from anything the calling model wrote on the command line.
  *
  * @module agent-control/http
@@ -23,7 +23,7 @@ import {
   AgentSpawnRequest,
   AgentSpawnResponse,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -46,7 +46,7 @@ const unauthorized = response(
   {
     error: "invalid_agent_credential",
     message:
-      "A valid provider-scoped credential is required. Run `3T agent` from inside a T3 Code agent session.",
+      "A valid provider-scoped credential is required. Run `aqqua agent` from inside an aqqua agent session.",
   },
   { status: 401, headers: { "cache-control": "no-store", "www-authenticate": "Bearer" } },
 );
@@ -107,7 +107,7 @@ const decodeProfileName = (value: string) =>
       _tag: INVALID_PROFILE_NAME_TAG,
       message:
         `'${value}' is not a valid agent profile name: it must start with a letter and ` +
-        "use only letters, digits, '-' or '_'. Run `3T agent profiles` to see the configured profiles.",
+        "use only letters, digits, '-' or '_'. Run `aqqua agent profiles` to see the configured profiles.",
     })),
   );
 

@@ -7,7 +7,7 @@ import {
   type CardStatus,
   CommandId,
   type OrchestrationCard,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";

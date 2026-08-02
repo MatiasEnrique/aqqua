@@ -2,10 +2,10 @@ import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
-import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectEntry } from "@aqqua/contracts";
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { squashAtomCommandFailure } from "@aqqua/client-runtime/state/runtime";
+import { serializeComposerFileLink } from "@aqqua/shared/composerTrigger";
 import { RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,7 +25,7 @@ import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
-import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { AQQUA_PIERRE_ICONS } from "~/pierre-icons";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 
@@ -345,7 +345,7 @@ export default function FileBrowserPanel({
     ...(restoredExplorerState?.searchQuery
       ? { initialSearchQuery: restoredExplorerState.searchQuery }
       : {}),
-    icons: T3_PIERRE_ICONS,
+    icons: AQQUA_PIERRE_ICONS,
     renaming: {
       canRename: () => true,
       onError: (error) => {

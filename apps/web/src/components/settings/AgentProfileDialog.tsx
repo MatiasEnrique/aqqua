@@ -43,7 +43,7 @@ import {
   setAgentProfileOption,
   validateAgentProfileName,
 } from "./AgentProfilesSettings.logic";
-import type { AgentProfile } from "@t3tools/contracts";
+import type { AgentProfile } from "@aqqua/contracts";
 
 /** Field wrapper matching the label / control / hint rhythm of the other dialogs. */
 function DialogField({
@@ -180,7 +180,7 @@ export function AgentProfileDialog({
             <DialogDescription>
               A profile is the role an orchestrator spawns a sub-agent with — the provider, model,
               and runtime behind{" "}
-              <code>3T agent spawn --profile {draft.name.trim() || "<name>"}</code>.
+              <code>aqqua agent spawn --profile {draft.name.trim() || "<name>"}</code>.
             </DialogDescription>
           </DialogHeader>
 

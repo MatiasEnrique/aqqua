@@ -13,7 +13,7 @@ import {
   type OrchestrationReadModel,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";

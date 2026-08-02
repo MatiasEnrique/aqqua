@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
@@ -407,21 +407,21 @@ describe("buildSidebarRepositoryGroups", () => {
           "ciber",
         ),
         thread(
-          "t3-main",
+          "aqqua-main",
           "local",
-          "/repos/t3code",
+          "/repos/aqqua",
           "main",
           "2026-01-01T00:00:00.000Z",
           null,
           "ready",
-          "t3code",
+          "aqqua",
         ),
       ],
       snoozed: [],
       drafts: [],
       projectsByKey: new Map([
         ["local:ciber", { workspaceRoot: "/repos/ciber", environmentLabel: "Local" }],
-        ["local:t3code", { workspaceRoot: "/repos/t3code", environmentLabel: "Local" }],
+        ["local:aqqua", { workspaceRoot: "/repos/aqqua", environmentLabel: "Local" }],
       ]),
     });
 
@@ -433,9 +433,9 @@ describe("buildSidebarRepositoryGroups", () => {
           memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "ciber" }],
         },
         {
-          projectKey: "repo:t3code",
-          displayName: "t3code",
-          memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "t3code" }],
+          projectKey: "repo:aqqua",
+          displayName: "aqqua",
+          memberProjectRefs: [{ environmentId: EnvironmentId.make("local"), projectId: "aqqua" }],
         },
         {
           projectKey: "repo:empty",
@@ -463,7 +463,7 @@ describe("buildSidebarRepositoryGroups", () => {
         working: 1,
       },
       {
-        key: "repo:t3code",
+        key: "repo:aqqua",
         branches: ["main"],
         state: "done",
         conversations: 1,
@@ -520,36 +520,36 @@ describe("resolveSidebarProjectState", () => {
 describe("filterExpandedSidebarWorktreeGroups", () => {
   const ciberMain = { key: "ciber:main" };
   const ciberDev = { key: "ciber:dev" };
-  const t3Main = { key: "t3code:main" };
+  const aqquaMain = { key: "aqqua:main" };
   const repositories = [
     { key: "ciber", worktrees: [ciberMain, ciberDev] },
-    { key: "t3code", worktrees: [t3Main] },
+    { key: "aqqua", worktrees: [aqquaMain] },
   ];
 
   it("omits every worktree inside a collapsed repository", () => {
     expect(
       filterExpandedSidebarWorktreeGroups({
-        worktrees: [ciberMain, ciberDev, t3Main],
+        worktrees: [ciberMain, ciberDev, aqquaMain],
         repositories,
         repositoryHierarchyVisible: true,
         getRepositoryWorktrees: (repository) => repository.worktrees,
         isRepositoryExpanded: (repository) => repository.key !== "ciber",
         isWorktreeExpanded: () => true,
       }),
-    ).toEqual([t3Main]);
+    ).toEqual([aqquaMain]);
   });
 
   it("omits conversations inside a collapsed worktree without repository grouping", () => {
     expect(
       filterExpandedSidebarWorktreeGroups({
-        worktrees: [ciberMain, ciberDev, t3Main],
+        worktrees: [ciberMain, ciberDev, aqquaMain],
         repositories,
         repositoryHierarchyVisible: false,
         getRepositoryWorktrees: (repository) => repository.worktrees,
         isRepositoryExpanded: () => true,
         isWorktreeExpanded: (worktree) => worktree.key !== "ciber:dev",
       }),
-    ).toEqual([ciberMain, t3Main]);
+    ).toEqual([ciberMain, aqquaMain]);
   });
 });
 

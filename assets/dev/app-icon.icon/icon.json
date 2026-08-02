@@ -1,13 +1,13 @@
 {
   "fill": {
-    "solid": "display-p3:0.00000,0.00000,0.00000,1.00000"
+    "solid": "display-p3:0.78824,0.94902,1.00000,1.00000"
   },
   "groups": [
     {
       "layers": [
         {
           "image-name": "logo.png",
-          "name": "3T Code Logo",
+          "name": "aqqua Logo",
           "position": {
             "scale": 1,
             "translation-in-points": [0, 0]

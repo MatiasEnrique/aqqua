@@ -33,5 +33,5 @@ export interface BoardReactorShape {
  * BoardReactor - Service tag for board reactor workers.
  */
 export class BoardReactor extends Context.Service<BoardReactor, BoardReactorShape>()(
-  "t3/orchestration/Services/BoardReactor",
+  "aqqua/orchestration/Services/BoardReactor",
 ) {}

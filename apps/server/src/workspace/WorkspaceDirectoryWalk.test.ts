@@ -11,7 +11,7 @@ import { walkWorkspaceDirectory } from "./WorkspaceDirectoryWalk.ts";
 const makeTempDir = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "t3code-workspace-directory-walk-",
+    prefix: "aqqua-workspace-directory-walk-",
   });
 });
 

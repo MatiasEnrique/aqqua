@@ -4,7 +4,7 @@ import {
   DEFAULT_AGENT_PROFILE_DRIVER,
   ProviderDriverKind,
   ProviderInstanceId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";

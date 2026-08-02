@@ -13,7 +13,7 @@ import {
   type OrchestrationCard,
   type OrchestrationEvent,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -133,7 +133,7 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
     const ids = yield* registry.listInstances();
     const candidates: Array<{
       readonly instanceId: (typeof ids)[number];
-      readonly driverKind: import("@t3tools/contracts").ProviderDriverKind;
+      readonly driverKind: import("@aqqua/contracts").ProviderDriverKind;
       readonly enabled: boolean;
     }> = [];
     for (const instanceId of ids) {

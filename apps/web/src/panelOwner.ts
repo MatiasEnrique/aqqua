@@ -10,9 +10,9 @@ import {
   scopedThreadKey,
   scopedWorkspaceKey,
   type WorkspacePanelRef,
-} from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import { isWorkspaceTerminalOwnerThreadId } from "@t3tools/shared/terminalOwner";
+} from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef } from "@aqqua/contracts";
+import { isWorkspaceTerminalOwnerThreadId } from "@aqqua/shared/terminalOwner";
 
 const LEGACY_WORKSPACE_OWNER_THREAD_PREFIX = "workspace-root:";
 

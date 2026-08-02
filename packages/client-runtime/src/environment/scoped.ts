@@ -6,8 +6,8 @@ import {
   type ProjectId as ProjectIdType,
   type ScopedProjectRef,
   type ScopedThreadRef,
-} from "@t3tools/contracts";
-import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
+} from "@aqqua/contracts";
+import { normalizeProjectPathForComparison } from "@aqqua/shared/path";
 
 export interface WorkspacePanelRef {
   readonly environmentId: EnvironmentIdType;

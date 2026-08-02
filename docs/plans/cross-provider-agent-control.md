@@ -1,6 +1,6 @@
 # Cross-provider agent control
 
-Implementation plan for native orchestrator/sub-agent delegation inside T3 Code.
+Implementation plan for native orchestrator/sub-agent delegation inside aqqua.
 
 Status: **partially implemented.**
 
@@ -9,12 +9,12 @@ Status: **partially implemented.**
 | §8 hierarchy: `parentThreadId`, migration 035, projection, nested v1 sidebar                | built, tested                                                |
 | §6 agent profiles + typed errors                                                            | built, tested                                                |
 | §4 `AgentControl`: spawn / send / awaitTurn / interrupt / list, wired into the server layer | built, tested                                                |
-| §5.1 `t3 agent` CLI + agent HTTP endpoints + parent-identity env seam                       | built, tested                                                |
-| §5.2 `t3 agent events [--follow]` transition feed                                           | built (derived from state, not activity replay)              |
+| §5.1 `aqqua agent` CLI + agent HTTP endpoints + parent-identity env seam                    | built, tested                                                |
+| §5.2 `aqqua agent events [--follow]` transition feed                                        | built (derived from state, not activity replay)              |
 | §2 `terminal` runtime: PTY-hosted CLI in the sub-agent's own terminal                       | built, tested; completion detection outstanding              |
 | §5.3 optional MCP toolkit                                                                   | not built, and deliberately not the default                  |
 | §8 per-parent collapse, `SidebarV2` parity, timeline "Open agent thread" link               | not built                                                    |
-| Integrated browser verification (`test-t3-app`)                                             | run; end-to-end Codex → Codex delegation observed in the app |
+| Integrated browser verification (`test-aqqua-app`)                                          | run; end-to-end Codex → Codex delegation observed in the app |
 
 Both runtimes from §2 now exist, so §16.1 is no longer blocking: a profile chooses
 `session` (provider adapter, full structured transcript) or `terminal` (PTY-hosted
@@ -28,22 +28,22 @@ is the next step for that runtime.
 
 ### Verified end to end
 
-Observed in a running T3 Code dev environment, with a Codex orchestrator
+Observed in a running aqqua dev environment, with a Codex orchestrator
 (GPT-5.6-Sol) delegating from its own shell. Verbatim from its transcript:
 
 ```text
-$ t3 agent spawn --profile implementer --task-file task.md --json
+$ aqqua agent spawn --profile implementer --task-file task.md --json
 {"threadId":"d24dc155-…","profile":"implementer","terminalId":null}
 
-$ t3 agent list
+$ aqqua agent list
 running     d24dc155-…  implementer: Task
 
-$ t3 agent await d24dc155-… --timeout 60 --json
+$ aqqua agent await d24dc155-… --timeout 60 --json
 {"threadId":"d24dc155-…","status":"completed",
  "finalMessage":"Added a JSDoc comment above `greet` in greet.js:1. Behavior is
  unchanged; `git diff --check` passes.","sequence":58}
 
-$ t3 agent events
+$ aqqua agent events
 {"kind":"agent.observed","threadId":"d24dc155-…","status":"completed",
  "title":"implementer: Task"}
 ```
@@ -66,7 +66,7 @@ wait began** — the subscribe-after-completion race, exercised for real.
 
 ## 1. Outcome
 
-One T3 Code thread acts as an orchestrator. It spawns sub-agent threads on _other_
+One aqqua thread acts as an orchestrator. It spawns sub-agent threads on _other_
 providers (Claude orchestrating Codex, or the reverse), each of which:
 
 - appears immediately in the left sidebar, **nested under its parent**;
@@ -79,7 +79,7 @@ providers (Claude orchestrating Codex, or the reverse), each of which:
   prompt text.
 
 Prompt contamination is the primary design constraint. The orchestrator drives
-delegation with the shell tool it already has, via a `t3 agent` CLI. No MCP tool
+delegation with the shell tool it already has, via a `aqqua agent` CLI. No MCP tool
 schemas, no protocol preamble, and no system-prompt injection are required for
 the default path.
 
@@ -88,15 +88,15 @@ the default path.
 ```
 Sidebar                                Main pane
 ─────────────────────────────────      ──────────────────────────
-▾ t3code                               orchestrator thread
-  ▾ ● Ship cross-provider control        > t3 agent spawn --profile implementer …
+▾ aqqua                               orchestrator thread
+  ▾ ● Ship cross-provider control        > aqqua agent spawn --profile implementer …
       ● impl: server seam                  → child thread + terminal appear
-      ● impl: web sidebar                > t3 agent events --follow
+      ● impl: web sidebar                > aqqua agent events --follow
       ○ review: diff sweep                 → NDJSON child lifecycle events
     ● Unrelated thread
 ```
 
-Clicking any nested row opens that sub-agent's ordinary T3 conversation. The user
+Clicking any nested row opens that sub-agent's ordinary aqqua conversation. The user
 can read it, type into it, approve for it, or interrupt it while the orchestrator
 is still waiting.
 
@@ -110,16 +110,16 @@ separates them:
 | --------------- | ------------------------------------------------------------------------- | ------------------------------------------------- |
 | Child process   | provider adapter session (`codex app-server`, Claude Agent SDK)           | PTY-hosted interactive CLI (`codex`, `claude`)    |
 | Transcript      | full structured events — reasoning, tool calls, file changes, checkpoints | terminal output stream + parsed lifecycle markers |
-| Approvals       | native T3 approval UI                                                     | in-CLI TUI                                        |
+| Approvals       | native aqqua approval UI                                                  | in-CLI TUI                                        |
 | Interrupt       | `thread.turn.interrupt`                                                   | signal / `Ctrl-C` write                           |
 | Terminal        | bound terminal for shell work                                             | _is_ the terminal                                 |
 | Background task | no                                                                        | no                                                |
 
 Both are user-visible and interactive, so both satisfy "no background tasks".
-`session` is the default because T3's provider adapters already produce exactly
+`session` is the default because aqqua's provider adapters already produce exactly
 the inspectable transcript the goal asks for
 (`packages/contracts/src/providerRuntime.ts:104-133`), whereas a PTY only yields
-ANSI output. `terminal` exists because it is the only way to host a provider T3
+ANSI output. `terminal` exists because it is the only way to host a provider aqqua
 has no adapter for, and because it is what the user asked for literally.
 
 They share one hierarchy, one event bus, one sidebar tree, and one CLI. The
@@ -238,7 +238,7 @@ Precedent for cross-thread references already exists:
 
 ### 3.8 The MCP seam exists but is not the default channel
 
-`ClaudeAdapter` injects an authenticated `t3-code` HTTP MCP server into the query
+`ClaudeAdapter` injects an authenticated `aqqua` HTTP MCP server into the query
 (`apps/server/src/provider/Layers/ClaudeAdapter.ts:3521`, `:3547-3559`) and
 `CodexAdapter` injects the same server through CLI config overrides
 (`apps/server/src/provider/Layers/CodexAdapter.ts:1397`, `:1414-1427`).
@@ -361,31 +361,31 @@ and messages.
 
 ## 5. Coordination channel
 
-### 5.1 `t3 agent` CLI — the default, zero-schema path
+### 5.1 `aqqua agent` CLI — the default, zero-schema path
 
-`apps/server` already publishes a `t3` binary
+`apps/server` already publishes a `aqqua` binary
 (`apps/server/package.json:10-12`) with subcommands composed in
-`apps/server/src/bin.ts:43-52`. `t3 project` is the exact precedent for a
+`apps/server/src/bin.ts:43-52`. `aqqua project` is the exact precedent for a
 subcommand that mutates orchestration state: it resolves a live server from
 persisted runtime state and dispatches over the environment HTTP API, falling
 back to direct SQLite when no server is running
 (`apps/server/src/cli/project.ts:343-440`).
 
-`t3 agent` follows that pattern:
+`aqqua agent` follows that pattern:
 
 ```
-t3 agent spawn   --profile implementer --task-file ./task.md [--title …] [--json]
-t3 agent send    <threadId> --message-file ./followup.md [--json]
-t3 agent await   <threadId> [--timeout 15m] [--json]
-t3 agent events  [--follow] [--since <sequence>] [--child <threadId>] [--json]
-t3 agent list    [--json]
-t3 agent interrupt <threadId>
+aqqua agent spawn   --profile implementer --task-file ./task.md [--title …] [--json]
+aqqua agent send    <threadId> --message-file ./followup.md [--json]
+aqqua agent await   <threadId> [--timeout 15m] [--json]
+aqqua agent events  [--follow] [--since <sequence>] [--child <threadId>] [--json]
+aqqua agent list    [--json]
+aqqua agent interrupt <threadId>
 ```
 
 Why this satisfies "contaminate prompt as little as possible":
 
 - The orchestrator uses its **existing** shell tool. No tool definitions, no
-  resources, no prompts are added to its context by T3.
+  resources, no prompts are added to its context by aqqua.
 - Task and follow-up text are passed by **file path**, so orchestration plumbing
   never round-trips through the model's context.
 - `--json` output is one compact object; `events` is NDJSON, one line per event.
@@ -394,28 +394,28 @@ Why this satisfies "contaminate prompt as little as possible":
   command exists — and even that is optional if the user says it once.
 
 The parent thread id is **not** a CLI argument. It is derived from the environment
-T3 itself created for the calling provider session, so an orchestrator cannot
+aqqua itself created for the calling provider session, so an orchestrator cannot
 impersonate another parent even though it controls the command line.
 
-**Parent identity seam (next to build).** T3 already injects per-session values
+**Parent identity seam (next to build).** aqqua already injects per-session values
 into provider process environments — `CodexAdapter` passes
-`T3_MCP_BEARER_TOKEN` plus `-c mcp_servers.t3-code.*` overrides
+`AQQUA_MCP_BEARER_TOKEN` plus `-c mcp_servers.aqqua.*` overrides
 (`apps/server/src/provider/Layers/CodexAdapter.ts:1414-1427`) and `ClaudeAdapter`
 passes `env: claudeEnvironment` (`:3544`). The same mechanism carries delegation
 identity:
 
-- `T3_THREAD_ID` — the calling thread, minted per session alongside the MCP
+- `AQQUA_THREAD_ID` — the calling thread, minted per session alongside the MCP
   credential in `ProviderService.prepareMcpSession`
   (`apps/server/src/provider/Layers/ProviderService.ts:217-228`).
-- `T3_AGENT_TOKEN` — a session-scoped bearer the CLI presents, so a stray process
+- `AQQUA_AGENT_TOKEN` — a session-scoped bearer the CLI presents, so a stray process
   outside a provider session cannot spawn sub-agents.
 
-`t3 agent` reads both from its own environment and never accepts them as flags.
+`aqqua agent` reads both from its own environment and never accepts them as flags.
 The server resolves the parent from the token, not from anything the model wrote.
 
 Because the orchestration engine lives in the server process, the CLI must reach a
 **running** server rather than opening the database itself — two engines writing
-one SQLite file is the failure `t3 project` already avoids by preferring live mode
+one SQLite file is the failure `aqqua project` already avoids by preferring live mode
 (`apps/server/src/cli/project.ts:343-373`). Delegation has no safe offline mode at
 all: a spawned sub-agent needs the server's provider reactor to start its turn. So
 the CLI requires a live server and fails clearly when there is none, and the
@@ -446,13 +446,13 @@ On the **child** thread:
 | `agent.parent.linked` | `info` | `{parentThreadId, profile, runtime}` |
 
 `agent.parent.linked` does double duty: it is the durable marker that survives a
-T3 restart and lets recursion prevention work without in-memory state (§9).
+aqqua restart and lets recursion prevention work without in-memory state (§9).
 
 `AgentControl.events` composes these into the `AgentEvent` stream using the
-cursor-replay-live shape from §3.3, so `t3 agent events --follow --since N` never
+cursor-replay-live shape from §3.3, so `aqqua agent events --follow --since N` never
 misses an event published while the CLI was starting.
 
-`t3 agent events` needs a pure-HTTP feed. Today the HTTP API exposes
+`aqqua agent events` needs a pure-HTTP feed. Today the HTTP API exposes
 `snapshot`, `shellSnapshot`, `threadSnapshot`, and `dispatch`
 (`packages/contracts/src/environmentHttp.ts:460-490`) but no replay. Add
 `GET /api/orchestration/events?fromSequenceExclusive=N&limit=M`, mirroring the
@@ -542,7 +542,7 @@ would block on an approval prompt that the orchestrator cannot answer. It is als
 a real privilege grant, so §9 records it as security-relevant and the profile
 lets a user lower it.
 
-Do **not** put profiles in `t3.json` (`packages/contracts/src/t3ProjectFile.ts:61-81`)
+Do **not** put profiles in `aqqua.json` (`packages/contracts/src/aqquaProjectFile.ts:61-81`)
 in milestone 1. A committed role→driver _intent_ map with machine-local instance
 binding is a reasonable milestone 4 addition, but it doubles the resolution paths
 for no milestone-1 benefit.
@@ -627,14 +627,14 @@ because it resumes from a _client's_ older cursor.
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator thread
-    participant CLI as t3 agent (shell)
+    participant CLI as aqqua agent (shell)
     participant AC as AgentControl
     participant E as OrchestrationEngine
     participant R as ProviderCommandReactor
     participant C as Child thread + terminal
     participant UI as Sidebar / web
 
-    O->>CLI: t3 agent spawn --profile implementer --task-file …
+    O->>CLI: aqqua agent spawn --profile implementer --task-file …
     CLI->>AC: spawn(parent, profile, task)
     AC->>AC: attach live stream, capture cursor
     AC->>E: thread.create (parentThreadId, parent worktree)
@@ -647,7 +647,7 @@ sequenceDiagram
     C-->>UI: messages, reasoning, tool calls, file changes (live)
     CLI-->>O: {"threadId":"…","terminalId":"term-1"}
 
-    O->>CLI: t3 agent events --follow --since N
+    O->>CLI: aqqua agent events --follow --since N
     C-->>E: thread.session-set (running → idle)
     E-->>AC: terminal condition
     AC->>E: getThreadDetailById → latestTurn + finalMessage
@@ -737,7 +737,7 @@ v2 parity.
   a projection read, so it survives restarts. Arbitrary thread ids are rejected.
 - **Recursion.** A thread carrying `agent.parent.linked` cannot delegate →
   `AgentRecursionDeniedError`. Because the marker is a persisted activity, this
-  holds after a T3 restart, unlike an in-memory ledger. The optional MCP path
+  holds after an aqqua restart, unlike an in-memory ledger. The optional MCP path
   enforces the same rule by withholding the `agent-control` capability.
 - **No secret leakage.** Instance ids, MCP tokens, worktree paths, PIDs, and
   command shapes stay inside the module. Errors name profiles, not instances.
@@ -784,9 +784,9 @@ uncommitted context but allows parallel writers to clobber each other.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Turn start fails after thread creation      | compensating `thread.delete`; `AgentLaunchFailedError`; no orphan row                                                                                                                                                                                        |
 | Child provider crashes                      | `session.exited` → session `error`/`stopped` → `await` returns `failed`/`interrupted` with the session's `lastError`                                                                                                                                         |
-| Orchestrator interrupted mid-`await`        | `await` is interruptible and leaves the child running; the child stays visible and re-attachable via `t3 agent await`                                                                                                                                        |
-| User interrupts the child from T3           | existing `thread.turn.interrupt` path; `await` returns `interrupted`                                                                                                                                                                                         |
-| T3 restarts mid-run                         | children are ordinary threads and rehydrate from the projection; `parentThreadId` and `agent.parent.linked` are persisted, so hierarchy, ownership, and recursion checks all survive; an in-flight `await` is lost and is re-established by calling it again |
+| Orchestrator interrupted mid-`await`        | `await` is interruptible and leaves the child running; the child stays visible and re-attachable via `aqqua agent await`                                                                                                                                     |
+| User interrupts the child from aqqua        | existing `thread.turn.interrupt` path; `await` returns `interrupted`                                                                                                                                                                                         |
+| aqqua restarts mid-run                      | children are ordinary threads and rehydrate from the projection; `parentThreadId` and `agent.parent.linked` are persisted, so hierarchy, ownership, and recursion checks all survive; an in-flight `await` is lost and is re-established by calling it again |
 | Await bound elapses                         | `status: "running"`; child untouched                                                                                                                                                                                                                         |
 | MCP credential expires (optional front-end) | tool call 401s; the child is unaffected and still inspectable; recovery is a new turn on the parent                                                                                                                                                          |
 | Orphaned child (parent deleted)             | child is promoted to a sidebar root and keeps working; ownership checks fail closed                                                                                                                                                                          |
@@ -800,30 +800,30 @@ yet demonstrable end to end, because criterion 1 (the CLI front-end) is the piec
 still missing._
 
 Scope: `parentThreadId` through contracts/migration/projection; nested v1 sidebar;
-`AgentControl` with `spawn`/`send`/`await`/`interrupt`/`list`/`events`; `t3 agent`
+`AgentControl` with `spawn`/`send`/`await`/`interrupt`/`list`/`events`; `aqqua agent`
 subcommands; HTTP events replay endpoint; one `implementer` profile; Codex-only
 workers; shared worktree; cap 3; no recursion; bound `await`.
 
 Acceptance:
 
-1. An orchestrator thread runs `t3 agent spawn --profile implementer --task-file …`
+1. An orchestrator thread runs `aqqua agent spawn --profile implementer --task-file …`
    through its ordinary shell — no injected tools or prompt.
 2. A fresh Codex child thread is created in the same project and worktree.
 3. The child appears immediately in the sidebar, **nested under the parent**.
 4. Opening it shows live messages, reasoning summaries, commands, tool calls, and
    file changes.
-5. The orchestrator is never blocked; the T3 UI stays responsive.
-6. `t3 agent events --follow` streams child lifecycle events as NDJSON.
-7. `t3 agent await` returns child thread id, status, and final message.
-8. `t3 agent send <threadId>` continues the same child with its context intact.
+5. The orchestrator is never blocked; the aqqua UI stays responsive.
+6. `aqqua agent events --follow` streams child lifecycle events as NDJSON.
+7. `aqqua agent await` returns child thread id, status, and final message.
+8. `aqqua agent send <threadId>` continues the same child with its context intact.
 9. `spawn` always starts a clean child context.
-10. The user can interrupt the child with existing T3 controls, and the
+10. The user can interrupt the child with existing aqqua controls, and the
     orchestrator observes `interrupted`.
 11. A child cannot spawn a grandchild.
 
 **Milestone 2 — orchestrator ergonomics.** `SidebarV2` parity; child status pills
 and roll-up on the parent row; "Open agent thread" affordance in the parent
-timeline; `t3 agent list --json` filters; per-parent collapse persistence.
+timeline; `aqqua agent list --json` filters; per-parent collapse persistence.
 
 **Milestone 3 — `runtime: "terminal"`.** Optional `program`/`args` on
 `TerminalOpenInput` threaded to `PtyAdapter.spawn`; PTY-hosted `codex`/`claude`
@@ -833,7 +833,7 @@ loss of structured transcript relative to `session`.
 **Milestone 4 — isolation and reach.** Isolated worktree per child (extract
 `dispatchBootstrapTurnStart` here); additional profiles (`reviewer`, `planner`);
 Claude and OpenCode as workers; optional MCP toolkit with the timeout work in
-§5.3; optional committed role intent in `t3.json`.
+§5.3; optional committed role intent in `aqqua.json`.
 
 Explicitly out of scope throughout: automatic merging or PR creation, forwarding
 child approvals to the orchestrator, and any background `codex exec` process.
@@ -878,7 +878,7 @@ format/lint/typecheck for touched packages only.
 
 Required by `AGENTS.md` because the sidebar and timeline are user-visible.
 
-Web, once per affected surface, using the `test-t3-app` skill: launch one isolated
+Web, once per affected surface, using the `test-aqqua-app` skill: launch one isolated
 environment, authenticate through the printed pairing URL, then in the controlled
 browser:
 
@@ -896,7 +896,7 @@ browser:
 7. Repeat 2 and 6 with `sidebarV2Enabled` on once milestone 2 lands.
 
 Stop the dev server and watchers afterward. Mobile verification
-(`test-t3-mobile`) is required only once the mobile sidebar renders the hierarchy.
+(`test-aqqua-mobile`) is required only once the mobile sidebar renders the hierarchy.
 
 ## 15. File and module change map
 
@@ -907,7 +907,7 @@ apps/server/src/agent-control/Services/AgentControl.ts     interface + tag
 apps/server/src/agent-control/Layers/AgentControl.ts        implementation
 apps/server/src/agent-control/Errors.ts                     typed errors
 apps/server/src/agent-control/Profiles.ts                   profile resolution
-apps/server/src/cli/agent.ts                                t3 agent subcommands
+apps/server/src/cli/agent.ts                                aqqua agent subcommands
 apps/server/src/persistence/Migrations/035_ProjectionThreadsParentThreadId.ts
 docs/plans/cross-provider-agent-control.md                  this document
 ```
@@ -941,7 +941,7 @@ apps/server/src/mcp/toolkits/agents/handlers.ts
 | `apps/web/src/components/SidebarV2.tsx`                           | same (milestone 2)                                                        |
 | `apps/web/src/session-logic.ts`                                   | surface `childThreadId` on work entries                                   |
 | `apps/web/src/components/chat/MessagesTimeline.tsx`               | "Open agent thread" affordance                                            |
-| `AGENTS.md`                                                       | one line documenting `t3 agent` (the only prompt-side cost)               |
+| `AGENTS.md`                                                       | one line documenting `aqqua agent` (the only prompt-side cost)            |
 
 **Deliberately unchanged:** `apps/server/src/ws.ts` (no bootstrap extraction in
 milestone 1), all provider adapters, and the checkpoint/approval/interrupt paths.
@@ -961,8 +961,8 @@ central reason this design is small.
    prompt contamination near zero. Shipping the MCP toolkit in parallel adds tool
    schemas to every orchestrator turn plus the timeout work in §5.3.
 3. **Fork destination.** `gh` is authenticated as `matias-enrique-ciber`, which
-   owns no `t3code` fork, and no local fork checkout exists. This checkout's
-   `origin` still points at `pingdotgg/t3code`. The fork URL/owner is needed
+   owns no `aqqua` fork, and no local fork checkout exists. This checkout's
+   `origin` still points at `pingdotgg/aqqua`. The fork URL/owner is needed
    before this branch can be pushed.
 4. **`agentProfiles` UI.** Milestone 1 assumes hand-edited `settings.json` with a
    sane fallback. A settings panel is unscoped.

@@ -12,7 +12,7 @@ import {
   type TerminalOpenInput,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -117,7 +117,9 @@ const agentControlLayer = it.layer(
     ),
     Layer.provide(RepositoryIdentityResolver.layer),
     Layer.provide(SqlitePersistenceMemory),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-control-test-" })),
+    Layer.provideMerge(
+      ServerConfig.layerTest(process.cwd(), { prefix: "aqqua-agent-control-test-" }),
+    ),
     Layer.provideMerge(NodeServices.layer),
   ),
   // Real clock, not the virtual test clock: these tests exercise `awaitTurn`'s
@@ -143,7 +145,7 @@ agentControlLayer("AgentControl", (it) => {
       title: "Agent control",
       // Distinct per test: only one active project may claim a workspace root,
       // and this suite shares one database across its tests.
-      workspaceRoot: `/tmp/t3-agent-control/${unique("workspace")}`,
+      workspaceRoot: `/tmp/aqqua-agent-control/${unique("workspace")}`,
       defaultModelSelection: null,
       createdAt: "2026-04-06T00:00:00.000Z",
     });

@@ -8,13 +8,13 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import type {
   OrchestrationBoard,
   OrchestrationCard,
   OrchestrationShellSnapshot,
   OrchestrationShellStreamEvent,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
 import { cardOperationFailure, groupBoardCards, selectNextCardAfter } from "./boards.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
@@ -57,8 +57,8 @@ const stubCard: OrchestrationCard = {
   id: CardId.make("card-1"),
   boardId: BoardId.make("board-1"),
   projectId: ProjectId.make("project-1"),
-  title: "T3-482",
-  parameters: { issue_id: "T3-482" },
+  title: "aqqua-482",
+  parameters: { issue_id: "aqqua-482" },
   position: { kind: "todo" },
   status: null,
   operation: null,

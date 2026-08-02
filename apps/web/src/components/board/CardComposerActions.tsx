@@ -1,7 +1,4 @@
-import type {
-  CardActionAvailability,
-  CardOperationKind,
-} from "@t3tools/client-runtime/state/boards";
+import type { CardActionAvailability, CardOperationKind } from "@aqqua/client-runtime/state/boards";
 import { ArrowRightIcon, BanIcon, CheckIcon, ChevronDownIcon, RotateCcwIcon } from "lucide-react";
 
 import { Button } from "../ui/button";

@@ -9,7 +9,7 @@
  *
  * Callers see thread ids, role names, statuses, and messages. They never see
  * provider instance ids, MCP credentials, worktree paths, terminal pids, or
- * orchestration command shapes — front-ends (the `3T agent` CLI, and optionally
+ * orchestration command shapes — front-ends (the `aqqua agent` CLI, and optionally
  * an MCP toolkit) hand these values to a model, so the interface is also the
  * disclosure boundary.
  *
@@ -19,7 +19,7 @@
  *
  * @module agent-control/Services/AgentControl
  */
-import type { AgentProfileName, ThreadId } from "@t3tools/contracts";
+import type { AgentProfileName, ThreadId } from "@aqqua/contracts";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import type * as Effect from "effect/Effect";
@@ -136,5 +136,5 @@ export interface AgentControlShape {
 }
 
 export class AgentControl extends Context.Service<AgentControl, AgentControlShape>()(
-  "t3/agent-control/Services/AgentControl",
+  "aqqua/agent-control/Services/AgentControl",
 ) {}

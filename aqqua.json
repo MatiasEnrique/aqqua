@@ -1,0 +1,12 @@
+{
+  "$schema": "https://aqqua.codes/schema/aqqua.json",
+  "iconPath": "assets/dev/blueprint-web-apple-touch-180.png",
+  "scripts": [
+    {
+      "name": "Setup Worktree",
+      "command": "vp i && ln -sf $AQQUA_PROJECT_ROOT/.env .env && ln -sf $AQQUA_PROJECT_ROOT/infra/relay/.env infra/relay/.env",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    }
+  ]
+}

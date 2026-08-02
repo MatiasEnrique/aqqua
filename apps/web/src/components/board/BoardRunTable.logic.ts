@@ -3,14 +3,9 @@ import {
   cardOperation,
   cardOperationFailure,
   isCardDeleting,
-} from "@t3tools/client-runtime/state/boards";
-import type {
-  BoardId,
-  CardStatus,
-  OrchestrationBoard,
-  OrchestrationCard,
-} from "@t3tools/contracts";
-import { isContinuableCardStatus } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/boards";
+import type { BoardId, CardStatus, OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
+import { isContinuableCardStatus } from "@aqqua/contracts";
 
 import type { SidebarSummaryState } from "../sidebar-v2/SidebarStatusPresentations";
 
@@ -323,7 +318,7 @@ export function cardWorktreeLabel(card: OrchestrationCard): CardWorktreeLabel | 
 
 const BOARD_BRANCH_PREFIX = "board/";
 
-/** `issue_id: T3-482 · scope: web` — the card's inputs, in template order. */
+/** `issue_id: aqqua-482 · scope: web` — the card's inputs, in template order. */
 export function summarizeCardParameters(
   parameters: Readonly<Record<string, string>>,
   parameterNames: ReadonlyArray<string>,

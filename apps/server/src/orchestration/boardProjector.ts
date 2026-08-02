@@ -4,7 +4,7 @@ import type {
   OrchestrationCard,
   OrchestrationEvent,
   OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 

@@ -2,15 +2,8 @@ import { SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 
-import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import {
-  resolveEnvironmentIdentificationPillLabel,
-  resolveSidebarStageBackdropVariant,
-  SidebarStageBackdrop,
-  useEnvironmentStageLabel,
-} from "../SidebarStageBackdrop";
-import { Badge } from "../ui/badge";
+import { AqquaMark } from "../AqquaMark";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -28,17 +21,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }: {
   isElectron: boolean;
 }) {
-  const stageLabel = useEnvironmentStageLabel();
-  const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const backdropVariant = resolveSidebarStageBackdropVariant(
-    stageLabel,
-    environmentIdentificationMode === "artwork",
-  );
-  const pillLabel =
-    environmentIdentificationMode === "pill"
-      ? resolveEnvironmentIdentificationPillLabel(stageLabel)
-      : null;
-
   return (
     <SidebarHeader
       className={cn(
@@ -46,61 +28,32 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         isElectron && "drag-region",
       )}
     >
-      {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
-      <SidebarTrigger
-        className={cn(
-          "relative z-10 md:hidden",
-          backdropVariant &&
-            "[:hover,[data-pressed]]:bg-white/15 focus-visible:ring-white/90 focus-visible:ring-offset-blue-700 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white!",
-        )}
-      />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 rounded-full px-1.5 text-muted-foreground"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
+      <SidebarTrigger className="relative z-10 md:hidden" />
+      <SidebarBrand />
     </SidebarHeader>
   );
 });
 
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+function SidebarBrand() {
   return (
     <Link
       aria-label="Go to threads"
       className={cn(
-        "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
-        onBackdrop ? "text-white" : "text-foreground",
+        "sidebar-brand absolute left-1/2 z-10 h-7 w-fit min-w-0 -translate-x-1/2 shrink-0 items-center justify-center overflow-hidden rounded-md text-foreground outline-hidden ring-ring focus-visible:ring-2",
       )}
       to="/"
     >
       <BrandLogo />
-      <span
-        className={cn(
-          "truncate text-sm font-medium tracking-tight",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
-        )}
-      >
-        Code
-      </span>
     </Link>
   );
 }
 
 function BrandLogo() {
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      className="size-5 shrink-0 rounded-[6px] object-contain"
-      src="/3t-code-nobg.png"
-    />
-  );
+  // The crest is a wide lockup (340x105), not a square icon: fix the height and
+  // let the width follow, or it distorts. Pure black on light and pure white on
+  // dark — the mark is set harder than the surrounding ink on purpose, so it
+  // does not inherit the foreground token.
+  return <AqquaMark className="h-4 w-auto shrink-0 text-black dark:text-white" />;
 }
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {

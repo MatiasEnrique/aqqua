@@ -1,6 +1,6 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { groupBoardCards, selectBoardCards } from "@t3tools/client-runtime/state/boards";
-import { BoardId, CardId, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
+import { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import { groupBoardCards, selectBoardCards } from "@aqqua/client-runtime/state/boards";
+import { BoardId, CardId, type EnvironmentId, type ProjectId } from "@aqqua/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { LayoutGridIcon, PencilIcon, PlusIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";

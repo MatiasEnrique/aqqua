@@ -1,17 +1,17 @@
-import { canSettle, canSnooze } from "@t3tools/client-runtime/state/thread-settled";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { canSettle, canSnooze } from "@aqqua/client-runtime/state/thread-settled";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef } from "@aqqua/contracts";
 import { useCallback, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../../localApi";
 import { openCommandPalette } from "../../commandPaletteBus";

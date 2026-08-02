@@ -1,5 +1,5 @@
-import { cardOperation } from "@t3tools/client-runtime/state/boards";
-import type { OrchestrationBoard, OrchestrationCard } from "@t3tools/contracts";
+import { cardOperation } from "@aqqua/client-runtime/state/boards";
+import type { OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
 import {
   ChevronDownIcon,
   GitBranchIcon,

@@ -11,6 +11,6 @@ commit's patch remains the focus. Merge commits are compared with their first pa
 commits are compared with an empty tree. Very large commit diffs are capped, and History marks the
 preview as incomplete when that happens.
 
-T3 Code reads refs already present in the repository and never fetches while loading history.
+aqqua reads refs already present in the repository and never fetches while loading history.
 Use the refresh button after fetching or switching branches to read the latest local ref state.
 Tags on commits in the visible graph remain available as labels.

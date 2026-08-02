@@ -77,7 +77,9 @@ export type GlassOpacity = typeof GlassOpacity.Type;
 export const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
-export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
+// "artwork" stays in the schema so previously persisted settings still decode,
+// but the stage artwork was removed along with the nightly channel.
+export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "pill";
 
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -245,7 +247,7 @@ export const CodexSettings = makeProviderSettingsSchema(
         description:
           "Account-specific Codex home. Keeps auth.json separate while sharing state from CODEX_HOME.",
         providerSettingsForm: {
-          placeholder: "~/.codex-t3/personal",
+          placeholder: "~/.codex-aqqua/personal",
           clearWhenEmpty: "omit",
         },
       }),
@@ -391,7 +393,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Server URL",
-        description: "Leave blank to let T3 Code spawn the server when needed.",
+        description: "Leave blank to let aqqua spawn the server when needed.",
         providerSettingsForm: {
           placeholder: "http://127.0.0.1:4096",
           clearWhenEmpty: "omit",
@@ -447,8 +449,8 @@ export type AgentProfileName = typeof AgentProfileName.Type;
  * How a sub-agent's work is hosted.
  *
  * - `session`: a provider adapter session, so the sub-agent's reasoning, tool
- *   calls, and file changes render as a normal T3 transcript.
- * - `terminal`: an interactive CLI in a PTY, for providers T3 has no adapter for.
+ *   calls, and file changes render as a normal aqqua transcript.
+ * - `terminal`: an interactive CLI in a PTY, for providers aqqua has no adapter for.
  *   Visible and interactive, but only as terminal output.
  *
  * Neither is a background task.

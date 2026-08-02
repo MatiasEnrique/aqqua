@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
   shouldShowProviderWorkspaceSkillsLoadingFooter,
-} from "@t3tools/client-runtime/state/provider-skills";
+} from "@aqqua/client-runtime/state/provider-skills";
 
 /**
  * Pure seam for the skill-menu loading footer. The footer is rendered outside

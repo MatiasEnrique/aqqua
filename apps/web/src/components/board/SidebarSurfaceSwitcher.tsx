@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { LayoutGridIcon, MessageSquareIcon } from "lucide-react";
 
@@ -24,7 +24,9 @@ export function SidebarSurfaceSwitcher(props: { readonly scopedProjectRef: Proje
   return (
     <nav
       aria-label="Workspace view"
-      className="grid grid-cols-2 gap-0.5 rounded-lg bg-sidebar-control-surface p-0.5"
+      /* Bleeds past the header group's p-2 so the bar spans the full sidebar
+         width and sits flush against its edges. */
+      className="-mx-2 -mt-2 mb-1 grid grid-cols-2 border-b border-sidebar-border"
     >
       <SurfaceTab
         active={!isBoard}
@@ -65,9 +67,12 @@ function SurfaceTab({
       type="button"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs outline-none transition-[color,background-color,box-shadow,scale] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:text-sidebar-muted-foreground [&_svg]:opacity-60",
+        "relative flex h-9 min-w-0 items-center justify-center gap-1.5 px-2 text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 [&_svg]:text-sidebar-muted-foreground [&_svg]:opacity-60",
+        // Underline indicator rather than a raised chip: at full bleed there is
+        // no track left for a chip to sit in, and the brand carries separation
+        // with hairlines instead of elevation.
         active
-          ? "bg-sidebar-row-active font-medium text-sidebar-foreground shadow-xs ring-1 ring-sidebar-border/60 [&_svg]:text-sidebar-foreground [&_svg]:opacity-100"
+          ? "font-medium text-sidebar-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground [&_svg]:text-sidebar-foreground [&_svg]:opacity-100"
           : "text-sidebar-muted-foreground hover:text-sidebar-foreground hover:[&_svg]:text-sidebar-foreground hover:[&_svg]:opacity-100",
       )}
       {...props}

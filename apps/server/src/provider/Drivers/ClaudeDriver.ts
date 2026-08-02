@@ -17,7 +17,7 @@ import {
   ProviderDriverKind,
   type ServerProvider,
   type ServerProviderSkill,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";

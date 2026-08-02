@@ -1,6 +1,6 @@
-import type { ProjectScript, VcsRef } from "@t3tools/contracts";
-import { sanitizeBranchFragment } from "@t3tools/shared/git";
-import { setupProjectScript } from "@t3tools/shared/projectScripts";
+import type { ProjectScript, VcsRef } from "@aqqua/contracts";
+import { sanitizeBranchFragment } from "@aqqua/shared/git";
+import { setupProjectScript } from "@aqqua/shared/projectScripts";
 
 import { NO_WORKTREE_SETUP_SCRIPT_ID } from "~/projectScripts";
 

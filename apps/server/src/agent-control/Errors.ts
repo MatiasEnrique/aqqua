@@ -8,7 +8,7 @@
  *
  * @module agent-control/Errors
  */
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@aqqua/contracts";
 import * as Schema from "effect/Schema";
 
 const ProfileName = Schema.String;

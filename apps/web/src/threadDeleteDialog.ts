@@ -1,4 +1,4 @@
-import type { VcsInspectWorktreeRemovalResult } from "@t3tools/contracts";
+import type { VcsInspectWorktreeRemovalResult } from "@aqqua/contracts";
 
 import type { WorktreeDeletionCandidate } from "./worktreeCleanup";
 

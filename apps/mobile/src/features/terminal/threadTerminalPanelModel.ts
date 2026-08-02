@@ -1,4 +1,4 @@
-import type { EnvironmentId, TerminalAttachInput } from "@t3tools/contracts";
+import type { EnvironmentId, TerminalAttachInput } from "@aqqua/contracts";
 
 export interface ThreadTerminalSubscriptionIdentity {
   readonly environmentId: EnvironmentId;

@@ -1,5 +1,5 @@
 import { CopyIcon, FolderIcon, ServerIcon, Trash2Icon } from "lucide-react";
-import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type { SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { deriveProjectGroupingOverrideKey } from "../../logicalProject";
 import type {
   SidebarProjectGroupMember,

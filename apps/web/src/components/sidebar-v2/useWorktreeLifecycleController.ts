@@ -1,15 +1,15 @@
-import { canSettle } from "@t3tools/client-runtime/state/thread-settled";
+import { canSettle } from "@aqqua/client-runtime/state/thread-settled";
 import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
+} from "@aqqua/client-runtime/environment";
 import { useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { readLocalApi } from "../../localApi";
 import {

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import type {
-  GitHistoryCommitSummary,
-  GitObjectId,
-  VcsListHistoryResult,
-} from "@t3tools/contracts";
+import type { GitHistoryCommitSummary, GitObjectId, VcsListHistoryResult } from "@aqqua/contracts";
 
 import { combineHistoryPages } from "./gitHistoryQuery";
 

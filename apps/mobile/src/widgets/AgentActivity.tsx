@@ -151,7 +151,7 @@ export function AgentActivity(
   const deepLinkRow = attentionRow ?? row0;
   const deepLink =
     deepLinkRow && deepLinkRow.deepLink.startsWith("/") && !deepLinkRow.deepLink.startsWith("//")
-      ? `t3code://${deepLinkRow.deepLink.slice(1)}`
+      ? `aqqua://${deepLinkRow.deepLink.slice(1)}`
       : null;
 
   // A scannable status glyph per phase — reads faster than colored words and
@@ -227,7 +227,7 @@ export function AgentActivity(
   // asset catalog. The square frame preserves the source artwork's aspect ratio.
   const renderLogo = (height: number) => (
     <HStack modifiers={[frame({ width: height, height })]}>
-      <Image assetName="T3Mark" modifiers={[resizable()]} />
+      <Image assetName="AqquaMark" modifiers={[resizable()]} />
     </HStack>
   );
 

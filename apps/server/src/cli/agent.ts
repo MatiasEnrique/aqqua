@@ -1,13 +1,13 @@
 /**
- * `3T agent` — delegate work to sub-agents from an orchestrator's own shell.
+ * `aqqua agent` — delegate work to sub-agents from an orchestrator's own shell.
  *
  * This is the delegation front-end, and it is a CLI on purpose. An MCP toolkit
  * would put its tool schemas into the orchestrator's context on every turn; a
  * command the agent runs with the shell tool it already has costs nothing but the
  * one line of documentation that says it exists.
  *
- * Identity comes from the environment T3 created for the calling provider session
- * (`T3_AGENT_TOKEN`, `T3_AGENT_API`), never from a flag. The server resolves the
+ * Identity comes from the environment aqqua created for the calling provider session
+ * (`AQQUA_AGENT_TOKEN`, `AQQUA_AGENT_API`), never from a flag. The server resolves the
  * parent thread from the token, so an agent cannot delegate as another thread even
  * though it writes its own command line.
  *
@@ -39,10 +39,10 @@ import {
   AgentSendResponse,
   AgentSpawnRequest,
   AgentSpawnResponse,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
-export const AGENT_TOKEN_ENV = "T3_AGENT_TOKEN";
-export const AGENT_API_ENV = "T3_AGENT_API";
+export const AGENT_TOKEN_ENV = "AQQUA_AGENT_TOKEN";
+export const AGENT_API_ENV = "AQQUA_AGENT_API";
 
 export class AgentCliError extends Schema.TaggedErrorClass<AgentCliError>()("AgentCliError", {
   detail: Schema.String,
@@ -53,9 +53,9 @@ export class AgentCliError extends Schema.TaggedErrorClass<AgentCliError>()("Age
 }
 
 const NOT_IN_SESSION_HELP = [
-  "This command must run inside a T3 Code agent session.",
+  "This command must run inside an aqqua agent session.",
   "",
-  `It reads ${AGENT_TOKEN_ENV} and ${AGENT_API_ENV} from the environment T3 Code sets up for`,
+  `It reads ${AGENT_TOKEN_ENV} and ${AGENT_API_ENV} from the environment aqqua sets up for`,
   "each agent session. Those are absent here, which usually means the command was run",
   "from an ordinary terminal rather than from inside an agent's own shell.",
 ].join("\n");
@@ -82,7 +82,7 @@ const decodeAgentProfilesResponse = Schema.decodeUnknownEffect(AgentProfilesResp
 
 const invalidServerResponse = (status: number, path: string) =>
   new AgentCliError({
-    detail: `The T3 Code server returned an invalid response for ${path} (HTTP ${status}).`,
+    detail: `The aqqua server returned an invalid response for ${path} (HTTP ${status}).`,
   });
 
 export const decodeServerResponse = <A, E>(
@@ -127,7 +127,7 @@ const agentApi = Effect.fn("agentCli.api")(function* () {
       Effect.mapError(
         (cause) =>
           new AgentCliError({
-            detail: `Could not reach the T3 Code server at ${origin}${path}: ${String(cause)}`,
+            detail: `Could not reach the aqqua server at ${origin}${path}: ${String(cause)}`,
           }),
       ),
       Effect.flatMap((response) =>
@@ -232,7 +232,7 @@ const spawnCommand = Command.make("spawn", {
   json: jsonFlag,
   profile: Flag.string("profile").pipe(
     Flag.withDescription(
-      "Role to run the sub-agent as, e.g. implementer. See `3T agent profiles`.",
+      "Role to run the sub-agent as, e.g. implementer. See `aqqua agent profiles`.",
     ),
     Flag.withDefault("implementer"),
   ),
@@ -270,7 +270,7 @@ const spawnCommand = Command.make("spawn", {
       yield* emit({
         json: flags.json,
         value: result,
-        text: `Started ${flags.profile} sub-agent ${threadId}. Await it with: 3T agent await ${threadId}`,
+        text: `Started ${flags.profile} sub-agent ${threadId}. Await it with: aqqua agent await ${threadId}`,
       });
     }).pipe(Effect.provide(cliRuntime)),
   ),

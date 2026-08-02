@@ -8,8 +8,8 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import type { OrchestrationThread } from "@t3tools/contracts";
+} from "@aqqua/contracts";
+import type { OrchestrationThread } from "@aqqua/contracts";
 
 import { applyThreadDetailEvent } from "./threadReducer.ts";
 
@@ -56,7 +56,7 @@ describe("applyThreadDetailEvent", () => {
         type: "project.created",
         payload: {
           projectId: ProjectId.make("project-1"),
-          title: "T3 Code",
+          title: "aqqua",
           workspaceRoot: "/repo",
           repositoryIdentity: null,
           defaultModelSelection: null,

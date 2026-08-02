@@ -22,7 +22,7 @@ import {
   type VcsListHistoryCursor,
   type VcsListHistoryInput,
   type VcsListHistoryResult,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
 import { base64UrlDecodeUtf8, base64UrlEncode } from "../auth/utils.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -81,7 +81,7 @@ export class GitHistory extends Context.Service<
       input: VcsGetCommitFileDiffInput,
     ) => Effect.Effect<VcsGetCommitFileDiffResult, GitCommandError>;
   }
->()("t3/git/GitHistory") {}
+>()("aqqua/git/GitHistory") {}
 
 function historyError(
   operation: string,

@@ -10,8 +10,8 @@
  * descriptors and the active surface, while each feature continues to own its
  * durable resource state.
  */
-import type { WorkspacePanelRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspacePanelRef } from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef } from "@aqqua/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -85,7 +85,7 @@ export function rightPanelOwnerForKind(
   return { type: "workspace", workspaceRef: context.workspaceRef };
 }
 
-const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
+const RIGHT_PANEL_STORAGE_KEY = "aqqua:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 9;
 
 interface RightPanelStoreState {

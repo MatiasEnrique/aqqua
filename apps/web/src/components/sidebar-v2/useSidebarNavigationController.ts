@@ -1,6 +1,6 @@
 import { autoAnimate } from "@formkit/auto-animate";
-import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopeThreadRef, scopedThreadKey } from "@aqqua/client-runtime/environment";
+import type { ScopedThreadRef } from "@aqqua/contracts";
 import { useCallback, useEffect } from "react";
 import {
   resolveShortcutCommand,

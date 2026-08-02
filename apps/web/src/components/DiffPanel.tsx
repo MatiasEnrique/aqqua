@@ -1,10 +1,10 @@
-import type { WorkspacePanelRef } from "@t3tools/client-runtime/environment";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import type { WorkspacePanelRef } from "@aqqua/client-runtime/environment";
+import { safeErrorLogAttributes } from "@aqqua/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, GitObjectId, ScopedThreadRef, TurnId } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import type { EnvironmentId, GitObjectId, ScopedThreadRef, TurnId } from "@aqqua/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,

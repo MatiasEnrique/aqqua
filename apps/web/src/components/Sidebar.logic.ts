@@ -1,6 +1,6 @@
 import * as React from "react";
-import { EnvironmentId, ProjectId, type ContextMenuItem } from "@t3tools/contracts";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import { EnvironmentId, ProjectId, type ContextMenuItem } from "@aqqua/contracts";
+import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@aqqua/contracts/settings";
 import {
   getThreadSortTimestamp,
   sortThreads,

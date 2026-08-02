@@ -1,8 +1,8 @@
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, GitActionProgressEvent, GitStackedAction } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import type { EnvironmentId, GitActionProgressEvent, GitStackedAction } from "@aqqua/contracts";
 import { ExternalLinkIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 

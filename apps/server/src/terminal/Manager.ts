@@ -31,14 +31,14 @@ import {
   type TerminalSessionStatus,
   type TerminalSummary,
   type TerminalWriteInput,
-} from "@t3tools/contracts";
-import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+} from "@aqqua/contracts";
+import { makeKeyedCoalescingWorker } from "@aqqua/shared/KeyedCoalescingWorker";
+import { HostProcessPlatform } from "@aqqua/shared/hostProcess";
+import { getTerminalLabel } from "@aqqua/shared/terminalLabels";
 import {
   normalizeTerminalWorkspaceRoot,
   workspaceTerminalOwnerThreadId,
-} from "@t3tools/shared/terminalOwner";
+} from "@aqqua/shared/terminalOwner";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -190,7 +190,7 @@ export class TerminalManager extends Context.Service<
       listener: (event: TerminalMetadataStreamEvent) => Effect.Effect<void>,
     ) => Effect.Effect<() => void>;
   }
->()("t3/terminal/Manager/TerminalManager") {}
+>()("aqqua/terminal/Manager/TerminalManager") {}
 
 interface TerminalSubprocessInspectResult {
   readonly hasRunningSubprocess: boolean;
@@ -1076,7 +1076,7 @@ function sessionOwnerId(session: TerminalSessionState): string {
 
 function shouldExcludeTerminalEnvKey(key: string): boolean {
   const normalizedKey = key.toUpperCase();
-  if (normalizedKey.startsWith("T3CODE_")) {
+  if (normalizedKey.startsWith("AQQUA_")) {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
@@ -1090,7 +1090,7 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
 // not inherit them.
 const APPIMAGE_RUNTIME_ENV_KEYS = ["APPIMAGE", "APPDIR", "ARGV0", "OWD"] as const;
 // PATH-style variables the AppImage runtime prepends with its temporary mount
-// (e.g. /tmp/.mount_T3-XXXX/usr/bin). Only the mount segments are dropped; the
+// (e.g. /tmp/.mount_Aqqua-XXXX/usr/bin). Only the mount segments are dropped; the
 // user's real entries are preserved.
 const APPIMAGE_PATH_LIKE_ENV_KEYS = ["PATH", "LD_LIBRARY_PATH"] as const;
 

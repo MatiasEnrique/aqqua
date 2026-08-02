@@ -10,7 +10,7 @@ export interface ServerShutdownShape {
 }
 
 export class ServerShutdown extends Context.Service<ServerShutdown, ServerShutdownShape>()(
-  "t3/serverShutdown",
+  "aqqua/serverShutdown",
 ) {}
 
 export const makeServerShutdown = Effect.gen(function* () {

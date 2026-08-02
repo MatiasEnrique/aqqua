@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { AgentListResponse } from "@t3tools/contracts";
+import { AgentListResponse } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -38,7 +38,7 @@ it.effect("reports one clear diagnostic for an undecodable server response", () 
     );
     assert.equal(
       failure.message,
-      "The T3 Code server returned an invalid response for /api/agents (HTTP 200).",
+      "The aqqua server returned an invalid response for /api/agents (HTTP 200).",
     );
   }),
 );

@@ -14,7 +14,7 @@ import type {
   EnvironmentId,
   OrchestrationBoard,
   ProviderDriverKind,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   ChevronDownIcon,
   ChevronRightIcon,

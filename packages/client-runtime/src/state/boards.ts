@@ -10,9 +10,9 @@ import type {
   ProjectId,
   ScopedProjectRef,
   ThreadId,
-} from "@t3tools/contracts";
-import { BOARD_WS_METHODS, CONTINUABLE_CARD_STATUSES, EnvironmentId } from "@t3tools/contracts";
-import { extractBoardTemplatePlaceholders } from "@t3tools/shared/boardTemplate";
+} from "@aqqua/contracts";
+import { BOARD_WS_METHODS, CONTINUABLE_CARD_STATUSES, EnvironmentId } from "@aqqua/contracts";
+import { extractBoardTemplatePlaceholders } from "@aqqua/shared/boardTemplate";
 import type * as Crypto from "effect/Crypto";
 import { Atom } from "effect/unstable/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";

@@ -15,7 +15,7 @@ import {
   type ProviderRuntimeEvent,
   type ThreadId,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

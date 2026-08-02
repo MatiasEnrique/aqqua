@@ -1,4 +1,4 @@
-import type { ProjectScript, VcsRef } from "@t3tools/contracts";
+import type { ProjectScript, VcsRef } from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { NO_WORKTREE_SETUP_SCRIPT_ID } from "~/projectScripts";

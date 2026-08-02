@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProviderSkill } from "@aqqua/contracts";
 import {
   createUseProviderWorkspaceSkills,
   dedupeProviderSkillsByCanonicalName,
@@ -10,7 +10,7 @@ import {
   PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
   resolveProviderWorkspaceSkills,
   shouldShowProviderWorkspaceSkillsLoadingFooter,
-} from "@t3tools/client-runtime/state/provider-skills";
+} from "@aqqua/client-runtime/state/provider-skills";
 
 function makeSkill(
   input: Partial<ServerProviderSkill> & Pick<ServerProviderSkill, "name">,
@@ -100,7 +100,7 @@ describe("mobile provider skill presentation", () => {
  * Regression for:
  * [plugin:builtin:vite-resolve] "./state/use-provider-workspace-skills" is not
  * exported under the conditions ["module", "browser", "development", "import"]
- * from apps/web/node_modules/@t3tools/client-runtime
+ * from apps/web/node_modules/@aqqua/client-runtime
  *
  * Both surfaces must bind the shared factory through the pre-existing
  * state/provider-skills export so a cached Vite package export map still resolves.
@@ -114,7 +114,7 @@ describe("web and mobile bindings use pre-existing state/provider-skills export"
       ["mobile", mobileBindingSource],
       ["web", webBindingSource],
     ] as const) {
-      expect(source, label).toContain('from "@t3tools/client-runtime/state/provider-skills"');
+      expect(source, label).toContain('from "@aqqua/client-runtime/state/provider-skills"');
       expect(source, label).not.toContain("use-provider-workspace-skills");
       expect(source, label).toContain("createUseProviderWorkspaceSkills({");
       expect(source, label).toContain("useMemo");

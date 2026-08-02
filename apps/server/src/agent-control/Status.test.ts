@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import type { OrchestrationSessionStatus } from "@t3tools/contracts";
+import type { OrchestrationSessionStatus } from "@aqqua/contracts";
 
 import {
   agentRunStatusFromLatestTurn,

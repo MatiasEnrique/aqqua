@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 
-import { ProviderInstanceId } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+import { ProviderInstanceId } from "@aqqua/contracts";
+import { createModelSelection } from "@aqqua/shared/model";
 
 import { getCodexServiceTierOptionValue } from "./codexModelOptions.ts";
 

@@ -5,18 +5,18 @@ import {
   isCardDeleting,
   selectBoardCards,
   selectNextCardAfter,
-} from "@t3tools/client-runtime/state/boards";
+} from "@aqqua/client-runtime/state/boards";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import {
   BoardId,
   CardId,
   type OrchestrationBoard,
   type OrchestrationCard,
   type ScopedProjectRef,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

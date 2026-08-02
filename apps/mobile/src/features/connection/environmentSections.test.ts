@@ -1,5 +1,5 @@
-import { EnvironmentId } from "@t3tools/contracts";
-import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
+import { EnvironmentId } from "@aqqua/contracts";
+import type { RelayClientEnvironmentRecord } from "@aqqua/contracts/relay";
 import { describe, expect, it } from "vite-plus/test";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { splitEnvironmentSections } from "./environmentSections";
@@ -35,7 +35,7 @@ function cloudEnvironment(environmentId: string): RelayClientEnvironmentRecord {
 }
 
 describe("mobile environment settings sections", () => {
-  it("keeps saved relay-managed connections under 3T Connect", () => {
+  it("keeps saved relay-managed connections under aqqua Connect", () => {
     const local = connectedEnvironment({
       environmentId: "environment-local",
       isRelayManaged: false,

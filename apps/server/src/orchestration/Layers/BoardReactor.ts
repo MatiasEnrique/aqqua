@@ -9,8 +9,8 @@ import {
   CommandId,
   type OrchestrationCard,
   type ThreadId,
-} from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+} from "@aqqua/contracts";
+import { makeDrainableWorker } from "@aqqua/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";

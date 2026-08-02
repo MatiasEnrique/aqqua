@@ -7,14 +7,14 @@ import type {
   ProviderOptionSelection,
   RuntimeMode,
   ServerProviderSkill,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   MessageId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -54,8 +54,8 @@ import {
   setPendingConnectionError,
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
-import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { EnvironmentProject } from "@aqqua/client-runtime/state/shell";
+import { type VcsRef } from "@aqqua/client-runtime/state/vcs";
 
 type WorkspaceMode = "local" | "worktree";
 

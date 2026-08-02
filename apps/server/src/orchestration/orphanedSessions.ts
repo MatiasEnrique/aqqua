@@ -12,7 +12,7 @@
  *
  * A stale projection row is not proof on its own, though. More than one server
  * can point at the same state directory (a packaged app and a dev server both
- * homed at `~/.t3`), so "the projection says running" must be corroborated by
+ * homed at `~/.aqqua`), so "the projection says running" must be corroborated by
  * the provider directory before anything is closed. The shutdown path stamps
  * every binding `stopped`, so a binding still claiming its thread means some
  * process may yet own that session — those are left alone rather than pulled
@@ -25,12 +25,12 @@
  *
  * @module orphanedSessions
  */
-import type { OrchestrationSession, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationSession, ThreadId } from "@aqqua/contracts";
 
 /** Surfaced on the thread so a turn that died with the server explains itself
     instead of just going quiet. */
 export const ORPHANED_SESSION_DETAIL =
-  "The T3 Code server restarted while this turn was running, so the provider session was lost. Send a message to pick the thread back up.";
+  "The aqqua server restarted while this turn was running, so the provider session was lost. Send a message to pick the thread back up.";
 
 /** Statuses that claim a live provider process. `ready` and `interrupted` do not
     outlive the process either, but they already render as settled and recover

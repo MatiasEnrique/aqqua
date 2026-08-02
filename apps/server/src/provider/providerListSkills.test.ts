@@ -4,7 +4,7 @@ import {
   ProviderInstanceId,
   ProviderListSkillsError,
   type ServerProviderSkill,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -283,7 +283,7 @@ it.layer(NodeServices.layer)("Claude listSkills cwd discovery", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-list-skills-" });
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "aqqua-provider-list-skills-" });
       const configDir = path.join(tempDir, "claude-home");
       const workspaceA = path.join(tempDir, "workspace-a");
       const workspaceB = path.join(tempDir, "workspace-b");

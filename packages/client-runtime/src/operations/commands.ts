@@ -2,7 +2,7 @@ import {
   type ClientOrchestrationCommand,
   CommandId,
   ORCHESTRATION_WS_METHODS,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

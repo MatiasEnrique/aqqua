@@ -3,7 +3,7 @@ import type {
   DesktopAppStageLabel,
   DesktopRuntimeArch,
   DesktopRuntimeInfo,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -56,7 +56,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly preloadPath: string;
     readonly appUpdateYmlPath: string;
     readonly devServerUrl: Option.Option<URL>;
-    readonly devRemoteT3ServerEntryPath: Option.Option<string>;
+    readonly devRemoteAqquaServerEntryPath: Option.Option<string>;
     readonly configuredBackendPort: Option.Option<number>;
     readonly commitHashOverride: Option.Option<string>;
     readonly otlpTracesUrl: Option.Option<string>;
@@ -74,9 +74,9 @@ export class DesktopEnvironment extends Context.Service<
     readonly resolveResourcePathCandidates: (fileName: string) => readonly string[];
     readonly developmentDockIconPath: string;
   }
->()("@t3tools/desktop/app/DesktopEnvironment") {}
+>()("@aqqua/desktop/app/DesktopEnvironment") {}
 
-const APP_BASE_NAME = "3T Code";
+const APP_BASE_NAME = "aqqua";
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
@@ -150,18 +150,18 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const configuredBaseDir = config.t3Home;
+  const configuredBaseDir = config.aqquaHome;
   const branding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
   // A Sigma build is meant to run beside an installed release, so it never
-  // shares a T3 home with one: two servers on one state.sqlite corrupt the
-  // projection and stop each other's sessions. `T3CODE_HOME` still wins when
+  // shares an aqqua home with one: two servers on one state.sqlite corrupt the
+  // projection and stop each other's sessions. `AQQUA_HOME` still wins when
   // set explicitly.
   const isSigmaBuild = branding.stageLabel === "Sigma";
-  const defaultBaseDirName = isSigmaBuild ? ".t3-sigma" : ".t3";
+  const defaultBaseDirName = isSigmaBuild ? ".aqqua-sigma" : ".aqqua";
   const baseDir = Option.getOrElse(configuredBaseDir, () =>
     path.join(homeDirectory, defaultBaseDirName),
   );
@@ -171,12 +171,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
     baseDir,
     isDevelopment && Option.isNone(configuredBaseDir) ? "dev" : "userdata",
   );
-  const userDataDirName = isDevelopment ? "t3code-dev" : isSigmaBuild ? "t3code-sigma" : "t3code";
+  const userDataDirName = isDevelopment ? "aqqua-dev" : isSigmaBuild ? "aqqua-sigma" : "aqqua";
   const legacyUserDataDirName = isDevelopment
-    ? "T3 Code (Dev)"
+    ? "aqqua (Dev)"
     : isSigmaBuild
-      ? "T3 Code (Sigma)"
-      : "T3 Code (Alpha)";
+      ? "aqqua (Sigma)"
+      : "aqqua (Alpha)";
   const resourcesPath = input.resourcesPath;
 
   return DesktopEnvironment.of({
@@ -208,7 +208,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
       ? path.join(resourcesPath, "app-update.yml")
       : path.join(input.appPath, "dev-app-update.yml"),
     devServerUrl,
-    devRemoteT3ServerEntryPath: config.devRemoteT3ServerEntryPath,
+    devRemoteAqquaServerEntryPath: config.devRemoteAqquaServerEntryPath,
     configuredBackendPort: config.configuredBackendPort,
     commitHashOverride: config.commitHashOverride,
     otlpTracesUrl: config.otlpTracesUrl,
@@ -217,17 +217,17 @@ const make = Effect.fn("desktop.environment.make")(function* (
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
       isDevelopment
-        ? "com.t3tools.t3code.dev"
+        ? "com.aqqua.aqqua.dev"
         : isSigmaBuild
-          ? "com.t3tools.t3code.sigma"
-          : "com.t3tools.t3code",
+          ? "com.aqqua.aqqua.sigma"
+          : "com.aqqua.aqqua",
     ),
     linuxDesktopEntryName: isDevelopment
-      ? "t3code-dev.desktop"
+      ? "aqqua-dev.desktop"
       : isSigmaBuild
-        ? "t3code-sigma.desktop"
-        : "t3code.desktop",
-    linuxWmClass: isDevelopment ? "t3code-dev" : isSigmaBuild ? "t3code-sigma" : "t3code",
+        ? "aqqua-sigma.desktop"
+        : "aqqua.desktop",
+    linuxWmClass: isDevelopment ? "aqqua-dev" : isSigmaBuild ? "aqqua-sigma" : "aqqua",
     userDataDirName,
     legacyUserDataDirName,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),

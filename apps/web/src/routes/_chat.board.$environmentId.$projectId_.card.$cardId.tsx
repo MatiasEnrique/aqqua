@@ -1,4 +1,4 @@
-import type { CardId, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { CardId, EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { CardDetailView } from "../components/board/CardDetailView";

@@ -9,7 +9,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { ProjectEntry, ProjectListEntriesResult } from "@t3tools/contracts";
+import type { ProjectEntry, ProjectListEntriesResult } from "@aqqua/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
@@ -134,7 +134,7 @@ export class WorkspaceDirectoryWalk extends Context.Service<
     readonly list: (cwd: string) => Effect.Effect<ProjectListEntriesResult>;
     readonly invalidate: (cwd: string) => Effect.Effect<void>;
   }
->()("t3/workspace/WorkspaceDirectoryWalk") {}
+>()("aqqua/workspace/WorkspaceDirectoryWalk") {}
 
 export const make = Effect.gen(function* () {
   const listUncached = Effect.fn("WorkspaceDirectoryWalk.listUncached")(function* (cwd: string) {

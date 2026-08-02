@@ -9,7 +9,7 @@ import {
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderInstanceId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -21,7 +21,7 @@ import {
   type ServerSettings,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -236,7 +236,7 @@ describe("ProviderRuntimeIngestion", () => {
     };
     coalesceTransientEvents?: boolean;
   }) {
-    const workspaceRoot = makeTempDir("t3-provider-project-");
+    const workspaceRoot = makeTempDir("aqqua-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const sqlitePersistence =
@@ -3105,7 +3105,7 @@ describe("ProviderRuntimeIngestion", () => {
               ).length ?? 0,
         ),
       };
-      if (process.env.T3_BENCHMARK_REPORT === "1") {
+      if (process.env.AQQUA_BENCHMARK_REPORT === "1") {
         await harness.run(
           Effect.logInfo("runtime ingestion benchmark sample", {
             coalesceTransientEvents,
@@ -3132,7 +3132,7 @@ describe("ProviderRuntimeIngestion", () => {
       optimized.acceptedOrchestrationCommands + 10,
     );
     expect(optimized.sqlTransactions).toBeLessThan(baseline.sqlTransactions * 0.4);
-    if (process.env.T3_BENCHMARK_ASSERT_CPU === "1") {
+    if (process.env.AQQUA_BENCHMARK_ASSERT_CPU === "1") {
       expect(optimized.cpuMicros).toBeLessThanOrEqual(baseline.cpuMicros * 0.4);
       expect(optimized.cpuMicros / 10).toBeLessThanOrEqual(optimizedOneSession.cpuMicros * 1.25);
     }

@@ -3,22 +3,18 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
+} from "@aqqua/client-runtime/environment";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/models";
+} from "@aqqua/client-runtime/state/models";
 import {
   executeAtomQuery,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import {
-  canSettle,
-  canSnooze,
-  effectiveSnoozed,
-} from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import { canSettle, canSnooze, effectiveSnoozed } from "@aqqua/client-runtime/state/thread-settled";
+import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";

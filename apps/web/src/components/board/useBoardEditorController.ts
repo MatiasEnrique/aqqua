@@ -5,8 +5,8 @@ import type {
   EnvironmentId,
   OrchestrationBoard,
   ServerProviderSkill,
-} from "@t3tools/contracts";
-import { collectBoardParameterNames } from "@t3tools/shared/boardTemplate";
+} from "@aqqua/contracts";
+import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";

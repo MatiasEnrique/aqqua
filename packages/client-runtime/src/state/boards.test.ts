@@ -3,7 +3,7 @@ import type {
   OrchestrationBoard,
   OrchestrationCard,
   OrchestrationShellSnapshot,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   BoardId,
   BoardStepId,
@@ -12,7 +12,7 @@ import {
   EnvironmentId,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 import { scopeProjectRef } from "../environment/scoped.ts";
@@ -71,7 +71,7 @@ function card(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard {
     id: CardId.make("card-1"),
     boardId: BoardId.make("board-1"),
     projectId: ProjectId.make("project-1"),
-    title: "T3-482",
+    title: "aqqua-482",
     parameters: {},
     position: { kind: "todo" },
     status: null,

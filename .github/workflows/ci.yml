@@ -28,7 +28,7 @@ jobs:
           components: rustfmt
 
       - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
+        run: vp run --filter @aqqua/desktop ensure:electron
 
       - name: Check
         run: vp check
@@ -67,7 +67,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
+        run: vp run --filter @aqqua/desktop ensure:electron
 
       - name: Test
         run: vp run test

@@ -1,7 +1,8 @@
 # Brand icons
 
-`3t-code-nobg.png` is the canonical 3T Code logo. The three Icon Composer
-projects package that artwork for the supported app variants:
+`aqqua-waves.svg` is the canonical aqqua Waves mark. `aqqua-nobg.png` is
+its transparent raster rendition. The three Icon Composer projects combine
+that artwork with the backgrounds for the supported app variants:
 
 - `dev/app-icon.icon`
 - `nightly/app-icon.icon`

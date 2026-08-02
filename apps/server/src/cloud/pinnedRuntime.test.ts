@@ -19,7 +19,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-runtime-test-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "aqqua-pinned-runtime-test-" });
       const installStarted = yield* Deferred.make<void>();
       const allowInstallToFinish = yield* Deferred.make<void>();
       const paths = pinnedRuntimePaths(path, baseDir, "0.0.29");
@@ -73,7 +73,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-runtime-test-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "aqqua-pinned-runtime-test-" });
       const installStarted = yield* Deferred.make<void>();
       const allowInstallToFinish = yield* Deferred.make<void>();
       const paths = pinnedRuntimePaths(path, baseDir, "0.0.30");

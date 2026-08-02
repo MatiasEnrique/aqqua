@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AqquaTerminalModule"],
+    "podspecPath": "AqquaTerminalNative.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.aqquaterminal.AqquaTerminalModule"]
+  }
+}

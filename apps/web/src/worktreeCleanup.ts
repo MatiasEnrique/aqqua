@@ -3,8 +3,8 @@ import type {
   ProjectId,
   ThreadId,
   VcsInspectWorktreeRemovalResult,
-} from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+} from "@aqqua/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environment";
 import type { ThreadShell } from "./types";
 
 export interface WorktreeDeletionThread {

@@ -3,7 +3,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { PROVIDER_DISPLAY_NAMES, type AgentProfile } from "@t3tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, type AgentProfile } from "@aqqua/contracts";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import {
@@ -124,7 +124,7 @@ export function AgentProfilesSettingsPanel() {
         <p className="px-3 text-[13px] leading-[1.45] text-muted-foreground/80 sm:px-4">
           Machine-local roles that orchestrator agents spawn sub-agents with —{" "}
           <code className="rounded bg-muted px-1 py-px text-[11px]">
-            3T agent spawn --profile &lt;name&gt;
+            aqqua agent spawn --profile &lt;name&gt;
           </code>
           . Each profile pins the provider, model, and runtime the sub-agent runs under.
         </p>

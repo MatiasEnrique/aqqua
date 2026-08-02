@@ -1,7 +1,7 @@
 # Flows — UI prototypes (throwaway)
 
 Status: exploration, 2026-07-30. Three divergent Paper mocks of the board surface
-(feature spec: `agentic-board.md`). Paper file "3T Code":
+(feature spec: `agentic-board.md`). Paper file "aqqua":
 https://app.paper.design/file/01KYSJ1ATPD1QRHJNGPSXPPG0P/1-0
 
 Question being answered: what layout best expresses "position = pipeline column,
@@ -105,7 +105,7 @@ fixture card, structurally different primary objects:
 
 V3-i1 won. The middle column stops being a read-only step summary and becomes a
 selectable tree of everything the card owns; the right pane is a single detail
-slot that renders whatever is selected, using the thread patterns 3T already
+slot that renders whatever is selected, using the thread patterns aqqua already
 has. Three states, same layout:
 
 - **V3-i1a · step thread selected** — rendered prompt (with the `${artifact}`
@@ -134,7 +134,7 @@ a turn is in flight it is the existing red stop button, which is also how you
 cancel a running step. Sub-agent threads keep the plain send arrow — they can't
 move the card, only the step can.
 
-Chrome is the app's, unchanged: the 52px top bar (`t3code / <card title>`,
+Chrome is the app's, unchanged: the 52px top bar (`aqqua / <card title>`,
 Setup Worktree / Open / Commit & push split buttons, the five panel toggles) and
 nothing else — no board-specific header, no per-selection sub-header. The rail
 already says what's selected and what its status is.

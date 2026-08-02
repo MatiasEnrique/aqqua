@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { BoardView } from "../components/board/BoardView";

@@ -1,4 +1,4 @@
-import type { CardId, CardOperationId, OrchestrationEvent, ThreadId } from "@t3tools/contracts";
+import type { CardId, CardOperationId, OrchestrationEvent, ThreadId } from "@aqqua/contracts";
 import * as Context from "effect/Context";
 
 import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
@@ -12,7 +12,7 @@ export class BoardReactorHandlerDefectInjection extends Context.Service<
   {
     readonly shouldFail: (event: { readonly type: string }) => boolean;
   }
->()("t3/orchestration/Layers/BoardReactorEvent/BoardReactorHandlerDefectInjection") {}
+>()("aqqua/orchestration/Layers/BoardReactorEvent/BoardReactorHandlerDefectInjection") {}
 
 export function eventCardId(event: BoardReactorEvent): CardId | null {
   switch (event.type) {

@@ -1,4 +1,4 @@
-import { CommandId } from "@t3tools/contracts";
+import { CommandId } from "@aqqua/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 

@@ -1,8 +1,8 @@
 /**
  * Persisted right-panel surface descriptors and migration from older shapes.
  */
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import { isWorkspaceTerminalOwnerThreadId } from "@t3tools/shared/terminalOwner";
+import { parseScopedThreadKey } from "@aqqua/client-runtime/environment";
+import { isWorkspaceTerminalOwnerThreadId } from "@aqqua/shared/terminalOwner";
 
 import { migratePanelOwnerStorageKey } from "./panelOwner";
 

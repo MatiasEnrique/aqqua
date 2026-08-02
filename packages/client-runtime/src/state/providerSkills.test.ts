@@ -1,7 +1,7 @@
-import { EnvironmentId, ProviderInstanceId, type ServerProviderSkill } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, type ServerProviderSkill } from "@aqqua/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-// Manifest behind @t3tools/client-runtime/state/provider-skills (pre-existing export).
+// Manifest behind @aqqua/client-runtime/state/provider-skills (pre-existing export).
 import packageJson from "../../package.json" with { type: "json" };
 import {
   createUseProviderWorkspaceSkills,
@@ -321,7 +321,7 @@ describe("createUseProviderWorkspaceSkills", () => {
  * Regression for live-dev Vite failure:
  * [plugin:builtin:vite-resolve] "./state/use-provider-workspace-skills" is not
  * exported under the conditions ["module", "browser", "development", "import"]
- * from apps/web/node_modules/@t3tools/client-runtime
+ * from apps/web/node_modules/@aqqua/client-runtime
  *
  * New package subpaths added mid-session are not a safe HMR seam: Vite caches the
  * package export map. Shared factory must ship on the pre-existing provider-skills export.

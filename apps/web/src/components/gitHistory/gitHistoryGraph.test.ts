@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import type { GitHistoryCommitSummary, GitObjectId } from "@t3tools/contracts";
+import type { GitHistoryCommitSummary, GitObjectId } from "@aqqua/contracts";
 
 import { layoutGitHistoryGraph } from "./gitHistoryGraph";
 

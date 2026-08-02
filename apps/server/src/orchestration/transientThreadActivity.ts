@@ -1,4 +1,4 @@
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity } from "@aqqua/contracts";
 
 const TRANSIENT_THREAD_ACTIVITY_KINDS = new Set([
   "tool.updated",

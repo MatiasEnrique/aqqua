@@ -22,7 +22,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
@@ -168,7 +168,9 @@ const withBoardReactorHarness = <A, E>(
 ): Effect.Effect<A, E> =>
   Effect.scoped(
     Effect.gen(function* () {
-      const workspaceRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-board-reactor-"));
+      const workspaceRoot = NodeFS.mkdtempSync(
+        NodePath.join(NodeOS.tmpdir(), "aqqua-board-reactor-"),
+      );
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           NodeFS.rmSync(workspaceRoot, { recursive: true, force: true });
@@ -352,7 +354,7 @@ const withBoardReactorHarness = <A, E>(
         ),
         Layer.provideMerge(
           ServerConfig.layerTest(process.cwd(), {
-            prefix: "t3-board-reactor-test-",
+            prefix: "aqqua-board-reactor-test-",
           }),
         ),
         Layer.provideMerge(NodeServices.layer),
@@ -400,7 +402,7 @@ const withBoardReactorHarness = <A, E>(
           cardId,
           boardId,
           title: "Fix flaky test",
-          parameters: { ticket_id: "T3-482" },
+          parameters: { ticket_id: "aqqua-482" },
         });
 
         const sessionSet = (
@@ -819,7 +821,7 @@ describe("BoardReactor", () => {
             | undefined;
           expect(userMessage?.type).toBe("thread.message-sent");
           if (userMessage?.type === "thread.message-sent") {
-            expect(userMessage.payload.text).toContain("Implement T3-482 titled Fix flaky test");
+            expect(userMessage.payload.text).toContain("Implement aqqua-482 titled Fix flaky test");
             expect(userMessage.payload.text).toContain("board_complete");
             expect(userMessage.payload.text).toContain(
               NodePath.join(harness.stateDir, "board-artifacts", harness.cardId, "Implement.md"),
@@ -2042,7 +2044,7 @@ describe("BoardReactor", () => {
     () =>
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(
-          NodePath.join(NodeOS.tmpdir(), "t3-board-reactor-restart-"),
+          NodePath.join(NodeOS.tmpdir(), "aqqua-board-reactor-restart-"),
         );
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
@@ -2211,7 +2213,7 @@ describe("BoardReactor", () => {
               cardId,
               boardId,
               title: "Fix flaky test",
-              parameters: { ticket_id: "T3-482" },
+              parameters: { ticket_id: "aqqua-482" },
             });
             yield* dispatch({
               type: "card.release",

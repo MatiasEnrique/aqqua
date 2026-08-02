@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 
 import { agentSessionEnvironment, type McpProviderSessionConfig } from "./McpProviderSession.ts";
 
@@ -15,8 +15,8 @@ it("builds the canonical agent session environment and strips the bearer prefix"
   };
 
   expect(agentSessionEnvironment(session)).toEqual({
-    T3_AGENT_TOKEN: "agent-token",
-    T3_AGENT_API: "http://127.0.0.1:5173",
-    T3_THREAD_ID: "thread-1",
+    AQQUA_AGENT_TOKEN: "agent-token",
+    AQQUA_AGENT_API: "http://127.0.0.1:5173",
+    AQQUA_THREAD_ID: "thread-1",
   });
 });

@@ -1,7 +1,4 @@
-import type {
-  CardActionAvailability,
-  CardOperationKind,
-} from "@t3tools/client-runtime/state/boards";
+import type { CardActionAvailability, CardOperationKind } from "@aqqua/client-runtime/state/boards";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 

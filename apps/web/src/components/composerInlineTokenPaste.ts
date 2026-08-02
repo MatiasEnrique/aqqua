@@ -1,4 +1,4 @@
-import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
+import { collectComposerInlineTokens } from "@aqqua/shared/composerInlineTokens";
 import {
   $createLineBreakNode,
   $createTextNode,

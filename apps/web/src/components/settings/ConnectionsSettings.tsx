@@ -28,12 +28,12 @@ import {
   type DesktopServerExposureState,
   type DesktopWslState,
   type EnvironmentId,
-} from "@t3tools/contracts";
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
+} from "@aqqua/contracts";
+import { connectionStatusText } from "@aqqua/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@aqqua/client-runtime/state/runtime";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
@@ -1397,7 +1397,7 @@ function SavedBackendListRow({
       : null;
   const metadataBits = [
     sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
-    environment.relayManaged ? "3T Connect" : null,
+    environment.relayManaged ? "aqqua Connect" : null,
   ].filter((value): value is string => value !== null);
 
   // The WSL backend is a desktop-managed local backend (it surfaces as a bearer
@@ -1550,7 +1550,7 @@ function CloudLinkSwitch({
   disabled,
   disabledReason,
   onCheckedChange,
-  ariaLabel = "Enable 3T Connect",
+  ariaLabel = "Enable aqqua Connect",
 }: {
   readonly checked: boolean;
   readonly disabled: boolean;
@@ -1589,9 +1589,9 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
 
   const disabledReason = !isSignedIn
-    ? "Sign in to 3T Connect to manage this environment."
+    ? "Sign in to aqqua Connect to manage this environment."
     : !canManageRelay
-      ? "Your session does not have permission to manage 3T Connect access."
+      ? "Your session does not have permission to manage aqqua Connect access."
       : null;
   const isBusy = isUpdating || isUpdatingPreference;
 
@@ -1604,15 +1604,15 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       toastManager.add({
         type: "success",
         title: enabled
-          ? "3T Connect linked"
+          ? "aqqua Connect linked"
           : publishAgentActivity
-            ? "3T Connect tunnel disabled"
-            : "3T Connect unlinked",
+            ? "aqqua Connect tunnel disabled"
+            : "aqqua Connect unlinked",
         description: enabled
-          ? "This environment is available through 3T Connect."
+          ? "This environment is available through aqqua Connect."
           : publishAgentActivity
             ? "The managed tunnel was removed. Agent activity publishing stays on."
-            : "This environment is no longer available through 3T Connect.",
+            : "This environment is no longer available through aqqua Connect.",
       });
     }
     setIsUpdating(false);
@@ -1636,11 +1636,11 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   return (
     <>
       <SettingsRow
-        title="3T Connect"
+        title="aqqua Connect"
         description={
           managedTunnelActive
-            ? "This environment is available to your other devices through 3T Connect."
-            : "Make this environment available to your other devices through 3T Connect."
+            ? "This environment is available to your other devices through aqqua Connect."
+            : "Make this environment available to your other devices through aqqua Connect."
         }
         status={operationError ?? primaryCloudLinkState.error}
         control={
@@ -1654,7 +1654,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       />
       <SettingsRow
         title="Publish agent activity"
-        description="Send activity from this environment to your mobile clients for push notifications and Live Activities. Works without a 3T Connect tunnel."
+        description="Send activity from this environment to your mobile clients for push notifications and Live Activities. Works without an aqqua Connect tunnel."
         control={
           <CloudLinkSwitch
             ariaLabel="Publish agent activity to mobile clients"
@@ -1683,7 +1683,7 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
         <EmptyTitle>No saved remote environments</EmptyTitle>
         <EmptyDescription>
           {cloudEnabled
-            ? "Click “Add environment” to pair another environment, or connect one from 3T Connect."
+            ? "Click “Add environment” to pair another environment, or connect one from aqqua Connect."
             : "Click “Add environment” to pair another environment."}
         </EmptyDescription>
       </EmptyHeader>
@@ -2847,7 +2847,7 @@ export function ConnectionsSettings() {
         {desktopWslState.enabled ? (
           <SettingsRow
             title="WSL only"
-            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. 3T Code restarts when you change this."
+            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. aqqua restarts when you change this."
             className="bg-muted/20 pl-7 sm:pl-8"
             control={
               <Switch
@@ -3058,8 +3058,8 @@ export function ConnectionsSettings() {
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
-                    ? "3T Code will restart to expose this environment over the network."
-                    : "3T Code will restart and limit this environment back to this machine."}
+                    ? "aqqua will restart to expose this environment over the network."
+                    : "aqqua will restart and limit this environment back to this machine."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3117,15 +3117,15 @@ export function ConnectionsSettings() {
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "3T Code will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in 3T Code until you re-enable WSL."
+                      ? "aqqua will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in aqqua until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
-                      ? "3T Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
+                      ? "aqqua will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
                         ? "Run the WSL backend alongside the Windows one, or stop the Windows backend and use only WSL? You can change this later from Settings."
                         : pendingWslChange?.nextValue
-                          ? "3T Code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
-                          : "3T Code will restart and bring the Windows backend back up alongside WSL."}
+                          ? "aqqua will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                          : "aqqua will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3211,7 +3211,7 @@ export function ConnectionsSettings() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Disable Tailscale HTTPS?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  3T Code will restart the local backend without Tailscale Serve.
+                  aqqua will restart the local backend without Tailscale Serve.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3249,7 +3249,7 @@ export function ConnectionsSettings() {
               <DialogHeader>
                 <DialogTitle>Set up Tailscale HTTPS?</DialogTitle>
                 <DialogDescription>
-                  3T Code will restart the local backend with Tailscale Serve enabled and ask
+                  aqqua will restart the local backend with Tailscale Serve enabled and ask
                   Tailscale to proxy HTTPS traffic to this backend.
                 </DialogDescription>
               </DialogHeader>

@@ -24,10 +24,10 @@ describe("AcpSessionRuntime", () => {
           // The mock streams an assistant chunk and then hangs the prompt, so
           // the assistant segment is still open when the prompt is interrupted
           // (the shape of the xAI prompt-completion fallback race).
-          env: { T3_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG: "1" },
+          env: { AQQUA_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG: "1" },
         },
         cwd: process.cwd(),
-        clientInfo: { name: "t3-test", version: "0.0.0" },
+        clientInfo: { name: "aqqua-test", version: "0.0.0" },
         authMethodId: "test",
       });
       yield* runtime.start();

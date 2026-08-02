@@ -1,5 +1,5 @@
 export const BRAND_ASSET_PATHS = {
-  brandLogoPng: "assets/3t-code-nobg.png",
+  brandLogoPng: "assets/aqqua-nobg.png",
 
   developmentIconComposerProject: "assets/dev/app-icon.icon",
   developmentIosIconPng: "assets/dev/blueprint-ios-1024.png",
@@ -9,11 +9,11 @@ export const BRAND_ASSET_PATHS = {
   productionIosIconPng: "assets/prod/black-ios-1024.png",
   productionMacIconPng: "assets/prod/black-macos-1024.png",
   productionLinuxIconPng: "assets/prod/black-universal-1024.png",
-  productionWindowsIconIco: "assets/prod/t3-black-windows.ico",
-  productionWebFaviconIco: "assets/prod/t3-black-web-favicon.ico",
-  productionWebFavicon16Png: "assets/prod/t3-black-web-favicon-16x16.png",
-  productionWebFavicon32Png: "assets/prod/t3-black-web-favicon-32x32.png",
-  productionWebAppleTouchIconPng: "assets/prod/t3-black-web-apple-touch-180.png",
+  productionWindowsIconIco: "assets/prod/aqqua-black-windows.ico",
+  productionWebFaviconIco: "assets/prod/aqqua-black-web-favicon.ico",
+  productionWebFavicon16Png: "assets/prod/aqqua-black-web-favicon-16x16.png",
+  productionWebFavicon32Png: "assets/prod/aqqua-black-web-favicon-32x32.png",
+  productionWebAppleTouchIconPng: "assets/prod/aqqua-black-web-apple-touch-180.png",
 
   nightlyIconComposerProject: "assets/nightly/app-icon.icon",
   nightlyIosIconPng: "assets/nightly/nightly-ios-1024.png",
@@ -25,7 +25,7 @@ export const BRAND_ASSET_PATHS = {
   nightlyWebFavicon32Png: "assets/nightly/nightly-web-favicon-32x32.png",
   nightlyWebAppleTouchIconPng: "assets/nightly/nightly-web-apple-touch-180.png",
 
-  // Designed 3T artwork, committed directly and derived from
+  // Designed aqqua artwork, committed directly and derived from
   // `assets/sigma/sigma-source.png`. A Sigma build runs beside an installed
   // release, so its icon has to be tellable apart at a glance in the Dock.
   sigmaMacIconPng: "assets/sigma/sigma-macos-1024.png",

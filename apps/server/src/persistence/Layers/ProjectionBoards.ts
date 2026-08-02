@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
-import { BoardStep } from "@t3tools/contracts";
+import { BoardStep } from "@aqqua/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionBoardInput,

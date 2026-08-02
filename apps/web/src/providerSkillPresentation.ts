@@ -11,4 +11,4 @@ export {
   resolveProviderWorkspaceSkills,
   type ProviderSkillSourceBadge,
   type ProviderSkillSourceKind,
-} from "@t3tools/client-runtime/state/provider-skills";
+} from "@aqqua/client-runtime/state/provider-skills";

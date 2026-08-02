@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@aqqua/client-runtime/environment";
 import {
   type CardOperationKind,
   cardActionAvailability,
@@ -8,12 +8,12 @@ import {
   isCardDeleting,
   isCardStarting,
   selectSubAgentThreads,
-} from "@t3tools/client-runtime/state/boards";
+} from "@aqqua/client-runtime/state/boards";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type { CardId, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/runtime";
+import type { CardId, EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import { InfoIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { threadPanelOwner, useRightPanelStore } from "../../rightPanelStore";

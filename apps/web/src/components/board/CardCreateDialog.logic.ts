@@ -1,5 +1,5 @@
-import type { CardParameters, OrchestrationBoard } from "@t3tools/contracts";
-import { collectBoardParameterNames } from "@t3tools/shared/boardTemplate";
+import type { CardParameters, OrchestrationBoard } from "@aqqua/contracts";
+import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
 
 /**
  * The creation form is generated, never configured: every `${placeholder}`

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { assembleBoardStepPrompt, BOARD_STEP_COMPLETION_BOILERPLATE } from "./boardPrompt.ts";
 
-const STATE_DIR = "/tmp/t3-state";
+const STATE_DIR = "/tmp/aqqua-state";
 const CARD_ID = "card-abc12345";
 const STEPS = [{ name: "Implement" }, { name: "Review" }, { name: "Ship" }];
 
@@ -10,7 +10,7 @@ describe("assembleBoardStepPrompt", () => {
   it("renders parameters, card title, and injects completion boilerplate", () => {
     const result = assembleBoardStepPrompt({
       template: "Implement ${ticket_id} for ${card_title}",
-      parameters: { ticket_id: "T3-482" },
+      parameters: { ticket_id: "aqqua-482" },
       cardTitle: "Fix flaky test",
       cardId: CARD_ID,
       stepIndex: 0,
@@ -23,7 +23,7 @@ describe("assembleBoardStepPrompt", () => {
 
     const expectedArtifact = `${STATE_DIR}/board-artifacts/${CARD_ID}/Implement.md`;
     expect(result.artifactOutputPath).toBe(expectedArtifact);
-    expect(result.text).toContain("Implement T3-482 for Fix flaky test");
+    expect(result.text).toContain("Implement aqqua-482 for Fix flaky test");
     expect(result.text).toContain(expectedArtifact);
     expect(result.text).toContain("board_complete");
     expect(result.text).toContain("outcome `success`");

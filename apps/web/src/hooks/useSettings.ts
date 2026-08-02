@@ -16,15 +16,15 @@ import {
   type EnvironmentId,
   ServerSettings,
   type ServerSettingsPatch,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import {
   type ClientSettingsPatch,
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
   type EnvironmentIdentificationMode,
   type UnifiedSettings,
-} from "@t3tools/contracts/settings";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+} from "@aqqua/contracts/settings";
+import { safeErrorLogAttributes } from "@aqqua/client-runtime/errors";
 import { APP_STAGE_LABEL } from "~/branding";
 import { resolveSidebarV2Enabled } from "~/branding.logic";
 import { ensureLocalApi } from "~/localApi";
@@ -227,8 +227,10 @@ export function resolveEnvironmentIdentificationMode(input: {
   mode: EnvironmentIdentificationMode;
   settingsHydrated: boolean;
 }): EnvironmentIdentificationMode {
-  // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
-  return input.settingsHydrated ? input.mode : "none";
+  // Avoid briefly rendering an identifier before a persisted choice loads.
+  if (!input.settingsHydrated) return "none";
+  // Legacy persisted value: the stage artwork was removed with the nightly channel.
+  return input.mode === "artwork" ? "pill" : input.mode;
 }
 
 export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMode {

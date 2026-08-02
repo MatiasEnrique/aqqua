@@ -5,7 +5,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { Thread, ThreadShell } from "../types";
@@ -502,7 +502,7 @@ describe("shouldWriteThreadErrorToCurrentServerThread", () => {
 
 describe("resolveVisibleThreadError", () => {
   const restartMessage =
-    "The T3 Code server restarted while this turn was running, so the provider session was lost. Send a message to pick the thread back up.";
+    "The aqqua server restarted while this turn was running, so the provider session was lost. Send a message to pick the thread back up.";
   const sessionUpdatedAt = "2026-03-29T00:00:10.000Z";
 
   it("hides a persisted session.lastError after dismiss even when the server value remains", () => {

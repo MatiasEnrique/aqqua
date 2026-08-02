@@ -1,7 +1,7 @@
 /**
  * Sub-agent turn status derivation.
  *
- * T3 has no `thread.turn-completed` event. A turn ends when its thread's session
+ * aqqua has no `thread.turn-completed` event. A turn ends when its thread's session
  * leaves the `running` status, and the projector is what turns that into a turn
  * state (`apps/server/src/orchestration/projector.ts`). Delegation has to read
  * the same signal, so these two functions mirror the projector's rules
@@ -11,7 +11,7 @@
  *
  * @module agent-control/Status
  */
-import type { OrchestrationLatestTurn, OrchestrationSessionStatus } from "@t3tools/contracts";
+import type { OrchestrationLatestTurn, OrchestrationSessionStatus } from "@aqqua/contracts";
 
 import type { AgentRunStatus } from "./Services/AgentControl.ts";
 

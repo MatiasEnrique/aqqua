@@ -6,13 +6,10 @@ import {
   CardOperationId,
   CONTINUABLE_CARD_STATUSES,
   ProjectId,
-} from "@t3tools/contracts";
-import type { OrchestrationBoard, OrchestrationCard } from "@t3tools/contracts";
+} from "@aqqua/contracts";
+import type { OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
 
-import {
-  cardActionAvailability,
-  type CardOperationKind,
-} from "@t3tools/client-runtime/state/boards";
+import { cardActionAvailability, type CardOperationKind } from "@aqqua/client-runtime/state/boards";
 
 import {
   buildPositionSegments,
@@ -50,7 +47,7 @@ function card(overrides: Partial<OrchestrationCard> = {}): OrchestrationCard {
     id: CardId.make("card-1"),
     boardId: BoardId.make("board-1"),
     projectId: ProjectId.make("project-1"),
-    title: "T3-482",
+    title: "aqqua-482",
     parameters: {},
     position: { kind: "todo" },
     status: null,
@@ -308,12 +305,12 @@ describe("formatElapsed", () => {
 describe("summarizeCardParameters", () => {
   it("lists parameters in template order and skips blanks", () => {
     expect(
-      summarizeCardParameters({ scope: "web", issue_id: "T3-482", note: "  " }, [
+      summarizeCardParameters({ scope: "web", issue_id: "aqqua-482", note: "  " }, [
         "issue_id",
         "scope",
         "note",
       ]),
-    ).toBe("issue_id: T3-482 · scope: web");
+    ).toBe("issue_id: aqqua-482 · scope: web");
   });
 
   it("returns nothing when the card carries no values", () => {

@@ -1,5 +1,5 @@
-import type { TurnId } from "@t3tools/contracts";
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+import type { TurnId } from "@aqqua/contracts";
+import type { TimestampFormat } from "@aqqua/contracts/settings";
 import { ArrowLeftIcon, ChevronDownIcon } from "lucide-react";
 
 import { formatShortTimestamp } from "../../timestampFormat";

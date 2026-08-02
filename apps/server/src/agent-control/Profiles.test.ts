@@ -6,7 +6,7 @@ import {
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Result from "effect/Result";
 
 import {

@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, GitObjectId, NonNegativeInt } from "@t3tools/contracts";
+import { GitCommandError, GitObjectId, NonNegativeInt } from "@aqqua/contracts";
 
 import { base64UrlEncode } from "../auth/utils.ts";
 import * as ServerConfig from "../config.ts";
@@ -26,7 +26,7 @@ const HistoryCursorPayloadJson = Schema.fromJsonString(
 const encodeTestHistoryCursor = Schema.encodeSync(HistoryCursorPayloadJson);
 
 const ServerConfigLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
-  prefix: "t3-git-history-test-",
+  prefix: "aqqua-git-history-test-",
 });
 const TestLayer = GitHistory.layer.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
@@ -37,7 +37,7 @@ const TestLayer = GitHistory.layer.pipe(
 const makeTmpDir = (): Effect.Effect<string, never, FileSystem.FileSystem | Scope.Scope> =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    return yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-git-history-repo-" });
+    return yield* fileSystem.makeTempDirectoryScoped({ prefix: "aqqua-git-history-repo-" });
   }).pipe(Effect.orDie);
 
 const git = (
@@ -286,7 +286,7 @@ it.layer(TestLayer)("GitHistory", (it) => {
           "internal\n",
           "Internal checkpoint",
         );
-        yield* git(cwd, ["update-ref", "refs/t3/checkpoints/thread-1/turn/1", checkpoint]);
+        yield* git(cwd, ["update-ref", "refs/aqqua/checkpoints/thread-1/turn/1", checkpoint]);
         yield* git(cwd, ["checkout", "main"]);
         yield* git(cwd, ["branch", "-D", "checkpoint-only"]);
         yield* writeFile(cwd, "stash-only.txt", "stash\n");

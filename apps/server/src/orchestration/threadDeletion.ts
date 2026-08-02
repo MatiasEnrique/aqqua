@@ -6,8 +6,8 @@
  *
  * @module threadDeletion
  */
-import type { OrchestrationThread, ThreadId } from "@t3tools/contracts";
-import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
+import type { OrchestrationThread, ThreadId } from "@aqqua/contracts";
+import { normalizeProjectPathForComparison } from "@aqqua/shared/path";
 
 export type WorktreeMemberThread = Pick<
   OrchestrationThread,

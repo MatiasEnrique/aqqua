@@ -12,7 +12,7 @@ describe("resolveAppSidebarVariant", () => {
     ).toBe("regular");
   });
 
-  it("uses T3 Code's original v2 sidebar when v2 is enabled", () => {
+  it("uses aqqua's original v2 sidebar when v2 is enabled", () => {
     expect(
       resolveAppSidebarVariant({
         isOnSettings: false,

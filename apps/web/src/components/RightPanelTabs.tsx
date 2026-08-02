@@ -1,5 +1,5 @@
-import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import type { ContextMenuItem, PreviewSessionSnapshot } from "@aqqua/contracts";
+import { getTerminalLabel } from "@aqqua/shared/terminalLabels";
 import {
   ClipboardList,
   FileDiff,
@@ -63,7 +63,7 @@ interface RightPanelTabsProps {
 }
 
 const SURFACE_DISABLED_REASONS = {
-  browser: "Browser previews are only available in the 3T Code desktop app.",
+  browser: "Browser previews are only available in the aqqua desktop app.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for projects in Git repositories.",
   history: "History is only available for projects in Git repositories.",

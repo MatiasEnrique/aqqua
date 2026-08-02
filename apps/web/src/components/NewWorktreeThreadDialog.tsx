@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { ScopedProjectRef } from "@t3tools/contracts";
-import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+import { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import type { ScopedProjectRef } from "@aqqua/contracts";
+import { buildTemporaryWorktreeBranchName } from "@aqqua/shared/git";
 import { GitBranchPlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 

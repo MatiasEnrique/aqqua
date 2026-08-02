@@ -6,7 +6,7 @@ import {
   type OrchestrationSession,
   MessageId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
 /**
  * Stable step-thread id claimed with a starting/advancing/retrying operation.

@@ -9,7 +9,7 @@ import {
   type OrchestrationEvent,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 
 import { createEmptyReadModel, projectEvent } from "./projector.ts";

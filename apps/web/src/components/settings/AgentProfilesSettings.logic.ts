@@ -1,7 +1,7 @@
 /**
  * Pure logic behind the "Agent Profiles" settings section.
  *
- * A profile maps a role name an orchestrator asks for (`3T agent spawn
+ * A profile maps a role name an orchestrator asks for (`aqqua agent spawn
  * --profile <name>`) to a concrete provider configuration. Profiles are
  * machine-local: they live in server settings under `agentProfiles`, because
  * an instance target names a provider instance configured on this machine.
@@ -35,7 +35,7 @@ import {
   type ProviderOptionSelection,
   type RuntimeMode,
   type ServerProviderModel,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
@@ -484,7 +484,8 @@ export const AGENT_PROFILE_RUNTIME_LABELS: Readonly<Record<AgentProfileRuntime, 
 };
 
 export const AGENT_PROFILE_RUNTIME_DESCRIPTIONS: Readonly<Record<AgentProfileRuntime, string>> = {
-  session: "Runs through a provider adapter, so the sub-agent renders as a normal T3 transcript.",
+  session:
+    "Runs through a provider adapter, so the sub-agent renders as a normal aqqua transcript.",
   terminal: "Runs the provider's CLI in a PTY. Visible and interactive, but terminal output only.",
 };
 

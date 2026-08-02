@@ -26,7 +26,7 @@ import {
   type ProviderInstanceId,
   type ProviderInteractionMode,
   type RuntimeMode,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Result from "effect/Result";
 
 import { AgentProfileUnavailableError, AgentProfileUnknownError } from "./Errors.ts";
@@ -180,7 +180,7 @@ const resolveInstance = (input: {
       return Result.fail(
         new AgentProfileUnavailableError({
           profile,
-          detail: "its configured provider instance is disabled in T3 Code settings.",
+          detail: "its configured provider instance is disabled in aqqua settings.",
         }),
       );
     }
@@ -201,7 +201,7 @@ const resolveInstance = (input: {
         detail:
           matching.length === 0
             ? `no '${driver}' provider is configured in this build.`
-            : `every configured '${driver}' provider is disabled in T3 Code settings.`,
+            : `every configured '${driver}' provider is disabled in aqqua settings.`,
       }),
     );
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { BoardId, BoardStepId, ProjectId } from "@t3tools/contracts";
-import type { OrchestrationBoard } from "@t3tools/contracts";
+import { BoardId, BoardStepId, ProjectId } from "@aqqua/contracts";
+import type { OrchestrationBoard } from "@aqqua/contracts";
 
 import {
   type BoardDraft,

@@ -1,11 +1,11 @@
 import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
-import type { ComposerTriggerKind } from "@t3tools/shared/composerTrigger";
+import type { ComposerTriggerKind } from "@aqqua/shared/composerTrigger";
 import {
   PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
   shouldShowProviderWorkspaceSkillsLoadingFooter,
   type ProviderSkillSourceBadge,
-} from "@t3tools/client-runtime/state/provider-skills";
-import type { ServerProviderSkill, ServerProviderSlashCommand } from "@t3tools/contracts";
+} from "@aqqua/client-runtime/state/provider-skills";
+import type { ServerProviderSkill, ServerProviderSlashCommand } from "@aqqua/contracts";
 import { SymbolView } from "../../components/AppSymbol";
 import { memo } from "react";
 import { Pressable, ScrollView, useColorScheme, View, type ViewStyle } from "react-native";
@@ -182,11 +182,11 @@ const CommandRow = memo(function CommandRow(props: {
       ) : iconName ? (
         <SymbolView name={iconName} size={14} tintColor={iconColor} type="monochrome" />
       ) : null}
-      <Text className="shrink-0 text-base font-t3-medium text-foreground" numberOfLines={1}>
+      <Text className="shrink-0 text-base font-aqqua-medium text-foreground" numberOfLines={1}>
         {props.item.label}
       </Text>
       {sourceBadge ? (
-        <Text className="shrink-0 text-3xs font-t3-bold uppercase tracking-[0.4px] text-zinc-400">
+        <Text className="shrink-0 text-3xs font-aqqua-bold uppercase tracking-[0.4px] text-zinc-400">
           {sourceBadge}
         </Text>
       ) : null}
@@ -213,7 +213,7 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
     <PopoverSurface isDarkMode={isDarkMode}>
       {label ? (
         <View className="px-3.5 pt-2.5 pb-1">
-          <Text className="text-3xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted">
+          <Text className="text-3xs font-aqqua-bold tracking-[0.8px] uppercase text-foreground-muted">
             {label}
           </Text>
         </View>

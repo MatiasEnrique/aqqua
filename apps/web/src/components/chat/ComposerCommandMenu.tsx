@@ -3,7 +3,7 @@ import {
   type ProviderDriverKind,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import { BotIcon, BracesIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
@@ -11,7 +11,7 @@ import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../compo
 import {
   PROVIDER_WORKSPACE_SKILLS_LOADING_LABEL,
   shouldShowProviderWorkspaceSkillsLoadingFooter,
-} from "@t3tools/client-runtime/state/provider-skills";
+} from "@aqqua/client-runtime/state/provider-skills";
 import {
   formatProviderSkillSourceBadge,
   formatProviderSkillSourceDetail,

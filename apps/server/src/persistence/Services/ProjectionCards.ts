@@ -18,7 +18,7 @@ import {
   NonNegativeInt,
   ProjectId,
   TrimmedNonEmptyString,
-} from "@t3tools/contracts";
+} from "@aqqua/contracts";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -102,4 +102,4 @@ export interface ProjectionCardRepositoryShape {
 export class ProjectionCardRepository extends Context.Service<
   ProjectionCardRepository,
   ProjectionCardRepositoryShape
->()("t3/persistence/Services/ProjectionCards/ProjectionCardRepository") {}
+>()("aqqua/persistence/Services/ProjectionCards/ProjectionCardRepository") {}

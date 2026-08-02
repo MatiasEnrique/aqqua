@@ -1,5 +1,5 @@
 import { resolveBoardArtifactPath } from "../boardArtifacts.ts";
-import { renderBoardTemplate } from "@t3tools/shared/boardTemplate";
+import { renderBoardTemplate } from "@aqqua/shared/boardTemplate";
 
 /**
  * Injected after the rendered step template so every step thread knows where to
@@ -9,7 +9,7 @@ import { renderBoardTemplate } from "@t3tools/shared/boardTemplate";
 export const BOARD_STEP_COMPLETION_BOILERPLATE = [
   "",
   "---",
-  "Flow step instructions (injected by T3 Code):",
+  "Flow step instructions (injected by aqqua):",
   "1. Write this step's artifact file to exactly this path:",
   "   ${artifactOutputPath}",
   "2. When the step's work is done, call the `board_complete` MCP tool with",

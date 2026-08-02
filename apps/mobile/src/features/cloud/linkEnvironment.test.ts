@@ -2,10 +2,10 @@ import { beforeEach, vi } from "vite-plus/test";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { EnvironmentId } from "@t3tools/contracts";
-import { RelayMobileClientId } from "@t3tools/contracts/relay";
-import { ManagedRelay } from "@t3tools/client-runtime/relay";
-import { remoteHttpClientLayer } from "@t3tools/client-runtime/rpc";
+import { EnvironmentId } from "@aqqua/contracts";
+import { RelayMobileClientId } from "@aqqua/contracts/relay";
+import { ManagedRelay } from "@aqqua/client-runtime/relay";
+import { remoteHttpClientLayer } from "@aqqua/client-runtime/rpc";
 import { HttpClient } from "effect/unstable/http";
 import { MobilePreferencesStore } from "../../persistence/mobile-preferences";
 import { MobileStorage } from "../../persistence/mobile-storage";
@@ -436,7 +436,7 @@ describe("mobile cloud link environment client", () => {
             }),
           );
         }
-        if (String(url).endsWith("/.well-known/t3/environment")) {
+        if (String(url).endsWith("/.well-known/aqqua/environment")) {
           return Promise.resolve(
             Response.json({
               environmentId: "env-1",
@@ -486,7 +486,7 @@ describe("mobile cloud link environment client", () => {
       const environmentTokenBody = new URLSearchParams(
         requestBodyText(environmentTokenRequest?.body),
       );
-      expect(environmentTokenBody.get("client_label")).toBe("3T Code Mobile");
+      expect(environmentTokenBody.get("client_label")).toBe("aqqua Mobile");
       expect(environmentTokenBody.get("client_device_type")).toBe("mobile");
       expect(environmentTokenBody.get("client_os")).toBe("iOS");
     }),
@@ -842,7 +842,7 @@ describe("mobile cloud link environment client", () => {
               Response.json(validDpopAccessTokenResponse("environment:connect")),
             );
           }
-          if (String(url).endsWith("/.well-known/t3/environment")) {
+          if (String(url).endsWith("/.well-known/aqqua/environment")) {
             return Promise.resolve(
               Response.json({
                 environmentId: "env-1",
@@ -929,7 +929,7 @@ describe("mobile cloud link environment client", () => {
               Response.json(validDpopAccessTokenResponse("environment:connect")),
             );
           }
-          if (String(url).endsWith("/.well-known/t3/environment")) {
+          if (String(url).endsWith("/.well-known/aqqua/environment")) {
             return Promise.resolve(
               Response.json({
                 environmentId: "env-1",
@@ -1137,7 +1137,7 @@ describe("mobile cloud link environment client", () => {
             Promise.resolve(
               String(url).endsWith("/v1/client/dpop-token")
                 ? Response.json(validDpopAccessTokenResponse("environment:connect"))
-                : String(url).endsWith("/.well-known/t3/environment")
+                : String(url).endsWith("/.well-known/aqqua/environment")
                   ? Response.json({
                       environmentId: "env-other",
                       label: "Other Desktop",
