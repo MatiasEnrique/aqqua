@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useSyncExternalStore,
+  type ComponentType,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -15,9 +16,11 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useSidebarV2Enabled } from "../hooks/useSettings";
-import ThreadSidebar from "./Sidebar";
+import SettingsSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
+import ThreadSidebar from "./SidebarWorktree";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
+import { resolveAppSidebarVariant, type AppSidebarVariant } from "./AppSidebarLayout.logic";
 import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
@@ -36,6 +39,12 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "90px";
+
+export const APP_SIDEBAR_COMPONENTS = {
+  settings: SettingsSidebar,
+  regular: ThreadSidebar,
+  v2: ThreadSidebarV2,
+} satisfies Record<AppSidebarVariant, ComponentType>;
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -123,8 +132,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // and is identical for both sidebars — so v1 stays mounted there.
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-  const useSidebarV2 = sidebarV2Enabled && !isOnSettings;
-  const useSidebarV2Theme = useSidebarV2 || isOnSettings;
+  const sidebarVariant = resolveAppSidebarVariant({ isOnSettings, sidebarV2Enabled });
+  const ThreadSidebarComponent = APP_SIDEBAR_COMPONENTS[sidebarVariant];
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -188,7 +197,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         data-app-sidebar=""
-        data-sidebar-version={useSidebarV2Theme ? "v2" : "v1"}
+        data-sidebar-version="v2"
         className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         resizable={{
           maxWidth: sidebarMaximumWidth,
@@ -200,7 +209,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        {useSidebarV2 ? <ThreadSidebarV2 /> : <ThreadSidebar />}
+        <ThreadSidebarComponent />
         <SidebarRail />
       </Sidebar>
       {children}
