@@ -65,7 +65,7 @@ export const makeBoardHandlerDefectRecovery = Effect.gen(function* () {
   const failMatchingClaimsAfterHandlerDefect = Effect.fn(
     "BoardReactor.failMatchingClaimsAfterHandlerDefect",
   )(function* (event: BoardReactorEvent, cause: Cause.Cause<unknown>) {
-    const reason = `Board reactor failed while handling '${event.type}': ${Cause.pretty(cause)}`;
+    const reason = `Flow processing failed while handling '${event.type}': ${Cause.pretty(cause)}`;
     const cardsToFail: OrchestrationCard[] = [];
 
     const directCardId = eventCardId(event);

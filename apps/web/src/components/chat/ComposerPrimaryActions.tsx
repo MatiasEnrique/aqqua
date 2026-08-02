@@ -18,7 +18,7 @@ interface PendingActionState {
 /**
  * Owner-supplied primary action for an idle composer.
  *
- * The Agentic Board's card actions ride this slot: a waiting step shows
+ * Flows card actions ride this slot: a waiting step shows
  * `Resume ⌄` instead of the bare send arrow. Running turns and pending
  * questions keep their own primaries — a card can never take the stop button
  * away from a turn in flight.

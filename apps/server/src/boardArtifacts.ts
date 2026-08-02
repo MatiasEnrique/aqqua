@@ -110,7 +110,7 @@ export const readBoardArtifact = Effect.fn("readBoardArtifact")(function* (input
   });
   if (resolved === null) {
     return yield* new BoardArtifactError({
-      message: `Invalid board artifact step name '${input.stepName}'.`,
+      message: `Invalid flow artifact step name '${input.stepName}'.`,
       cardId: input.cardId,
       stepName: input.stepName,
     });
@@ -120,7 +120,7 @@ export const readBoardArtifact = Effect.fn("readBoardArtifact")(function* (input
     Effect.mapError(
       (cause) =>
         new BoardArtifactError({
-          message: `Failed to stat board artifact for card '${input.cardId}'.`,
+          message: `Failed to stat flow artifact for card '${input.cardId}'.`,
           cardId: input.cardId,
           stepName: input.stepName,
           cause,
@@ -139,7 +139,7 @@ export const readBoardArtifact = Effect.fn("readBoardArtifact")(function* (input
     Effect.mapError(
       (cause) =>
         new BoardArtifactError({
-          message: `Failed to read board artifact for card '${input.cardId}'.`,
+          message: `Failed to read flow artifact for card '${input.cardId}'.`,
           cardId: input.cardId,
           stepName: input.stepName,
           cause,
@@ -189,7 +189,7 @@ export const writeBoardArtifact = Effect.fn("writeBoardArtifact")(function* (inp
   });
   if (resolved === null) {
     return yield* new BoardArtifactError({
-      message: `Invalid board artifact step name '${input.stepName}'.`,
+      message: `Invalid flow artifact step name '${input.stepName}'.`,
       cardId: input.cardId,
       stepName: input.stepName,
     });
@@ -199,7 +199,7 @@ export const writeBoardArtifact = Effect.fn("writeBoardArtifact")(function* (inp
     Effect.mapError(
       (cause) =>
         new BoardArtifactError({
-          message: `Failed to create board artifact directory for card '${input.cardId}'.`,
+          message: `Failed to create flow artifact directory for card '${input.cardId}'.`,
           cardId: input.cardId,
           stepName: input.stepName,
           cause,
@@ -214,7 +214,7 @@ export const writeBoardArtifact = Effect.fn("writeBoardArtifact")(function* (inp
     Effect.mapError(
       (cause) =>
         new BoardArtifactError({
-          message: `Failed to write board artifact for card '${input.cardId}'.`,
+          message: `Failed to write flow artifact for card '${input.cardId}'.`,
           cardId: input.cardId,
           stepName: input.stepName,
           cause,

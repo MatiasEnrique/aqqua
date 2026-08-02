@@ -119,16 +119,16 @@ export function BoardView({
             <EmptyMedia variant="icon">
               <LayoutGridIcon className="size-4.5 text-muted-foreground" />
             </EmptyMedia>
-            <EmptyTitle>No board in {project?.title ?? projectId}</EmptyTitle>
+            <EmptyTitle>No flow in {project?.title ?? projectId}</EmptyTitle>
             <EmptyDescription>
               Define the steps once for this project. Every card you create runs through them. If
-              your board lives in another project, switch projects from the sidebar menu.
+              your flow lives in another project, switch projects from the sidebar menu.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 delay-100 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
             <Button size="sm" className="gap-1.5" onClick={() => setEditorOpen(true)}>
               <PlusIcon className="size-3.5" />
-              Create board
+              Create flow
             </Button>
           </EmptyContent>
         </Empty>
@@ -143,7 +143,7 @@ export function BoardView({
             </EmptyTitle>
             <EmptyDescription>
               {sections.settled.length > 0
-                ? "Choose a card from Settled history, or add a new one to the working board."
+                ? "Choose a card from Settled history, or add a new one to the active flow."
                 : "Add a card and its fields fill the pipeline's placeholders. Start it whenever the backlog is ready."}
             </EmptyDescription>
           </EmptyHeader>
@@ -160,7 +160,7 @@ export function BoardView({
                 onClick={() => setEditorOpen(true)}
               >
                 <PencilIcon className="size-3.5" />
-                Edit board
+                Edit flow
               </Button>
             </div>
           </EmptyContent>

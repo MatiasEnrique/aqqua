@@ -83,9 +83,9 @@ describe("validateBoardDraft", () => {
     expect(isBoardDraftSubmittable(errors)).toBe(true);
   });
 
-  it("requires a board name and at least one step", () => {
+  it("requires a flow name and at least one step", () => {
     const errors = validateBoardDraft({ name: "   ", steps: [] });
-    expect(errors.name).toBe("Give the board a name.");
+    expect(errors.name).toBe("Give the flow a name.");
     expect(errors.general).toBe("Add at least one step.");
     expect(isBoardDraftSubmittable(errors)).toBe(false);
   });
@@ -119,7 +119,7 @@ describe("validateBoardDraft", () => {
     const many = Array.from({ length: 21 }, (_, i) =>
       stepDraft({ id: BoardStepId.make(`s-${i}`), name: `Step ${i}` }),
     );
-    expect(validateBoardDraft(draft(many)).general).toBe("A board holds at most 20 steps.");
+    expect(validateBoardDraft(draft(many)).general).toBe("A flow holds at most 20 steps.");
   });
 });
 

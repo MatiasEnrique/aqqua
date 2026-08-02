@@ -318,7 +318,7 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
 
     const snapshot = card.snapshot;
     if (snapshot === null) {
-      yield* fail(`Card '${card.id}' has no board snapshot.`);
+      yield* fail(`Card '${card.id}' has no flow snapshot.`);
       return;
     }
     if (card.branch === null || card.worktreePath === null) {

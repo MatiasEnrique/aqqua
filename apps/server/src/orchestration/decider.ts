@@ -1411,7 +1411,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (board.steps.length === 0) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Board '${board.id}' must have at least one step to release a card.`,
+          detail: `Flow '${board.id}' must have at least one step to release a card.`,
         });
       }
       const occurredAt = yield* nowIso;
@@ -1577,7 +1577,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (card.snapshot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Card '${command.cardId}' has no board snapshot for step report.`,
+          detail: `Card '${command.cardId}' has no flow snapshot for step report.`,
         });
       }
       const step = card.snapshot.steps[command.stepIndex];
@@ -1667,7 +1667,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (card.snapshot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Card '${command.cardId}' has no board snapshot to continue.`,
+          detail: `Card '${command.cardId}' has no flow snapshot to continue.`,
         });
       }
       const occurredAt = yield* nowIso;

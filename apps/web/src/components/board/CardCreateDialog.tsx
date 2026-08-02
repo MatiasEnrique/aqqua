@@ -86,8 +86,8 @@ export function CardCreateDialog({
         <DialogPanel className="max-h-[60vh] space-y-4 overflow-y-auto">
           {parameterNames.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              This board's step templates have no <code>{"${placeholders}"}</code>, so the card
-              needs no inputs.
+              This flow's step templates have no <code>{"${placeholders}"}</code>, so the card needs
+              no inputs.
             </p>
           ) : (
             parameterNames.map((name) => {

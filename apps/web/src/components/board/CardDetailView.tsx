@@ -485,7 +485,7 @@ export function CardDetailView({
   if (card === null || board === null || tree === null) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground text-sm">
-        This card is no longer on the board.
+        This card is no longer in the flow.
       </div>
     );
   }
@@ -518,7 +518,7 @@ export function CardDetailView({
             <AlertDialogDescription>
               {pendingConfirmation === "retry"
                 ? "The step's thread is discarded and a fresh one runs the same prompt again. The worktree keeps whatever the previous attempt changed."
-                : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest board configuration and keeps the existing worktree changes."}
+                : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest flow configuration and keeps the existing worktree changes."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -550,7 +550,7 @@ export function CardDetailView({
           </span>
           <span className="max-w-md text-muted-foreground">
             {card.lastError ??
-              "Removing its conversations, worktree, and artifacts. The card has already left the board; this view closes when cleanup finishes."}
+              "Removing its conversations, worktree, and artifacts. The card has already left the flow; this view closes when cleanup finishes."}
           </span>
           {card.lastError === null ? null : (
             <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
@@ -610,7 +610,7 @@ export function CardDetailView({
               </span>
             </>
           ) : (
-            "This card has not been released yet — start it from the board."
+            "This card has not been released yet — start it from the flow."
           )}
         </div>
         {confirmation}

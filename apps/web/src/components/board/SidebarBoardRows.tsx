@@ -92,14 +92,14 @@ export function BoardSelector({
         render={
           <SidebarMenuButton
             type="button"
-            aria-label={`Boards in ${projectTitle}`}
+            aria-label={`Flows in ${projectTitle}`}
             className="focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
         }
       >
         <LayoutGridIcon className="size-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          {allSelected ? "All boards" : (board?.name ?? `No board in ${projectTitle}`)}
+          {allSelected ? "All flows" : (board?.name ?? `No flow in ${projectTitle}`)}
         </span>
         {/* Boards are per-project; the suffix keeps sections tellable apart
             when "All projects" stacks several of them. */}
@@ -121,7 +121,7 @@ export function BoardSelector({
             >
               {boards.length > 1 ? (
                 <MenuRadioItem value="all" closeOnClick>
-                  All boards
+                  All flows
                 </MenuRadioItem>
               ) : null}
               {boards.map((candidate) => (
@@ -140,7 +140,7 @@ export function BoardSelector({
                 </MenuItem>
                 <MenuItem onClick={onEditBoard}>
                   <PencilIcon />
-                  Edit board
+                  Edit flow
                 </MenuItem>
               </>
             )}
@@ -148,7 +148,7 @@ export function BoardSelector({
         ) : null}
         <MenuItem onClick={onNewBoard}>
           <LayoutGridIcon />
-          {boards.length === 0 ? "Create board" : "New board"}
+          {boards.length === 0 ? "Create flow" : "New flow"}
         </MenuItem>
       </MenuPopup>
     </Menu>

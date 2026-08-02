@@ -1,4 +1,4 @@
-# Agentic Board — UI prototypes (throwaway)
+# Flows — UI prototypes (throwaway)
 
 Status: exploration, 2026-07-30. Three divergent Paper mocks of the board surface
 (feature spec: `agentic-board.md`). Paper file "3T Code":

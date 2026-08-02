@@ -237,7 +237,7 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the message body passed to `generateThreadTitle` for an agentic-board
+ * Build the message body passed to `generateThreadTitle` for a flow
  * card. Parameters are the only signal; the placeholder title is context only.
  */
 export function buildBoardCardTitleMessage(input: {
@@ -250,7 +250,7 @@ export function buildBoardCardTitleMessage(input: {
       ? "(no parameters)"
       : entries.map(([name, value]) => `${name}: ${value}`).join("\n");
   return [
-    "Write a short human-readable title for a board card (a unit of coding work).",
+    "Write a short human-readable title for a flow card (a unit of coding work).",
     `Placeholder title: ${input.placeholderTitle}`,
     "Card parameters:",
     paramBlock,

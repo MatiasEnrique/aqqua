@@ -1,6 +1,6 @@
-# Tickets: Agentic Board
+# Tickets: Flows
 
-Vertical-slice tickets for the Agentic Board feature. Source spec: `docs/plans/agentic-board.md` — read it before starting any ticket; it fixes the domain vocabulary (board, step, card, position vs status, artifact, continuation mode) and the decided semantics.
+Vertical-slice tickets for the Flows feature. Source spec: `docs/plans/agentic-board.md` — read it before starting any ticket; it fixes the domain vocabulary (board, step, card, position vs status, artifact, continuation mode) and the decided semantics.
 
 Work the **frontier**: any ticket whose blockers are all done. After "Statuses in place" the frontier is wide — Recovery, Manual gates, and Card detail are mutually independent.
 
@@ -22,7 +22,7 @@ Rules for frontend work:
 
 ## Board definition end-to-end (CRUD + editor)
 
-**What to build:** A user can create and edit an Agentic Board inside a project: named steps between the built-in To-Do and Done columns, each step carrying a prompt template, an agent-profile reference (reusing the existing agent-profiles system), and a continuation mode (`auto`/`manual`). Definitions persist through the standard event → projection pattern and stream to the client over the existing WS subscription machinery.
+**What to build:** A user can create and edit a flow inside a project: named steps between the built-in To-Do and Done columns, each step carrying a prompt template, an agent-profile reference (reusing the existing agent-profiles system), and a continuation mode (`auto`/`manual`). Definitions persist through the standard event → projection pattern and stream to the client over the existing WS subscription machinery.
 
 **Blocked by:** None — can start immediately.
 

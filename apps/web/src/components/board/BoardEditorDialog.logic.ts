@@ -127,16 +127,16 @@ export function validateBoardDraft(draft: BoardDraft): BoardDraftErrors {
   const name = draft.name.trim();
   const nameError =
     name === ""
-      ? "Give the board a name."
+      ? "Give the flow a name."
       : name.length > MAX_BOARD_NAME_CHARS
-        ? `Board names are at most ${MAX_BOARD_NAME_CHARS} characters.`
+        ? `Flow names are at most ${MAX_BOARD_NAME_CHARS} characters.`
         : null;
 
   const general =
     draft.steps.length === 0
       ? "Add at least one step."
       : draft.steps.length > MAX_STEPS
-        ? `A board holds at most ${MAX_STEPS} steps.`
+        ? `A flow holds at most ${MAX_STEPS} steps.`
         : null;
 
   return { name: nameError, general, steps: stepErrors };

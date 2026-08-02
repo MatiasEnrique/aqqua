@@ -1,16 +1,16 @@
-# Agentic Board
+# Flows
 
-The Agentic Board is a kanban board where each user-defined column is an agentic
-step. You design the workflow once — steps with prompt templates, an agent
+Flows is a kanban-style workspace where each user-defined column is an agentic
+step. You design a workflow once — steps with prompt templates, an agent
 profile, and a continuation mode — and agents execute inside its rails. Use the
-**Conversations / Board** switch at the top of the sidebar to move between a
-project's regular conversations and Agentic Board. The switch uses the selected
-project, the current conversation's project, or the first visible project. You
-can also open the board via **Open agentic board** in the command palette.
+**Conversations / Flows** switch at the top of the sidebar to move between a
+project's regular conversations and Flows. The switch uses the selected project,
+the current conversation's project, or the first visible project. You can also
+open Flows via **Open Flows** in the command palette.
 
-## Boards and steps
+## Flows and steps
 
-A board belongs to a project. Between the built-in **To-Do** and **Done**
+A flow belongs to a project. Between the built-in **To-Do** and **Done**
 columns you define steps; each step carries:
 
 - a **prompt template** with `${placeholder}` parameters,
@@ -19,8 +19,8 @@ columns you define steps; each step carries:
 - a **continuation mode**: `auto` advances the card on success, `manual` pauses
   it so you can review the step's artifact before continuing.
 
-Editing a board never changes cards that are already running: a card copies the
-board definition when you start it.
+Editing a flow never changes cards that are already running: a card copies the
+flow definition when you start it.
 
 ## Cards
 
@@ -36,10 +36,10 @@ like any other. Each step runs in a fresh conversation to keep context clean.
 
 ## Position and status
 
-In board mode the sidebar lists the board's cards, grouped by urgency: **Needs
+In Flows the sidebar lists the selected flow's cards, grouped by urgency: **Needs
 you** (paused, needs input, or failed), **Active** (running), **To-Do** (the
 backlog, with Start inline), **Done**, and **Settled** at the bottom.
-Opening the board always lands on a card — the most urgent one first. A card's
+Opening a flow always lands on a card — the most urgent one first. A card's
 **position** (To-Do, a step, Done) is the segment track on its row and only
 moves on successful step completion. Its **status** colors the dot and the
 current segment and never moves the card:
@@ -92,20 +92,20 @@ Every path stays inside the model:
   same prompt and inputs.
 - **Reset card** stops the current run, archives its step conversations, clears
   its artifacts, and returns the card to To-Do. Starting it again captures the
-  latest board configuration while keeping the card's worktree changes.
+  latest flow configuration while keeping the card's worktree changes.
 
 ## Done, Settled, and Delete
 
 Done keeps everything — worktree, branch, artifacts — so you can push
 follow-ups from the step conversations. Settle a Done card to move it out of
-the working board and into reversible history; un-settling returns it to Done
+the active flow and into reversible history; un-settling returns it to Done
 without changing its worktree, threads, or artifacts. **Delete card** removes a
-stable card from the board and deletes its conversations, worktree, and artifact
+stable card from the flow and deletes its conversations, worktree, and artifact
 directory. Running cards must be reset first, and a starting card must finish
 starting before it can be reset, so cleanup cannot race an active agent. Commits
 on the card's branch remain in the repository.
 
-Deleting is immediate as far as the board is concerned: the card leaves every
+Deleting is immediate as far as the flow is concerned: the card leaves every
 section as soon as the server takes the request, and if you were looking at it
 you land on the next card straight away — cleanup finishes in the background. A
 deletion that fails puts the card back where it was, with the reason on its row,

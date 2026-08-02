@@ -35,10 +35,8 @@ export function SidebarSurfaceSwitcher(props: { readonly scopedProjectRef: Proje
       <SurfaceTab
         active={isBoard}
         icon={<LayoutGridIcon aria-hidden className="size-3.5 shrink-0" />}
-        label="Board"
-        aria-label={
-          boardProjectRef ? "Open agentic board" : "Select a project to open its agentic board"
-        }
+        label="Flows"
+        aria-label={boardProjectRef ? "Open Flows" : "Select a project to open its flows"}
         disabled={boardProjectRef === null}
         onClick={() => {
           if (boardProjectRef === null) return;

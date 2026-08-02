@@ -162,7 +162,7 @@ function BoardEditorForm({
     // Keyboard shortcuts listen here, on the popup's content root, so they
     // catch events bubbling from any of the form's inputs.
     <section
-      aria-label="Board editor"
+      aria-label="Flow editor"
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={handleKeyDown}
     >
@@ -176,7 +176,7 @@ function BoardEditorForm({
           </span>
           <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
           <DialogTitle className="shrink-0 font-medium font-sans text-muted-foreground text-xs leading-none">
-            {board === null ? "New board" : "Edit board"}
+            {board === null ? "New flow" : "Edit flow"}
           </DialogTitle>
         </div>
         <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
@@ -187,9 +187,9 @@ function BoardEditorForm({
       <div className="px-4 pt-2 pb-3">
         <input
           ref={boardNameRef}
-          aria-label="Board name"
+          aria-label="Flow name"
           aria-invalid={hasAttemptedSubmit && errors.name !== null}
-          placeholder="Board name"
+          placeholder="Flow name"
           value={draft.name}
           className="w-full bg-transparent font-medium text-[21px] text-foreground tracking-[-0.015em] outline-none placeholder:text-muted-foreground/50"
           onChange={(event) => setBoardName(event.target.value)}
@@ -243,7 +243,7 @@ function BoardEditorForm({
               void handleSubmit();
             }}
           >
-            {isSaving ? "Saving..." : board === null ? "Create board" : "Save board"}
+            {isSaving ? "Saving..." : board === null ? "Create flow" : "Save flow"}
           </Button>
         </div>
       </div>

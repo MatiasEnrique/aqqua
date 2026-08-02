@@ -139,17 +139,17 @@ The patch difference between two checkpoints. Query logic lives in [CheckpointDi
 
 The file patch and changed-file summary for one turn. It is usually computed in [CheckpointDiffQuery.ts][20], represented in [the contracts][1], and recorded into thread state by [projector.ts][4].
 
-### Agentic board
+### Flows
 
-#### Board
+#### Flow
 
-A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Defined in [the board contracts][25]; executed by [BoardReactor.ts][26].
+A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Flows are represented internally by [the board contracts][25] and executed by [BoardReactor.ts][26].
 
 #### Card
 
-One unit of board work: one worktree plus one branch. Creating a card is cheap (no git activity); **releasing** it creates the worktree/branch and copies the board definition as its **snapshot**, making in-flight cards immune to board edits. Its **position** (To-Do, step, Done) moves only on successful step completion; its **status** (`running`, `paused`, `needs-input`, `failed`, `cancelled`) is an orthogonal badge that never moves the card.
+One unit of flow work: one worktree plus one branch. Creating a card is cheap (no git activity); **releasing** it creates the worktree/branch and copies the flow definition as its **snapshot**, making in-flight cards immune to flow edits. Its **position** (To-Do, step, Done) moves only on successful step completion; its **status** (`running`, `paused`, `needs-input`, `failed`, `cancelled`) is an orthogonal badge that never moves the card.
 
-#### Board artifact
+#### Flow artifact
 
 A step's output file on disk under the server state directory (`board-artifacts/<cardId>/<step>.md`), never inside the repository. Later steps receive earlier artifact paths only through explicit `${artifact}` / `${artifact:step}` placeholders. Path logic lives in [boardArtifacts.ts][27].
 

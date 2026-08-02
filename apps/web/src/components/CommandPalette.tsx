@@ -1357,8 +1357,8 @@ function OpenCommandPaletteDialog(props: {
       actionItems.push({
         kind: "action",
         value: "action:open-board",
-        searchTerms: ["board", "agentic board", "kanban", "cards", "pipeline", "steps"],
-        title: "Open agentic board",
+        searchTerms: ["flows", "flow", "board", "kanban", "cards", "pipeline", "steps"],
+        title: "Open Flows",
         icon: <LayoutGridIcon className={ITEM_ICON_CLASS} />,
         run: async () => {
           await navigate({

@@ -1,4 +1,4 @@
-# Agentic Board card detail — Paper extraction (V3-i1a/b/c)
+# Flows card detail — Paper extraction (V3-i1a/b/c)
 
 Exact values pulled from the three Paper artboards with the Paper MCP tools
 (2026-07-30). Companion to `agentic-board-ui-prototypes.md` (intent) and

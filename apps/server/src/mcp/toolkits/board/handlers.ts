@@ -47,7 +47,7 @@ export const boardComplete = Effect.fn("BoardToolkit.board_complete")(function* 
       return {
         accepted: false,
         message:
-          "This thread is not the current step thread of any board card. " +
+          "This thread is not the current step thread of any flow card. " +
           "Only the active step thread may call board_complete — sub-agents and ordinary chats cannot move a card.",
       };
     }
@@ -102,7 +102,7 @@ export const boardComplete = Effect.fn("BoardToolkit.board_complete")(function* 
         message:
           "message" in error && typeof error.message === "string"
             ? error.message
-            : "Failed to record board step report.",
+            : "Failed to record flow step report.",
       }),
     ),
   );

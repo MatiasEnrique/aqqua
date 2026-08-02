@@ -592,8 +592,8 @@ export interface ChatComposerProps {
   activeThreadActivities: Thread["activities"] | undefined;
 
   /**
-   * Optional owner-supplied primary action for the idle composer (the Agentic
-   * Board's `Resume ⌄` card actions). Turns in flight and pending questions
+   * Optional owner-supplied primary action for the idle composer (Flows'
+   * `Resume ⌄` card actions). Turns in flight and pending questions
    * keep the composer's own primaries.
    */
   renderIdlePrimaryAction?: ComposerIdlePrimaryActionRenderer | undefined;

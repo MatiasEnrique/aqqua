@@ -9,7 +9,7 @@ import { renderBoardTemplate } from "@t3tools/shared/boardTemplate";
 export const BOARD_STEP_COMPLETION_BOILERPLATE = [
   "",
   "---",
-  "Board step instructions (injected by T3 Code):",
+  "Flow step instructions (injected by T3 Code):",
   "1. Write this step's artifact file to exactly this path:",
   "   ${artifactOutputPath}",
   "2. When the step's work is done, call the `board_complete` MCP tool with",

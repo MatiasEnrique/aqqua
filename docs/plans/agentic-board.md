@@ -1,4 +1,4 @@
-# Agentic Board
+# Flows
 
 Status: implemented (v1 landed 2026-07-30; user doc: `docs/user/agentic-board.md`)
 
@@ -10,7 +10,7 @@ every run, only the inputs (e.g. a ticket id) change. Letting an AI improvise th
 workflow (`$orchestrate`) drifts as context grows — agents get biased and steps
 vary between runs.
 
-The Agentic Board inverts this: the **human designs the workflow once**, and agents
+Flows inverts this: the **human designs the workflow once**, and agents
 only execute inside its rails. It is a kanban board where each user-defined column
 is an agentic step. Interactive phases (spec grilling, ticket writing) are
 deliberately out of scope — they belong in normal conversations.

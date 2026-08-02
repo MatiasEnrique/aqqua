@@ -488,7 +488,7 @@ const SCRIPT_TERMINAL_ROWS = 30;
 
 /**
  * Slots that let another surface reuse the chat view whole rather than clone
- * it. The Agentic Board's card detail is the only caller: it hangs the card
+ * it. Flows card detail is the only caller: it hangs the card
  * tree in the rail, swaps the timeline for an artifact document, and puts the
  * card's `Resume ⌄` actions in the composer's primary slot.
  */

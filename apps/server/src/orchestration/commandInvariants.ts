@@ -206,7 +206,7 @@ export function requireBoard(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Board '${input.boardId}' does not exist for command '${input.command.type}'.`,
+      `Flow '${input.boardId}' does not exist for command '${input.command.type}'.`,
     ),
   );
 }
@@ -223,7 +223,7 @@ export function requireBoardNotDeleted(input: {
         : Effect.fail(
             invariantError(
               input.command.type,
-              `Board '${input.boardId}' is deleted and cannot handle command '${input.command.type}'.`,
+              `Flow '${input.boardId}' is deleted and cannot handle command '${input.command.type}'.`,
             ),
           ),
     ),
@@ -241,7 +241,7 @@ export function requireBoardAbsent(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Board '${input.boardId}' already exists and cannot be created twice.`,
+      `Flow '${input.boardId}' already exists and cannot be created twice.`,
     ),
   );
 }

@@ -112,7 +112,7 @@ export function SidebarBoardPanel({
       {allEnvironmentBoards.length === 0 ? (
         <SidebarGroup className="px-2 pt-0">
           <p className="px-2 text-sidebar-muted-foreground text-xs">
-            No boards in any project yet. Scope to a project to create its board.
+            No flows in any project yet. Scope to a project to create its first flow.
           </p>
         </SidebarGroup>
       ) : null}
@@ -546,7 +546,7 @@ function ProjectBoardSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete '{pendingDelete?.title}'?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the card from the board and deletes its conversations, worktree, and
+              This removes the card from the flow and deletes its conversations, worktree, and
               artifacts. The branch's commits stay in the repository; anything uncommitted in the
               worktree is lost.
             </AlertDialogDescription>
