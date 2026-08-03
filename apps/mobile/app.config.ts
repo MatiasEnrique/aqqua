@@ -27,31 +27,31 @@ if (
 }
 
 const DEVELOPMENT_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
-  androidAdaptiveBackgroundColor: "#00639B",
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
+  androidAdaptiveForeground: "./assets/android-icon-mark.png",
+  androidAdaptiveBackgroundColor: "#FFFFFF",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
   androidNotificationColor: "#00639B",
 } as const;
 
 const PREVIEW_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
-  androidAdaptiveBackgroundColor: "#111533",
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
+  androidAdaptiveForeground: "./assets/android-icon-mark.png",
+  androidAdaptiveBackgroundColor: "#FFFFFF",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
   androidNotificationColor: "#7565C7",
 } as const;
 
 const RELEASE_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
   androidAdaptiveForeground: "./assets/android-icon-mark.png",
   androidAdaptiveBackgroundColor: "#FFFFFF",
   androidMonochromeIcon: "./assets/android-icon-mark.png",

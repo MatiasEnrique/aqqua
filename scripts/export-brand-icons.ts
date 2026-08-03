@@ -12,6 +12,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { PNG } from "pngjs";
+import sharp from "sharp";
 
 import { BRAND_ASSET_PATHS, DEVELOPMENT_PUBLIC_ICON_OVERRIDES } from "./lib/brand-assets.ts";
 import { encodePngIco, readPngDimensions, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
@@ -188,6 +190,32 @@ export class IconExportEncodingError extends Schema.TaggedErrorClass<IconExportE
 ) {
   override get message(): string {
     return `Failed to encode ICO renditions for the ${this.variant} icon.`;
+  }
+}
+
+export class IconExportPostProcessingError extends Schema.TaggedErrorClass<IconExportPostProcessingError>()(
+  "IconExportPostProcessingError",
+  {
+    variant: Schema.String,
+    size: Schema.Int,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to apply rounded corners to the ${this.variant} icon at ${this.size}px.`;
+  }
+}
+
+export class IconExportResizeError extends Schema.TaggedErrorClass<IconExportResizeError>()(
+  "IconExportResizeError",
+  {
+    variant: Schema.String,
+    size: Schema.Int,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to resize the ${this.variant} icon to ${this.size}px.`;
   }
 }
 
@@ -547,6 +575,60 @@ const renderIcon = Effect.fn("iconExport.renderIcon")(function* (
   return buffer;
 });
 
+export function applyRoundedIconCorners(contents: Buffer, size: number): Buffer {
+  const cornerRadius = Math.round(size * 0.22);
+  const image = PNG.sync.read(contents);
+  for (let y = 0; y < image.height; y += 1) {
+    const pixelY = y + 0.5;
+    const yDistance =
+      pixelY < cornerRadius
+        ? cornerRadius - pixelY
+        : pixelY > size - cornerRadius
+          ? pixelY - (size - cornerRadius)
+          : 0;
+    if (yDistance === 0) continue;
+
+    for (let x = 0; x < image.width; x += 1) {
+      const pixelX = x + 0.5;
+      const xDistance =
+        pixelX < cornerRadius
+          ? cornerRadius - pixelX
+          : pixelX > size - cornerRadius
+            ? pixelX - (size - cornerRadius)
+            : 0;
+      if (xDistance === 0) continue;
+
+      const distance = Math.hypot(xDistance, yDistance);
+      const coverage = Math.max(0, Math.min(1, cornerRadius + 0.5 - distance));
+      const alphaIndex = (y * image.width + x) * 4 + 3;
+      image.data[alphaIndex] = Math.round((image.data[alphaIndex] ?? 0) * coverage);
+    }
+  }
+  return PNG.sync.write(image);
+}
+
+const roundIconCorners = Effect.fn("iconExport.roundIconCorners")(function* (
+  contents: Buffer,
+  variant: string,
+  size: number,
+) {
+  return yield* Effect.try({
+    try: () => applyRoundedIconCorners(contents, size),
+    catch: (cause) => new IconExportPostProcessingError({ variant, size, cause }),
+  });
+});
+
+const resizeIcon = Effect.fn("iconExport.resizeIcon")(function* (
+  contents: Buffer,
+  variant: string,
+  size: number,
+) {
+  return yield* Effect.tryPromise({
+    try: () => sharp(contents).resize(size, size).png().toBuffer(),
+    catch: (cause) => new IconExportResizeError({ variant, size, cause }),
+  });
+});
+
 const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
   toolPath: string,
   repositoryRoot: string,
@@ -586,9 +668,14 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
   });
 
   const ios = yield* render("iOS", 1024);
+  const rounded = Effect.fn("iconExport.renderVariant.rounded")(function* (size: number) {
+    const square = size === 1024 ? ios : yield* resizeIcon(ios, variant.label, size);
+    return yield* roundIconCorners(square, variant.label, size);
+  });
+  const universal = yield* rounded(1024);
   const icoRenditions = yield* Effect.forEach(
     WINDOWS_ICON_SIZES,
-    (size) => render("iOS", size).pipe(Effect.map((contents) => ({ size, contents }))),
+    (size) => rounded(size).pipe(Effect.map((contents) => ({ size, contents }))),
     { concurrency: 1 },
   );
   const ico = yield* Effect.try({
@@ -598,10 +685,10 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
 
   return new Map<string, Buffer>([
     [variant.outputs.ios, ios],
-    [variant.outputs.universal, ios],
-    [variant.outputs.appleTouch, yield* render("iOS", 180)],
-    [variant.outputs.favicon16, yield* render("iOS", 16)],
-    [variant.outputs.favicon32, yield* render("iOS", 32)],
+    [variant.outputs.universal, universal],
+    [variant.outputs.appleTouch, yield* rounded(180)],
+    [variant.outputs.favicon16, yield* rounded(16)],
+    [variant.outputs.favicon32, yield* rounded(32)],
     [variant.outputs.faviconIco, ico],
     [variant.outputs.windowsIco, ico],
   ]);

@@ -2,15 +2,24 @@
 
 `aqqua-waves.svg` is the canonical aqqua Waves mark. `aqqua-nobg.png` is
 its transparent raster rendition. The three Icon Composer projects combine
-that artwork with the backgrounds for the supported app variants:
+that artwork with the shared white background for the supported app variants:
 
 - `dev/app-icon.icon`
 - `nightly/app-icon.icon`
 - `prod/app-icon.icon`
 
-Each project contains the canonical artwork as `Assets/logo.png`.
+Each project contains the canonical artwork as `Assets/logo.png`. Platform-neutral,
+browser, and Windows renditions receive transparent rounded corners during export;
+iOS keeps the required opaque square source and applies its native icon mask at
+runtime. Android uses the transparent Waves mark over a white adaptive-icon
+background so the launcher applies the device's selected shape.
 
 Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
+
+The exporter renders one native 1024px iOS source per variant, then derives the
+platform-neutral, Windows, and browser sizes from that source before applying the
+rounded mask. Keeping one raster source prevents small-size Icon Composer presets
+from drifting away from the full app icon.
 
 Exporting requires Icon Composer 2 or newer on macOS. The script selects the newest compatible exporter from Xcode or a standalone Icon Composer installation and pins design generation 26. Set `ICON_COMPOSER_TOOL` to the full path of `Icon Composer.app/Contents/Executables/ictool` to override automatic discovery.
 
