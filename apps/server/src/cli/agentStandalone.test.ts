@@ -1,10 +1,40 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthOrchestrationOperateScope, AuthSessionId } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import { withStandaloneAgentSession } from "./agentStandalone.ts";
+import { requireStandaloneUserPresence, withStandaloneAgentSession } from "./agentStandalone.ts";
+
+it.effect("requires an attached interactive terminal before standalone authorization", () =>
+  Effect.gen(function* () {
+    let confirmationRequested = false;
+    const failure = yield* Effect.flip(
+      requireStandaloneUserPresence({
+        interactive: false,
+        confirm: Effect.sync(() => {
+          confirmationRequested = true;
+          return true;
+        }),
+      }),
+    );
+
+    assert.match(failure.message, /interactive terminal/);
+    assert.isFalse(confirmationRequested);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("requires explicit confirmation before a standalone spawn", () =>
+  Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      requireStandaloneUserPresence({ interactive: true, confirm: Effect.succeed(false) }),
+    );
+    assert.match(failure.message, /cancelled/);
+
+    yield* requireStandaloneUserPresence({ interactive: true, confirm: Effect.succeed(true) });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect("uses only orchestration scope and always revokes the temporary session", () => {
   const sessionId = AuthSessionId.make("agent-cli-session");

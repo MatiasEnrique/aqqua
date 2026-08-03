@@ -6,10 +6,11 @@
  * command the agent runs with the shell tool it already has costs nothing but the
  * one line of documentation that says it exists.
  *
- * Inside a provider session, identity comes from the environment aqqua created
- * (`AQQUA_AGENT_TOKEN`, `AQQUA_AGENT_API`), never from a flag. Outside a provider
- * session, `spawn` uses a short-lived administrative credential from the local
- * aqqua home and creates an unparented thread in the project containing the cwd.
+ * Inside a provider session, identity comes from the environment aqqua created,
+ * never from a flag. Process ancestry prevents deleting that child environment
+ * from turning an agent into a standalone caller. A genuine standalone spawn
+ * additionally requires explicit confirmation in an interactive terminal before
+ * it uses a short-lived local credential to create an unparented thread.
  *
  * @module cli/agent
  */
@@ -22,8 +23,15 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AgentCliError } from "./agentCliError.ts";
+import {
+  AGENT_API_ENV,
+  AGENT_THREAD_ENV,
+  AGENT_TOKEN_ENV,
+  type AgentInvocationAncestry,
+  detectAgentInvocationAncestry,
+} from "./agentInvocationIdentity.ts";
 import { spawnStandaloneAgent } from "./agentStandalone.ts";
 import { projectLocationFlags } from "./config.ts";
 
@@ -46,18 +54,20 @@ import {
   AgentSpawnResponse,
 } from "@aqqua/contracts";
 
-export const AGENT_TOKEN_ENV = "AQQUA_AGENT_TOKEN";
-export const AGENT_API_ENV = "AQQUA_AGENT_API";
-export const AGENT_THREAD_ENV = "AQQUA_THREAD_ID";
+export { AGENT_API_ENV, AGENT_THREAD_ENV, AGENT_TOKEN_ENV } from "./agentInvocationIdentity.ts";
 
-export type AgentSpawnTransport = "session" | "standalone" | "invalid-session";
+export type AgentSpawnTransport = "session" | "standalone" | "invalid-session" | "agent-origin";
 
-export const resolveSpawnTransport = (env: NodeJS.ProcessEnv): AgentSpawnTransport => {
+export const resolveSpawnTransport = (
+  env: NodeJS.ProcessEnv,
+  ancestry: AgentInvocationAncestry = "unknown",
+): AgentSpawnTransport => {
   const hasToken = Boolean(env[AGENT_TOKEN_ENV]?.trim());
   const hasApi = Boolean(env[AGENT_API_ENV]?.trim());
   const hasThread = Boolean(env[AGENT_THREAD_ENV]?.trim());
   if (hasToken && hasApi && hasThread) return "session";
   if (hasToken || hasApi || hasThread) return "invalid-session";
+  if (ancestry === "agent-session") return "agent-origin";
   return "standalone";
 };
 
@@ -83,6 +93,14 @@ const INCOMPLETE_SESSION_HELP = [
   "",
   `Expected ${AGENT_TOKEN_ENV}, ${AGENT_API_ENV}, and ${AGENT_THREAD_ENV} together.`,
   "Start a fresh agent terminal instead of removing or overriding these variables.",
+].join("\n");
+
+const AGENT_ORIGIN_HELP = [
+  "Standalone agent spawn is unavailable from an aqqua provider session.",
+  "",
+  `Removing ${AGENT_TOKEN_ENV}, ${AGENT_API_ENV}, and ${AGENT_THREAD_ENV} does not turn an`,
+  "agent shell into a human terminal. Use the session delegation command so parent recursion",
+  "and concurrency rules remain enforced.",
 ].join("\n");
 
 export interface AgentApi {
@@ -251,7 +269,7 @@ const jsonFlag = Flag.boolean("json").pipe(
 const emit = (input: { readonly json: boolean; readonly value: unknown; readonly text: string }) =>
   Console.log(input.json ? toJsonLine(input.value) : input.text);
 
-const cliRuntime = Layer.mergeAll(FetchHttpClient.layer, NodeFileSystem.layer);
+const cliRuntime = Layer.merge(FetchHttpClient.layer, NodeServices.layer);
 
 const spawnCommand = Command.make("spawn", {
   ...projectLocationFlags,
@@ -282,9 +300,16 @@ const spawnCommand = Command.make("spawn", {
         label: "task",
       });
       const title = Option.getOrUndefined(flags.title);
-      const transport = resolveSpawnTransport(process.env);
+      const directTransport = resolveSpawnTransport(process.env);
+      const transport =
+        directTransport === "standalone"
+          ? resolveSpawnTransport(process.env, yield* detectAgentInvocationAncestry())
+          : directTransport;
       if (transport === "invalid-session") {
         return yield* new AgentCliError({ detail: INCOMPLETE_SESSION_HELP });
+      }
+      if (transport === "agent-origin") {
+        return yield* new AgentCliError({ detail: AGENT_ORIGIN_HELP });
       }
       const result =
         transport === "session"

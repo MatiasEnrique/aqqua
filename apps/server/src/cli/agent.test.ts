@@ -20,7 +20,7 @@ import {
 } from "./agent.ts";
 
 it("uses the local desktop environment when spawn runs outside an agent session", () => {
-  assert.equal(resolveSpawnTransport({}), "standalone");
+  assert.equal(resolveSpawnTransport({}, "ordinary-terminal"), "standalone");
   assert.equal(
     resolveSpawnTransport({
       AQQUA_AGENT_TOKEN: "token",
@@ -29,6 +29,10 @@ it("uses the local desktop environment when spawn runs outside an agent session"
     }),
     "session",
   );
+});
+
+it("does not enter standalone mode when an agent-originated process deletes every identity variable", () => {
+  assert.equal(resolveSpawnTransport({}, "agent-session"), "agent-origin");
 });
 
 it("fails closed when only part of an agent session environment remains", () => {
