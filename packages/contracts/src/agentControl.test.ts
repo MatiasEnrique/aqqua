@@ -7,10 +7,12 @@ import {
   AgentListResponse,
   AgentRunStatus,
   AgentSpawnRequest,
+  AgentStandaloneSpawnRequest,
 } from "./agentControl.ts";
 
 const decodeAgentRunStatus = Schema.decodeUnknownSync(AgentRunStatus);
 const decodeAgentSpawnRequest = Schema.decodeUnknownSync(AgentSpawnRequest);
+const decodeAgentStandaloneSpawnRequest = Schema.decodeUnknownSync(AgentStandaloneSpawnRequest);
 const decodeAgentAwaitResponse = Schema.decodeUnknownSync(AgentAwaitResponse);
 const decodeAgentListResponse = Schema.decodeUnknownSync(AgentListResponse);
 const decodeAgentErrorResponse = Schema.decodeUnknownSync(AgentErrorResponse);
@@ -20,6 +22,21 @@ it("accepts every agent run status and rejects values outside the wire union", (
     assert.equal(decodeAgentRunStatus(status), status);
   }
   assert.throws(() => decodeAgentRunStatus("queued"));
+});
+
+it("decodes a standalone spawn with an explicit CLI working directory", () => {
+  assert.deepEqual(
+    decodeAgentStandaloneSpawnRequest({
+      profile: "implementer",
+      task: "x",
+      cwd: "/workspace/apps/server",
+    }),
+    {
+      profile: "implementer",
+      task: "x",
+      cwd: "/workspace/apps/server",
+    },
+  );
 });
 
 it("decodes request and response envelopes", () => {

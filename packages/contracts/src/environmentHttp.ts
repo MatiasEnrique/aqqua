@@ -8,6 +8,7 @@ import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
+import { AgentSpawnResponse, AgentStandaloneSpawnRequest } from "./agentControl.ts";
 import {
   AuthAccessTokenResult,
   AuthBrowserSessionRequest,
@@ -300,6 +301,12 @@ const EnvironmentOrchestrationDispatchErrors = [
   EnvironmentScopeRequiredError,
   EnvironmentInternalError,
 ] as const;
+const EnvironmentAgentSpawnErrors = [
+  EnvironmentHttpBadRequestError,
+  EnvironmentHttpConflictError,
+  EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
 
 export interface EnvironmentSessionPrincipalShape {
   readonly sessionId: AuthSessionId;
@@ -489,6 +496,15 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
+export class EnvironmentAgentHttpApi extends HttpApiGroup.make("agents").add(
+  HttpApiEndpoint.post("standaloneSpawn", "/api/agents/standalone", {
+    headers: OptionalBearerHeaders,
+    payload: AgentStandaloneSpawnRequest,
+    success: AgentSpawnResponse,
+    error: EnvironmentAgentSpawnErrors,
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
 export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   .add(
     HttpApiEndpoint.post("linkProof", "/api/connect/link-proof", {
@@ -554,4 +570,5 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
+  .add(EnvironmentAgentHttpApi)
   .add(EnvironmentConnectHttpApi) {}

@@ -11,11 +11,46 @@ import {
   type AgentApi,
   agentCommand,
   decodeServerResponse,
+  formatSpawnStarted,
   formatProfileLine,
   formatServerFailure,
   resolveText,
+  resolveSpawnTransport,
   watchTransitions,
 } from "./agent.ts";
+
+it("uses the local desktop environment when spawn runs outside an agent session", () => {
+  assert.equal(resolveSpawnTransport({}), "standalone");
+  assert.equal(
+    resolveSpawnTransport({
+      AQQUA_AGENT_TOKEN: "token",
+      AQQUA_AGENT_API: "http://127.0.0.1:5173",
+      AQQUA_THREAD_ID: "thread-1",
+    }),
+    "session",
+  );
+});
+
+it("fails closed when only part of an agent session environment remains", () => {
+  assert.equal(resolveSpawnTransport({ AQQUA_AGENT_TOKEN: "token" }), "invalid-session");
+  assert.equal(
+    resolveSpawnTransport({
+      AQQUA_AGENT_API: "http://127.0.0.1:5173",
+      AQQUA_THREAD_ID: "thread-1",
+    }),
+    "invalid-session",
+  );
+});
+
+it("does not recommend the session-only await command after a standalone spawn", () => {
+  const output = formatSpawnStarted({
+    profile: "implementer",
+    threadId: "thread-1",
+    transport: "standalone",
+  });
+  assert.include(output, "Open it in aqqua");
+  assert.notInclude(output, "agent await");
+});
 
 const withFileSystem = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
   effect.pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, Path.layer)));

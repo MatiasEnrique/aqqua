@@ -13,9 +13,10 @@
  * an MCP toolkit) hand these values to a model, so the interface is also the
  * disclosure boundary.
  *
- * `parentThreadId` is always supplied by the front-end from the authenticated
- * caller, never by the model, so an orchestrator cannot impersonate another
- * parent.
+ * Delegated operations receive `parentThreadId` from the authenticated caller,
+ * never from the model, so an orchestrator cannot impersonate another parent.
+ * Standalone CLI spawn is separately authenticated and creates an unparented
+ * thread from an explicit working directory.
  *
  * @module agent-control/Services/AgentControl
  */
@@ -91,6 +92,14 @@ export interface AgentControlShape {
    */
   readonly spawn: (input: {
     readonly parentThreadId: ThreadId;
+    readonly profile: AgentProfileName;
+    readonly task: string;
+    readonly title?: string;
+  }) => Effect.Effect<AgentHandle, AgentControlError>;
+
+  /** Start an unparented agent in the project or worktree containing `cwd`. */
+  readonly spawnStandalone: (input: {
+    readonly cwd: string;
     readonly profile: AgentProfileName;
     readonly task: string;
     readonly title?: string;

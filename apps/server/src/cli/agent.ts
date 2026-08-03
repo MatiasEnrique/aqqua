@@ -6,10 +6,10 @@
  * command the agent runs with the shell tool it already has costs nothing but the
  * one line of documentation that says it exists.
  *
- * Identity comes from the environment aqqua created for the calling provider session
- * (`AQQUA_AGENT_TOKEN`, `AQQUA_AGENT_API`), never from a flag. The server resolves the
- * parent thread from the token, so an agent cannot delegate as another thread even
- * though it writes its own command line.
+ * Inside a provider session, identity comes from the environment aqqua created
+ * (`AQQUA_AGENT_TOKEN`, `AQQUA_AGENT_API`), never from a flag. Outside a provider
+ * session, `spawn` uses a short-lived administrative credential from the local
+ * aqqua home and creates an unparented thread in the project containing the cwd.
  *
  * @module cli/agent
  */
@@ -23,6 +23,11 @@ import * as Schema from "effect/Schema";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import { AgentCliError } from "./agentCliError.ts";
+import { spawnStandaloneAgent } from "./agentStandalone.ts";
+import { projectLocationFlags } from "./config.ts";
+
+export { AgentCliError } from "./agentCliError.ts";
 import {
   AgentAwaitRequest,
   AgentAwaitResponse,
@@ -43,14 +48,27 @@ import {
 
 export const AGENT_TOKEN_ENV = "AQQUA_AGENT_TOKEN";
 export const AGENT_API_ENV = "AQQUA_AGENT_API";
+export const AGENT_THREAD_ENV = "AQQUA_THREAD_ID";
 
-export class AgentCliError extends Schema.TaggedErrorClass<AgentCliError>()("AgentCliError", {
-  detail: Schema.String,
-}) {
-  override get message(): string {
-    return this.detail;
-  }
-}
+export type AgentSpawnTransport = "session" | "standalone" | "invalid-session";
+
+export const resolveSpawnTransport = (env: NodeJS.ProcessEnv): AgentSpawnTransport => {
+  const hasToken = Boolean(env[AGENT_TOKEN_ENV]?.trim());
+  const hasApi = Boolean(env[AGENT_API_ENV]?.trim());
+  const hasThread = Boolean(env[AGENT_THREAD_ENV]?.trim());
+  if (hasToken && hasApi && hasThread) return "session";
+  if (hasToken || hasApi || hasThread) return "invalid-session";
+  return "standalone";
+};
+
+export const formatSpawnStarted = (input: {
+  readonly profile: string;
+  readonly threadId: string;
+  readonly transport: "session" | "standalone";
+}): string =>
+  input.transport === "session"
+    ? `Started ${input.profile} sub-agent ${input.threadId}. Await it with: aqqua agent await ${input.threadId}`
+    : `Started ${input.profile} agent ${input.threadId}. Open it in aqqua to follow its progress.`;
 
 const NOT_IN_SESSION_HELP = [
   "This command must run inside an aqqua agent session.",
@@ -58,6 +76,13 @@ const NOT_IN_SESSION_HELP = [
   `It reads ${AGENT_TOKEN_ENV} and ${AGENT_API_ENV} from the environment aqqua sets up for`,
   "each agent session. Those are absent here, which usually means the command was run",
   "from an ordinary terminal rather than from inside an agent's own shell.",
+].join("\n");
+
+const INCOMPLETE_SESSION_HELP = [
+  "The aqqua agent session environment is incomplete.",
+  "",
+  `Expected ${AGENT_TOKEN_ENV}, ${AGENT_API_ENV}, and ${AGENT_THREAD_ENV} together.`,
+  "Start a fresh agent terminal instead of removing or overriding these variables.",
 ].join("\n");
 
 export interface AgentApi {
@@ -229,11 +254,10 @@ const emit = (input: { readonly json: boolean; readonly value: unknown; readonly
 const cliRuntime = Layer.mergeAll(FetchHttpClient.layer, NodeFileSystem.layer);
 
 const spawnCommand = Command.make("spawn", {
+  ...projectLocationFlags,
   json: jsonFlag,
   profile: Flag.string("profile").pipe(
-    Flag.withDescription(
-      "Role to run the sub-agent as, e.g. implementer. See `aqqua agent profiles`.",
-    ),
+    Flag.withDescription("Role to run, e.g. implementer."),
     Flag.withDefault("implementer"),
   ),
   task: Flag.string("task").pipe(
@@ -245,32 +269,41 @@ const spawnCommand = Command.make("spawn", {
     Flag.optional,
   ),
   title: Flag.string("title").pipe(
-    Flag.withDescription("Optional sub-agent thread title."),
+    Flag.withDescription("Optional agent thread title."),
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Start a sub-agent on a task and return immediately."),
+  Command.withDescription("Start an agent on a task and return immediately."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const api = yield* agentApi();
       const task = yield* resolveText({
         inline: Option.getOrUndefined(flags.task),
         file: Option.getOrUndefined(flags.taskFile),
         label: "task",
       });
-      const result = yield* api.spawn({
-        profile: flags.profile,
-        task,
-        ...Option.match(flags.title, {
-          onNone: () => ({}),
-          onSome: (title) => ({ title }),
-        }),
-      });
+      const title = Option.getOrUndefined(flags.title);
+      const transport = resolveSpawnTransport(process.env);
+      if (transport === "invalid-session") {
+        return yield* new AgentCliError({ detail: INCOMPLETE_SESSION_HELP });
+      }
+      const result =
+        transport === "session"
+          ? yield* (yield* agentApi()).spawn({
+              profile: flags.profile,
+              task,
+              ...(title === undefined ? {} : { title }),
+            })
+          : yield* spawnStandaloneAgent({
+              flags,
+              profile: flags.profile,
+              task,
+              ...(title === undefined ? {} : { title }),
+            });
       const threadId = result.threadId;
       yield* emit({
         json: flags.json,
         value: result,
-        text: `Started ${flags.profile} sub-agent ${threadId}. Await it with: aqqua agent await ${threadId}`,
+        text: formatSpawnStarted({ profile: flags.profile, threadId, transport }),
       });
     }).pipe(Effect.provide(cliRuntime)),
   ),
@@ -510,7 +543,9 @@ const eventsCommand = Command.make("events", {
 );
 
 export const agentCommand = Command.make("agent").pipe(
-  Command.withDescription("Delegate work to sub-agents from inside an agent session."),
+  Command.withDescription(
+    "Start agents from a terminal or control sub-agents from an agent session.",
+  ),
   Command.withSubcommands([
     spawnCommand,
     sendCommand,

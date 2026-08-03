@@ -108,6 +108,7 @@ const agentControlLayer = it.layer(
           agentProfiles: {
             [terminalProfile]: {
               runtime: "terminal",
+              target: { kind: "driver", driver: "codex" },
               runtimeMode: "full-access",
               interactionMode: "default",
             },
@@ -137,6 +138,8 @@ agentControlLayer("AgentControl", (it) => {
     const engine = yield* OrchestrationEngineService;
     const projectId = ProjectId.make(unique("project"));
     const parentThreadId = ThreadId.make(unique("thread-orchestrator"));
+    const workspaceRoot = `/tmp/aqqua-agent-control/${unique("workspace")}`;
+    const worktreePath = `/tmp/worktree-delegation/${unique("worktree")}`;
 
     yield* engine.dispatch({
       type: "project.create",
@@ -145,7 +148,7 @@ agentControlLayer("AgentControl", (it) => {
       title: "Agent control",
       // Distinct per test: only one active project may claim a workspace root,
       // and this suite shares one database across its tests.
-      workspaceRoot: `/tmp/aqqua-agent-control/${unique("workspace")}`,
+      workspaceRoot,
       defaultModelSelection: null,
       createdAt: "2026-04-06T00:00:00.000Z",
     });
@@ -159,11 +162,11 @@ agentControlLayer("AgentControl", (it) => {
       runtimeMode: "full-access",
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       branch: "feat/delegation",
-      worktreePath: "/tmp/worktree-delegation",
+      worktreePath,
       createdAt: "2026-04-06T00:00:01.000Z",
     });
 
-    return { parentThreadId, projectId };
+    return { parentThreadId, projectId, workspaceRoot, worktreePath };
   });
 
   /** Drive the session lifecycle a provider would normally drive. */
@@ -259,7 +262,7 @@ agentControlLayer("AgentControl", (it) => {
   it.effect("spawns a sub-agent nested under its orchestrator in the same workspace", () =>
     Effect.gen(function* () {
       const agents = yield* AgentControl;
-      const { parentThreadId, projectId } = yield* makeOrchestrator();
+      const { parentThreadId, projectId, worktreePath } = yield* makeOrchestrator();
 
       const handle = yield* agents.spawn({
         parentThreadId,
@@ -272,7 +275,7 @@ agentControlLayer("AgentControl", (it) => {
       assert.equal(child.projectId, projectId);
       // Shares the orchestrator's uncommitted context.
       assert.equal(child.branch, "feat/delegation");
-      assert.equal(child.worktreePath, "/tmp/worktree-delegation");
+      assert.equal(child.worktreePath, worktreePath);
       assert.equal(child.title, "implementer: Implement the server seam");
       assert.equal(child.runtimeMode, "full-access");
 
@@ -291,6 +294,89 @@ agentControlLayer("AgentControl", (it) => {
         (started.payload as { readonly childThreadId?: string }).childThreadId,
         handle.threadId,
       );
+    }),
+  );
+
+  it.effect("spawns a standalone agent in the project containing the CLI working directory", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { projectId, workspaceRoot } = yield* makeOrchestrator();
+
+      const handle = yield* agents.spawnStandalone({
+        cwd: `${workspaceRoot}/apps/server`,
+        profile: implementer,
+        task: "Implement the standalone CLI seam",
+      });
+
+      const thread = yield* readThread(handle.threadId);
+      assert.equal(thread.parentThreadId, null);
+      assert.equal(thread.projectId, projectId);
+      assert.equal(thread.branch, null);
+      assert.equal(thread.worktreePath, null);
+      assert.equal(thread.title, "implementer: Implement the standalone CLI seam");
+      assert.ok(thread.activities.some((activity) => activity.kind === "agent.cli.started"));
+    }),
+  );
+
+  it.effect("spawns a standalone agent in the existing worktree containing the CLI cwd", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { projectId, worktreePath } = yield* makeOrchestrator();
+
+      const handle = yield* agents.spawnStandalone({
+        cwd: `${worktreePath}/apps/server`,
+        profile: implementer,
+        task: "Work in this checkout",
+      });
+
+      const thread = yield* readThread(handle.threadId);
+      assert.equal(thread.parentThreadId, null);
+      assert.equal(thread.projectId, projectId);
+      assert.equal(thread.branch, "feat/delegation");
+      assert.equal(thread.worktreePath, worktreePath);
+    }),
+  );
+
+  it.effect("keeps resolving a worktree after its last existing thread is archived", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const engine = yield* OrchestrationEngineService;
+      const { parentThreadId, projectId, worktreePath } = yield* makeOrchestrator();
+
+      yield* engine.dispatch({
+        type: "thread.archive",
+        commandId: nextCommandId(),
+        threadId: parentThreadId,
+      });
+
+      const handle = yield* agents.spawnStandalone({
+        cwd: `${worktreePath}/apps/server`,
+        profile: implementer,
+        task: "Continue in the archived thread's checkout",
+      });
+
+      const thread = yield* readThread(handle.threadId);
+      assert.equal(thread.parentThreadId, null);
+      assert.equal(thread.projectId, projectId);
+      assert.equal(thread.branch, "feat/delegation");
+      assert.equal(thread.worktreePath, worktreePath);
+    }),
+  );
+
+  it.effect("rejects a standalone spawn outside every aqqua project", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      yield* makeOrchestrator();
+
+      const failure = yield* Effect.flip(
+        agents.spawnStandalone({
+          cwd: `/tmp/not-an-aqqua-project/${unique("outside")}`,
+          profile: implementer,
+          task: "This must not start",
+        }),
+      );
+
+      assert.equal(failure._tag, "AgentWorkspaceNotFoundError");
     }),
   );
 
@@ -621,7 +707,7 @@ agentControlLayer("AgentControl", (it) => {
   it.effect("hosts a terminal-runtime sub-agent as a CLI in its own terminal", () =>
     Effect.gen(function* () {
       const agents = yield* AgentControl;
-      const { parentThreadId } = yield* makeOrchestrator();
+      const { parentThreadId, worktreePath } = yield* makeOrchestrator();
       openedTerminals.length = 0;
 
       const handle = yield* agents.spawn({
@@ -638,7 +724,7 @@ agentControlLayer("AgentControl", (it) => {
       assert.equal(opened?.threadId, handle.threadId);
       assert.equal(opened?.program, "codex");
       assert.deepEqual(opened?.args, ["Fix the failing test"]);
-      assert.equal(opened?.cwd, "/tmp/worktree-delegation");
+      assert.equal(opened?.cwd, worktreePath);
 
       // Still an ordinary nested thread, so it shows up under its orchestrator.
       const child = yield* readThread(handle.threadId);

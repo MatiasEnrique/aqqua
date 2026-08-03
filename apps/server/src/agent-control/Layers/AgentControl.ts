@@ -20,8 +20,10 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -41,6 +43,7 @@ import {
   AgentParentNotFoundError,
   AgentRecursionDeniedError,
   AgentTerminalRuntimeError,
+  AgentWorkspaceNotFoundError,
 } from "../Errors.ts";
 import { type AgentInstanceCandidate, resolveAgentProfile } from "../Profiles.ts";
 import {
@@ -118,6 +121,8 @@ const make = Effect.gen(function* () {
   const settings = yield* ServerSettingsService;
   const terminals = yield* TerminalManager.TerminalManager;
   const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
@@ -337,28 +342,29 @@ const make = Effect.gen(function* () {
     return snapshot.terminalId;
   });
 
-  const spawn: AgentControlShape["spawn"] = Effect.fn("AgentControl.spawn")(function* (input) {
-    const parent = yield* requireOrchestrator(input.parentThreadId);
-
-    const existing = yield* listSubAgentShells("spawn", input.parentThreadId);
-    const live = existing.filter((thread) => agentRunStatusFromThread(thread) === "running");
-    if (live.length >= MAX_LIVE_SUB_AGENTS_PER_PARENT) {
-      return yield* new AgentConcurrencyLimitError({
-        parentThreadId: input.parentThreadId,
-        limit: MAX_LIVE_SUB_AGENTS_PER_PARENT,
-      });
-    }
-
+  const launchAgent = Effect.fn("AgentControl.launchAgent")(function* (input: {
+    readonly operation: string;
+    readonly projectId: ProjectId;
+    readonly projectWorkspaceRoot: string;
+    readonly projectDefaultModelSelection: Parameters<
+      typeof resolveAgentProfile
+    >[0]["projectDefaultModelSelection"];
+    readonly parentThreadId: ThreadId | null;
+    readonly branch: string | null;
+    readonly worktreePath: string | null;
+    readonly profile: AgentProfileName;
+    readonly task: string;
+    readonly title?: string;
+  }) {
     const serverSettings = yield* settings.getSettings.pipe(
-      Effect.catchCause(dispatchFailure("spawn")),
+      Effect.catchCause(dispatchFailure(input.operation)),
     );
-    const project = yield* readProject("spawn", parent.projectId);
     const resolved = yield* Effect.fromResult(
       resolveAgentProfile({
         profile: input.profile,
         profiles: serverSettings.agentProfiles,
         instances: yield* instanceCandidates,
-        projectDefaultModelSelection: project?.defaultModelSelection ?? null,
+        projectDefaultModelSelection: input.projectDefaultModelSelection,
       }),
     );
 
@@ -366,60 +372,70 @@ const make = Effect.gen(function* () {
     const createdAt = yield* nowIso;
     const title = input.title ?? deriveTitle(resolved.titlePrefix, input.task);
 
-    yield* dispatch("spawn", {
+    yield* dispatch(input.operation, {
       type: "thread.create",
       commandId: yield* commandId("thread-create"),
       threadId: childThreadId,
-      projectId: parent.projectId,
-      parentThreadId: input.parentThreadId,
+      projectId: input.projectId,
+      ...(input.parentThreadId === null ? {} : { parentThreadId: input.parentThreadId }),
       title,
       modelSelection: resolved.modelSelection,
       runtimeMode: resolved.runtimeMode,
       interactionMode: resolved.interactionMode,
-      // Share the orchestrator's workspace so uncommitted context is visible to
-      // the sub-agent. This is why the concurrency cap above matters.
-      branch: parent.branch,
-      worktreePath: parent.worktreePath,
+      branch: input.branch,
+      worktreePath: input.worktreePath,
       createdAt,
     });
 
-    // Everything after creation is compensated: a sub-agent thread that exists
+    // Everything after creation is compensated: an agent thread that exists
     // but never got a turn is a dead row in the sidebar.
     const launch = Effect.gen(function* () {
-      // Durable delegation marker. Recursion prevention and any future
-      // capability gating read this, so it must land before the sub-agent's
-      // provider session can start.
-      yield* appendActivity({
-        operation: "spawn",
-        threadId: childThreadId,
-        kind: "agent.parent.linked",
-        summary: "Started by an orchestrator",
-        tone: "info",
-        payload: {
-          parentThreadId: input.parentThreadId,
-          profile: input.profile,
-          runtime: resolved.runtime,
-        },
-        createdAt,
-      });
-      yield* appendActivity({
-        operation: "spawn",
-        threadId: input.parentThreadId,
-        kind: "agent.child.started",
-        summary: `Delegated to ${resolved.titlePrefix}`,
-        tone: "tool",
-        payload: {
-          childThreadId,
-          profile: input.profile,
-          runtime: resolved.runtime,
-          title,
-        },
-        createdAt,
-      });
+      if (input.parentThreadId === null) {
+        yield* appendActivity({
+          operation: input.operation,
+          threadId: childThreadId,
+          kind: "agent.cli.started",
+          summary: "Started from the aqqua CLI",
+          tone: "info",
+          payload: { profile: input.profile, runtime: resolved.runtime },
+          createdAt,
+        });
+      } else {
+        // Durable delegation marker. Recursion prevention and any future
+        // capability gating read this, so it must land before the sub-agent's
+        // provider session can start.
+        yield* appendActivity({
+          operation: input.operation,
+          threadId: childThreadId,
+          kind: "agent.parent.linked",
+          summary: "Started by an orchestrator",
+          tone: "info",
+          payload: {
+            parentThreadId: input.parentThreadId,
+            profile: input.profile,
+            runtime: resolved.runtime,
+          },
+          createdAt,
+        });
+        yield* appendActivity({
+          operation: input.operation,
+          threadId: input.parentThreadId,
+          kind: "agent.child.started",
+          summary: `Delegated to ${resolved.titlePrefix}`,
+          tone: "tool",
+          payload: {
+            childThreadId,
+            profile: input.profile,
+            runtime: resolved.runtime,
+            title,
+          },
+          createdAt,
+        });
+      }
       if (resolved.runtime === "terminal") {
         return yield* openAgentTerminal({
           childThreadId,
-          cwd: parent.worktreePath ?? project?.workspaceRoot ?? process.cwd(),
+          cwd: input.worktreePath ?? input.projectWorkspaceRoot,
           program: driverBinaryPath(
             serverSettings.providers as Record<
               string,
@@ -431,7 +447,7 @@ const make = Effect.gen(function* () {
         });
       }
       yield* startTurn({
-        operation: "spawn",
+        operation: input.operation,
         threadId: childThreadId,
         text: input.task,
         runtimeMode: resolved.runtimeMode,
@@ -469,6 +485,108 @@ const make = Effect.gen(function* () {
       // from the UI on demand, like any other thread.
       terminalId,
     } satisfies AgentHandle;
+  });
+
+  const spawn: AgentControlShape["spawn"] = Effect.fn("AgentControl.spawn")(function* (input) {
+    const parent = yield* requireOrchestrator(input.parentThreadId);
+
+    const existing = yield* listSubAgentShells("spawn", input.parentThreadId);
+    const live = existing.filter((thread) => agentRunStatusFromThread(thread) === "running");
+    if (live.length >= MAX_LIVE_SUB_AGENTS_PER_PARENT) {
+      return yield* new AgentConcurrencyLimitError({
+        parentThreadId: input.parentThreadId,
+        limit: MAX_LIVE_SUB_AGENTS_PER_PARENT,
+      });
+    }
+
+    const project = yield* readProject("spawn", parent.projectId);
+    if (project === null) {
+      return yield* new AgentDispatchError({
+        operation: "spawn",
+        detail: "the orchestrator's project no longer exists.",
+      });
+    }
+    return yield* launchAgent({
+      operation: "spawn",
+      projectId: parent.projectId,
+      projectWorkspaceRoot: project.workspaceRoot,
+      projectDefaultModelSelection: project.defaultModelSelection,
+      parentThreadId: input.parentThreadId,
+      branch: parent.branch,
+      worktreePath: parent.worktreePath,
+      profile: input.profile,
+      task: input.task,
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
+  });
+
+  const spawnStandalone: AgentControlShape["spawnStandalone"] = Effect.fn(
+    "AgentControl.spawnStandalone",
+  )(function* (input) {
+    const requestedCwd = path.resolve(input.cwd);
+    const cwd = yield* fileSystem
+      .realPath(requestedCwd)
+      .pipe(Effect.orElseSucceed(() => requestedCwd));
+    const [snapshot, archivedSnapshot] = yield* Effect.all([
+      projection.getShellSnapshot(),
+      projection.getArchivedShellSnapshot(),
+    ]).pipe(Effect.catchCause(dispatchFailure("spawnStandalone")));
+    const isWithin = (root: string) => {
+      const relative = path.relative(path.resolve(root), cwd);
+      return (
+        relative === "" ||
+        (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+      );
+    };
+    const projectById = new Map(snapshot.projects.map((project) => [project.id, project]));
+    const candidates = [
+      ...[...snapshot.threads, ...archivedSnapshot.threads].flatMap((thread) =>
+        thread.worktreePath !== null && isWithin(thread.worktreePath)
+          ? [
+              {
+                root: path.resolve(thread.worktreePath),
+                projectId: thread.projectId,
+                branch: thread.branch,
+                worktreePath: thread.worktreePath,
+                priority: 1,
+              },
+            ]
+          : [],
+      ),
+      ...snapshot.projects.flatMap((project) =>
+        isWithin(project.workspaceRoot)
+          ? [
+              {
+                root: path.resolve(project.workspaceRoot),
+                projectId: project.id,
+                branch: null,
+                worktreePath: null,
+                priority: 0,
+              },
+            ]
+          : [],
+      ),
+    ].toSorted(
+      (left, right) => right.root.length - left.root.length || right.priority - left.priority,
+    );
+    const target = candidates[0];
+    const project = target === undefined ? undefined : projectById.get(target.projectId);
+    if (target === undefined || project === undefined) {
+      return yield* new AgentWorkspaceNotFoundError({});
+    }
+
+    return yield* launchAgent({
+      operation: "spawnStandalone",
+      projectId: project.id,
+      projectWorkspaceRoot: project.workspaceRoot,
+      projectDefaultModelSelection: project.defaultModelSelection,
+      parentThreadId: null,
+      branch: target.branch,
+      worktreePath: target.worktreePath,
+      profile: input.profile,
+      task: input.task,
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
   });
 
   const send: AgentControlShape["send"] = Effect.fn("AgentControl.send")(function* (input) {
@@ -725,6 +843,7 @@ const make = Effect.gen(function* () {
 
   return {
     spawn,
+    spawnStandalone,
     send,
     awaitTurn,
     interrupt,

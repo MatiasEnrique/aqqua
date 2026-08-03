@@ -27,6 +27,14 @@ Install the latest desktop app from this repository's releases, or from your fav
 
 No separate CLI or npm installation is required for desktop-managed agents. To invoke the bundled command from a separate terminal, add `~/.aqqua/bin` to your `PATH`.
 
+With the desktop app running, start an agent from any directory inside an aqqua project or one of its existing worktrees:
+
+```bash
+aqqua agent spawn --profile implementer --task "Fix the failing test"
+```
+
+The new thread appears in the desktop app. From a project directory it uses the project root; from an existing aqqua worktree it uses that worktree and branch.
+
 #### Windows (`winget`)
 
 ```bash

@@ -10,6 +10,12 @@ export const AgentSpawnRequest = Schema.Struct({
 });
 export type AgentSpawnRequest = typeof AgentSpawnRequest.Type;
 
+export const AgentStandaloneSpawnRequest = Schema.Struct({
+  ...AgentSpawnRequest.fields,
+  cwd: Schema.String,
+});
+export type AgentStandaloneSpawnRequest = typeof AgentStandaloneSpawnRequest.Type;
+
 export const AgentSpawnResponse = Schema.Struct({
   threadId: Schema.String,
   profile: Schema.String,

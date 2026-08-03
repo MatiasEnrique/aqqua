@@ -52,6 +52,15 @@ export class AgentParentNotFoundError extends Schema.TaggedErrorClass<AgentParen
   }
 }
 
+export class AgentWorkspaceNotFoundError extends Schema.TaggedErrorClass<AgentWorkspaceNotFoundError>()(
+  "AgentWorkspaceNotFoundError",
+  {},
+) {
+  override get message(): string {
+    return "The current directory is not inside an aqqua project or one of its worktrees. Add the project in aqqua or run the command from one of its worktrees.";
+  }
+}
+
 export class AgentNotOwnedError extends Schema.TaggedErrorClass<AgentNotOwnedError>()(
   "AgentNotOwnedError",
   {
@@ -135,6 +144,7 @@ export type AgentControlError =
   | AgentProfileUnknownError
   | AgentProfileUnavailableError
   | AgentParentNotFoundError
+  | AgentWorkspaceNotFoundError
   | AgentNotOwnedError
   | AgentRecursionDeniedError
   | AgentConcurrencyLimitError
