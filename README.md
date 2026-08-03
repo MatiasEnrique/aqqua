@@ -1,6 +1,6 @@
 # aqqua
 
-aqqua is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app, [web app](https://app.aqqua.codes) and [Electron-based desktop app](https://aqqua.codes).
+aqqua is an "agent harness control surface". Its installable desktop app runs coding agents on your machine, and its mobile companion lets you control them remotely.
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, aqqua can control them.
 
@@ -21,21 +21,11 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 > - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 
-### Try it out (install-free)
-
-The easiest way to test aqqua is to run the server in your terminal:
-
-```bash
-npx aqqua@latest
-```
-
-This will launch aqqua's backend on your machine as well as the local web app to control your agents.
-
-Tip: Use `npx aqqua@latest --help` for the full CLI reference.
-
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/aqqua/releases), or from your favorite package registry:
+Install the latest desktop app from this repository's releases, or from your favorite package registry. On first launch, the packaged app installs its bundled `aqqua` command into the aqqua home directory and exposes it to the agents it runs.
+
+No separate CLI or npm installation is required for desktop-managed agents. To invoke the bundled command from a separate terminal, add `~/.aqqua/bin` to your `PATH`.
 
 #### Windows (`winget`)
 

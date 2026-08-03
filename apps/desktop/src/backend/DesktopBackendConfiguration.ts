@@ -586,7 +586,27 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   // for the bootstrap envelope.
   const lastSlash = preflight.nodePath.lastIndexOf("/");
   const nodeBinDir = lastSlash > 0 ? preflight.nodePath.slice(0, lastSlash) : "/usr/bin";
-  const launchPath = `${nodeBinDir}:${WSL_SERVER_SYSTEM_PATH}:${preflight.resolvedPath}`;
+  const installedCliDirectory = environment.isPackaged
+    ? yield* wslEnvironment.installDesktopCli({
+        distro: distroForConfig,
+        nodePath: preflight.nodePath,
+        entryPath: preflight.linuxEntryPath,
+      })
+    : Option.none<string>();
+  if (environment.isPackaged && Option.isNone(installedCliDirectory)) {
+    yield* Effect.logWarning("Could not install the aqqua CLI inside WSL.", {
+      distro: distroForConfig ?? "default",
+    });
+  }
+  const launchPath = [
+    nodeBinDir,
+    ...Option.match(installedCliDirectory, {
+      onNone: () => [] as ReadonlyArray<string>,
+      onSome: (directoryPath) => [directoryPath],
+    }),
+    WSL_SERVER_SYSTEM_PATH,
+    preflight.resolvedPath,
+  ].join(":");
 
   return {
     ...baseConfig,

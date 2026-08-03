@@ -23,6 +23,7 @@ const PROBE_TIMEOUT = Duration.seconds(10);
 const TOOLCHAIN_TIMEOUT = Duration.seconds(10);
 const BUILD_TIMEOUT = Duration.minutes(5);
 const USER_HOME_TIMEOUT = Duration.seconds(5);
+const CLI_INSTALL_TIMEOUT = Duration.seconds(5);
 const TOOLCHAIN_TRANSPORT_RETRY_LIMIT = 12;
 const BUILD_TRANSPORT_RETRY_LIMIT = 2;
 
@@ -79,6 +80,11 @@ export class DesktopWslEnvironment extends Context.Service<
     // (the backend can be listening for 30+ seconds before wslhost starts
     // forwarding 127.0.0.1:port to WSL-side localhost).
     readonly getDistroIp: (distro: string | null) => Effect.Effect<Option.Option<string>>;
+    readonly installDesktopCli: (input: {
+      readonly distro: string | null;
+      readonly nodePath: string;
+      readonly entryPath: string;
+    }) => Effect.Effect<Option.Option<string>>;
     readonly ensureNodePty: (
       distro: string | null,
       windowsRepoRoot: string,
@@ -215,6 +221,42 @@ const runWslShell = (
 };
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+export const createWslDesktopCliShim = (input: {
+  readonly nodePath: string;
+  readonly entryPath: string;
+}): string => `#!/bin/sh
+exec ${shellQuote(input.nodePath)} ${shellQuote(input.entryPath)} "$@"
+`;
+
+export const buildWslDesktopCliInstallScript = (input: {
+  readonly nodePath: string;
+  readonly entryPath: string;
+}): string => `set -eu
+cli_dir="\${AQQUA_HOME:-$HOME/.aqqua}/bin"
+cli_path="$cli_dir/aqqua"
+temp_path="$cli_dir/.aqqua.$$"
+mkdir -p "$cli_dir"
+trap 'rm -f "$temp_path"' EXIT
+printf '%s' ${shellQuote(createWslDesktopCliShim(input))} > "$temp_path"
+chmod 755 "$temp_path"
+mv -f "$temp_path" "$cli_path"
+trap - EXIT
+printf '%s' "$cli_dir"
+`;
+
+const installDesktopCliImpl = (input: {
+  readonly distro: string | null;
+  readonly nodePath: string;
+  readonly entryPath: string;
+}): Effect.Effect<Option.Option<string>, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  runWslShell(input.distro, buildWslDesktopCliInstallScript(input), CLI_INSTALL_TIMEOUT).pipe(
+    Effect.map((result) => {
+      if (result.exitCode !== 0) return Option.none<string>();
+      const directoryPath = result.stdout.trim().split(/\r?\n/u).at(-1) ?? "";
+      return directoryPath.startsWith("/") ? Option.some(directoryPath) : Option.none<string>();
+    }),
+  );
 
 const NODE_PTY_PREBUILD_MISSING_EXIT_CODE = 4;
 
@@ -774,6 +816,11 @@ export interface DesktopWslEnvironmentTestStub {
   readonly windowsToWslPath?: (distro: string | null, windowsPath: string) => Option.Option<string>;
   readonly getUserHome?: (distro: string | null) => Option.Option<string>;
   readonly getDistroIp?: (distro: string | null) => Option.Option<string>;
+  readonly installDesktopCli?: (input: {
+    readonly distro: string | null;
+    readonly nodePath: string;
+    readonly entryPath: string;
+  }) => Option.Option<string>;
   readonly ensureNodePty?: (
     distro: string | null,
     windowsRepoRoot: string,
@@ -796,6 +843,8 @@ export const layerTest = (stub: DesktopWslEnvironmentTestStub = {}) => {
         Effect.succeed(stub.windowsToWslPath?.(distro, windowsPath) ?? Option.none()),
       getUserHome: (distro) => Effect.succeed(stub.getUserHome?.(distro) ?? Option.none<string>()),
       getDistroIp: (distro) => Effect.succeed(stub.getDistroIp?.(distro) ?? Option.none<string>()),
+      installDesktopCli: (input) =>
+        Effect.succeed(stub.installDesktopCli?.(input) ?? Option.none<string>()),
       ensureNodePty: (distro, windowsRepoRoot, options) =>
         Effect.succeed(
           stub.ensureNodePty?.(distro, windowsRepoRoot, options) ?? {
@@ -878,6 +927,10 @@ export const layer = Layer.effect(
       windowsToWslPath,
       getUserHome,
       getDistroIp,
+      installDesktopCli: (input) =>
+        provideSpawner(installDesktopCliImpl(input)).pipe(
+          Effect.withSpan("desktop.wsl.installDesktopCli"),
+        ),
       ensureNodePty: (distro, windowsRepoRoot, options) =>
         provideSpawner(ensureNodePtyImpl(distro, windowsRepoRoot, windowsToWslPath, options)).pipe(
           Effect.withSpan("desktop.wsl.ensureNodePty"),

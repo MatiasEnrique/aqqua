@@ -12,6 +12,7 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopCliInstaller from "../cli/DesktopCliInstaller.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
@@ -60,8 +61,11 @@ export class DesktopDevelopmentBackendPortRequiredError extends Schema.TaggedErr
 const { logInfo: logBootstrapInfo, logWarning: logBootstrapWarning } =
   DesktopObservability.makeComponentLogger("desktop-bootstrap");
 
-const { logInfo: logStartupInfo, logError: logStartupError } =
-  DesktopObservability.makeComponentLogger("desktop-startup");
+const {
+  logInfo: logStartupInfo,
+  logWarning: logStartupWarning,
+  logError: logStartupError,
+} = DesktopObservability.makeComponentLogger("desktop-startup");
 
 const resolveDesktopBackendPort = Effect.fn("resolveDesktopBackendPort")(function* (
   configuredPort: Option.Option<number>,
@@ -227,6 +231,26 @@ const startup = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
 
   yield* shellEnvironment.installIntoProcess;
+  if (environment.isPackaged) {
+    yield* DesktopCliInstaller.installDesktopCli({
+      baseDirectoryPath: environment.baseDir,
+      electronExecutablePath: DesktopCliInstaller.resolveDesktopCliExecutablePath({
+        platform: environment.platform,
+        electronExecutablePath: process.execPath,
+        appImagePath: process.env.APPIMAGE,
+      }),
+      backendEntryPath: environment.backendEntryPath,
+      platform: environment.platform,
+      env: process.env,
+    }).pipe(
+      Effect.tap((installed) =>
+        logStartupInfo("installed desktop CLI", { shimPath: installed.shimPath }),
+      ),
+      Effect.catchCause((cause) =>
+        logStartupWarning("could not install desktop CLI", { cause: Cause.pretty(cause) }),
+      ),
+    );
+  }
   const userDataPath = yield* appIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });

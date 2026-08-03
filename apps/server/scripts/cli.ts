@@ -31,11 +31,6 @@ import {
 
 interface PackageJson {
   name: string;
-  repository: {
-    type: string;
-    url: string;
-    directory: string;
-  };
   bin: Record<string, string>;
   type: string;
   version: string;
@@ -239,7 +234,6 @@ const publishCmd = Command.make(
           const workspaceOverrides = workspaceConfig.overrides ?? {};
           const pkg: PackageJson = {
             name: serverPackageJson.name,
-            repository: serverPackageJson.repository,
             bin: serverPackageJson.bin,
             type: serverPackageJson.type,
             version,

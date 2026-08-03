@@ -257,6 +257,14 @@ describe("DesktopBackendConfiguration", () => {
                   windowsToWslPath: () => Option.some(linuxEntryPath),
                   ensureNodePty: () => ({ ok: true, nodePath, resolvedPath }),
                   getDistroIp: () => Option.some("172.27.0.99"),
+                  installDesktopCli: (input) => {
+                    assert.deepEqual(input, {
+                      distro: "Ubuntu",
+                      nodePath,
+                      entryPath: linuxEntryPath,
+                    });
+                    return Option.some("/home/test user/.aqqua/bin");
+                  },
                 }),
               ),
               Layer.provideMerge(
@@ -278,7 +286,7 @@ describe("DesktopBackendConfiguration", () => {
           "Ubuntu",
           "--exec",
           "env",
-          "PATH=/home/test user's/.nvm/versions/node/v22.0.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/test user/bin:/opt/test's tools/bin:/usr/bin:/bin",
+          "PATH=/home/test user's/.nvm/versions/node/v22.0.0/bin:/home/test user/.aqqua/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/test user/bin:/opt/test's tools/bin:/usr/bin:/bin",
           nodePath,
           linuxEntryPath,
           "--bootstrap-fd",

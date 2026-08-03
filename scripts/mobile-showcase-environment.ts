@@ -108,7 +108,7 @@ export const SHOWCASE_PROJECTS = [
     id: "aqqua",
     title: "aqqua",
     directory: "aqqua",
-    repositoryUrl: "https://github.com/pingdotgg/aqqua.git",
+    repositoryUrl: "https://github.com/pingdotgg/t3code.git",
     favicon: PROJECT_FAVICONS.aqqua,
   },
   {
@@ -287,7 +287,7 @@ async function seedAqquaWorkspace(workspaceRoot: string): Promise<void> {
   );
   await initializeRepository({
     workspaceRoot,
-    repositoryUrl: "https://github.com/pingdotgg/aqqua.git",
+    repositoryUrl: "https://github.com/pingdotgg/t3code.git",
     commitMessage: "Show connected environments",
   });
   await runGit(workspaceRoot, ["checkout", "-b", "feat/remote-command-center"]);

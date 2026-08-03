@@ -10,7 +10,9 @@ import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  buildWslDesktopCliInstallScript,
   buildWslNodeEnvPreamble,
+  createWslDesktopCliShim,
   DesktopWslDistroListError,
   formatMissingToolsReason,
   formatNodePtyProbeFailureReason,
@@ -23,6 +25,28 @@ import {
 } from "./DesktopWslEnvironment.ts";
 
 const encoder = new TextEncoder();
+
+describe("buildWslDesktopCliInstallScript", () => {
+  it("quotes the bundled Node and server paths in the installed launcher", () => {
+    const script = buildWslDesktopCliInstallScript({
+      nodePath: "/home/test user's/node",
+      entryPath: "/mnt/c/Program Files/aqqua's/app.asar.unpacked/apps/server/dist/bin.mjs",
+    });
+
+    expect(script).toContain('cli_dir="${AQQUA_HOME:-$HOME/.aqqua}/bin"');
+    expect(
+      createWslDesktopCliShim({
+        nodePath: "/home/test user's/node",
+        entryPath: "/mnt/c/Program Files/aqqua's/app.asar.unpacked/apps/server/dist/bin.mjs",
+      }),
+    ).toBe(
+      "#!/bin/sh\n" +
+        `exec '/home/test user'\\''s/node' '/mnt/c/Program Files/aqqua'\\''s/app.asar.unpacked/apps/server/dist/bin.mjs' "$@"\n`,
+    );
+    expect(script).toContain("chmod 755");
+    expect(script).toContain("mv -f");
+  });
+});
 
 const makeDistroListSpawner = (result: { readonly stdout?: string; readonly exitCode?: number }) =>
   ChildProcessSpawner.make(() =>

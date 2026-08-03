@@ -962,7 +962,7 @@ central reason this design is small.
    schemas to every orchestrator turn plus the timeout work in §5.3.
 3. **Fork destination.** `gh` is authenticated as `matias-enrique-ciber`, which
    owns no `aqqua` fork, and no local fork checkout exists. This checkout's
-   `origin` still points at `pingdotgg/aqqua`. The fork URL/owner is needed
+   `origin` still points at the upstream `pingdotgg/t3code`. The fork URL/owner is needed
    before this branch can be pushed.
 4. **`agentProfiles` UI.** Milestone 1 assumes hand-edited `settings.json` with a
    sane fallback. A settings panel is unscoped.
