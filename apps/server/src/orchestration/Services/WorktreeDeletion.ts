@@ -54,6 +54,11 @@ export interface WorktreeDeletionDeps {
     input: Pick<VcsDeleteWorktreeInput, "cwd" | "path">,
   ) => Effect.Effect<VcsInspectWorktreeRemovalResult, GitCommandError>;
   readonly removeWorktree: (input: VcsDeleteWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly deleteLocalBranch?: (input: {
+    readonly cwd: string;
+    readonly refName: string;
+    readonly expectedHeadCommit: string;
+  }) => Effect.Effect<void, GitCommandError>;
   /**
    * Authoritative membership snapshot: live + archived, non-deleted shells.
    * Re-read after each delete wave. A successful saga ends only after a final
@@ -102,12 +107,6 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
     cwd: input.cwd,
     path: input.path,
   });
-  if (inspection.availability === "not_worktree") {
-    return {
-      status: "rejected" as const,
-      reason: "not_worktree" as const,
-    };
-  }
 
   return yield* deps.pathCoordination.withDeletion(
     input.path,
@@ -166,12 +165,15 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
       const preRemovePartial = yield* drainMembers("worktree-thread-delete", "not_attempted");
       if (preRemovePartial !== null) return preRemovePartial;
 
-      const worktreeAlreadyMissing = inspection.availability === "missing";
-      if (worktreeAlreadyMissing) {
+      if (inspection.availability !== "available") {
         return {
           status: "completed" as const,
           deletedThreadIds,
           worktreeRemoval: "already_missing" as const,
+          ...(inspection.availability === "not_worktree"
+            ? { preservedUnverifiedPath: true as const }
+            : {}),
+          ...(input.deleteBranch ? { branchRemoval: "unavailable" as const } : {}),
         };
       }
 
@@ -194,15 +196,53 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
         };
       }
 
+      let branchFailure: GitCommandError | null = null;
+      let branchRemoval: "removed" | "unavailable" | null = null;
+      if (input.deleteBranch) {
+        if (
+          inspection.refName === null ||
+          inspection.headCommit === null ||
+          deps.deleteLocalBranch === undefined
+        ) {
+          branchRemoval = "unavailable";
+        } else {
+          const branchResult = yield* deps
+            .deleteLocalBranch({
+              cwd: input.cwd,
+              refName: inspection.refName,
+              expectedHeadCommit: inspection.headCommit,
+            })
+            .pipe(Effect.result);
+          if (Result.isFailure(branchResult)) {
+            branchFailure = branchResult.failure;
+          } else {
+            branchRemoval = "removed";
+          }
+        }
+      }
+
       // Stragglers that were already durable before the fence are still drained
       // here; fence-held creates cannot become durable mid-saga.
       const postRemovePartial = yield* drainMembers("worktree-thread-delete-straggler", "removed");
       if (postRemovePartial !== null) return postRemovePartial;
 
+      if (branchFailure !== null) {
+        return {
+          status: "partial" as const,
+          stage: "branch" as const,
+          deletedThreadIds,
+          retryable: false,
+          detail: branchFailure.message,
+          worktreeRemoval: "removed" as const,
+          branchRemoval: "failed" as const,
+        };
+      }
+
       return {
         status: "completed" as const,
         deletedThreadIds,
         worktreeRemoval: "removed" as const,
+        ...(branchRemoval === null ? {} : { branchRemoval }),
       };
     }),
     (result): WorktreePathDeletionRelease => releaseOutcomeForDeleteResult(result),

@@ -2054,6 +2054,7 @@ const makeWsRpcLayer = (
                 inspectWorktreeRemoval: (inspectInput) =>
                   gitWorkflow.inspectWorktreeRemoval(inspectInput),
                 removeWorktree: (removeInput) => gitWorkflow.removeWorktree(removeInput),
+                deleteLocalBranch: (branchInput) => gitWorkflow.deleteLocalBranch(branchInput),
                 listMemberThreads: (worktreePath) =>
                   Effect.gen(function* () {
                     const [live, archived] = yield* Effect.all([
@@ -2106,7 +2107,10 @@ const makeWsRpcLayer = (
               // Close terminals / refresh VCS whenever the filesystem is gone,
               // including post-remove conversation partials.
               const filesystemGone =
-                result.status === "completed" ||
+                (result.status === "completed" &&
+                  result.preservedUnverifiedPath !== true &&
+                  (result.worktreeRemoval === "removed" ||
+                    result.worktreeRemoval === "already_missing")) ||
                 (result.status === "partial" && result.worktreeRemoval === "removed");
               if (filesystemGone) {
                 yield* terminalManager

@@ -156,6 +156,7 @@ describe("WORKTREE_DELETION_BOUNDARY", () => {
       membership: "server-at-execution-time",
       threadDelete: "server-thread-delete",
       worktreeRemoval: "server-after-thread-delete",
+      localBranchRemoval: "server-after-worktree-removal",
     });
     expect(WORKTREE_DELETION_BOUNDARY.membership).not.toBe("client-snapshot");
     expect(WORKTREE_DELETION_BOUNDARY.threadDelete).not.toBe("client-sequential-roots");

@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -1333,6 +1334,61 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* driver.removeWorktree({ cwd, path: worktreePath });
         const fileSystem = yield* FileSystem.FileSystem;
         assert.equal(yield* fileSystem.exists(worktreePath), false);
+      }),
+    );
+
+    it.effect("deletes only the inspected local branch after its worktree is removed", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "delete-local-branch",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const refName = "feature/delete-local-only";
+
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: refName,
+        });
+        const headCommit = yield* git(worktreePath, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["update-ref", `refs/remotes/origin/${refName}`, headCommit]);
+        yield* driver.removeWorktree({ cwd, path: worktreePath });
+
+        yield* driver.deleteLocalBranch({ cwd, refName, expectedHeadCommit: headCommit });
+
+        assert.notInclude(yield* driver.listLocalBranchNames(cwd), refName);
+        assert.equal(yield* git(cwd, ["rev-parse", `refs/remotes/origin/${refName}`]), headCommit);
+      }),
+    );
+
+    it.effect("keeps a local branch that moved after worktree inspection", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const refName = "feature/moved-after-inspection";
+        const inspectedHeadCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["branch", refName]);
+        yield* writeTextFile(cwd, "moved.txt", "branch moved\n");
+        yield* git(cwd, ["add", "moved.txt"]);
+        yield* git(cwd, ["commit", "-m", "move branch target"]);
+        yield* git(cwd, ["branch", "--force", refName, "HEAD"]);
+
+        const result = yield* driver
+          .deleteLocalBranch({
+            cwd,
+            refName,
+            expectedHeadCommit: inspectedHeadCommit,
+          })
+          .pipe(Effect.result);
+
+        assert.isTrue(Result.isFailure(result));
+        assert.include(yield* driver.listLocalBranchNames(cwd), refName);
       }),
     );
   });

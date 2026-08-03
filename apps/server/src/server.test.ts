@@ -5199,6 +5199,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 workingTreeStatus: "clean",
               }),
             removeWorktree: () => Effect.void,
+            deleteLocalBranch: () => Effect.void,
             createRef: (input) => Effect.succeed({ refName: input.refName }),
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
           },
@@ -5343,12 +5344,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             cwd: "/tmp/repo",
             path: "/tmp/wt",
             force: true,
+            deleteBranch: true,
           }),
         ),
       );
       assert.equal(deleteWorktreeResult.status, "completed");
       if (deleteWorktreeResult.status === "completed") {
         assert.equal(deleteWorktreeResult.worktreeRemoval, "removed");
+        assert.equal(deleteWorktreeResult.branchRemoval, "removed");
       }
 
       yield* Effect.scoped(

@@ -255,6 +255,12 @@ export class GitVcsDriver extends Context.Service<
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
+    /** Atomically delete one local branch only when it still points at the inspected commit. */
+    readonly deleteLocalBranch: (input: {
+      readonly cwd: string;
+      readonly refName: string;
+      readonly expectedHeadCommit: string;
+    }) => Effect.Effect<void, GitCommandError>;
     readonly inspectWorktreeRemoval: (
       input: VcsInspectWorktreeRemovalInput,
     ) => Effect.Effect<VcsInspectWorktreeRemovalResult, GitCommandError>;

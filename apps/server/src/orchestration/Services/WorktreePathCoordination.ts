@@ -541,8 +541,10 @@ export const layer = Layer.succeed(WorktreePathCoordination, WorktreePathCoordin
 export function releaseOutcomeForDeleteResult(result: {
   readonly status: string;
   readonly worktreeRemoval?: string;
+  readonly preservedUnverifiedPath?: boolean;
 }): WorktreePathDeletionRelease {
   if (result.status === "completed") {
+    if (result.preservedUnverifiedPath === true) return "kept";
     return result.worktreeRemoval === "removed" || result.worktreeRemoval === "already_missing"
       ? "removed"
       : "kept";

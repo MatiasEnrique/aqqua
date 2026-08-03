@@ -473,4 +473,118 @@ describe("deleteWorktreeOwned", () => {
       expect(releaseOutcomeForDeleteResult(result)).toBe("kept");
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
+
+  it.effect("deletes the inspected local branch only after removing its worktree", () =>
+    Effect.gen(function* () {
+      const coordination = yield* WorktreePathCoordination;
+      const calls: string[] = [];
+      const result = yield* deleteWorktreeOwned(
+        { cwd: "/tmp/repo", path: "/tmp/wt-with-branch", force: true, deleteBranch: true },
+        {
+          pathCoordination: coordination,
+          inspectWorktreeRemoval: () =>
+            Effect.succeed({
+              ...availableInspection,
+              refName: "feature/delete-with-worktree",
+              headCommit: "abc123",
+            }),
+          removeWorktree: () =>
+            Effect.sync(() => {
+              calls.push("worktree");
+            }),
+          deleteLocalBranch: (input) =>
+            Effect.sync(() => {
+              calls.push(`branch:${input.refName}:${input.expectedHeadCommit}`);
+            }),
+          listMemberThreads: () => Effect.succeed([]),
+          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
+        },
+      );
+
+      expect(result).toEqual({
+        status: "completed",
+        deletedThreadIds: [],
+        worktreeRemoval: "removed",
+        branchRemoval: "removed",
+      });
+      expect(calls).toEqual(["worktree", "branch:feature/delete-with-worktree:abc123"]);
+    }).pipe(Effect.provide(WorktreePathCoordinationLive)),
+  );
+
+  it.effect(
+    "cleans stale conversations without deleting an unverified filesystem path or branch",
+    () =>
+      Effect.gen(function* () {
+        const coordination = yield* WorktreePathCoordination;
+        const deleted = yield* Ref.make(false);
+        const worktreePath = "/tmp/former-worktree";
+        const staleThread = member({ id: "stale-thread", worktreePath });
+        const result = yield* deleteWorktreeOwned(
+          { cwd: "/tmp/repo", path: worktreePath, force: true, deleteBranch: true },
+          {
+            pathCoordination: coordination,
+            inspectWorktreeRemoval: () =>
+              Effect.succeed({
+                availability: "not_worktree",
+                refName: null,
+                headCommit: null,
+                baseRef: null,
+                mergeStatus: "unknown",
+                workingTreeStatus: "unknown",
+              }),
+            removeWorktree: () => Effect.die("must preserve an unverified path"),
+            deleteLocalBranch: () => Effect.die("must not guess a stale branch identity"),
+            listMemberThreads: () =>
+              Ref.get(deleted).pipe(Effect.map((gone) => (gone ? [] : [staleThread]))),
+            dispatchThreadDelete: () => Ref.set(deleted, true),
+            allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
+          },
+        );
+
+        expect(result).toEqual({
+          status: "completed",
+          deletedThreadIds: [asThreadId("stale-thread")],
+          worktreeRemoval: "already_missing",
+          preservedUnverifiedPath: true,
+          branchRemoval: "unavailable",
+        });
+        expect(releaseOutcomeForDeleteResult(result)).toBe("kept");
+      }).pipe(Effect.provide(WorktreePathCoordinationLive)),
+  );
+
+  it.effect("reports branch deletion failure after preserving completed worktree cleanup", () =>
+    Effect.gen(function* () {
+      const coordination = yield* WorktreePathCoordination;
+      const result = yield* deleteWorktreeOwned(
+        { cwd: "/tmp/repo", path: "/tmp/wt-branch-failure", deleteBranch: true },
+        {
+          pathCoordination: coordination,
+          inspectWorktreeRemoval: () => Effect.succeed(availableInspection),
+          removeWorktree: () => Effect.void,
+          deleteLocalBranch: () =>
+            Effect.fail(
+              new GitCommandError({
+                operation: "deleteLocalBranch",
+                command: "git update-ref -d",
+                cwd: "/tmp/repo",
+                detail: "branch changed after inspection",
+              }),
+            ),
+          listMemberThreads: () => Effect.succeed([]),
+          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
+        },
+      );
+
+      expect(result).toMatchObject({
+        status: "partial",
+        stage: "branch",
+        retryable: false,
+        worktreeRemoval: "removed",
+        branchRemoval: "failed",
+      });
+      expect(releaseOutcomeForDeleteResult(result)).toBe("removed");
+    }).pipe(Effect.provide(WorktreePathCoordinationLive)),
+  );
 });

@@ -47,10 +47,10 @@ import {
   worktreeRemovalInspectionUnchanged,
 } from "../worktreeCleanup";
 import { requestThreadDeleteConfirmation, type ThreadDeleteDecision } from "../threadDeleteDialog";
+import { requestWorktreeDeleteConfirmation } from "../worktreeDeleteDialog";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
 import { useAtomCommand } from "../state/use-atom-command";
-import { readLocalApi } from "../localApi";
 
 export class ThreadArchiveBlockedError extends Schema.TaggedErrorClass<ThreadArchiveBlockedError>()(
   "ThreadArchiveBlockedError",
@@ -154,6 +154,7 @@ export const WORKTREE_DELETION_BOUNDARY = {
   membership: "server-at-execution-time",
   threadDelete: "server-thread-delete",
   worktreeRemoval: "server-after-thread-delete",
+  localBranchRemoval: "server-after-worktree-removal",
 } as const;
 
 export function useThreadActions() {
@@ -787,39 +788,17 @@ export function useThreadActions() {
         return false;
       }
       const inspection = inspectionResult.value;
-      if (inspection.availability === "not_worktree") {
-        toastManager.add({
-          type: "warning",
-          title: "Worktree is not available",
-          description: "The selected path is not a Git worktree.",
-        });
-        return false;
-      }
-
-      const worktreeAlreadyMissing = inspection.availability === "missing";
-      if (!worktreeAlreadyMissing || worktreeThreads.length > 0) {
-        const api = readLocalApi();
-        if (!api) return false;
-        const archivedCount = worktreeThreads.filter((thread) => thread.archivedAt !== null).length;
-        const confirmed = await settlePromise(() =>
-          api.dialogs.confirm(
-            [
-              `Delete worktree "${input.label}"?`,
-              `Path: ${input.worktreePath}`,
-              ...(worktreeAlreadyMissing
-                ? ["The worktree no longer exists on disk."]
-                : [
-                    `Branch: ${inspection.refName ?? "Detached HEAD"}`,
-                    `Base: ${inspection.baseRef ?? "Unknown"}`,
-                    `Status: ${inspection.workingTreeStatus === "dirty" ? "Has changes" : inspection.workingTreeStatus === "clean" ? "Clean" : "Changes unknown"} · ${inspection.mergeStatus === "merged" ? "Merged" : inspection.mergeStatus === "unmerged" ? "Not merged" : "Merge unknown"}`,
-                  ]),
-              `${worktreeThreads.length} conversation${worktreeThreads.length === 1 ? "" : "s"} will be permanently deleted${archivedCount > 0 ? `, including ${archivedCount} archived` : ""}. They will not appear in Settled.`,
-              "This cannot be undone.",
-            ].join("\n"),
-          ),
-        );
-        if (confirmed._tag === "Failure" || !confirmed.value) return false;
-      }
+      const archivedCount = worktreeThreads.filter((thread) => thread.archivedAt !== null).length;
+      const decision = await settlePromise(() =>
+        requestWorktreeDeleteConfirmation({
+          label: input.label,
+          path: input.worktreePath,
+          conversationCount: worktreeThreads.length,
+          archivedCount,
+          inspection,
+        }),
+      );
+      if (decision._tag === "Failure" || decision.value === null) return false;
 
       const deletionResult = await deleteWorktreeCommand({
         environmentId: input.environmentId,
@@ -827,6 +806,7 @@ export function useThreadActions() {
           cwd: input.projectCwd,
           path: input.worktreePath,
           force: true,
+          deleteBranch: decision.value.deleteBranch,
         },
       });
       if (deletionResult._tag === "Failure") {
@@ -855,11 +835,14 @@ export function useThreadActions() {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: worktreeAlreadyRemoved
-              ? "Worktree removed, but some conversations could not be cleaned up"
-              : outcome.stage === "conversation"
-                ? "Worktree kept because conversation history could not be deleted"
-                : "Conversation history deleted, but worktree removal failed",
+            title:
+              outcome.stage === "branch"
+                ? "Worktree deleted, but the local branch was kept"
+                : worktreeAlreadyRemoved
+                  ? "Worktree removed, but some conversations could not be cleaned up"
+                  : outcome.stage === "conversation"
+                    ? "Worktree kept because conversation history could not be deleted"
+                    : "Conversation history deleted, but worktree removal failed",
             description:
               outcome.detail ||
               (worktreeAlreadyRemoved
@@ -891,9 +874,11 @@ export function useThreadActions() {
         title:
           outcome.worktreeRemoval === "already_missing"
             ? "Unavailable worktree removed from sidebar"
-            : refreshResult._tag === "Success"
-              ? "Worktree deleted"
-              : "Worktree deleted, but status refresh failed",
+            : outcome.branchRemoval === "removed"
+              ? "Worktree and local branch deleted"
+              : refreshResult._tag === "Success"
+                ? "Worktree deleted"
+                : "Worktree deleted, but status refresh failed",
         description: input.worktreePath,
       });
       return true;

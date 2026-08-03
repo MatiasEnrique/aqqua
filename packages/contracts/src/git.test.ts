@@ -257,17 +257,51 @@ describe("VcsDeleteWorktreeResult", () => {
     });
   });
 
-  it("accepts delete input with optional force", () => {
+  it("accepts optional worktree force and explicit local-branch deletion", () => {
     expect(
       decodeDeleteWorktreeInput({
         cwd: "/repo",
         path: "/repo/worktrees/feature",
         force: true,
+        deleteBranch: true,
       }),
     ).toEqual({
       cwd: "/repo",
       path: "/repo/worktrees/feature",
       force: true,
+      deleteBranch: true,
+    });
+  });
+
+  it("decodes stale-worktree cleanup and branch-deletion outcomes", () => {
+    expect(
+      decodeDeleteWorktreeResult({
+        status: "completed",
+        deletedThreadIds: ["thread-1"],
+        worktreeRemoval: "already_missing",
+        preservedUnverifiedPath: true,
+        branchRemoval: "unavailable",
+      }),
+    ).toMatchObject({
+      status: "completed",
+      worktreeRemoval: "already_missing",
+      preservedUnverifiedPath: true,
+      branchRemoval: "unavailable",
+    });
+    expect(
+      decodeDeleteWorktreeResult({
+        status: "partial",
+        stage: "branch",
+        deletedThreadIds: ["thread-1"],
+        retryable: false,
+        detail: "branch changed",
+        worktreeRemoval: "removed",
+        branchRemoval: "failed",
+      }),
+    ).toMatchObject({
+      status: "partial",
+      stage: "branch",
+      branchRemoval: "failed",
     });
   });
 });

@@ -445,6 +445,13 @@ describe("WorktreePathCoordination", () => {
           worktreeRemoval: "already_missing",
         }),
       ).toBe("removed");
+      expect(
+        releaseOutcomeForDeleteResult({
+          status: "completed",
+          worktreeRemoval: "already_missing",
+          preservedUnverifiedPath: true,
+        }),
+      ).toBe("kept");
       expect(releaseOutcomeForDeleteResult({ status: "partial", worktreeRemoval: "removed" })).toBe(
         "removed",
       );

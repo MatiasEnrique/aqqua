@@ -53,9 +53,11 @@ attention keep the batch action disabled. Settling preserves every conversation 
 Secondary worktrees can use **Delete** from the same menu. aqqua inspects the worktree and asks
 for confirmation before permanently deleting both the filesystem worktree and its live, settled,
 and archived conversations. Deleted conversation history does not appear in **Settled**. The
-current project checkout shows the action disabled. If the directory was already removed outside
-aqqua, retrying the action deletes its remaining conversation history and cleans up the stale
-sidebar entry.
+confirmation also offers an unchecked **Also delete local branch** option; selecting it removes
+the exact inspected local branch after the worktree, while remote branches are always preserved.
+The current project checkout shows the action disabled. If the directory was already removed
+outside aqqua, retrying the action deletes its remaining conversation history, leaves any
+unverified directory untouched, and cleans up the stale sidebar entry.
 
 Settled rows include selection checkboxes. Select multiple rows and use **Delete N** in the
 Settled header to permanently delete those conversation histories. Deleting conversations cannot

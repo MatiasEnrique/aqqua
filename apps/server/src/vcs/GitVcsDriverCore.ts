@@ -2661,6 +2661,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     });
   });
 
+  const deleteLocalBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteLocalBranch"] = Effect.fn(
+    "deleteLocalBranch",
+  )(function* (input) {
+    yield* executeGit(
+      "GitVcsDriver.deleteLocalBranch",
+      input.cwd,
+      ["update-ref", "-d", `refs/heads/${input.refName}`, input.expectedHeadCommit],
+      {
+        timeoutMs: 5_000,
+        fallbackErrorDetail: "local branch changed or could not be deleted",
+      },
+    );
+  });
+
   const inspectWorktreeRemoval: GitVcsDriver.GitVcsDriver["Service"]["inspectWorktreeRemoval"] =
     Effect.fn("inspectWorktreeRemoval")(function* (input) {
       const worktreeCommonDir = yield* executeGit(
@@ -2980,6 +2994,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       withListRefsInvalidation(input.cwd, fetchRemoteTrackingBranch(input)),
     setBranchUpstream: (input) => withListRefsInvalidation(input.cwd, setBranchUpstream(input)),
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
+    deleteLocalBranch: (input) => withListRefsInvalidation(input.cwd, deleteLocalBranch(input)),
     inspectWorktreeRemoval,
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),

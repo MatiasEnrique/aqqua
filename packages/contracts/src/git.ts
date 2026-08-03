@@ -279,6 +279,8 @@ export const VcsDeleteWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   path: TrimmedNonEmptyStringSchema,
   force: Schema.optional(Schema.Boolean),
+  /** Delete the inspected local branch after its worktree is removed. Remote refs are untouched. */
+  deleteBranch: Schema.optional(Schema.Boolean),
 });
 export type VcsDeleteWorktreeInput = typeof VcsDeleteWorktreeInput.Type;
 
@@ -296,19 +298,25 @@ export const VcsDeleteWorktreeRemoval = Schema.Literals([
 ]);
 export type VcsDeleteWorktreeRemoval = typeof VcsDeleteWorktreeRemoval.Type;
 
+export const VcsDeleteBranchRemoval = Schema.Literals(["removed", "failed", "unavailable"]);
+export type VcsDeleteBranchRemoval = typeof VcsDeleteBranchRemoval.Type;
+
 export const VcsDeleteWorktreeResult = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("completed"),
     deletedThreadIds: Schema.Array(ThreadId),
     worktreeRemoval: Schema.Literals(["removed", "already_missing"]),
+    preservedUnverifiedPath: Schema.optional(Schema.Boolean),
+    branchRemoval: Schema.optional(VcsDeleteBranchRemoval),
   }),
   Schema.Struct({
     status: Schema.Literal("partial"),
-    stage: Schema.Literals(["conversation", "worktree"]),
+    stage: Schema.Literals(["conversation", "worktree", "branch"]),
     deletedThreadIds: Schema.Array(ThreadId),
     retryable: Schema.Boolean,
     detail: Schema.String,
     worktreeRemoval: Schema.Literals(["not_attempted", "failed", "removed"]),
+    branchRemoval: Schema.optional(VcsDeleteBranchRemoval),
   }),
   Schema.Struct({
     status: Schema.Literal("rejected"),

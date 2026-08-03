@@ -18,6 +18,7 @@ import { CommandPalette } from "../components/CommandPalette";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { ThreadDeleteDialog } from "../components/ThreadDeleteDialog";
+import { WorktreeDeleteDialog } from "../components/WorktreeDeleteDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
@@ -141,6 +142,7 @@ function RootRouteView() {
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         {REMOTE_CONNECTIONS_UI_ENABLED ? <RelayClientInstallDialog /> : null}
         <ThreadDeleteDialog />
+        <WorktreeDeleteDialog />
         {REMOTE_CONNECTIONS_UI_ENABLED ? <ConnectOnboardingDialog /> : null}
         {REMOTE_CONNECTIONS_UI_ENABLED ? <SshPasswordPromptDialog /> : null}
         <SlowRpcRequestToastCoordinator />
