@@ -5,6 +5,7 @@ import {
   type ConnectAuthorizeRequest,
 } from "@aqqua/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@aqqua/shared/relayAuth";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 
 import { configuredHostedAppUrl, isHostedStaticApp } from "../hostedPairing";
 import { hasCloudPublicConfig, resolveCloudPublicConfig, trimNonEmpty } from "./publicConfig";
@@ -27,7 +28,12 @@ export function hasConnectCliAuthConfig(): boolean {
  * Clerk CLI OAuth client configured at build time.
  */
 export function connectCliAuthRoutesEnabled(): boolean {
-  return isHostedStaticApp() && hasCloudPublicConfig() && hasConnectCliAuthConfig();
+  return (
+    REMOTE_CONNECTIONS_UI_ENABLED &&
+    isHostedStaticApp() &&
+    hasCloudPublicConfig() &&
+    hasConnectCliAuthConfig()
+  );
 }
 
 /**

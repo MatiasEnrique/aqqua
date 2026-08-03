@@ -1,6 +1,9 @@
 import type { DesktopWslState } from "@aqqua/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { applyWslEnableSelection } from "./ConnectionsSettings.logic";
+import {
+  applyWslEnableSelection,
+  resolveConnectionsSettingsAvailability,
+} from "./ConnectionsSettings.logic";
 
 const baseWslState: DesktopWslState = {
   enabled: false,
@@ -71,5 +74,24 @@ describe("applyWslEnableSelection", () => {
     expect(calls).toEqual(["setWslOnly:true", "setWslBackendEnabled:true"]);
     expect(setWslDistro).not.toHaveBeenCalled();
     expect(state).toMatchObject({ enabled: true, wslOnly: true });
+  });
+});
+
+describe("resolveConnectionsSettingsAvailability", () => {
+  it("keeps local backends available without mounting remote controls or subscriptions", () => {
+    expect(
+      resolveConnectionsSettingsAvailability({
+        canManageLocalBackend: true,
+        hasDesktopBridge: true,
+        addBackendDialogOpen: true,
+        savedBackendMode: "ssh",
+      }),
+    ).toEqual({
+      localBackendControlsVisible: true,
+      remoteControlsVisible: false,
+      loadAccessManagement: false,
+      loadNetworkAccess: false,
+      loadSshHosts: false,
+    });
   });
 });

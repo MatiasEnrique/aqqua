@@ -107,6 +107,10 @@
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
     },
+    "./productFeatures": {
+      "types": "./src/productFeatures.ts",
+      "import": "./src/productFeatures.ts"
+    },
     "./relaySigning": {
       "types": "./src/relaySigning.ts",
       "import": "./src/relaySigning.ts"

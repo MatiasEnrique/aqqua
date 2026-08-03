@@ -41,7 +41,10 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
-import { applyWslEnableSelection } from "./ConnectionsSettings.logic";
+import {
+  applyWslEnableSelection,
+  resolveConnectionsSettingsAvailability,
+} from "./ConnectionsSettings.logic";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -1843,8 +1846,14 @@ export function ConnectionsSettings() {
   );
   const canManageLocalBackend = currentSessionScopes?.includes(AuthAccessWriteScope) ?? false;
   const canManageRelay = currentSessionScopes?.includes(AuthRelayWriteScope) ?? false;
+  const availability = resolveConnectionsSettingsAvailability({
+    canManageLocalBackend,
+    hasDesktopBridge: desktopBridge !== undefined,
+    addBackendDialogOpen,
+    savedBackendMode,
+  });
   const authAccessChanges = useEnvironmentQuery(
-    canManageLocalBackend && primaryEnvironmentId !== null
+    availability.loadAccessManagement && primaryEnvironmentId !== null
       ? authEnvironment.accessChanges({
           environmentId: primaryEnvironmentId,
           input: null,
@@ -1852,12 +1861,10 @@ export function ConnectionsSettings() {
       : null,
   );
   const desktopNetworkAccess = useEnvironmentQuery(
-    canManageLocalBackend && desktopBridge ? desktopNetworkAccessStateAtom : null,
+    availability.loadNetworkAccess ? desktopNetworkAccessStateAtom : null,
   );
   const desktopSshHosts = useEnvironmentQuery(
-    desktopBridge && addBackendDialogOpen && savedBackendMode === "ssh"
-      ? desktopSshHostsStateAtom
-      : null,
+    availability.loadSshHosts ? desktopSshHostsStateAtom : null,
   );
   const desktopWsl = useEnvironmentQuery(
     canManageLocalBackend && desktopBridge ? desktopWslStateAtom : null,
@@ -2977,9 +2984,9 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
-      {canManageLocalBackend ? (
+      {availability.localBackendControlsVisible ? (
         <>
-          <SettingsSection title="This environment">
+          <SettingsSection title="Local backends">
             {primaryVersionMismatch ? (
               <SettingsRow
                 title="Version drift"
@@ -3005,21 +3012,25 @@ export function ConnectionsSettings() {
             ) : null}
             {desktopBridge ? (
               <>
-                {renderNetworkAccessRow()}
-                {renderEndpointRows("endpoint-rail")}
-                {renderTailscaleRow()}
+                {availability.remoteControlsVisible ? (
+                  <>
+                    {renderNetworkAccessRow()}
+                    {renderEndpointRows("endpoint-rail")}
+                    {renderTailscaleRow()}
+                    <CloudLinkRow canManageRelay={canManageRelay} />
+                  </>
+                ) : null}
                 {renderWslRow()}
-                <CloudLinkRow canManageRelay={canManageRelay} />
               </>
-            ) : (
+            ) : availability.remoteControlsVisible ? (
               <>
                 {renderDisabledNetworkAccessRow()}
                 <CloudLinkRow canManageRelay={canManageRelay} />
               </>
-            )}
+            ) : null}
           </SettingsSection>
 
-          {isLocalBackendRemotelyReachable ? (
+          {availability.remoteControlsVisible && isLocalBackendRemotelyReachable ? (
             <SettingsSection
               title="Authorized clients"
               headerAction={
@@ -3305,7 +3316,7 @@ export function ConnectionsSettings() {
             </DialogPopup>
           </Dialog>
         </>
-      ) : (
+      ) : availability.remoteControlsVisible ? (
         <SettingsSection title="This environment">
           <SettingsRow
             title="Administrative access"
@@ -3313,86 +3324,89 @@ export function ConnectionsSettings() {
           />
           <CloudLinkRow canManageRelay={canManageRelay} />
         </SettingsSection>
-      )}
+      ) : null}
 
-      <SettingsSection
-        title="Remote environments"
-        headerAction={
-          <Dialog
-            open={addBackendDialogOpen}
-            onOpenChange={(open) => {
-              setAddBackendDialogOpen(open);
-              if (!open) {
-                setSavedBackendError(null);
-              }
-            }}
-          >
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DialogTrigger
-                    render={
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        className="h-5 gap-1 rounded-sm px-1 text-[11px] font-normal text-muted-foreground/60 hover:text-muted-foreground"
-                        aria-label="Add environment"
-                      >
-                        <PlusIcon className="size-3" />
-                        <span>Add environment</span>
-                      </Button>
-                    }
-                  />
+      {availability.remoteControlsVisible ? (
+        <SettingsSection
+          title="Remote environments"
+          headerAction={
+            <Dialog
+              open={addBackendDialogOpen}
+              onOpenChange={(open) => {
+                setAddBackendDialogOpen(open);
+                if (!open) {
+                  setSavedBackendError(null);
                 }
-              />
-              <TooltipPopup side="top">Add environment</TooltipPopup>
-            </Tooltip>
-            <DialogPopup className="max-h-[80dvh] sm:max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Add Environment</DialogTitle>
-                <DialogDescription>Pair another environment to this client.</DialogDescription>
-              </DialogHeader>
-              <DialogPanel>
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {renderConnectionModeCard({
-                      mode: "remote",
-                      title: "Remote link",
-                      description: "Enter a backend host and pairing code.",
-                      icon: <ChevronsLeftRightEllipsisIcon aria-hidden className="size-4" />,
-                    })}
-                    {desktopBridge
-                      ? renderConnectionModeCard({
-                          mode: "ssh",
-                          title: "SSH",
-                          description: "Use local SSH config, agent, and tunnels for the backend.",
-                          icon: <TerminalIcon aria-hidden className="size-4" />,
-                        })
-                      : null}
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <DialogTrigger
+                      render={
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="h-5 gap-1 rounded-sm px-1 text-[11px] font-normal text-muted-foreground/60 hover:text-muted-foreground"
+                          aria-label="Add environment"
+                        >
+                          <PlusIcon className="size-3" />
+                          <span>Add environment</span>
+                        </Button>
+                      }
+                    />
+                  }
+                />
+                <TooltipPopup side="top">Add environment</TooltipPopup>
+              </Tooltip>
+              <DialogPopup className="max-h-[80dvh] sm:max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>Add Environment</DialogTitle>
+                  <DialogDescription>Pair another environment to this client.</DialogDescription>
+                </DialogHeader>
+                <DialogPanel>
+                  <div className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {renderConnectionModeCard({
+                        mode: "remote",
+                        title: "Remote link",
+                        description: "Enter a backend host and pairing code.",
+                        icon: <ChevronsLeftRightEllipsisIcon aria-hidden className="size-4" />,
+                      })}
+                      {desktopBridge
+                        ? renderConnectionModeCard({
+                            mode: "ssh",
+                            title: "SSH",
+                            description:
+                              "Use local SSH config, agent, and tunnels for the backend.",
+                            icon: <TerminalIcon aria-hidden className="size-4" />,
+                          })
+                        : null}
+                    </div>
+                    <AnimatedHeight>
+                      {savedBackendMode === "ssh" ? renderSshFields() : renderRemoteModeBody()}
+                    </AnimatedHeight>
                   </div>
-                  <AnimatedHeight>
-                    {savedBackendMode === "ssh" ? renderSshFields() : renderRemoteModeBody()}
-                  </AnimatedHeight>
-                </div>
-              </DialogPanel>
-            </DialogPopup>
-          </Dialog>
-        }
-      >
-        {savedEnvironments.map((environment) => (
-          <SavedBackendListRow
-            key={environment.environmentId}
-            environment={environment}
-            removingEnvironmentId={removingSavedEnvironmentId}
-            onConnect={handleConnectSavedBackend}
-            onRemove={handleRemoveSavedBackend}
+                </DialogPanel>
+              </DialogPopup>
+            </Dialog>
+          }
+        >
+          {savedEnvironments.map((environment) => (
+            <SavedBackendListRow
+              key={environment.environmentId}
+              environment={environment}
+              removingEnvironmentId={removingSavedEnvironmentId}
+              onConnect={handleConnectSavedBackend}
+              onRemove={handleRemoveSavedBackend}
+            />
+          ))}
+          <CloudRemoteEnvironmentRows
+            primaryEnvironmentId={primaryEnvironmentId}
+            savedEnvironments={savedEnvironments}
           />
-        ))}
-        <CloudRemoteEnvironmentRows
-          primaryEnvironmentId={primaryEnvironmentId}
-          savedEnvironments={savedEnvironments}
-        />
-      </SettingsSection>
+        </SettingsSection>
+      ) : null}
     </SettingsPageContainer>
   );
 }

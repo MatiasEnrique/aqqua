@@ -1,6 +1,7 @@
 import { type ServerLifecycleWelcomePayload } from "@aqqua/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@aqqua/client-runtime/environment";
 import { squashAtomCommandFailure } from "@aqqua/client-runtime/state/runtime";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 import {
   Outlet,
   createRootRoute,
@@ -56,7 +57,11 @@ import {
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
-    if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
+    if (
+      REMOTE_CONNECTIONS_UI_ENABLED &&
+      location.pathname === "/pair" &&
+      hasHostedPairingRequest(new URL(window.location.href))
+    ) {
       return {
         authGateState: {
           status: "hosted-pairing",
@@ -116,6 +121,10 @@ function RootRouteView() {
     );
   }
 
+  if (!REMOTE_CONNECTIONS_UI_ENABLED && authGateState.status === "hosted-static") {
+    return <HostedClientUnavailable />;
+  }
+
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
@@ -130,17 +139,34 @@ function RootRouteView() {
         <DocumentTitleSync />
         <GlassAppearanceSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
-        <RelayClientInstallDialog />
+        {REMOTE_CONNECTIONS_UI_ENABLED ? <RelayClientInstallDialog /> : null}
         <ThreadDeleteDialog />
-        <ConnectOnboardingDialog />
-        <SshPasswordPromptDialog />
+        {REMOTE_CONNECTIONS_UI_ENABLED ? <ConnectOnboardingDialog /> : null}
+        {REMOTE_CONNECTIONS_UI_ENABLED ? <SshPasswordPromptDialog /> : null}
         <SlowRpcRequestToastCoordinator />
-        <HostedStaticEnvironmentBootstrap />
+        {REMOTE_CONNECTIONS_UI_ENABLED ? <HostedStaticEnvironmentBootstrap /> : null}
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
         {appShell}
       </AnchoredToastProvider>
     </ToastProvider>
+  );
+}
+
+function HostedClientUnavailable() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <section className="w-full max-w-md text-center">
+        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          {APP_DISPLAY_NAME}
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Use the local app</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          This client is not available yet. Open aqqua from the desktop app or a locally running
+          aqqua server.
+        </p>
+      </section>
+    </div>
   );
 }
 

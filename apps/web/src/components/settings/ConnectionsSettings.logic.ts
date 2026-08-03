@@ -1,6 +1,29 @@
 import type { DesktopBridge, DesktopWslState } from "@aqqua/contracts";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
+
+export function resolveConnectionsSettingsAvailability(input: {
+  readonly canManageLocalBackend: boolean;
+  readonly hasDesktopBridge: boolean;
+  readonly addBackendDialogOpen: boolean;
+  readonly savedBackendMode: "remote" | "ssh";
+}) {
+  const remoteControlsVisible = REMOTE_CONNECTIONS_UI_ENABLED;
+
+  return {
+    localBackendControlsVisible: input.canManageLocalBackend,
+    remoteControlsVisible,
+    loadAccessManagement: remoteControlsVisible && input.canManageLocalBackend,
+    loadNetworkAccess:
+      remoteControlsVisible && input.canManageLocalBackend && input.hasDesktopBridge,
+    loadSshHosts:
+      remoteControlsVisible &&
+      input.hasDesktopBridge &&
+      input.addBackendDialogOpen &&
+      input.savedBackendMode === "ssh",
+  } as const;
+}
 
 export async function applyWslEnableSelection(input: {
   readonly bridge: WslEnableBridge;

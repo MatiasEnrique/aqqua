@@ -1,4 +1,5 @@
 import { UserButton, useAuth } from "@clerk/react";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 import { LogInIcon, SmartphoneIcon } from "lucide-react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
@@ -7,13 +8,13 @@ import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
 import { useAqquaConnectAuthPrompt } from "./useAqquaConnectAuthPrompt";
 
 export function AqquaConnectSidebarSignIn() {
-  if (!hasCloudPublicConfig()) return null;
+  if (!REMOTE_CONNECTIONS_UI_ENABLED || !hasCloudPublicConfig()) return null;
 
   return <ConfiguredAqquaConnectSidebarSignIn />;
 }
 
 export function AqquaConnectSidebarAvatar() {
-  if (!hasCloudPublicConfig()) return null;
+  if (!REMOTE_CONNECTIONS_UI_ENABLED || !hasCloudPublicConfig()) return null;
 
   return <ConfiguredAqquaConnectSidebarAvatar />;
 }

@@ -2,13 +2,14 @@ import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { StatusBar, useColorScheme } from "react-native";
+import { StatusBar, Text, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createStaticNavigation, DarkTheme, DefaultTheme } from "@react-navigation/native";
 
 import { RegistryContext } from "@effect/atom-react";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 import { ConfirmDialogHost } from "./components/ConfirmDialogHost";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
 import { prepareNativeShowcaseCapture } from "./features/showcase/nativeShowcaseScene";
@@ -60,6 +61,33 @@ function SplashScreenCoordinator() {
 export default function App() {
   const colorScheme = useColorScheme();
   const statusBarBg = useThemeColor("--color-status-bar");
+
+  if (!REMOTE_CONNECTIONS_UI_ENABLED) {
+    return (
+      <RegistryContext.Provider value={appAtomRegistry}>
+        <AppearancePreferencesProvider>
+          <SplashScreenCoordinator />
+          <GestureHandlerRootView className="flex-1">
+            <SafeAreaProvider>
+              <StatusBar
+                barStyle={colorScheme === "dark" ? "light-content" : "dark-content"}
+                backgroundColor={statusBarBg}
+                translucent
+              />
+              <View className="flex-1 items-center justify-center bg-screen px-8">
+                <Text className="text-center text-2xl font-bold text-foreground">
+                  aqqua Mobile is not available yet
+                </Text>
+                <Text className="mt-3 text-center text-base leading-6 text-foreground-muted">
+                  Use the aqqua desktop app for now.
+                </Text>
+              </View>
+            </SafeAreaProvider>
+          </GestureHandlerRootView>
+        </AppearancePreferencesProvider>
+      </RegistryContext.Provider>
+    );
+  }
 
   return (
     <RegistryContext.Provider value={appAtomRegistry}>

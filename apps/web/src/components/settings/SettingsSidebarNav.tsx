@@ -6,7 +6,7 @@ import {
   FlaskConicalIcon,
   GitBranchIcon,
   KeyboardIcon,
-  Link2Icon,
+  MonitorCogIcon,
   PaletteIcon,
   Settings2Icon,
   UsersRoundIcon,
@@ -22,10 +22,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
-import {
-  AqquaConnectSidebarAvatar,
-  AqquaConnectSidebarSignIn,
-} from "../clerk/AqquaConnectSidebarSignIn";
 
 export type SettingsSectionPath =
   | "/settings/general"
@@ -49,7 +45,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   { label: "Providers", to: "/settings/providers", icon: BotIcon },
   { label: "Agent Profiles", to: "/settings/agent-profiles", icon: UsersRoundIcon },
   { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
-  { label: "Connections", to: "/settings/connections", icon: Link2Icon },
+  { label: "Backends", to: "/settings/connections", icon: MonitorCogIcon },
   { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
   { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
 ];
@@ -102,18 +98,14 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-2">
-        <AqquaConnectSidebarSignIn />
-        <div className="flex items-center gap-1">
-          <SidebarMenu className="min-w-0 flex-1">
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleBackClick}>
-                <ArrowLeftIcon />
-                <span>Back</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-          <AqquaConnectSidebarAvatar />
-        </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleBackClick}>
+              <ArrowLeftIcon />
+              <span>Back</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </>
   );

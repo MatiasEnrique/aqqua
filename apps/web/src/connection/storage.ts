@@ -25,6 +25,7 @@ import {
   ThreadId,
   VcsListRefsResult,
 } from "@aqqua/contracts";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -298,6 +299,12 @@ interface CatalogStore {
   ) => Effect.Effect<void, ConnectionTransientError>;
 }
 
+export function persistedConnectionTargetsForUi(
+  document: ConnectionCatalogDocumentType,
+): ConnectionCatalogDocumentType["targets"] {
+  return REMOTE_CONNECTIONS_UI_ENABLED ? document.targets : [];
+}
+
 export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStore")(function* (
   backend: CatalogBackend,
 ) {
@@ -369,7 +376,7 @@ export const connectionStorageLayer = Layer.effectContext(
 
     const targetStore = ConnectionTargetStore.of({
       list: catalog.read.pipe(
-        Effect.map((document) => document.targets),
+        Effect.map(persistedConnectionTargetsForUi),
         Effect.mapError((cause) => persistenceError("list-targets", cause)),
       ),
     });

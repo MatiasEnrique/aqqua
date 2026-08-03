@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/react";
 import { AuthAdministrativeScopes, AuthRelayWriteScope } from "@aqqua/contracts";
+import { REMOTE_CONNECTIONS_UI_ENABLED } from "@aqqua/shared/productFeatures";
 import { CheckIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -39,7 +40,7 @@ import { toastManager } from "../ui/toast";
  * away. A cold load with a restored session does not count as a sign-in.
  */
 export function ConnectOnboardingDialog() {
-  if (!hasCloudPublicConfig()) return null;
+  if (!REMOTE_CONNECTIONS_UI_ENABLED || !hasCloudPublicConfig()) return null;
 
   return <ConfiguredConnectOnboardingDialog />;
 }

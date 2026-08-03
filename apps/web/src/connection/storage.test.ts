@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { afterEach, vi } from "vite-plus/test";
 
-import { makeCatalogBackend, makeCatalogStore } from "./storage";
+import { makeCatalogBackend, makeCatalogStore, persistedConnectionTargetsForUi } from "./storage";
 
 const emptyCatalog = {
   schemaVersion: 1,
@@ -53,6 +53,27 @@ describe("makeCatalogStore", () => {
       expect(yield* Effect.flip(store.read)).toBe(failure);
     }),
   );
+});
+
+describe("persistedConnectionTargetsForUi", () => {
+  it("keeps saved remote targets stored but out of the active UI catalog", () => {
+    const catalog = decodeCatalog(
+      JSON.stringify({
+        ...emptyCatalog,
+        targets: [
+          {
+            _tag: "BearerConnectionTarget",
+            environmentId: "environment-remote",
+            label: "Remote environment",
+            connectionId: "saved-remote",
+          },
+        ],
+      }),
+    );
+
+    expect(persistedConnectionTargetsForUi(catalog)).toEqual([]);
+    expect(catalog.targets).toHaveLength(1);
+  });
 });
 
 describe("makeCatalogBackend", () => {

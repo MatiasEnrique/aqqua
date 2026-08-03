@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   buildConnectCliClerkAuthorizeUrl,
+  connectCliAuthRoutesEnabled,
   hasConnectCliAuthConfig,
   readConnectCliCallbackResult,
 } from "./connectCliAuth";
@@ -22,6 +23,13 @@ describe("connectCliAuth", () => {
 
     vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
     expect(hasConnectCliAuthConfig()).toBe(true);
+  });
+
+  it("keeps the hosted CLI connection routes disabled", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
+    vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
+
+    expect(connectCliAuthRoutesEnabled()).toBe(false);
   });
 
   it("builds the Clerk authorize URL with the configured hosted origin's callback", () => {
