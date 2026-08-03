@@ -64,6 +64,32 @@ const pixelAt = (contents: Buffer, width: number, x: number, y: number) => {
   };
 };
 
+const opaqueGeometry = (relativePath: string) => {
+  const image = PNG.sync.read(read(relativePath));
+  let minX = image.width;
+  let minY = image.height;
+  let maxX = -1;
+  let maxY = -1;
+  const spans = new Map<number, readonly [number, number]>();
+
+  for (let y = 0; y < image.height; y += 1) {
+    let left = -1;
+    let right = -1;
+    for (let x = 0; x < image.width; x += 1) {
+      if ((image.data[(y * image.width + x) * 4 + 3] ?? 0) <= 127) continue;
+      if (left === -1) left = x;
+      right = x;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    if (left !== -1) spans.set(y, [left, right]);
+  }
+
+  return { image, bounds: { minX, minY, maxX, maxY }, spans };
+};
+
 describe("aqqua brand artwork", () => {
   it("uses the sidebar Waves geometry as the canonical mark", () => {
     const canonical = readText("assets/aqqua-waves.svg");
@@ -124,6 +150,32 @@ describe("aqqua brand artwork", () => {
     assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.nightlyMacIconPng)));
   });
 
+  it("matches the native macOS Tahoe Dock mask in every desktop channel", async () => {
+    const production = read(BRAND_ASSET_PATHS.productionMacDockIconPng);
+    for (const relativePath of [
+      BRAND_ASSET_PATHS.developmentMacDockIconPng,
+      BRAND_ASSET_PATHS.nightlyMacDockIconPng,
+      BRAND_ASSET_PATHS.productionMacDockIconPng,
+      BRAND_ASSET_PATHS.sigmaMacDockIconPng,
+    ]) {
+      const { image, bounds, spans } = opaqueGeometry(relativePath);
+      assert.equal(image.width, 1024, relativePath);
+      assert.equal(image.height, 1024, relativePath);
+      assert.deepEqual(bounds, { minX: 100, minY: 100, maxX: 923, maxY: 923 }, relativePath);
+      assert.deepEqual(spans.get(100), [351, 672], relativePath);
+      assert.deepEqual(spans.get(120), [225, 798], relativePath);
+      assert.deepEqual(spans.get(220), [122, 901], relativePath);
+      assert.deepEqual(spans.get(511), [100, 923], relativePath);
+    }
+
+    assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.developmentMacDockIconPng)));
+    assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.nightlyMacDockIconPng)));
+    assert.isFalse(production.equals(read(BRAND_ASSET_PATHS.sigmaMacDockIconPng)));
+
+    const expectedDesktopPng = await sharp(production).resize(512, 512).png().toBuffer();
+    assert.isTrue(expectedDesktopPng.equals(read("apps/desktop/resources/icon.png")));
+  });
+
   it("ships white icon plates with transparent rounded corners", () => {
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentUniversalIconPng,
@@ -132,6 +184,8 @@ describe("aqqua brand artwork", () => {
       BRAND_ASSET_PATHS.nightlyMacIconPng,
       BRAND_ASSET_PATHS.productionLinuxIconPng,
       BRAND_ASSET_PATHS.productionMacIconPng,
+      BRAND_ASSET_PATHS.productionMacDockIconPng,
+      BRAND_ASSET_PATHS.sigmaMacDockIconPng,
       BRAND_ASSET_PATHS.sigmaLinuxIconPng,
       "apps/desktop/resources/icon.png",
       "apps/mobile/assets/widget/AqquaMark.png",

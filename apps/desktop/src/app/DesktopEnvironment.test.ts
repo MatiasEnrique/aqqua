@@ -67,6 +67,10 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.appRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
+      assert.equal(
+        environment.developmentDockIconPath,
+        "/repo/assets/dev/blueprint-macos-tahoe-1024.png",
+      );
       assert.equal(environment.appUserModelId, "com.aqqua.aqqua.dev");
       assert.equal(environment.linuxWmClass, "aqqua-dev");
       assert.deepEqual(

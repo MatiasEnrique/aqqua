@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Sink from "effect/Sink";
@@ -44,6 +45,7 @@ import {
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
+  stageMacIcons,
   STAGE_INSTALL_ARGS,
   WINDOWS_ASAR_UNPACK,
 } from "./build-desktop-artifact.ts";
@@ -100,13 +102,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
     assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17"), {
-      macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
+      macIcnsSourcePng: BRAND_ASSET_PATHS.productionMacIconPng,
+      macDockIconPng: BRAND_ASSET_PATHS.productionMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
     });
 
     assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"), {
-      macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
+      macIcnsSourcePng: BRAND_ASSET_PATHS.nightlyMacIconPng,
+      macDockIconPng: BRAND_ASSET_PATHS.nightlyMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
     });
@@ -399,6 +403,42 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
   });
 
+  it.effect("stages the Tahoe Dock PNG separately from the legacy macOS icns source", () => {
+    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const temporaryDirectory = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "aqqua-mac-icon-test-",
+        });
+        const stageDirectory = `${temporaryDirectory}/resources`;
+        const legacySource = `${temporaryDirectory}/legacy.png`;
+        const tahoeDockSource = `${temporaryDirectory}/tahoe.png`;
+        yield* fileSystem.makeDirectory(stageDirectory, { recursive: true });
+        yield* fileSystem.writeFile(legacySource, new Uint8Array([1]));
+        yield* fileSystem.writeFile(tahoeDockSource, new Uint8Array([2]));
+
+        yield* stageMacIcons(stageDirectory, legacySource, tahoeDockSource, false).pipe(
+          Effect.provide(
+            iconResizeSpawnerLayer(
+              commands,
+              Array.from({ length: 12 }, () => 0),
+            ),
+          ),
+        );
+
+        assert.deepStrictEqual(commands[0], {
+          command: "sips",
+          args: ["-z", "512", "512", tahoeDockSource, "--out", `${stageDirectory}/icon.png`],
+        });
+        assert.equal(commands[1]?.command, "sips");
+        assert.include(commands[1]?.args ?? [], legacySource);
+        assert.equal(commands.at(-1)?.command, "iconutil");
+      }),
+    );
+  });
+
   it("derives macOS passkey signing configuration from the Clerk publishable key", () => {
     const configuration = resolveMacPasskeySigningConfiguration({
       AQQUA_APPLE_TEAM_ID: "abc1234567",
@@ -552,12 +592,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     const sigma = resolveDesktopBuildIconAssets("0.0.28-sigma");
 
     assert.deepStrictEqual(sigma, {
-      macIconPng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      macIcnsSourcePng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      macDockIconPng: BRAND_ASSET_PATHS.sigmaMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.sigmaLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.sigmaWindowsIconIco,
     });
-    assert.notEqual(sigma.macIconPng, BRAND_ASSET_PATHS.productionMacIconPng);
-    assert.notEqual(sigma.macIconPng, BRAND_ASSET_PATHS.nightlyMacIconPng);
+    assert.notEqual(sigma.macIcnsSourcePng, BRAND_ASSET_PATHS.productionMacIconPng);
+    assert.notEqual(sigma.macIcnsSourcePng, BRAND_ASSET_PATHS.nightlyMacIconPng);
   });
 
   it("names a Sigma build apart from the release it installs beside", () => {

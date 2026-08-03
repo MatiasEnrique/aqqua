@@ -94,7 +94,10 @@ describe("brand-assets", () => {
       "assets/prod/app-icon.icon",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
+    expect(BRAND_ASSET_PATHS.developmentMacDockIconPng).toMatch(/tahoe-1024\.png$/);
     expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);
+    expect(BRAND_ASSET_PATHS.nightlyMacDockIconPng).toMatch(/tahoe-1024\.png$/);
     expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/black-/);
+    expect(BRAND_ASSET_PATHS.productionMacDockIconPng).toMatch(/tahoe-1024\.png$/);
   });
 });

@@ -27,6 +27,17 @@ Exporting requires Icon Composer 2 or newer on macOS. The script selects the new
 
 Icon Composer's command-line exporter does not expose the `macOS pre-Tahoe` preset. A plain command-line `macOS` export is full bleed and is not suitable for the desktop app, so the export script intentionally leaves the tracked macOS PNGs unchanged and prints a reminder after every run.
 
+The pre-Tahoe PNGs below remain the source for each packaged `.icns`; macOS applies
+its current system treatment to that bundle icon. Electron also sets a PNG Dock icon
+directly at runtime, which bypasses that treatment. The corresponding `*-tahoe-1024.png`
+files are native macOS 26 renders used only for that direct Dock path. Run
+`vp run icons:macos-tahoe` on macOS Tahoe or newer after changing any macOS source.
+The command creates disposable app bundles, lets `NSWorkspace` apply the native Tahoe
+mask and material, validates its geometry, and updates the desktop resource PNG.
+
+Do not use a Tahoe-rendered PNG as the `.icns` source. macOS would apply its system
+treatment again and produce a nested, double-masked icon.
+
 After changing an Icon Composer project, open it in Icon Composer and export the macOS PNG with exactly these settings:
 
 - Platform: `macOS pre-Tahoe`
@@ -39,6 +50,12 @@ Save the three exports to:
 - `dev/app-icon.icon` -> `dev/blueprint-macos-1024.png`
 - `nightly/app-icon.icon` -> `nightly/nightly-macos-1024.png`
 - `prod/app-icon.icon` -> `prod/black-macos-1024.png`
+
+Then regenerate the direct Dock renditions:
+
+```sh
+vp run icons:macos-tahoe
+```
 
 The result must be a 1024×1024 PNG with the classic macOS safe area: the opaque icon body is 824×824, inset 100 pixels on every side, with only the native Icon Composer shadow extending into the surrounding transparent canvas.
 

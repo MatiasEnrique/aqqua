@@ -83,7 +83,8 @@ const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
 });
 
 interface DesktopBuildIconAssets {
-  readonly macIconPng: string;
+  readonly macIcnsSourcePng: string;
+  readonly macDockIconPng: string;
   readonly linuxIconPng: string;
   readonly windowsIconIco: string;
 }
@@ -1262,7 +1263,7 @@ const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* (input:
 });
 
 function generateMacIconSet(
-  sourcePng: string,
+  icnsSourcePng: string,
   targetIcns: string,
   tmpRoot: string,
   path: Path.Path,
@@ -1278,7 +1279,7 @@ function generateMacIconSet(
       yield* runCommand(
         ChildProcess.make(
           {},
-        )`sips -z ${size} ${size} ${sourcePng} --out ${path.join(iconsetDir, `icon_${size}x${size}.png`)}`,
+        )`sips -z ${size} ${size} ${icnsSourcePng} --out ${path.join(iconsetDir, `icon_${size}x${size}.png`)}`,
         { label: `sips icon ${size}x${size}`, verbose },
       );
 
@@ -1286,7 +1287,7 @@ function generateMacIconSet(
       yield* runCommand(
         ChildProcess.make(
           {},
-        )`sips -z ${retinaSize} ${retinaSize} ${sourcePng} --out ${path.join(iconsetDir, `icon_${size}x${size}@2x.png`)}`,
+        )`sips -z ${retinaSize} ${retinaSize} ${icnsSourcePng} --out ${path.join(iconsetDir, `icon_${size}x${size}@2x.png`)}`,
         { label: `sips icon ${size}x${size}@2x`, verbose },
       );
     }
@@ -1298,14 +1299,25 @@ function generateMacIconSet(
   });
 }
 
-function stageMacIcons(stageResourcesDir: string, sourcePng: string, verbose: boolean) {
+export function stageMacIcons(
+  stageResourcesDir: string,
+  icnsSourcePng: string,
+  dockSourcePng: string,
+  verbose: boolean,
+) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    if (!(yield* fs.exists(sourcePng))) {
+    if (!(yield* fs.exists(icnsSourcePng))) {
       return yield* new DesktopIconSourceMissingError({
         platform: "mac",
-        sourcePath: sourcePng,
+        sourcePath: icnsSourcePng,
+      });
+    }
+    if (!(yield* fs.exists(dockSourcePng))) {
+      return yield* new DesktopIconSourceMissingError({
+        platform: "mac",
+        sourcePath: dockSourcePng,
       });
     }
 
@@ -1316,12 +1328,15 @@ function stageMacIcons(stageResourcesDir: string, sourcePng: string, verbose: bo
     const iconPngPath = path.join(stageResourcesDir, "icon.png");
     const iconIcnsPath = path.join(stageResourcesDir, "icon.icns");
 
-    yield* runCommand(ChildProcess.make({})`sips -z 512 512 ${sourcePng} --out ${iconPngPath}`, {
-      label: "sips mac icon",
-      verbose,
-    });
+    yield* runCommand(
+      ChildProcess.make({})`sips -z 512 512 ${dockSourcePng} --out ${iconPngPath}`,
+      {
+        label: "sips mac Dock icon",
+        verbose,
+      },
+    );
 
-    yield* generateMacIconSet(sourcePng, iconIcnsPath, tmpRoot, path, verbose);
+    yield* generateMacIconSet(icnsSourcePng, iconIcnsPath, tmpRoot, path, verbose);
   });
 }
 
@@ -1524,7 +1539,8 @@ export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIcon
   // Dock tile belongs to which app.
   if (isDesktopSigmaBuildVersion(version)) {
     return {
-      macIconPng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      macIcnsSourcePng: BRAND_ASSET_PATHS.sigmaMacIconPng,
+      macDockIconPng: BRAND_ASSET_PATHS.sigmaMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.sigmaLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.sigmaWindowsIconIco,
     };
@@ -1532,14 +1548,16 @@ export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIcon
 
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
-      macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
+      macIcnsSourcePng: BRAND_ASSET_PATHS.nightlyMacIconPng,
+      macDockIconPng: BRAND_ASSET_PATHS.nightlyMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
     };
   }
 
   return {
-    macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
+    macIcnsSourcePng: BRAND_ASSET_PATHS.productionMacIconPng,
+    macDockIconPng: BRAND_ASSET_PATHS.productionMacDockIconPng,
     linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
     windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
   };
@@ -1679,7 +1697,12 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   verbose: boolean,
 ) {
   if (platform === "mac") {
-    yield* stageMacIcons(stageResourcesDir, iconAssets.macIconPng, verbose);
+    yield* stageMacIcons(
+      stageResourcesDir,
+      iconAssets.macIcnsSourcePng,
+      iconAssets.macDockIconPng,
+      verbose,
+    );
     return;
   }
 
@@ -1896,7 +1919,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform,
     stageResourcesDir,
     {
-      macIconPng: path.join(repoRoot, iconAssets.macIconPng),
+      macIcnsSourcePng: path.join(repoRoot, iconAssets.macIcnsSourcePng),
+      macDockIconPng: path.join(repoRoot, iconAssets.macDockIconPng),
       linuxIconPng: path.join(repoRoot, iconAssets.linuxIconPng),
       windowsIconIco: path.join(repoRoot, iconAssets.windowsIconIco),
     },
