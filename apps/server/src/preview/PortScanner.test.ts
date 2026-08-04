@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { expect } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -150,7 +151,7 @@ effectIt("attributes discovered ports to a workspace terminal owner", () =>
               Effect.succeed({
                 stdout: "p4242\ncnode\nn127.0.0.1:5173\n",
                 stderr: "",
-                code: 0,
+                code: ChildProcessSpawner.ExitCode(0),
                 timedOut: false,
                 stdoutTruncated: false,
                 stderrTruncated: false,
