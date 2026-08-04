@@ -1,7 +1,11 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
 import { normalizeProjectPathForComparison } from "../lib/projectPaths";
-import { resolveSidebarConversationSummaryState } from "./Sidebar.summaryState";
+import {
+  createEmptySidebarConversationStateCounts,
+  resolveSidebarConversationSummaryState,
+  type SidebarConversationStateCounts,
+} from "./Sidebar.summaryState";
 
 export interface WorktreeDraftRow {
   readonly draftId: string;
@@ -32,13 +36,7 @@ export interface SidebarWorktreeGroup {
   readonly workingConversationCount: number;
 }
 
-export interface SidebarWorktreeStateCounts {
-  readonly working: number;
-  readonly needsInput: number;
-  readonly done: number;
-  readonly stale: number;
-  readonly settled: number;
-}
+export type SidebarWorktreeStateCounts = SidebarConversationStateCounts;
 
 export type SidebarProjectState = "needsInput" | "working" | "done" | "settled" | "idle";
 
@@ -294,13 +292,9 @@ export function buildSidebarWorktreeGroups(input: {
 
   return [...groups.entries()]
     .map(([key, group]): SidebarWorktreeGroup => {
-      const stateCounts = {
-        working: 0,
-        needsInput: 0,
-        done: 0,
-        stale: group.drafts.length,
-        settled: group.settledCount,
-      };
+      const stateCounts = createEmptySidebarConversationStateCounts();
+      stateCounts.stale = group.drafts.length;
+      stateCounts.settled = group.settledCount;
       for (const thread of [...group.active, ...group.snoozed]) {
         stateCounts[resolveSidebarConversationSummaryState(thread)] += 1;
       }
