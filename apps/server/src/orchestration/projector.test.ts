@@ -6,8 +6,8 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@aqqua/contracts";
+import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import { describe, expect, it } from "vite-plus/test";
 
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
@@ -342,6 +342,156 @@ describe("orchestration projector", () => {
     expect(settledThread?.latestTurn?.state).toBe("completed");
     expect(settledThread?.latestTurn?.completedAt).toBe(settledAt);
   });
+
+  it.effect("does not settle an older turn while a newer turn is running", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-02-23T08:00:00.000Z";
+      const afterCreate = yield* projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-stale-diff",
+          occurredAt: createdAt,
+          commandId: "cmd-stale-diff-create",
+          payload: {
+            threadId: "thread-stale-diff",
+            projectId: "project-stale-diff",
+            title: "Stale turn diff",
+            modelSelection: {
+              provider: ProviderDriverKind.make("codex"),
+              model: "gpt-5.3-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      );
+      const afterRunning = yield* projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.session-set",
+          aggregateKind: "thread",
+          aggregateId: "thread-stale-diff",
+          occurredAt: "2026-02-23T08:00:02.000Z",
+          commandId: "cmd-stale-diff-running",
+          payload: {
+            threadId: "thread-stale-diff",
+            session: {
+              threadId: "thread-stale-diff",
+              status: "running",
+              providerName: "codex",
+              providerSessionId: "session-stale-diff",
+              providerThreadId: "provider-thread-stale-diff",
+              runtimeMode: "full-access",
+              activeTurnId: "turn-active-b",
+              lastError: null,
+              updatedAt: "2026-02-23T08:00:02.000Z",
+            },
+          },
+        }),
+      );
+      const afterDiff = yield* projectEvent(
+        afterRunning,
+        makeEvent({
+          sequence: 3,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-stale-diff",
+          occurredAt: "2026-02-23T08:00:03.000Z",
+          commandId: "cmd-stale-diff-complete",
+          payload: {
+            threadId: "thread-stale-diff",
+            turnId: "turn-stale-a",
+            checkpointTurnCount: 1,
+            checkpointRef: "refs/aqqua/checkpoints/stale/turn/1",
+            status: "ready",
+            files: [],
+            assistantMessageId: "message-stale-a",
+            completedAt: "2026-02-23T08:00:03.000Z",
+          },
+        }),
+      );
+
+      const thread = afterDiff.threads[0];
+      expect(thread?.latestTurn).toEqual({
+        turnId: "turn-active-b",
+        state: "running",
+        requestedAt: "2026-02-23T08:00:02.000Z",
+        startedAt: "2026-02-23T08:00:02.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      });
+      expect(thread?.checkpoints.map((checkpoint) => checkpoint.turnId)).toEqual(["turn-stale-a"]);
+    }),
+  );
+
+  it.effect("settles a diff-completed turn when the session is not running", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-02-23T08:00:00.000Z";
+      const completedAt = "2026-02-23T08:01:00.000Z";
+      const afterCreate = yield* projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-settled-diff",
+          occurredAt: createdAt,
+          commandId: "cmd-settled-diff-create",
+          payload: {
+            threadId: "thread-settled-diff",
+            projectId: "project-settled-diff",
+            title: "Settled turn diff",
+            modelSelection: {
+              provider: ProviderDriverKind.make("codex"),
+              model: "gpt-5.3-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      );
+      const afterDiff = yield* projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-settled-diff",
+          occurredAt: completedAt,
+          commandId: "cmd-settled-diff-complete",
+          payload: {
+            threadId: "thread-settled-diff",
+            turnId: "turn-settled-diff",
+            checkpointTurnCount: 1,
+            checkpointRef: "refs/aqqua/checkpoints/settled/turn/1",
+            status: "ready",
+            files: [],
+            assistantMessageId: "message-settled-diff",
+            completedAt,
+          },
+        }),
+      );
+
+      expect(afterDiff.threads[0]?.latestTurn).toEqual({
+        turnId: "turn-settled-diff",
+        state: "completed",
+        requestedAt: completedAt,
+        startedAt: completedAt,
+        completedAt,
+        assistantMessageId: "message-settled-diff",
+      });
+    }),
+  );
 
   it("updates canonical thread runtime mode from thread.runtime-mode-set", async () => {
     const createdAt = "2026-02-23T08:00:00.000Z";
