@@ -46,6 +46,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           archived_at,
           settled_override,
           settled_at,
+          settled_change_request_number,
           snoozed_until,
           snoozed_at,
           latest_user_message_at,
@@ -70,6 +71,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.archivedAt},
           ${row.settledOverride},
           ${row.settledAt},
+          ${row.settledChangeRequestNumber ?? null},
           ${row.snoozedUntil},
           ${row.snoozedAt},
           ${row.latestUserMessageAt},
@@ -94,6 +96,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           archived_at = excluded.archived_at,
           settled_override = excluded.settled_override,
           settled_at = excluded.settled_at,
+          settled_change_request_number = COALESCE(
+            excluded.settled_change_request_number,
+            projection_threads.settled_change_request_number
+          ),
           snoozed_until = excluded.snoozed_until,
           snoozed_at = excluded.snoozed_at,
           latest_user_message_at = excluded.latest_user_message_at,
@@ -125,6 +131,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -158,6 +165,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -167,6 +175,40 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}
+        ORDER BY created_at ASC, thread_id ASC
+      `,
+  });
+
+  const listAllProjectionThreadRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadDbRow,
+    execute: () =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          project_id AS "projectId",
+          parent_thread_id AS "parentThreadId",
+          title,
+          model_selection_json AS "modelSelection",
+          runtime_mode AS "runtimeMode",
+          interaction_mode AS "interactionMode",
+          branch,
+          worktree_path AS "worktreePath",
+          latest_turn_id AS "latestTurnId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
+          settled_override AS "settledOverride",
+          settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
+          snoozed_until AS "snoozedUntil",
+          snoozed_at AS "snoozedAt",
+          latest_user_message_at AS "latestUserMessageAt",
+          pending_approval_count AS "pendingApprovalCount",
+          pending_user_input_count AS "pendingUserInputCount",
+          has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          deleted_at AS "deletedAt"
+        FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
   });
@@ -195,6 +237,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
     );
 
+  const listAll: ProjectionThreadRepositoryShape["listAll"] = listAllProjectionThreadRows(
+    undefined,
+  ).pipe(Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listAll:query")));
+
   const deleteById: ProjectionThreadRepositoryShape["deleteById"] = (input) =>
     deleteProjectionThreadRow(input).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.deleteById:query")),
@@ -204,6 +250,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
     upsert,
     getById,
     listByProjectId,
+    listAll,
     deleteById,
   } satisfies ProjectionThreadRepositoryShape;
 });

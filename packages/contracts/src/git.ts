@@ -53,6 +53,8 @@ const VcsStatusChangeRequestState = Schema.Literals(["open", "closed", "merged"]
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+export const GitChangeRequestMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
+export type GitChangeRequestMergeMethod = typeof GitChangeRequestMergeMethod.Type;
 export const GitRunStackedActionToastRunAction = Schema.Struct({
   kind: GitStackedAction,
 });
@@ -238,6 +240,38 @@ export const GitPullRequestRefInput = Schema.Struct({
 });
 export type GitPullRequestRefInput = typeof GitPullRequestRefInput.Type;
 
+export const GitGetChangeRequestMergeOptionsInput = GitPullRequestRefInput;
+export type GitGetChangeRequestMergeOptionsInput = typeof GitGetChangeRequestMergeOptionsInput.Type;
+
+export const GitMergeChangeRequestInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  reference: GitPullRequestReference,
+  method: GitChangeRequestMergeMethod,
+});
+export type GitMergeChangeRequestInput = typeof GitMergeChangeRequestInput.Type;
+
+export const GitSetAutoMergeInput = Schema.Union([
+  Schema.Struct({
+    cwd: TrimmedNonEmptyStringSchema,
+    reference: GitPullRequestReference,
+    enabled: Schema.Literal(true),
+    method: GitChangeRequestMergeMethod,
+  }),
+  Schema.Struct({
+    cwd: TrimmedNonEmptyStringSchema,
+    reference: GitPullRequestReference,
+    enabled: Schema.Literal(false),
+  }),
+]);
+export type GitSetAutoMergeInput = typeof GitSetAutoMergeInput.Type;
+
+export const GitUpdateChangeRequestStateInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  reference: GitPullRequestReference,
+  state: Schema.Literals(["open", "closed"]),
+});
+export type GitUpdateChangeRequestStateInput = typeof GitUpdateChangeRequestStateInput.Type;
+
 export const GitPreparePullRequestThreadInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   reference: GitPullRequestReference,
@@ -358,6 +392,7 @@ const VcsStatusChangeRequest = Schema.Struct({
   baseRef: TrimmedNonEmptyStringSchema,
   headRef: TrimmedNonEmptyStringSchema,
   state: VcsStatusChangeRequestState,
+  checksStatus: Schema.optional(Schema.NullOr(Schema.Literals(["success", "failure", "pending"]))),
 });
 
 const VcsStatusLocalShape = {
@@ -468,6 +503,35 @@ export const GitResolvePullRequestResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,
 });
 export type GitResolvePullRequestResult = typeof GitResolvePullRequestResult.Type;
+
+export const GitGetChangeRequestMergeOptionsResult = Schema.Struct({
+  methods: Schema.Array(GitChangeRequestMergeMethod).check(Schema.isMinLength(1)),
+  defaultMethod: GitChangeRequestMergeMethod,
+  autoMergeSupported: Schema.Boolean,
+}).check(
+  Schema.makeFilter(
+    (input) =>
+      input.methods.includes(input.defaultMethod) ||
+      "The default merge method must be included in the allowed methods.",
+  ),
+);
+export type GitGetChangeRequestMergeOptionsResult =
+  typeof GitGetChangeRequestMergeOptionsResult.Type;
+
+export const GitMergeChangeRequestResult = Schema.Struct({
+  merged: Schema.Literal(true),
+});
+export type GitMergeChangeRequestResult = typeof GitMergeChangeRequestResult.Type;
+
+export const GitSetAutoMergeResult = Schema.Struct({
+  enabled: Schema.Boolean,
+});
+export type GitSetAutoMergeResult = typeof GitSetAutoMergeResult.Type;
+
+export const GitUpdateChangeRequestStateResult = Schema.Struct({
+  state: Schema.Literals(["open", "closed"]),
+});
+export type GitUpdateChangeRequestStateResult = typeof GitUpdateChangeRequestStateResult.Type;
 
 export const GitPreparePullRequestThreadResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,

@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
   TrimmedNonEmptyString,
+  type GitChangeRequestMergeMethod,
   type SourceControlProviderAuth,
   type SourceControlRepositoryCloneUrls,
   type SourceControlRepositoryVisibility,
@@ -17,9 +18,12 @@ import { sanitizeBranchFragment } from "@aqqua/shared/git";
 import { detectSourceControlProviderFromRemoteUrl } from "@aqqua/shared/sourceControl";
 
 import {
+  BitbucketCommitStatusListSchema,
   BitbucketPullRequestListSchema,
   BitbucketPullRequestSchema,
+  normalizeBitbucketChecksStatus,
   normalizeBitbucketPullRequestRecord,
+  type BitbucketChecksStatus,
   type NormalizedBitbucketPullRequestRecord,
 } from "./bitbucketPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -43,6 +47,10 @@ const BitbucketApiOperation = Schema.Literals([
   "getBranchingModel",
   "getPullRequest",
   "listPullRequests",
+  "listChecks",
+  "getMergeOptions",
+  "mergePullRequest",
+  "updatePullRequestState",
   "createRepository",
   "createPullRequest",
   "probeAuth",
@@ -212,6 +220,11 @@ const RawBitbucketRepositorySchema = Schema.Struct({
       }),
     ),
   ),
+  override_settings: Schema.optional(
+    Schema.Struct({
+      default_merge_strategy: Schema.optional(TrimmedNonEmptyString),
+    }),
+  ),
 });
 
 const RawBitbucketBranchingModelSchema = Schema.Struct({
@@ -259,6 +272,34 @@ export class BitbucketApi extends Context.Service<
       readonly context?: SourceControlProvider.SourceControlProviderContext;
       readonly reference: string;
     }) => Effect.Effect<NormalizedBitbucketPullRequestRecord, BitbucketApiError>;
+    readonly listChecks: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
+      readonly changeRequestNumber: number;
+    }) => Effect.Effect<BitbucketChecksStatus, BitbucketApiError>;
+    readonly getMergeOptions: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
+      readonly reference: string;
+    }) => Effect.Effect<
+      {
+        readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
+        readonly defaultMethod: GitChangeRequestMergeMethod;
+      },
+      BitbucketApiError
+    >;
+    readonly mergePullRequest: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
+      readonly reference: string;
+      readonly method: GitChangeRequestMergeMethod;
+    }) => Effect.Effect<void, BitbucketApiError>;
+    readonly updatePullRequestState: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
+      readonly reference: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<void, BitbucketApiError>;
     readonly getRepositoryCloneUrls: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProvider.SourceControlProviderContext;
@@ -385,6 +426,49 @@ function normalizeRepositoryCloneUrls(
     url: httpClone ?? raw.links.html?.href ?? raw.full_name,
     sshUrl: sshClone ?? httpClone ?? raw.full_name,
   };
+}
+
+function normalizeBitbucketMergeStrategy(
+  strategy: string | undefined,
+): GitChangeRequestMergeMethod {
+  switch (strategy?.toLowerCase().replaceAll("-", "_")) {
+    case "squash":
+      return "squash";
+    case "fast_forward":
+      return "rebase";
+    case "merge":
+    case "merge_commit":
+    default:
+      return "merge";
+  }
+}
+
+function bitbucketMergeOptions(
+  branch: Schema.Schema.Type<typeof BitbucketPullRequestSchema>["destination"]["branch"],
+) {
+  const methods = Array.from(
+    new Set((branch.merge_strategies ?? []).map(normalizeBitbucketMergeStrategy)),
+  );
+  const defaultMethod = normalizeBitbucketMergeStrategy(branch.default_merge_strategy);
+  const availableMethods =
+    methods.length > 0 ? methods : ([defaultMethod] satisfies Array<GitChangeRequestMergeMethod>);
+  return {
+    methods: availableMethods,
+    defaultMethod: availableMethods.includes(defaultMethod)
+      ? defaultMethod
+      : (availableMethods[0] ?? "merge"),
+  };
+}
+
+function toBitbucketMergeStrategy(method: GitChangeRequestMergeMethod): string {
+  switch (method) {
+    case "merge":
+      return "merge_commit";
+    case "squash":
+      return "squash";
+    case "rebase":
+      return "fast_forward";
+  }
 }
 
 function defaultChangeRequestTargetBranch(input: {
@@ -732,6 +816,82 @@ export const make = Effect.gen(function* () {
       ),
     getPullRequest: (input) =>
       getRawPullRequest(input).pipe(Effect.map(normalizeBitbucketPullRequestRecord)),
+    listChecks: (input) =>
+      resolveRepository(input).pipe(
+        Effect.flatMap(
+          Effect.fn("BitbucketApi.listChecks")(function* (repository) {
+            const values: Array<{ readonly state: string }> = [];
+            let pageNumber = 1;
+            let hasNextPage = true;
+            while (hasNextPage) {
+              const page = yield* executeJson(
+                "listChecks",
+                HttpClientRequest.get(
+                  apiUrl(
+                    `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${input.changeRequestNumber}/statuses`,
+                  ),
+                  {
+                    urlParams: {
+                      pagelen: "100",
+                      page: String(pageNumber),
+                    },
+                  },
+                ),
+                BitbucketCommitStatusListSchema,
+              );
+              values.push(...page.values);
+              hasNextPage = page.next !== undefined;
+              pageNumber += 1;
+            }
+            return normalizeBitbucketChecksStatus({ values });
+          }),
+        ),
+      ),
+    getMergeOptions: (input) =>
+      resolveRepository(input).pipe(
+        Effect.flatMap((repository) =>
+          getRawPullRequestFromRepository(repository, input.reference),
+        ),
+        Effect.map((pullRequest) => bitbucketMergeOptions(pullRequest.destination.branch)),
+      ),
+    mergePullRequest: (input) =>
+      resolveRepository(input).pipe(
+        Effect.flatMap((repository) =>
+          executeJson(
+            "mergePullRequest",
+            HttpClientRequest.post(
+              apiUrl(
+                `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}/merge`,
+              ),
+            ).pipe(
+              HttpClientRequest.bodyJsonUnsafe({
+                merge_strategy: toBitbucketMergeStrategy(input.method),
+              }),
+            ),
+            BitbucketPullRequestSchema,
+          ),
+        ),
+        Effect.asVoid,
+      ),
+    updatePullRequestState: (input) =>
+      resolveRepository(input).pipe(
+        Effect.flatMap((repository) =>
+          executeJson(
+            "updatePullRequestState",
+            HttpClientRequest.put(
+              apiUrl(
+                `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}`,
+              ),
+            ).pipe(
+              HttpClientRequest.bodyJsonUnsafe({
+                state: input.state === "open" ? "OPEN" : "DECLINED",
+              }),
+            ),
+            BitbucketPullRequestSchema,
+          ),
+        ),
+        Effect.asVoid,
+      ),
     getRepositoryCloneUrls: (input) =>
       getRepository(input).pipe(Effect.map(normalizeRepositoryCloneUrls)),
     createRepository: (input) =>

@@ -186,6 +186,92 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "github",
+    capabilities: { checks: true, merge: true, autoMerge: true, changeRequestState: true },
+    listChecks: (input) =>
+      github.listChecks(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "listChecks",
+              command: error.command,
+              cwd: input.cwd,
+              reference: String(input.changeRequestNumber),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    getChangeRequestMergeOptions: (input) =>
+      github.getMergeOptions(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "getChangeRequestMergeOptions",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      github.mergePullRequest(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "mergeChangeRequest",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail:
+                "GitHub could not merge this pull request. Check conflicts, required checks, permissions, and branch rules.",
+              cause: error,
+            }),
+        ),
+      ),
+    setAutoMerge: (input) =>
+      github.setAutoMerge(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "setAutoMerge",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail:
+                "GitHub could not update auto-merge. Check repository settings and your permissions.",
+              cause: error,
+            }),
+        ),
+      ),
+    updateChangeRequestState: (input) =>
+      github.updatePullRequestState(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "updateChangeRequestState",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: `GitHub could not ${input.state === "open" ? "reopen" : "close"} this pull request. Check your permissions and the pull request state.`,
+              cause: error,
+            }),
+        ),
+      ),
     listChangeRequests,
     getChangeRequest: (input) =>
       github.getPullRequest(input).pipe(

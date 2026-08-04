@@ -25,7 +25,12 @@ import { mergeGitStatusParts } from "@aqqua/shared/git";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 
-const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+const DISABLED_VCS_STATUS_REFRESH_RECHECK_INTERVAL = Duration.seconds(30);
+const VCS_STATUS_REFRESH_NO_PR_INTERVAL = Duration.minutes(15);
+const VCS_STATUS_REFRESH_SETTLED_PR_INTERVAL = Duration.minutes(30);
+const VCS_STATUS_REFRESH_PENDING_CHECKS_INTERVAL = Duration.seconds(90);
+const VCS_STATUS_REFRESH_FAILING_CHECKS_INTERVAL = Duration.minutes(3);
+const VCS_STATUS_REFRESH_PASSING_CHECKS_INTERVAL = Duration.minutes(10);
 const VCS_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
 const VCS_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 const MAX_FAILURE_DIAGNOSTIC_VALUES = 8;
@@ -153,6 +158,23 @@ export function remoteRefreshFailureDelay(
   return Duration.max(configuredInterval, cappedBackoff);
 }
 
+export function remoteRefreshIntervalForStatus(remote: VcsStatusRemoteResult | null) {
+  const pr = remote?.pr;
+  if (!pr) {
+    return VCS_STATUS_REFRESH_NO_PR_INTERVAL;
+  }
+  if (pr.state === "merged" || pr.state === "closed") {
+    return VCS_STATUS_REFRESH_SETTLED_PR_INTERVAL;
+  }
+  if (pr.checksStatus === "pending") {
+    return VCS_STATUS_REFRESH_PENDING_CHECKS_INTERVAL;
+  }
+  if (pr.checksStatus === "failure") {
+    return VCS_STATUS_REFRESH_FAILING_CHECKS_INTERVAL;
+  }
+  return VCS_STATUS_REFRESH_PASSING_CHECKS_INTERVAL;
+}
+
 export class VcsStatusBroadcaster extends Context.Service<
   VcsStatusBroadcaster,
   {
@@ -167,6 +189,10 @@ export class VcsStatusBroadcaster extends Context.Service<
       input: VcsStatusInput,
       options?: StreamStatusOptions,
     ) => Stream.Stream<VcsStatusStreamEvent, GitManagerServiceError>;
+    readonly streamRemoteChanges: Stream.Stream<{
+      readonly cwd: string;
+      readonly remote: VcsStatusRemoteResult | null;
+    }>;
   }
 >()("aqqua/vcs/VcsStatusBroadcaster") {}
 
@@ -382,19 +408,26 @@ export const make = Effect.gen(function* () {
   const makeRemoteRefreshLoop = (
     cwd: string,
     demandCwdsRef: Ref.Ref<ReadonlyMap<string, number>>,
-    automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
+    automaticRemoteRefreshEnabled: Effect.Effect<boolean, never>,
     refreshImmediately: boolean,
   ) => {
     return Effect.gen(function* () {
       const consecutiveFailuresRef = yield* Ref.make(0);
       const needsInitialRefreshRef = yield* Ref.make(refreshImmediately);
+      const resolveActiveInterval = Effect.fn(
+        "VcsStatusBroadcaster.resolveActiveRemoteRefreshInterval",
+      )(function* () {
+        if (!(yield* automaticRemoteRefreshEnabled)) {
+          return DISABLED_VCS_STATUS_REFRESH_RECHECK_INTERVAL;
+        }
+        const cached = yield* getCachedStatus(cwd);
+        return remoteRefreshIntervalForStatus(cached?.remote?.value ?? null);
+      });
       const refreshRemoteStatusIfEnabled = Effect.gen(function* () {
-        const configuredInterval = yield* automaticRemoteRefreshInterval;
-        const activeInterval = Duration.isZero(configuredInterval)
-          ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
-          : configuredInterval;
+        const automaticRefreshEnabled = yield* automaticRemoteRefreshEnabled;
+        const activeInterval = yield* resolveActiveInterval();
         const needsInitialRefresh = yield* Ref.get(needsInitialRefreshRef);
-        if (Duration.isZero(configuredInterval) && !needsInitialRefresh) {
+        if (!automaticRefreshEnabled && !needsInitialRefresh) {
           return activeInterval;
         }
 
@@ -415,12 +448,12 @@ export const make = Effect.gen(function* () {
         }
 
         const exit = yield* refreshRemoteStatus(cwd, {
-          refreshUpstream: !Duration.isZero(configuredInterval),
+          refreshUpstream: automaticRefreshEnabled,
         }).pipe(Effect.exit);
         if (Exit.isSuccess(exit)) {
           yield* Ref.set(needsInitialRefreshRef, false);
           yield* Ref.set(consecutiveFailuresRef, 0);
-          return activeInterval;
+          return yield* resolveActiveInterval();
         }
 
         const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
@@ -443,12 +476,7 @@ export const make = Effect.gen(function* () {
       });
 
       if (!refreshImmediately) {
-        const configuredInterval = yield* automaticRemoteRefreshInterval;
-        yield* Effect.sleep(
-          Duration.isZero(configuredInterval)
-            ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
-            : configuredInterval,
-        );
+        yield* Effect.sleep(yield* resolveActiveInterval());
       }
 
       return yield* refreshRemoteStatusIfEnabled.pipe(
@@ -465,7 +493,7 @@ export const make = Effect.gen(function* () {
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,
     demandCwd: string,
-    automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
+    automaticRemoteRefreshEnabled: Effect.Effect<boolean, never>,
     refreshImmediately: boolean,
   ) {
     yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
@@ -492,7 +520,7 @@ export const make = Effect.gen(function* () {
           makeRemoteRefreshLoop(
             cwd,
             demandCwds,
-            automaticRemoteRefreshInterval,
+            automaticRemoteRefreshEnabled,
             refreshImmediately,
           ).pipe(
             Effect.forkIn(broadcasterScope),
@@ -564,8 +592,9 @@ export const make = Effect.gen(function* () {
         yield* retainRemotePoller(
           cwd,
           input.cwd,
-          options?.automaticRemoteRefreshInterval ??
-            Effect.succeed(DEFAULT_VCS_STATUS_REFRESH_INTERVAL),
+          options?.automaticRemoteRefreshInterval?.pipe(
+            Effect.map((interval) => !Duration.isZero(interval)),
+          ) ?? Effect.succeed(true),
           cachedStatus?.remote === null || cachedStatus?.remote === undefined,
         );
 
@@ -585,11 +614,35 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  const streamRemoteChanges: VcsStatusBroadcaster["Service"]["streamRemoteChanges"] = Stream.unwrap(
+    PubSub.subscribe(changesPubSub).pipe(
+      Effect.map((subscription) =>
+        Stream.fromSubscription(subscription).pipe(
+          Stream.filter(
+            (
+              change,
+            ): change is VcsStatusChange & {
+              readonly event: Extract<
+                VcsStatusStreamEvent,
+                { readonly _tag: "snapshot" | "remoteUpdated" }
+              >;
+            } => change.event._tag === "snapshot" || change.event._tag === "remoteUpdated",
+          ),
+          Stream.map((change) => ({
+            cwd: change.cwd,
+            remote: change.event.remote,
+          })),
+        ),
+      ),
+    ),
+  );
+
   return VcsStatusBroadcaster.of({
     getStatus,
     refreshLocalStatus,
     refreshStatus,
     streamStatus,
+    streamRemoteChanges,
   });
 });
 

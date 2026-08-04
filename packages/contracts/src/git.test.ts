@@ -15,9 +15,14 @@ import {
   VcsListHistoryInput,
   VcsListHistoryResult,
   GitPreparePullRequestThreadInput,
+  GitGetChangeRequestMergeOptionsResult,
+  GitMergeChangeRequestInput,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  GitSetAutoMergeInput,
+  GitUpdateChangeRequestStateInput,
+  VcsStatusRemoteResult,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -40,6 +45,13 @@ const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
 const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
+const decodeMergeOptionsResult = Schema.decodeUnknownSync(GitGetChangeRequestMergeOptionsResult);
+const decodeMergeChangeRequestInput = Schema.decodeUnknownSync(GitMergeChangeRequestInput);
+const decodeSetAutoMergeInput = Schema.decodeUnknownSync(GitSetAutoMergeInput);
+const decodeUpdateChangeRequestStateInput = Schema.decodeUnknownSync(
+  GitUpdateChangeRequestStateInput,
+);
+const decodeVcsStatusRemoteResult = Schema.decodeUnknownSync(VcsStatusRemoteResult);
 
 describe("VcsCreateWorktreeInput", () => {
   it("accepts omitted newRefName for existing-refName worktrees", () => {
@@ -371,6 +383,111 @@ describe("GitResolvePullRequestResult", () => {
 
     expect(parsed.pullRequest.number).toBe(42);
     expect(parsed.pullRequest.headBranch).toBe("feature/pr-threads");
+  });
+});
+
+describe("change request mutation contracts", () => {
+  it("decodes repository merge options and requires a supported default", () => {
+    expect(
+      decodeMergeOptionsResult({
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+        autoMergeSupported: true,
+      }),
+    ).toEqual({
+      methods: ["merge", "squash"],
+      defaultMethod: "squash",
+      autoMergeSupported: true,
+    });
+    expect(() =>
+      decodeMergeOptionsResult({
+        methods: [],
+        defaultMethod: "merge",
+        autoMergeSupported: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeMergeOptionsResult({
+        methods: ["squash"],
+        defaultMethod: "merge",
+        autoMergeSupported: false,
+      }),
+    ).toThrow();
+  });
+
+  it("accepts the generic merge methods", () => {
+    for (const method of ["merge", "squash", "rebase"] as const) {
+      expect(decodeMergeChangeRequestInput({ cwd: "/repo", reference: "#42", method })).toEqual({
+        cwd: "/repo",
+        reference: "#42",
+        method,
+      });
+    }
+  });
+
+  it("requires a method when enabling auto-merge and omits it when disabling", () => {
+    expect(
+      decodeSetAutoMergeInput({
+        cwd: "/repo",
+        reference: "#42",
+        enabled: true,
+        method: "squash",
+      }),
+    ).toMatchObject({ enabled: true, method: "squash" });
+    expect(
+      decodeSetAutoMergeInput({ cwd: "/repo", reference: "#42", enabled: false }),
+    ).toMatchObject({ enabled: false });
+    expect(() =>
+      decodeSetAutoMergeInput({ cwd: "/repo", reference: "#42", enabled: true }),
+    ).toThrow();
+  });
+
+  it("limits state updates to close and reopen", () => {
+    expect(
+      decodeUpdateChangeRequestStateInput({
+        cwd: "/repo",
+        reference: "#42",
+        state: "closed",
+      }).state,
+    ).toBe("closed");
+    expect(() =>
+      decodeUpdateChangeRequestStateInput({
+        cwd: "/repo",
+        reference: "#42",
+        state: "merged",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("VcsStatusRemoteResult", () => {
+  const remote = {
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: {
+      number: 42,
+      title: "CI status",
+      url: "https://github.com/pingdotgg/aqqua/pull/42",
+      baseRef: "main",
+      headRef: "feature/checks",
+      state: "open",
+    },
+  } as const;
+
+  it("decodes checks status when supplied", () => {
+    const parsed = decodeVcsStatusRemoteResult({
+      ...remote,
+      pr: { ...remote.pr, checksStatus: "pending" },
+    });
+
+    expect(parsed.pr?.checksStatus).toBe("pending");
+  });
+
+  it("keeps checks status optional for older server payloads", () => {
+    const parsed = decodeVcsStatusRemoteResult(remote);
+
+    expect(parsed.pr?.checksStatus).toBeUndefined();
   });
 });
 

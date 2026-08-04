@@ -336,6 +336,7 @@ describe("CheckpointReactor", () => {
           pr: null,
         }),
       streamStatus: () => Stream.empty,
+      streamRemoteChanges: Stream.empty,
     });
 
     const layer = CheckpointReactorLive.pipe(

@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import type {
   ChangeRequest,
   ChangeRequestState,
+  GitChangeRequestMergeMethod,
   SourceControlProviderError,
   SourceControlProviderInfo,
   SourceControlProviderKind,
@@ -20,6 +21,73 @@ export interface SourceControlRefSelector {
   readonly refName: string;
   readonly owner?: string;
   readonly repository?: string;
+}
+
+export type ChangeRequestChecksStatus = "success" | "failure" | "pending" | null;
+
+export interface SourceControlProviderChecksCapability {
+  readonly capabilities: {
+    readonly checks: true;
+  };
+  readonly listChecks: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly changeRequestNumber: number;
+  }) => Effect.Effect<ChangeRequestChecksStatus, SourceControlProviderError>;
+}
+
+export interface ChangeRequestMergeOptions {
+  readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
+  readonly defaultMethod: GitChangeRequestMergeMethod;
+}
+
+interface ChangeRequestOperationInput {
+  readonly cwd: string;
+  readonly context?: SourceControlProviderContext;
+  readonly reference: string;
+}
+
+export interface SourceControlProviderMergeCapability {
+  readonly capabilities: {
+    readonly merge: true;
+  };
+  readonly getChangeRequestMergeOptions: (
+    input: ChangeRequestOperationInput,
+  ) => Effect.Effect<ChangeRequestMergeOptions, SourceControlProviderError>;
+  readonly mergeChangeRequest: (
+    input: ChangeRequestOperationInput & {
+      readonly method: GitChangeRequestMergeMethod;
+    },
+  ) => Effect.Effect<void, SourceControlProviderError>;
+}
+
+export interface SourceControlProviderAutoMergeCapability {
+  readonly capabilities: {
+    readonly autoMerge: true;
+  };
+  readonly setAutoMerge: (
+    input: ChangeRequestOperationInput &
+      (
+        | {
+            readonly enabled: true;
+            readonly method: GitChangeRequestMergeMethod;
+          }
+        | {
+            readonly enabled: false;
+          }
+      ),
+  ) => Effect.Effect<void, SourceControlProviderError>;
+}
+
+export interface SourceControlProviderChangeRequestStateCapability {
+  readonly capabilities: {
+    readonly changeRequestState: true;
+  };
+  readonly updateChangeRequestState: (
+    input: ChangeRequestOperationInput & {
+      readonly state: "open" | "closed";
+    },
+  ) => Effect.Effect<void, SourceControlProviderError>;
 }
 
 const MAX_ERROR_TRANSPORT_VALUE_LENGTH = 256;
@@ -83,6 +151,17 @@ export class SourceControlProvider extends Context.Service<
   SourceControlProvider,
   {
     readonly kind: SourceControlProviderKind;
+    readonly capabilities?: {
+      readonly checks?: boolean;
+      readonly merge?: boolean;
+      readonly autoMerge?: boolean;
+      readonly changeRequestState?: boolean;
+    };
+    readonly listChecks?: SourceControlProviderChecksCapability["listChecks"];
+    readonly getChangeRequestMergeOptions?: SourceControlProviderMergeCapability["getChangeRequestMergeOptions"];
+    readonly mergeChangeRequest?: SourceControlProviderMergeCapability["mergeChangeRequest"];
+    readonly setAutoMerge?: SourceControlProviderAutoMergeCapability["setAutoMerge"];
+    readonly updateChangeRequestState?: SourceControlProviderChangeRequestStateCapability["updateChangeRequestState"];
     readonly listChangeRequests: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
@@ -128,3 +207,35 @@ export class SourceControlProvider extends Context.Service<
     }) => Effect.Effect<void, SourceControlProviderError>;
   }
 >()("aqqua/sourceControl/SourceControlProvider") {}
+
+export function supportsChangeRequestChecks(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderChecksCapability {
+  return provider.capabilities?.checks === true && provider.listChecks !== undefined;
+}
+
+export function supportsChangeRequestMerge(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderMergeCapability {
+  return (
+    provider.capabilities?.merge === true &&
+    provider.getChangeRequestMergeOptions !== undefined &&
+    provider.mergeChangeRequest !== undefined
+  );
+}
+
+export function supportsChangeRequestAutoMerge(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderAutoMergeCapability {
+  return provider.capabilities?.autoMerge === true && provider.setAutoMerge !== undefined;
+}
+
+export function supportsChangeRequestStateUpdate(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] &
+  SourceControlProviderChangeRequestStateCapability {
+  return (
+    provider.capabilities?.changeRequestState === true &&
+    provider.updateChangeRequestState !== undefined
+  );
+}

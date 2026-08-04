@@ -16,10 +16,18 @@ import {
   GitActionProgressEvent,
   GitActionProgressPhase,
   GitCommandError,
+  GitGetChangeRequestMergeOptionsInput,
+  GitGetChangeRequestMergeOptionsResult,
+  GitMergeChangeRequestInput,
+  GitMergeChangeRequestResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
   GitResolvePullRequestResult,
+  GitSetAutoMergeInput,
+  GitSetAutoMergeResult,
+  GitUpdateChangeRequestStateInput,
+  GitUpdateChangeRequestStateResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
   GitStackedAction,
@@ -28,6 +36,7 @@ import {
   type VcsStatusRemoteResult,
   VcsStatusResult,
   ModelSelection,
+  SourceControlProviderError,
   type SourceControlWritingStyleSettings,
 } from "@aqqua/contracts";
 import {
@@ -57,6 +66,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@aqqua/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import * as SourceControlProvider from "../sourceControl/SourceControlProvider.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@aqqua/contracts";
 
@@ -93,6 +103,18 @@ export class GitManager extends Context.Service<
     readonly resolvePullRequest: (
       input: GitPullRequestRefInput,
     ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
+    readonly getChangeRequestMergeOptions: (
+      input: GitGetChangeRequestMergeOptionsInput,
+    ) => Effect.Effect<GitGetChangeRequestMergeOptionsResult, GitManagerServiceError>;
+    readonly mergeChangeRequest: (
+      input: GitMergeChangeRequestInput,
+    ) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
+    readonly setAutoMerge: (
+      input: GitSetAutoMergeInput,
+    ) => Effect.Effect<GitSetAutoMergeResult, GitManagerServiceError>;
+    readonly updateChangeRequestState: (
+      input: GitUpdateChangeRequestStateInput,
+    ) => Effect.Effect<GitUpdateChangeRequestStateResult, GitManagerServiceError>;
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
@@ -112,6 +134,7 @@ const STATUS_RESULT_CACHE_CAPACITY = 2_048;
 const PR_LOOKUP_CACHE_TTL = Duration.minutes(2);
 const PR_LOOKUP_FAILURE_TTL = Duration.seconds(20);
 const PR_LOOKUP_CACHE_CAPACITY = 2_048;
+const MERGE_OPTIONS_CACHE_TTL = Duration.minutes(5);
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
@@ -510,13 +533,17 @@ function appendUnique(values: string[], next: string | null | undefined): void {
   values.push(trimmed);
 }
 
-function toStatusPr(pr: PullRequestInfo): {
+function toStatusPr(
+  pr: PullRequestInfo,
+  checksStatus: SourceControlProvider.ChangeRequestChecksStatus,
+): {
   number: number;
   title: string;
   url: string;
   baseRef: string;
   headRef: string;
   state: "open" | "closed" | "merged";
+  checksStatus: SourceControlProvider.ChangeRequestChecksStatus;
 } {
   return {
     number: pr.number,
@@ -525,6 +552,7 @@ function toStatusPr(pr: PullRequestInfo): {
     baseRef: pr.baseRefName,
     headRef: pr.headRefName,
     state: pr.state,
+    checksStatus,
   };
 }
 
@@ -890,20 +918,48 @@ export const make = Effect.gen(function* () {
   const prLookupCacheKey = (cwd: string, details: { branch: string; upstreamRef: string | null }) =>
     [cwd, details.branch, details.upstreamRef ?? "", String(prLookupEpoch(cwd))].join("\u0000");
   const prLookupCache = yield* Cache.makeWith(
-    (key: string) => {
+    Effect.fn("GitManager.loadPrStatus")(function* (key: string) {
       const [cwd = "", branch = "", upstreamRef = ""] = key.split("\u0000");
       const details = {
         branch,
         upstreamRef: upstreamRef.length > 0 ? upstreamRef : null,
       };
-      return resolveBranchHeadContext(cwd, details).pipe(
-        Effect.flatMap((headContext) =>
-          findLatestPrForHeadContext(cwd, headContext).pipe(
-            Effect.map((latest) => ({ latest, headContext })),
-          ),
-        ),
-      );
-    },
+      const headContext = yield* resolveBranchHeadContext(cwd, details);
+      const latest = yield* findLatestPrForHeadContext(cwd, headContext);
+      let checks: {
+        readonly status: SourceControlProvider.ChangeRequestChecksStatus;
+        readonly failed: boolean;
+      } = { status: null, failed: false };
+
+      if (latest) {
+        const provider = yield* sourceControlProviders.resolve({ cwd });
+        if (SourceControlProvider.supportsChangeRequestChecks(provider)) {
+          checks = yield* provider
+            .listChecks({
+              cwd,
+              changeRequestNumber: latest.number,
+            })
+            .pipe(
+              Effect.map((status) => ({ status, failed: false })),
+              Effect.catch((error) =>
+                Effect.logWarning("Checks lookup failed; keeping last known state.").pipe(
+                  Effect.annotateLogs({
+                    operation: "lookupStatusChecks",
+                    branch,
+                    errorTag:
+                      typeof error === "object" && error !== null && "_tag" in error
+                        ? String(error._tag)
+                        : typeof error,
+                  }),
+                  Effect.as({ status: null, failed: true }),
+                ),
+              ),
+            );
+        }
+      }
+
+      return { latest, headContext, checks };
+    }),
     {
       capacity: PR_LOOKUP_CACHE_CAPACITY,
       timeToLive: (exit) => (Exit.isSuccess(exit) ? PR_LOOKUP_CACHE_TTL : PR_LOOKUP_FAILURE_TTL),
@@ -975,14 +1031,25 @@ export const make = Effect.gen(function* () {
     // `push -u`) must not orphan the fallback value for the same branch.
     const branchKey = `${cwd}\u0000${details.branch}`;
     return yield* Cache.get(prLookupCache, prLookupCacheKey(cwd, details)).pipe(
-      Effect.map(({ latest, headContext }) => {
+      Effect.map(({ latest, headContext, checks }) => {
         if (!latest) return { pr: null, headContext };
         // On the default branch, only surface open PRs.
         // Merged/closed matches are usually reverse-merge history, not the thread's PR context.
         if (details.isDefaultBranch && latest.state !== "open") {
           return { pr: null, headContext };
         }
-        return { pr: toStatusPr(latest), headContext };
+        const current = {
+          upstreamRef: details.upstreamRef,
+          headBranch: headContext.headBranch,
+          remoteName: headContext.remoteName,
+          headRemoteUrlKey: headContext.headRemoteUrlKey,
+        };
+        const previous = resolveLastKnownPr(branchKey, current);
+        const checksStatus =
+          checks.failed && previous !== null && previous.number === latest.number
+            ? previous.checksStatus
+            : checks.status;
+        return { pr: toStatusPr(latest, checksStatus), headContext };
       }),
       Effect.tap(({ pr, headContext }) =>
         Effect.sync(() =>
@@ -1718,6 +1785,126 @@ export const make = Effect.gen(function* () {
     return { pullRequest };
   });
 
+  const mergeOptionsCache = yield* Cache.makeWith(
+    Effect.fn("GitManager.loadChangeRequestMergeOptions")(function* (key: string) {
+      const [cwd = "", reference = ""] = key.split("\u0000");
+      const provider = yield* sourceControlProvider(cwd);
+      if (!SourceControlProvider.supportsChangeRequestMerge(provider)) {
+        return yield* new SourceControlProviderError({
+          provider: provider.kind,
+          operation: "getChangeRequestMergeOptions",
+          cwd,
+          reference,
+          detail: "This source control provider does not expose merge operations.",
+        });
+      }
+      const options = yield* provider.getChangeRequestMergeOptions({ cwd, reference });
+      return {
+        ...options,
+        autoMergeSupported: SourceControlProvider.supportsChangeRequestAutoMerge(provider),
+      };
+    }),
+    {
+      capacity: PR_LOOKUP_CACHE_CAPACITY,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? MERGE_OPTIONS_CACHE_TTL : Duration.zero),
+    },
+  );
+
+  const getChangeRequestMergeOptions: GitManager["Service"]["getChangeRequestMergeOptions"] =
+    Effect.fn("getChangeRequestMergeOptions")(function* (input) {
+      const provider = yield* sourceControlProvider(input.cwd);
+      const normalizedReference = normalizePullRequestReference(input.reference);
+      return yield* Cache.get(
+        mergeOptionsCache,
+        `${input.cwd}\u0000${provider.kind === "github" ? "" : normalizedReference}`,
+      );
+    });
+
+  const mergeChangeRequest: GitManager["Service"]["mergeChangeRequest"] = Effect.fn(
+    "mergeChangeRequest",
+  )(function* (input) {
+    const provider = yield* sourceControlProvider(input.cwd);
+    if (!SourceControlProvider.supportsChangeRequestMerge(provider)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: input.reference,
+        detail: "This source control provider does not support merging change requests.",
+      });
+    }
+    const options = yield* getChangeRequestMergeOptions(input);
+    if (!options.methods.includes(input.method)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: input.reference,
+        detail: `The repository does not allow the ${input.method} merge method.`,
+      });
+    }
+    yield* provider.mergeChangeRequest({
+      ...input,
+      reference: normalizePullRequestReference(input.reference),
+    });
+    yield* bumpPrLookupEpoch(input.cwd);
+    return { merged: true };
+  });
+
+  const setAutoMerge: GitManager["Service"]["setAutoMerge"] = Effect.fn("setAutoMerge")(
+    function* (input) {
+      const provider = yield* sourceControlProvider(input.cwd);
+      if (!SourceControlProvider.supportsChangeRequestAutoMerge(provider)) {
+        return yield* new SourceControlProviderError({
+          provider: provider.kind,
+          operation: "setAutoMerge",
+          cwd: input.cwd,
+          reference: input.reference,
+          detail: "This source control provider does not support auto-merge.",
+        });
+      }
+      if (input.enabled) {
+        const options = yield* getChangeRequestMergeOptions(input);
+        if (!options.methods.includes(input.method)) {
+          return yield* new SourceControlProviderError({
+            provider: provider.kind,
+            operation: "setAutoMerge",
+            cwd: input.cwd,
+            reference: input.reference,
+            detail: `The repository does not allow the ${input.method} merge method.`,
+          });
+        }
+      }
+      yield* provider.setAutoMerge({
+        ...input,
+        reference: normalizePullRequestReference(input.reference),
+      });
+      return { enabled: input.enabled };
+    },
+  );
+
+  const updateChangeRequestState: GitManager["Service"]["updateChangeRequestState"] = Effect.fn(
+    "updateChangeRequestState",
+  )(function* (input) {
+    const provider = yield* sourceControlProvider(input.cwd);
+    if (!SourceControlProvider.supportsChangeRequestStateUpdate(provider)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "updateChangeRequestState",
+        cwd: input.cwd,
+        reference: input.reference,
+        detail:
+          "This source control provider does not support closing or reopening change requests.",
+      });
+    }
+    yield* provider.updateChangeRequestState({
+      ...input,
+      reference: normalizePullRequestReference(input.reference),
+    });
+    yield* bumpPrLookupEpoch(input.cwd);
+    return { state: input.state };
+  });
+
   const preparePullRequestThread: GitManager["Service"]["preparePullRequestThread"] = Effect.fn(
     "preparePullRequestThread",
   )(function* (input) {
@@ -2141,6 +2328,10 @@ export const make = Effect.gen(function* () {
     invalidateRemoteStatus,
     invalidateStatus,
     resolvePullRequest,
+    getChangeRequestMergeOptions,
+    mergeChangeRequest,
+    setAutoMerge,
+    updateChangeRequestState,
     preparePullRequestThread,
     runStackedAction,
   });

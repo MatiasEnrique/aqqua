@@ -16,6 +16,40 @@ export interface NormalizedBitbucketPullRequestRecord {
   readonly headRepositoryOwnerLogin?: string | null;
 }
 
+export type BitbucketChecksStatus = "success" | "failure" | "pending" | null;
+
+export const BitbucketCommitStatusListSchema = Schema.Struct({
+  values: Schema.Array(
+    Schema.Struct({
+      state: Schema.String,
+    }),
+  ),
+  next: Schema.optional(TrimmedNonEmptyString),
+});
+
+export function normalizeBitbucketChecksStatus(
+  input: Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>,
+): BitbucketChecksStatus {
+  if (input.values.length === 0) {
+    return null;
+  }
+  let pending = false;
+  for (const status of input.values) {
+    switch (status.state.trim().toUpperCase()) {
+      case "FAILED":
+      case "STOPPED":
+        return "failure";
+      case "SUCCESSFUL":
+        break;
+      case "INPROGRESS":
+      default:
+        pending = true;
+        break;
+    }
+  }
+  return pending ? "pending" : "success";
+}
+
 export const BitbucketRepositoryRefSchema = Schema.Struct({
   full_name: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   workspace: Schema.optional(
@@ -31,6 +65,8 @@ export const BitbucketPullRequestBranchSchema = Schema.Struct({
   repository: Schema.optional(Schema.NullOr(BitbucketRepositoryRefSchema)),
   branch: Schema.Struct({
     name: TrimmedNonEmptyString,
+    merge_strategies: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+    default_merge_strategy: Schema.optional(TrimmedNonEmptyString),
   }),
 });
 

@@ -168,6 +168,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           type: "thread.settle",
           commandId: CommandId.make("cmd-settle-again"),
           threadId: ThreadId.make("thread-1"),
+          trigger: { kind: "merged-change-request", number: 42 },
         },
         readModel: makeReadModel("settled"),
       });
@@ -176,6 +177,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       expect(reEmitEvents[0]?.type).toBe("thread.settled");
       if (reEmitEvents[0]?.type === "thread.settled") {
         expect(reEmitEvents[0].payload.settledAt).toBe(SETTLED_AT);
+        expect(reEmitEvents[0].payload.settledChangeRequestNumber).toBe(42);
         // updatedAt must NOT rewind to the historical settledAt: sorting and
         // relative-time labels key on it.
         expect(reEmitEvents[0].payload.updatedAt).not.toBe(SETTLED_AT);
@@ -612,6 +614,44 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           { type: "thread.settled", aggregateId: ThreadId.make("thread-parent") },
         ],
       );
+    }),
+  );
+
+  it.effect("records a merged change request trigger on the parent only during cascade", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-from-pr"),
+          threadId: ThreadId.make("thread-parent"),
+          trigger: { kind: "merged-change-request", number: 42 },
+        },
+        readModel: makeHierarchyReadModel(),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(
+        events.map((event) =>
+          event.type === "thread.settled"
+            ? {
+                aggregateId: event.aggregateId,
+                settledChangeRequestNumber: event.payload.settledChangeRequestNumber,
+              }
+            : null,
+        ),
+      ).toEqual([
+        {
+          aggregateId: ThreadId.make("thread-grandchild"),
+          settledChangeRequestNumber: undefined,
+        },
+        {
+          aggregateId: ThreadId.make("thread-child"),
+          settledChangeRequestNumber: undefined,
+        },
+        {
+          aggregateId: ThreadId.make("thread-parent"),
+          settledChangeRequestNumber: 42,
+        },
+      ]);
     }),
   );
 

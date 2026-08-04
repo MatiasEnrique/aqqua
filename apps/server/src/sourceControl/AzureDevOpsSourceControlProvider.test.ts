@@ -46,6 +46,77 @@ it.effect("maps Azure DevOps PR summaries into provider-neutral change requests"
   }),
 );
 
+it.effect("advertises checks and maps Azure policies through the provider surface", () =>
+  Effect.gen(function* () {
+    let checksInput: Parameters<AzureDevOpsCli.AzureDevOpsCli["Service"]["listChecks"]>[0] | null =
+      null;
+    const provider = yield* makeProvider({
+      listChecks: (input) => {
+        checksInput = input;
+        return Effect.succeed("success");
+      },
+    });
+
+    const listChecks = provider.listChecks;
+    if (!listChecks) {
+      return assert.fail("Expected Azure DevOps checks capability");
+    }
+    const status = yield* listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.deepStrictEqual(provider.capabilities, {
+      checks: true,
+      merge: true,
+      autoMerge: true,
+      changeRequestState: true,
+    });
+    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+    assert.strictEqual(status, "success");
+  }),
+);
+
+it.effect("delegates Azure DevOps change-request mutations", () =>
+  Effect.gen(function* () {
+    const calls: Array<string> = [];
+    const provider = yield* makeProvider({
+      getMergeOptions: () => Effect.succeed({ methods: ["merge"], defaultMethod: "merge" }),
+      mergePullRequest: (input) => {
+        calls.push(`merge:${input.method}`);
+        return Effect.void;
+      },
+      setAutoMerge: (input) => {
+        calls.push(`auto:${input.enabled}`);
+        return Effect.void;
+      },
+      updatePullRequestState: (input) => {
+        calls.push(`state:${input.state}`);
+        return Effect.void;
+      },
+    });
+
+    yield* provider.mergeChangeRequest!({
+      cwd: "/repo",
+      reference: "42",
+      method: "merge",
+    });
+    yield* provider.setAutoMerge!({
+      cwd: "/repo",
+      reference: "42",
+      enabled: true,
+      method: "merge",
+    });
+    yield* provider.updateChangeRequestState!({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.deepStrictEqual(calls, ["merge:merge", "auto:true", "state:closed"]);
+  }),
+);
+
 it.effect("adds change-request context while retaining Azure CLI causes", () =>
   Effect.gen(function* () {
     const cause = new AzureDevOpsCli.AzureDevOpsCommandFailedError({

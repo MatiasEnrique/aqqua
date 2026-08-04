@@ -37,7 +37,11 @@ const bitbucketPullRequest = {
     },
   },
   destination: {
-    branch: { name: "main" },
+    branch: {
+      name: "main",
+      merge_strategies: ["merge_commit", "squash"],
+      default_merge_strategy: "squash",
+    },
     repository: {
       full_name: "pingdotgg/aqqua",
       workspace: { slug: "pingdotgg" },
@@ -194,6 +198,89 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
       execute.mock.calls[0]?.[0].url,
       "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42",
     );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("rolls up pull request commit statuses", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [{ state: "SUCCESSFUL" }, { state: "INPROGRESS" }],
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "pending");
+    assert.strictEqual(
+      execute.mock.calls[0]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/statuses",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("uses repository default strategy and sends merge and state mutations", () => {
+  const { execute, layer } = makeLayer({
+    response: () => Response.json(bitbucketPullRequest),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const options = yield* bitbucket.getMergeOptions({ cwd: "/repo", reference: "42" });
+    yield* bitbucket.mergePullRequest({
+      cwd: "/repo",
+      reference: "42",
+      method: "squash",
+    });
+    yield* bitbucket.updatePullRequestState({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.deepStrictEqual(options, {
+      methods: ["merge", "squash"],
+      defaultMethod: "squash",
+    });
+    assert.strictEqual(
+      execute.mock.calls[1]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/merge",
+    );
+    assert.strictEqual(execute.mock.calls[1]?.[0].method, "POST");
+    assert.strictEqual(execute.mock.calls[2]?.[0].method, "PUT");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("includes later Bitbucket commit status pages in the rollup", () => {
+  let responseCount = 0;
+  const { execute, layer } = makeLayer({
+    response: () => {
+      responseCount += 1;
+      return Response.json(
+        responseCount === 1
+          ? {
+              values: [{ state: "SUCCESSFUL" }],
+              next: "https://api.test.local/2.0/statuses?page=2",
+            }
+          : { values: [{ state: "FAILED" }] },
+      );
+    },
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "failure");
+    assert.strictEqual(execute.mock.calls.length, 2);
   }).pipe(Effect.provide(layer));
 });
 

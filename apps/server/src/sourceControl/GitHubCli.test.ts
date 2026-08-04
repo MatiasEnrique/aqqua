@@ -111,6 +111,105 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("reads repository merge settings and maps mutation commands", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+                viewerDefaultMergeMethod: "SQUASH",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValue(Effect.succeed(processOutput("")));
+
+      const github = yield* GitHubCli.GitHubCli;
+      const options = yield* github.getMergeOptions({ cwd: "/repo" });
+      yield* github.mergePullRequest({ cwd: "/repo", reference: "42", method: "squash" });
+      yield* github.setAutoMerge({
+        cwd: "/repo",
+        reference: "42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* github.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
+      yield* github.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
+
+      expect(options).toEqual({
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+      });
+      expect(mockRun.mock.calls.map(([input]) => input.args)).toEqual([
+        [
+          "repo",
+          "view",
+          "--json",
+          "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,viewerDefaultMergeMethod",
+        ],
+        ["pr", "merge", "42", "--squash"],
+        ["pr", "merge", "42", "--auto", "--merge"],
+        ["pr", "merge", "42", "--disable-auto"],
+        ["pr", "close", "42"],
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("rolls up GitHub statusCheckRollup values", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [
+                { status: "COMPLETED", conclusion: "SUCCESS" },
+                { status: "COMPLETED", conclusion: "FAILURE" },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "failure");
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "pr",
+        "view",
+        "42",
+        "--json",
+        "statusCheckRollup",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("treats successful GitHub status contexts as passing checks", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [{ state: "SUCCESS" }],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "success");
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("trims pull request fields decoded from gh json", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

@@ -17,6 +17,8 @@ export interface NormalizedAzureDevOpsPullRequestRecord {
   readonly updatedAt: Option.Option<DateTime.Utc>;
 }
 
+export type AzureDevOpsChecksStatus = "success" | "failure" | "pending" | null;
+
 const AzureDevOpsPullRequestSchema = Schema.Struct({
   pullRequestId: PositiveInt,
   title: TrimmedNonEmptyString,
@@ -148,6 +150,12 @@ function normalizeAzureDevOpsPullRequestRecord(
 const decodeAzureDevOpsPullRequestList = decodeJsonResult(Schema.Array(Schema.Unknown));
 const decodeAzureDevOpsPullRequest = decodeJsonResult(AzureDevOpsPullRequestSchema);
 const decodeAzureDevOpsPullRequestEntry = Schema.decodeUnknownExit(AzureDevOpsPullRequestSchema);
+const AzureDevOpsPolicyEvaluationListSchema = Schema.Array(
+  Schema.Struct({
+    status: Schema.String,
+  }),
+);
+const decodeAzureDevOpsPolicyEvaluations = decodeJsonResult(AzureDevOpsPolicyEvaluationListSchema);
 
 export const formatAzureDevOpsJsonDecodeError = formatSchemaError;
 
@@ -180,4 +188,34 @@ export function decodeAzureDevOpsPullRequestJson(
     return Result.succeed(normalizeAzureDevOpsPullRequestRecord(result.success));
   }
   return Result.fail(result.failure);
+}
+
+export function decodeAzureDevOpsChecksStatusJson(
+  raw: string,
+): Result.Result<AzureDevOpsChecksStatus, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeAzureDevOpsPolicyEvaluations(raw);
+  if (!Result.isSuccess(result)) {
+    return Result.fail(result.failure);
+  }
+  if (result.success.length === 0) {
+    return Result.succeed(null);
+  }
+
+  let pending = false;
+  for (const evaluation of result.success) {
+    switch (evaluation.status.trim().toLowerCase()) {
+      case "rejected":
+      case "broken":
+        return Result.succeed("failure");
+      case "approved":
+      case "notapplicable":
+        break;
+      case "queued":
+      case "running":
+      default:
+        pending = true;
+        break;
+    }
+  }
+  return Result.succeed(pending ? "pending" : "success");
 }

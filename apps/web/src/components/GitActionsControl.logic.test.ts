@@ -3,14 +3,103 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  changeRequestMergeMethodLabel,
+  orderChangeRequestMergeMethods,
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
+  resolveChecksChip,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
+  resolveChangeRequestManagementState,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
 } from "./GitActionsControl.logic";
+
+describe("change request management", () => {
+  const options = {
+    methods: ["merge", "squash"] as const,
+    defaultMethod: "squash" as const,
+    autoMergeSupported: true,
+  };
+
+  it("puts the repository default first and labels only allowed methods", () => {
+    assert.deepEqual(orderChangeRequestMergeMethods(options), ["squash", "merge"]);
+    assert.equal(changeRequestMergeMethodLabel("squash"), "Squash and merge");
+    assert.equal(changeRequestMergeMethodLabel("merge"), "Merge commit");
+  });
+
+  it("enables open change request actions when repository options are available", () => {
+    assert.deepEqual(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: null,
+        autoMergeDisabledReason: null,
+        stateAction: "close",
+        stateActionDisabledReason: null,
+      },
+    );
+  });
+
+  it("keeps unsupported and non-open actions visible with reasons", () => {
+    const unsupported = { ...options, autoMergeSupported: false };
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: unsupported,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      { autoMergeDisabledReason: "Auto-merge is not supported by this repository." },
+    );
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "closed",
+        options: null,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: "Reopen the change request before merging.",
+        stateAction: "reopen",
+      },
+    );
+  });
+
+  it("surfaces repository-option failures as the disabled merge reason", () => {
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: null,
+        optionsPending: false,
+        optionsError: "Permission denied while reading repository settings.",
+        mutationPending: false,
+      }),
+      { mergeDisabledReason: "Permission denied while reading repository settings." },
+    );
+  });
+});
+
+describe("resolveChecksChip", () => {
+  it("maps check states to concise chip presentations", () => {
+    assert.deepEqual(resolveChecksChip("pending"), { label: "Pending", tone: "pending" });
+    assert.deepEqual(resolveChecksChip("success"), { label: "Passing", tone: "success" });
+    assert.deepEqual(resolveChecksChip("failure"), { label: "Failing", tone: "failure" });
+  });
+
+  it("renders no presentation without checks data", () => {
+    assert.isNull(resolveChecksChip(null));
+    assert.isNull(resolveChecksChip(undefined));
+  });
+});
 
 function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
   return {
@@ -89,6 +178,32 @@ describe("when: ref is clean and has an open PR", () => {
         kind: "open_pr",
       },
     ]);
+  });
+});
+
+describe("when: ref has a closed PR", () => {
+  it("keeps the existing PR affordance instead of offering to create another", () => {
+    const items = buildMenuItems(
+      status({
+        aheadOfDefaultCount: 1,
+        pr: {
+          number: 14,
+          title: "Closed PR",
+          url: "https://example.com/pr/14",
+          baseRef: "main",
+          headRef: "feature/test",
+          state: "closed",
+        },
+      }),
+      false,
+    );
+
+    assert.deepInclude(items[2], {
+      id: "pr",
+      label: "View PR",
+      disabled: false,
+      kind: "open_pr",
+    });
   });
 });
 

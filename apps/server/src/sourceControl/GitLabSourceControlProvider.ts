@@ -105,6 +105,92 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "gitlab",
+    capabilities: { checks: true, merge: true, autoMerge: true, changeRequestState: true },
+    listChecks: (input) =>
+      gitlab.listChecks(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "listChecks",
+              command: error.command,
+              cwd: input.cwd,
+              reference: String(input.changeRequestNumber),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    getChangeRequestMergeOptions: (input) =>
+      gitlab.getMergeOptions(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "getChangeRequestMergeOptions",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      gitlab.mergeMergeRequest(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "mergeChangeRequest",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail:
+                "GitLab could not merge this merge request. Check conflicts, required checks, approvals, permissions, and project rules.",
+              cause: error,
+            }),
+        ),
+      ),
+    setAutoMerge: (input) =>
+      gitlab.setAutoMerge(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "setAutoMerge",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail:
+                "GitLab could not update auto-merge. Check merge request checks and your permissions.",
+              cause: error,
+            }),
+        ),
+      ),
+    updateChangeRequestState: (input) =>
+      gitlab.updateMergeRequestState(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "updateChangeRequestState",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: `GitLab could not ${input.state === "open" ? "reopen" : "close"} this merge request. Check your permissions and the merge request state.`,
+              cause: error,
+            }),
+        ),
+      ),
     listChangeRequests: (input) => {
       const source = SourceControlProvider.sourceControlRefFromInput(input);
       return gitlab

@@ -86,6 +86,76 @@ layer("GitLabCli.layer", (it) => {
     }),
   );
 
+  it.effect("uses the latest merge request pipeline as checks status", () =>
+    Effect.gen(function* () {
+      mockedRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ status: "running" }]),
+          ),
+        ),
+      );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "pending");
+      assert.deepStrictEqual(mockedRun.mock.calls[0]?.[0].args, [
+        "api",
+        "projects/:fullpath/merge_requests/42/pipelines?per_page=1",
+      ]);
+    }),
+  );
+
+  it.effect("maps project squash settings and issues explicit mutation commands", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify({ squash_option: "default_on" }))),
+        )
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify({ squash: true }))),
+        )
+        .mockReturnValue(Effect.succeed(processOutput("{}")));
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const options = yield* glab.getMergeOptions({ cwd: "/repo", reference: "#42" });
+      yield* glab.mergeMergeRequest({ cwd: "/repo", reference: "42", method: "squash" });
+      yield* glab.setAutoMerge({
+        cwd: "/repo",
+        reference: "42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* glab.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
+      yield* glab.updateMergeRequestState({ cwd: "/repo", reference: "42", state: "open" });
+
+      assert.deepStrictEqual(options, {
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+      });
+      assert.deepStrictEqual(
+        mockedRun.mock.calls.map(([input]) => input.args),
+        [
+          ["api", "projects/:fullpath"],
+          ["api", "projects/:fullpath/merge_requests/42"],
+          ["mr", "merge", "42", "--yes", "--auto-merge=false", "--squash"],
+          ["mr", "merge", "42", "--yes", "--auto-merge"],
+          [
+            "api",
+            "-X",
+            "POST",
+            "projects/:fullpath/merge_requests/42/cancel_merge_when_pipeline_succeeds",
+          ],
+          ["mr", "reopen", "42"],
+        ],
+      );
+    }),
+  );
+
   it.effect("skips invalid entries when parsing MR lists", () =>
     Effect.gen(function* () {
       mockedRun.mockReturnValueOnce(

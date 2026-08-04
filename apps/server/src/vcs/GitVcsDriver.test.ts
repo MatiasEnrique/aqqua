@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import { GitCommandError } from "@aqqua/contracts";
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 import { runVcsDriverContractSuite } from "./testing/VcsDriverContractHarness.ts";
 
@@ -107,4 +108,54 @@ it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
       ),
     ),
   );
+});
+
+it.effect("the provider-neutral Git driver exposes working-tree operations", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const cwd = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "aqqua-git-vcs-working-tree-",
+    });
+    const driver = yield* VcsDriver.VcsDriver;
+    assert.isFunction(driver.discardChanges);
+    assert.isFunction(driver.listConflicts);
+    assert.isFunction(driver.resolveConflict);
+    assert.isFunction(driver.rebaseFromBase);
+    assert.isFunction(driver.abortConflictOperation);
+    if (
+      !driver.discardChanges ||
+      !driver.listConflicts ||
+      !driver.resolveConflict ||
+      !driver.rebaseFromBase ||
+      !driver.abortConflictOperation
+    ) {
+      return assert.fail("Git working-tree operations are unavailable");
+    }
+
+    yield* runGit(cwd, ["init"]);
+    yield* runGit(cwd, ["config", "user.email", "test@test.com"]);
+    yield* runGit(cwd, ["config", "user.name", "Test"]);
+    yield* fileSystem.writeFileString(path.join(cwd, "README.md"), "base\n");
+    yield* runGit(cwd, ["add", "README.md"]);
+    yield* runGit(cwd, ["commit", "-m", "base"]);
+    yield* fileSystem.writeFileString(path.join(cwd, "README.md"), "changed\n");
+    yield* fileSystem.writeFileString(path.join(cwd, "untracked.txt"), "remove\n");
+
+    yield* driver.discardChanges({ cwd, paths: ["README.md", "untracked.txt"] });
+
+    assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "base\n");
+    assert.isFalse(yield* fileSystem.exists(path.join(cwd, "untracked.txt")));
+    assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+      operation: null,
+      conflicts: [],
+    });
+  }).pipe(Effect.provide(GitContractLayer)),
+);
+
+it("selects deletion when ours or theirs has no conflict stage", () => {
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "theirs"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "ours"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "ours"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "theirs"));
 });

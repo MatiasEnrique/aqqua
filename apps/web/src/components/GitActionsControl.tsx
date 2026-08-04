@@ -5,6 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import type {
+  GitChangeRequestMergeMethod,
   GitActionProgressEvent,
   GitRunStackedActionResult,
   GitStackedAction,
@@ -21,7 +22,10 @@ import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } fro
 import { flushSync } from "react-dom";
 import {
   CheckIcon,
+  CircleCheckIcon,
+  CircleXIcon,
   ChevronDownIcon,
+  Clock3Icon,
   CloudUploadIcon,
   ExternalLinkIcon,
   GitBranchPlusIcon,
@@ -32,18 +36,23 @@ import {
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
-import { RadioGroup } from "~/components/ui/radio-group";
+import { Radio, RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  changeRequestMergeMethodLabel,
+  type ChecksChipPresentation,
   type GitActionIconName,
   type GitActionMenuItem,
   type GitQuickAction,
   type DefaultBranchConfirmableAction,
+  orderChangeRequestMergeMethods,
   requiresDefaultBranchConfirmation,
+  resolveChangeRequestManagementState,
   resolveDefaultBranchActionDialogCopy,
+  resolveChecksChip,
   resolveLiveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
   resolveQuickAction,
@@ -51,6 +60,7 @@ import {
 } from "./GitActionsControl.logic";
 import { AnimatedHeight } from "./AnimatedHeight";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
   Dialog,
@@ -81,6 +91,7 @@ import { useThread } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { sourceControlEnvironment } from "~/state/sourceControl";
+import { gitEnvironment } from "~/state/git";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
@@ -95,6 +106,34 @@ interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
+}
+
+function ChecksStatusChip({ presentation }: { presentation: ChecksChipPresentation }) {
+  const Icon =
+    presentation.tone === "success"
+      ? CircleCheckIcon
+      : presentation.tone === "failure"
+        ? CircleXIcon
+        : Clock3Icon;
+  const variant =
+    presentation.tone === "success"
+      ? "success"
+      : presentation.tone === "failure"
+        ? "error"
+        : "warning";
+
+  return (
+    <Badge
+      aria-label={`CI checks ${presentation.label.toLowerCase()}`}
+      title={`CI checks ${presentation.label.toLowerCase()}`}
+      size="sm"
+      variant={variant}
+      className="h-4 gap-0.5 px-1 text-[10px]"
+    >
+      <Icon className="size-2.5" aria-hidden />
+      {presentation.label}
+    </Badge>
+  );
 }
 
 interface PendingDefaultBranchAction {
@@ -1002,6 +1041,14 @@ export default function GitActionsControl({
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [isChangeRequestDialogOpen, setIsChangeRequestDialogOpen] = useState(false);
+  const [selectedMergeMethod, setSelectedMergeMethod] =
+    useState<GitChangeRequestMergeMethod>("merge");
+  const [autoMergeEnabled, setAutoMergeEnabled] = useState<boolean | null>(null);
+  const [changeRequestMutation, setChangeRequestMutation] = useState<
+    "merge" | "auto-merge" | "state" | null
+  >(null);
+  const [changeRequestError, setChangeRequestError] = useState<string | null>(null);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
@@ -1089,7 +1136,25 @@ export default function GitActionsControl({
   const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, {
     reportFailure: false,
   });
+  const mergeChangeRequest = useAtomCommand(gitEnvironment.mergeChangeRequest, {
+    reportFailure: false,
+  });
+  const setAutoMerge = useAtomCommand(gitEnvironment.setAutoMerge, {
+    reportFailure: false,
+  });
+  const updateChangeRequestState = useAtomCommand(gitEnvironment.updateChangeRequestState, {
+    reportFailure: false,
+  });
   const { data: gitStatus, error: gitStatusError } = gitStatusQuery;
+  const currentChangeRequest = gitStatus?.pr ?? null;
+  const changeRequestMergeOptionsQuery = useEnvironmentQuery(
+    activeEnvironmentId !== null && gitCwd !== null && currentChangeRequest?.state === "open"
+      ? gitEnvironment.changeRequestMergeOptions({
+          environmentId: activeEnvironmentId,
+          input: { cwd: gitCwd, reference: String(currentChangeRequest.number) },
+        })
+      : null,
+  );
   const sourceControlPresentation = useMemo(
     () => getSourceControlPresentation(gitStatus?.sourceControlProvider),
     [gitStatus?.sourceControlProvider],
@@ -1113,6 +1178,7 @@ export default function GitActionsControl({
     sourceControlScope,
     RUNNING_SOURCE_CONTROL_ACTIONS,
   );
+  const isGitUiBusy = isGitActionRunning || changeRequestMutation !== null;
   const isSelectingWorktreeBase =
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
@@ -1146,14 +1212,23 @@ export default function GitActionsControl({
   }, [gitStatusForActions?.isDefaultRef]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitUiBusy, hasPrimaryRemote),
+    [gitStatusForActions, hasPrimaryRemote, isGitUiBusy],
   );
   const quickAction = useMemo(
-    () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultRef, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning],
+    () => resolveQuickAction(gitStatusForActions, isGitUiBusy, isDefaultRef, hasPrimaryRemote),
+    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitUiBusy],
   );
+  const checksChip = resolveChecksChip(gitStatusForActions?.pr?.checksStatus);
+  const changeRequestManagement = currentChangeRequest
+    ? resolveChangeRequestManagementState({
+        state: currentChangeRequest.state,
+        options: changeRequestMergeOptionsQuery.data,
+        optionsPending: changeRequestMergeOptionsQuery.isPending,
+        optionsError: changeRequestMergeOptionsQuery.error,
+        mutationPending: changeRequestMutation !== null,
+      })
+    : null;
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
     : null;
@@ -1212,6 +1287,18 @@ export default function GitActionsControl({
     };
   }, [activeEnvironmentId, gitCwd, refreshVcsStatus]);
 
+  useEffect(() => {
+    const options = changeRequestMergeOptionsQuery.data;
+    if (options) {
+      setSelectedMergeMethod(options.defaultMethod);
+    }
+  }, [changeRequestMergeOptionsQuery.data, currentChangeRequest?.number]);
+
+  useEffect(() => {
+    setAutoMergeEnabled(null);
+    setChangeRequestError(null);
+  }, [currentChangeRequest?.number]);
+
   const openExistingPr = useCallback(async () => {
     const api = readLocalApi();
     if (!api) {
@@ -1222,11 +1309,11 @@ export default function GitActionsControl({
       });
       return;
     }
-    const prUrl = gitStatusForActions?.pr?.state === "open" ? gitStatusForActions.pr.url : null;
+    const prUrl = gitStatusForActions?.pr?.url ?? null;
     if (!prUrl) {
       toastManager.add({
         type: "error",
-        title: "No open pull request found.",
+        title: "No change request found.",
         data: threadToastData,
       });
       return;
@@ -1606,6 +1693,107 @@ export default function GitActionsControl({
     setIsCommitDialogOpen(true);
   };
 
+  const changeRequestFailureMessage = (result: {
+    readonly cause: Parameters<typeof squashAtomCommandFailure>[0]["cause"];
+  }): string => {
+    const error = squashAtomCommandFailure(result);
+    return error instanceof Error ? error.message : "The change request action failed.";
+  };
+
+  const runMergeChangeRequest = () => {
+    if (!activeEnvironmentId || !gitCwd || !currentChangeRequest || !changeRequestManagement)
+      return;
+    if (changeRequestManagement.mergeDisabledReason !== null) return;
+    setChangeRequestMutation("merge");
+    setChangeRequestError(null);
+    void (async () => {
+      const result = await mergeChangeRequest({
+        environmentId: activeEnvironmentId,
+        input: {
+          cwd: gitCwd,
+          reference: String(currentChangeRequest.number),
+          method: selectedMergeMethod,
+        },
+      });
+      setChangeRequestMutation(null);
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        setChangeRequestError(changeRequestFailureMessage(result));
+        return;
+      }
+      setIsChangeRequestDialogOpen(false);
+      toastManager.add({
+        type: "success",
+        title: `${changeRequestTerminology.shortLabel} merged`,
+        description: `${currentChangeRequest.title} was merged with ${changeRequestMergeMethodLabel(selectedMergeMethod).toLowerCase()}.`,
+        data: threadToastData,
+      });
+    })();
+  };
+
+  const runAutoMergeChange = (enabled: boolean) => {
+    if (!activeEnvironmentId || !gitCwd || !currentChangeRequest || !changeRequestManagement)
+      return;
+    if (changeRequestManagement.autoMergeDisabledReason !== null) return;
+    setChangeRequestMutation("auto-merge");
+    setChangeRequestError(null);
+    void (async () => {
+      const result = await setAutoMerge({
+        environmentId: activeEnvironmentId,
+        input: enabled
+          ? {
+              cwd: gitCwd,
+              reference: String(currentChangeRequest.number),
+              enabled: true,
+              method: selectedMergeMethod,
+            }
+          : {
+              cwd: gitCwd,
+              reference: String(currentChangeRequest.number),
+              enabled: false,
+            },
+      });
+      setChangeRequestMutation(null);
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        setChangeRequestError(changeRequestFailureMessage(result));
+        return;
+      }
+      setAutoMergeEnabled(result.value.enabled);
+    })();
+  };
+
+  const runChangeRequestStateAction = () => {
+    if (!activeEnvironmentId || !gitCwd || !currentChangeRequest || !changeRequestManagement)
+      return;
+    if (changeRequestManagement.stateActionDisabledReason !== null) return;
+    const nextState = changeRequestManagement.stateAction === "close" ? "closed" : "open";
+    setChangeRequestMutation("state");
+    setChangeRequestError(null);
+    void (async () => {
+      const result = await updateChangeRequestState({
+        environmentId: activeEnvironmentId,
+        input: {
+          cwd: gitCwd,
+          reference: String(currentChangeRequest.number),
+          state: nextState,
+        },
+      });
+      setChangeRequestMutation(null);
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        setChangeRequestError(changeRequestFailureMessage(result));
+        return;
+      }
+      setIsChangeRequestDialogOpen(false);
+      toastManager.add({
+        type: "success",
+        title: `${changeRequestTerminology.shortLabel} ${nextState === "open" ? "reopened" : "closed"}`,
+        data: threadToastData,
+      });
+    })();
+  };
+
   const runDialogAction = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
@@ -1715,7 +1903,7 @@ export default function GitActionsControl({
             <Button
               variant="outline"
               size="xs"
-              disabled={isGitActionRunning || quickAction.disabled}
+              disabled={isGitUiBusy || quickAction.disabled}
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} SourceControlIcon={SourceControlIcon} />
@@ -1724,6 +1912,7 @@ export default function GitActionsControl({
               </span>
             </Button>
           )}
+          {checksChip ? <ChecksStatusChip presentation={checksChip} /> : null}
           <GroupSeparator className="hidden @3xl/header-actions:block" />
           <Menu
             onOpenChange={(open) => {
@@ -1734,7 +1923,7 @@ export default function GitActionsControl({
           >
             <MenuTrigger
               render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
-              disabled={isGitActionRunning}
+              disabled={isGitUiBusy}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />
             </MenuTrigger>
@@ -1743,7 +1932,7 @@ export default function GitActionsControl({
                 const disabledReason = getMenuActionDisabledReason({
                   item,
                   gitStatus: gitStatusForActions,
-                  isBusy: isGitActionRunning,
+                  isBusy: isGitUiBusy,
                   hasPrimaryRemote,
                 });
                 if (item.disabled && disabledReason) {
@@ -1784,7 +1973,7 @@ export default function GitActionsControl({
               })}
               {canPublishRepository ? (
                 <MenuItem
-                  disabled={isGitActionRunning}
+                  disabled={isGitUiBusy}
                   onClick={() => {
                     setIsPublishDialogOpen(true);
                   }}
@@ -1792,6 +1981,22 @@ export default function GitActionsControl({
                   <CloudUploadIcon />
                   Publish repository...
                 </MenuItem>
+              ) : null}
+              <MenuItem
+                disabled={currentChangeRequest === null || changeRequestMutation !== null}
+                onClick={() => {
+                  if (!currentChangeRequest) return;
+                  setChangeRequestError(null);
+                  setIsChangeRequestDialogOpen(true);
+                }}
+              >
+                <SourceControlIcon />
+                Manage {changeRequestTerminology.shortLabel}...
+              </MenuItem>
+              {currentChangeRequest === null ? (
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  No change request is associated with this ref.
+                </p>
               ) : null}
               {gitStatusForActions?.refName === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
@@ -1815,6 +2020,128 @@ export default function GitActionsControl({
           </Menu>
         </Group>
       )}
+
+      <Dialog
+        open={isChangeRequestDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && changeRequestMutation === null) {
+            setIsChangeRequestDialogOpen(false);
+            setChangeRequestError(null);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Manage {changeRequestTerminology.shortLabel}
+              {currentChangeRequest ? ` #${currentChangeRequest.number}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              {currentChangeRequest?.title ?? "Change request details are unavailable."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">Merge method</p>
+              <RadioGroup
+                value={selectedMergeMethod}
+                onValueChange={(value) =>
+                  setSelectedMergeMethod(value as GitChangeRequestMergeMethod)
+                }
+                className="space-y-2"
+                disabled={changeRequestManagement?.mergeDisabledReason !== null}
+              >
+                {changeRequestMergeOptionsQuery.data
+                  ? orderChangeRequestMergeMethods(changeRequestMergeOptionsQuery.data).map(
+                      (method) => (
+                        <label
+                          key={method}
+                          className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                        >
+                          <Radio value={method} />
+                          {changeRequestMergeMethodLabel(method)}
+                          {method === changeRequestMergeOptionsQuery.data?.defaultMethod ? (
+                            <span className="ms-auto text-xs text-muted-foreground">Default</span>
+                          ) : null}
+                        </label>
+                      ),
+                    )
+                  : null}
+              </RadioGroup>
+              {changeRequestManagement?.mergeDisabledReason ? (
+                <p className="text-xs text-muted-foreground">
+                  {changeRequestManagement.mergeDisabledReason}
+                </p>
+              ) : null}
+            </div>
+
+            <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2">
+              <Checkbox
+                checked={autoMergeEnabled ?? false}
+                indeterminate={autoMergeEnabled === null}
+                disabled={changeRequestManagement?.autoMergeDisabledReason !== null}
+                onCheckedChange={(checked) => runAutoMergeChange(checked === true)}
+              />
+              <span className="space-y-0.5 text-sm">
+                <span className="block font-medium">Auto-merge</span>
+                <span className="block text-xs text-muted-foreground">
+                  {changeRequestManagement?.autoMergeDisabledReason ??
+                    (changeRequestMutation === "auto-merge"
+                      ? "Updating auto-merge..."
+                      : autoMergeEnabled === null
+                        ? "Current setting is not reported. Select to enable auto-merge."
+                        : autoMergeEnabled
+                          ? "Enabled. Clear to disable auto-merge."
+                          : "Disabled. Select to enable auto-merge.")}
+                </span>
+              </span>
+            </label>
+
+            {changeRequestError ? (
+              <p
+                role="alert"
+                className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {changeRequestError}
+              </p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter className="sm:flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!currentChangeRequest || changeRequestMutation !== null}
+              onClick={() => {
+                if (currentChangeRequest) void openExistingPr();
+              }}
+            >
+              <ExternalLinkIcon />
+              View on provider
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={changeRequestManagement?.stateActionDisabledReason !== null}
+              title={changeRequestManagement?.stateActionDisabledReason ?? undefined}
+              onClick={runChangeRequestStateAction}
+            >
+              {changeRequestManagement?.stateAction === "close"
+                ? `Close ${changeRequestTerminology.shortLabel}`
+                : `Reopen ${changeRequestTerminology.shortLabel}`}
+            </Button>
+            <Button
+              size="sm"
+              disabled={changeRequestManagement?.mergeDisabledReason !== null}
+              title={changeRequestManagement?.mergeDisabledReason ?? undefined}
+              onClick={runMergeChangeRequest}
+            >
+              {changeRequestMutation === "merge"
+                ? "Merging..."
+                : `Merge ${changeRequestTerminology.shortLabel}`}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       <Dialog
         open={isCommitDialogOpen}

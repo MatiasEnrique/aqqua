@@ -7,14 +7,17 @@ import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
   TrimmedNonEmptyString,
+  type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@aqqua/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
+  decodeAzureDevOpsChecksStatusJson,
   decodeAzureDevOpsPullRequestJson,
   decodeAzureDevOpsPullRequestListJson,
+  type AzureDevOpsChecksStatus,
   type NormalizedAzureDevOpsPullRequestRecord,
 } from "./azureDevOpsPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -153,6 +156,22 @@ export class AzureDevOpsPullRequestDecodeError extends Schema.TaggedErrorClass<A
   }
 }
 
+export class AzureDevOpsChecksDecodeError extends Schema.TaggedErrorClass<AzureDevOpsChecksDecodeError>()(
+  "AzureDevOpsChecksDecodeError",
+  {
+    operation: Schema.Literal("listChecks"),
+    ...azureDevOpsDecodeErrorFields,
+  },
+) {
+  get detail(): string {
+    return "Azure DevOps CLI returned invalid policy evaluation JSON.";
+  }
+
+  override get message(): string {
+    return `Azure DevOps CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 const AzureDevOpsRepositoryDecodeOperation = Schema.Literals([
   "getRepositoryCloneUrls",
   "getDefaultBranch",
@@ -182,6 +201,7 @@ export const AzureDevOpsCliError = Schema.Union([
   AzureDevOpsCommandFailedError,
   AzureDevOpsPullRequestListDecodeError,
   AzureDevOpsPullRequestDecodeError,
+  AzureDevOpsChecksDecodeError,
   AzureDevOpsRepositoryDecodeError,
 ]);
 export type AzureDevOpsCliError = typeof AzureDevOpsCliError.Type;
@@ -215,6 +235,45 @@ export class AzureDevOpsCli extends Context.Service<
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<NormalizedAzureDevOpsPullRequestRecord, AzureDevOpsCliError>;
+
+    readonly listChecks: (input: {
+      readonly cwd: string;
+      readonly changeRequestNumber: number;
+    }) => Effect.Effect<AzureDevOpsChecksStatus, AzureDevOpsCliError>;
+    readonly getMergeOptions: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<
+      {
+        readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
+        readonly defaultMethod: GitChangeRequestMergeMethod;
+      },
+      AzureDevOpsCliError
+    >;
+    readonly mergePullRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly method: GitChangeRequestMergeMethod;
+    }) => Effect.Effect<void, AzureDevOpsCliError>;
+    readonly setAutoMerge: (
+      input:
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: true;
+            readonly method: GitChangeRequestMergeMethod;
+          }
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: false;
+          },
+    ) => Effect.Effect<void, AzureDevOpsCliError>;
+    readonly updatePullRequestState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<void, AzureDevOpsCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
       readonly cwd: string;
@@ -442,6 +501,95 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    listChecks: (input) =>
+      executeJson({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "policy",
+          "list",
+          "--id",
+          String(input.changeRequestNumber),
+          "--detect",
+          "true",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          Effect.sync(() => decodeAzureDevOpsChecksStatusJson(raw)).pipe(
+            Effect.flatMap((decoded) =>
+              Result.isSuccess(decoded)
+                ? Effect.succeed(decoded.success)
+                : Effect.fail(
+                    new AzureDevOpsChecksDecodeError({
+                      operation: "listChecks",
+                      command: "az",
+                      cwd: input.cwd,
+                      outputLength: raw.length,
+                      cause: decoded.failure,
+                    }),
+                  ),
+            ),
+          ),
+        ),
+      ),
+    // Azure branch policies can restrict completion strategies, while the CLI
+    // does not expose an effective-options query. Do not guess at additional
+    // methods: advertise the conservative basic completion fallback.
+    getMergeOptions: () =>
+      Effect.succeed({
+        methods: ["merge"],
+        defaultMethod: "merge",
+      }),
+    mergePullRequest: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "update",
+          "--detect",
+          "true",
+          "--id",
+          normalizeChangeRequestId(input.reference),
+          "--status",
+          "completed",
+          "--squash",
+          input.method === "squash" ? "true" : "false",
+        ],
+      }).pipe(Effect.asVoid),
+    setAutoMerge: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "update",
+          "--detect",
+          "true",
+          "--id",
+          normalizeChangeRequestId(input.reference),
+          "--auto-complete",
+          input.enabled ? "true" : "false",
+          ...(input.enabled ? ["--squash", input.method === "squash" ? "true" : "false"] : []),
+        ],
+      }).pipe(Effect.asVoid),
+    updatePullRequestState: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "update",
+          "--detect",
+          "true",
+          "--id",
+          normalizeChangeRequestId(input.reference),
+          "--status",
+          input.state === "open" ? "active" : "abandoned",
+        ],
+      }).pipe(Effect.asVoid),
     getRepositoryCloneUrls: (input) =>
       executeJson({
         cwd: input.cwd,

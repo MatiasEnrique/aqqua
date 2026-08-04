@@ -1,4 +1,4 @@
-import { EnvironmentId, type VcsRef } from "@aqqua/contracts";
+import { EnvironmentId, type VcsRef, type VcsStatusResult } from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   dedupeRemoteBranchesWithLocalMatches,
@@ -10,6 +10,7 @@ import {
   resolveEffectiveEnvMode,
   resolveEnvModeLabel,
   resolveBranchTriggerLabel,
+  resolveBranchToolbarChecksChip,
   resolveBranchToolbarPrBranch,
   resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
@@ -294,6 +295,72 @@ describe("resolveBranchToolbarPrBranch", () => {
       resolveBranchToolbarPrBranch({
         activeThreadBranch: null,
         resolvedActiveBranch: "feature/current",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("resolveBranchToolbarChecksChip", () => {
+  const status = (
+    checksStatus: "success" | "failure" | "pending" | null | undefined,
+  ): VcsStatusResult => ({
+    isRepo: true,
+    hasPrimaryRemote: true,
+    isDefaultRef: false,
+    refName: "feature/current",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: {
+      number: 42,
+      title: "Current change request",
+      url: "https://example.com/pr/42",
+      baseRef: "main",
+      headRef: "feature/current",
+      state: "open",
+      ...(checksStatus !== undefined ? { checksStatus } : {}),
+    },
+  });
+
+  it("maps checks for the current PR to chip presentations", () => {
+    expect(
+      resolveBranchToolbarChecksChip({
+        activeThreadBranch: "feature/current",
+        resolvedActiveBranch: "feature/current",
+        gitStatus: status("pending"),
+      }),
+    ).toEqual({ label: "Pending", tone: "pending" });
+    expect(
+      resolveBranchToolbarChecksChip({
+        activeThreadBranch: "feature/current",
+        resolvedActiveBranch: "feature/current",
+        gitStatus: status("success"),
+      }),
+    ).toEqual({ label: "Passing", tone: "success" });
+    expect(
+      resolveBranchToolbarChecksChip({
+        activeThreadBranch: "feature/current",
+        resolvedActiveBranch: "feature/current",
+        gitStatus: status("failure"),
+      }),
+    ).toEqual({ label: "Failing", tone: "failure" });
+  });
+
+  it("hides the chip without checks data or during an optimistic branch switch", () => {
+    expect(
+      resolveBranchToolbarChecksChip({
+        activeThreadBranch: "feature/current",
+        resolvedActiveBranch: "feature/current",
+        gitStatus: status(null),
+      }),
+    ).toBeNull();
+    expect(
+      resolveBranchToolbarChecksChip({
+        activeThreadBranch: "feature/current",
+        resolvedActiveBranch: "feature/next",
+        gitStatus: status("failure"),
       }),
     ).toBeNull();
   });

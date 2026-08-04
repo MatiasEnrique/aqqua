@@ -1,4 +1,6 @@
 import type {
+  GitChangeRequestMergeMethod,
+  GitGetChangeRequestMergeOptionsResult,
   GitRunStackedActionResult,
   GitStackedAction,
   VcsStatusResult,
@@ -11,6 +13,104 @@ import {
 } from "../sourceControlPresentation";
 
 export type GitActionIconName = "commit" | "push" | "pr";
+
+export interface ChecksChipPresentation {
+  readonly label: "Pending" | "Passing" | "Failing";
+  readonly tone: "pending" | "success" | "failure";
+}
+
+export function resolveChecksChip(
+  checksStatus: NonNullable<VcsStatusResult["pr"]>["checksStatus"],
+): ChecksChipPresentation | null {
+  switch (checksStatus) {
+    case "pending":
+      return { label: "Pending", tone: "pending" };
+    case "success":
+      return { label: "Passing", tone: "success" };
+    case "failure":
+      return { label: "Failing", tone: "failure" };
+    case null:
+    case undefined:
+      return null;
+  }
+}
+
+const MERGE_METHOD_LABELS = {
+  merge: "Merge commit",
+  squash: "Squash and merge",
+  rebase: "Rebase and merge",
+} as const satisfies Record<GitChangeRequestMergeMethod, string>;
+
+export function changeRequestMergeMethodLabel(method: GitChangeRequestMergeMethod): string {
+  return MERGE_METHOD_LABELS[method];
+}
+
+export function orderChangeRequestMergeMethods(
+  options: GitGetChangeRequestMergeOptionsResult,
+): ReadonlyArray<GitChangeRequestMergeMethod> {
+  return [
+    options.defaultMethod,
+    ...options.methods.filter((method) => method !== options.defaultMethod),
+  ];
+}
+
+export interface ChangeRequestManagementState {
+  readonly mergeDisabledReason: string | null;
+  readonly autoMergeDisabledReason: string | null;
+  readonly stateAction: "close" | "reopen";
+  readonly stateActionDisabledReason: string | null;
+}
+
+export function resolveChangeRequestManagementState(input: {
+  readonly state: "open" | "closed" | "merged";
+  readonly options: GitGetChangeRequestMergeOptionsResult | null;
+  readonly optionsPending: boolean;
+  readonly optionsError: string | null;
+  readonly mutationPending: boolean;
+}): ChangeRequestManagementState {
+  const busyReason = input.mutationPending ? "A change request action is in progress." : null;
+  const stateReason =
+    input.state === "closed"
+      ? "Reopen the change request before merging."
+      : input.state === "merged"
+        ? "This change request is already merged."
+        : null;
+  const optionsReason = input.optionsPending
+    ? "Loading repository merge settings."
+    : (input.optionsError ??
+      (input.options === null ? "Merge capabilities are unavailable for this repository." : null));
+  const mergeDisabledReason = busyReason ?? stateReason ?? optionsReason;
+  const autoMergeDisabledReason =
+    busyReason ??
+    stateReason ??
+    optionsReason ??
+    (input.options?.autoMergeSupported === false
+      ? "Auto-merge is not supported by this repository."
+      : null);
+
+  if (input.state === "open") {
+    return {
+      mergeDisabledReason,
+      autoMergeDisabledReason,
+      stateAction: "close",
+      stateActionDisabledReason: busyReason,
+    };
+  }
+  if (input.state === "closed") {
+    return {
+      mergeDisabledReason,
+      autoMergeDisabledReason,
+      stateAction: "reopen",
+      stateActionDisabledReason: busyReason,
+    };
+  }
+  return {
+    mergeDisabledReason,
+    autoMergeDisabledReason,
+    stateAction: "reopen",
+    stateActionDisabledReason: busyReason ?? "Merged change requests cannot be reopened.",
+  };
+}
 
 export type GitDialogAction = "commit" | "push" | "create_pr";
 
@@ -101,7 +201,7 @@ export function buildMenuItems(
 
   const hasBranch = gitStatus.refName !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
-  const hasOpenPr = gitStatus.pr?.state === "open";
+  const hasPr = gitStatus.pr !== null;
   const isBehind = gitStatus.behindCount > 0;
   const hasDefaultBranchDelta = (gitStatus.aheadOfDefaultCount ?? gitStatus.aheadCount) > 0;
   const canPushWithoutUpstream = hasPrimaryRemote && !gitStatus.hasUpstream;
@@ -116,11 +216,11 @@ export function buildMenuItems(
     !isBusy &&
     hasBranch &&
     !hasChanges &&
-    !hasOpenPr &&
+    !hasPr &&
     hasDefaultBranchDelta &&
     !isBehind &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
-  const canOpenPr = !isBusy && hasOpenPr;
+  const canOpenPr = !isBusy && hasPr;
 
   const commitItem: GitActionMenuItem = {
     id: "commit",
@@ -145,7 +245,7 @@ export function buildMenuItems(
       kind: "open_dialog",
       dialogAction: "push",
     },
-    hasOpenPr
+    hasPr
       ? {
           id: "pr",
           label: `View ${terminology.shortLabel}`,

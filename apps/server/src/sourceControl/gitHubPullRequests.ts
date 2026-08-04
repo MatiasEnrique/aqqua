@@ -20,6 +20,8 @@ export interface NormalizedGitHubPullRequestRecord {
   readonly headRepositoryOwnerLogin?: string | null;
 }
 
+export type GitHubChecksStatus = "success" | "failure" | "pending" | null;
+
 const GitHubPullRequestSchema = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyString,
@@ -106,6 +108,17 @@ const decodeGitHubPullRequestList = decodeJsonResult(Schema.Array(Schema.Unknown
 const decodeGitHubPullRequest = decodeJsonResult(GitHubPullRequestSchema);
 const decodeGitHubPullRequestEntry = Schema.decodeUnknownExit(GitHubPullRequestSchema);
 
+const GitHubStatusCheckRollupSchema = Schema.Struct({
+  statusCheckRollup: Schema.Array(
+    Schema.Struct({
+      status: Schema.optional(Schema.NullOr(Schema.String)),
+      conclusion: Schema.optional(Schema.NullOr(Schema.String)),
+      state: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  ),
+});
+const decodeGitHubStatusCheckRollup = decodeJsonResult(GitHubStatusCheckRollupSchema);
+
 export const formatGitHubJsonDecodeError = formatSchemaError;
 
 export function decodeGitHubPullRequestListJson(
@@ -137,4 +150,48 @@ export function decodeGitHubPullRequestJson(
     return Result.succeed(normalizeGitHubPullRequestRecord(result.success));
   }
   return Result.fail(result.failure);
+}
+
+export function decodeGitHubChecksStatusJson(
+  raw: string,
+): Result.Result<GitHubChecksStatus, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeGitHubStatusCheckRollup(raw);
+  if (!Result.isSuccess(result)) {
+    return Result.fail(result.failure);
+  }
+  if (result.success.statusCheckRollup.length === 0) {
+    return Result.succeed(null);
+  }
+
+  let pending = false;
+  for (const check of result.success.statusCheckRollup) {
+    const status = check.status?.trim().toUpperCase();
+    const conclusion = check.conclusion?.trim().toUpperCase();
+    const state = check.state?.trim().toUpperCase();
+    if (
+      state === "FAILURE" ||
+      state === "ERROR" ||
+      ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"].includes(
+        conclusion ?? "",
+      )
+    ) {
+      return Result.succeed("failure");
+    }
+    if (state !== undefined) {
+      if (state !== "SUCCESS") {
+        pending = true;
+      }
+      continue;
+    }
+    if (
+      (status !== undefined && status !== "COMPLETED") ||
+      conclusion === null ||
+      conclusion === undefined ||
+      conclusion === ""
+    ) {
+      pending = true;
+    }
+  }
+
+  return Result.succeed(pending ? "pending" : "success");
 }

@@ -35,6 +35,70 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "bitbucket",
+    capabilities: { checks: true, merge: true, changeRequestState: true },
+    listChecks: (input) =>
+      bitbucket.listChecks(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "bitbucket",
+              operation: "listChecks",
+              cwd: input.cwd,
+              reference: String(input.changeRequestNumber),
+              detail: "Failed to list checks.",
+              cause: error,
+            }),
+        ),
+      ),
+    getChangeRequestMergeOptions: (input) =>
+      bitbucket.getMergeOptions(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "bitbucket",
+              operation: "getChangeRequestMergeOptions",
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: "Failed to read the repository merge strategy.",
+              cause: error,
+            }),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      bitbucket.mergePullRequest(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "bitbucket",
+              operation: "mergeChangeRequest",
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail:
+                "Bitbucket could not merge this pull request. Check conflicts, required checks, permissions, and branch restrictions.",
+              cause: error,
+            }),
+        ),
+      ),
+    updateChangeRequestState: (input) =>
+      bitbucket.updatePullRequestState(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "bitbucket",
+              operation: "updateChangeRequestState",
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: `Bitbucket could not ${input.state === "open" ? "reopen" : "close"} this pull request. Check your permissions and the pull request state.`,
+              cause: error,
+            }),
+        ),
+      ),
     listChangeRequests: (input) => {
       const source = SourceControlProvider.sourceControlRefFromInput(input);
       return bitbucket

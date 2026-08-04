@@ -51,6 +51,67 @@ it.effect("maps Bitbucket PR summaries into provider-neutral change requests", (
   }),
 );
 
+it.effect("advertises checks and maps Bitbucket statuses through the provider surface", () =>
+  Effect.gen(function* () {
+    let checksInput: Parameters<BitbucketApi.BitbucketApi["Service"]["listChecks"]>[0] | null =
+      null;
+    const provider = yield* makeProvider({
+      listChecks: (input) => {
+        checksInput = input;
+        return Effect.succeed("success");
+      },
+    });
+
+    const listChecks = provider.listChecks;
+    if (!listChecks) {
+      return assert.fail("Expected Bitbucket checks capability");
+    }
+    const status = yield* listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.deepStrictEqual(provider.capabilities, {
+      checks: true,
+      merge: true,
+      changeRequestState: true,
+    });
+    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+    assert.strictEqual(status, "success");
+  }),
+);
+
+it.effect("delegates Bitbucket merge and state mutations without advertising auto-merge", () =>
+  Effect.gen(function* () {
+    const calls: Array<string> = [];
+    const provider = yield* makeProvider({
+      getMergeOptions: () => Effect.succeed({ methods: ["squash"], defaultMethod: "squash" }),
+      mergePullRequest: (input) => {
+        calls.push(`merge:${input.method}`);
+        return Effect.void;
+      },
+      updatePullRequestState: (input) => {
+        calls.push(`state:${input.state}`);
+        return Effect.void;
+      },
+    });
+
+    yield* provider.mergeChangeRequest!({
+      cwd: "/repo",
+      reference: "42",
+      method: "squash",
+    });
+    yield* provider.updateChangeRequestState!({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.strictEqual(provider.setAutoMerge, undefined);
+    assert.deepStrictEqual(calls, ["merge:squash", "state:closed"]);
+  }),
+);
+
 it.effect("adds repository context while retaining Bitbucket API causes", () =>
   Effect.gen(function* () {
     const upstreamCause = new Error("raw upstream failure");

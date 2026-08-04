@@ -223,11 +223,16 @@ describe("PiSettings", () => {
 describe("ServerSettings worktree defaults", () => {
   it("defaults start-from-origin on for legacy configs", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);
+    expect(decodeServerSettings({}).autoSettleOnMergedChangeRequest).toBe(true);
   });
 
   it("accepts start-from-origin updates", () => {
     expect(
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: false }).newWorktreesStartFromOrigin,
+    ).toBe(false);
+    expect(
+      decodeServerSettingsPatch({ autoSettleOnMergedChangeRequest: false })
+        .autoSettleOnMergedChangeRequest,
     ).toBe(false);
   });
 });

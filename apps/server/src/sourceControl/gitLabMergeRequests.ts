@@ -20,6 +20,8 @@ export interface NormalizedGitLabMergeRequestRecord {
   readonly headRepositoryOwnerLogin?: string | null;
 }
 
+export type GitLabChecksStatus = "success" | "failure" | "pending" | null;
+
 const GitLabProjectReferenceSchema = Schema.Struct({
   path_with_namespace: Schema.optional(Schema.String),
   pathWithNamespace: Schema.optional(Schema.String),
@@ -118,6 +120,10 @@ function normalizeGitLabMergeRequestRecord(
 const decodeGitLabMergeRequestList = decodeJsonResult(Schema.Array(Schema.Unknown));
 const decodeGitLabMergeRequest = decodeJsonResult(GitLabMergeRequestSchema);
 const decodeGitLabMergeRequestEntry = Schema.decodeUnknownExit(GitLabMergeRequestSchema);
+const GitLabPipelineSchema = Schema.Struct({
+  status: Schema.String,
+});
+const decodeGitLabPipelines = decodeJsonResult(Schema.Array(GitLabPipelineSchema));
 
 export const formatGitLabJsonDecodeError = formatSchemaError;
 
@@ -150,4 +156,24 @@ export function decodeGitLabMergeRequestJson(
     return Result.succeed(normalizeGitLabMergeRequestRecord(result.success));
   }
   return Result.fail(result.failure);
+}
+
+export function decodeGitLabChecksStatusJson(
+  raw: string,
+): Result.Result<GitLabChecksStatus, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeGitLabPipelines(raw);
+  if (!Result.isSuccess(result)) {
+    return Result.fail(result.failure);
+  }
+  const status = result.success[0]?.status.trim().toLowerCase();
+  if (!status) {
+    return Result.succeed(null);
+  }
+  if (status === "success" || status === "skipped") {
+    return Result.succeed("success");
+  }
+  if (status === "failed" || status === "canceled") {
+    return Result.succeed("failure");
+  }
+  return Result.succeed("pending");
 }

@@ -92,6 +92,68 @@ describe("AzureDevOpsCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("rolls up pull request policy evaluations", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ status: "approved" }, { status: "running" }]),
+          ),
+        ),
+      );
+
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+      const result = yield* az.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "pending");
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "repos",
+        "pr",
+        "policy",
+        "list",
+        "--id",
+        "42",
+        "--detect",
+        "true",
+        "--only-show-errors",
+        "--output",
+        "json",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("maps completion, auto-complete, and state updates to Azure CLI", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValue(Effect.succeed(processOutput("{}")));
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+
+      assert.deepStrictEqual(yield* az.getMergeOptions({ cwd: "/repo", reference: "42" }), {
+        methods: ["merge"],
+        defaultMethod: "merge",
+      });
+      yield* az.mergePullRequest({ cwd: "/repo", reference: "#42", method: "merge" });
+      yield* az.setAutoMerge({
+        cwd: "/repo",
+        reference: "42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* az.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
+      yield* az.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
+
+      const calls = mockRun.mock.calls.map(([input]) => input.args);
+      expect(calls[0]).toEqual(
+        expect.arrayContaining(["--status", "completed", "--squash", "false"]),
+      );
+      expect(calls[1]).toEqual(
+        expect.arrayContaining(["--auto-complete", "true", "--squash", "false"]),
+      );
+      expect(calls[2]).toEqual(expect.arrayContaining(["--auto-complete", "false"]));
+      expect(calls[3]).toEqual(expect.arrayContaining(["--status", "abandoned"]));
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("builds a web URL when Azure returns only the pull request REST URL", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

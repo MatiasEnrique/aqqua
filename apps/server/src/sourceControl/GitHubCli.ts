@@ -7,14 +7,17 @@ import * as Schema from "effect/Schema";
 
 import {
   TrimmedNonEmptyString,
+  type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@aqqua/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
+  decodeGitHubChecksStatusJson,
   decodeGitHubPullRequestJson,
   decodeGitHubPullRequestListJson,
+  type GitHubChecksStatus,
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -135,6 +138,32 @@ export class GitHubRepositoryDecodeError extends Schema.TaggedErrorClass<GitHubR
   }
 }
 
+export class GitHubChecksDecodeError extends Schema.TaggedErrorClass<GitHubChecksDecodeError>()(
+  "GitHubChecksDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid checks JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in listChecks: ${this.detail}`;
+  }
+}
+
+export class GitHubMergeOptionsDecodeError extends Schema.TaggedErrorClass<GitHubMergeOptionsDecodeError>()(
+  "GitHubMergeOptionsDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid repository merge settings JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in getMergeOptions: ${this.detail}`;
+  }
+}
+
 export const GitHubCliError = Schema.Union([
   GitHubCliUnavailableError,
   GitHubCliAuthenticationError,
@@ -144,6 +173,8 @@ export const GitHubCliError = Schema.Union([
   GitHubChangeRequestListDecodeError,
   GitHubPullRequestDecodeError,
   GitHubRepositoryDecodeError,
+  GitHubChecksDecodeError,
+  GitHubMergeOptionsDecodeError,
 ]);
 export type GitHubCliError = typeof GitHubCliError.Type;
 
@@ -196,6 +227,11 @@ export interface GitHubRepositoryCloneUrls {
   readonly sshUrl: string;
 }
 
+export interface GitHubMergeOptions {
+  readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
+  readonly defaultMethod: GitChangeRequestMergeMethod;
+}
+
 export class GitHubCli extends Context.Service<
   GitHubCli,
   {
@@ -215,6 +251,42 @@ export class GitHubCli extends Context.Service<
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+    readonly listChecks: (input: {
+      readonly cwd: string;
+      readonly changeRequestNumber: number;
+    }) => Effect.Effect<GitHubChecksStatus, GitHubCliError>;
+
+    readonly getMergeOptions: (input: {
+      readonly cwd: string;
+    }) => Effect.Effect<GitHubMergeOptions, GitHubCliError>;
+
+    readonly mergePullRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly method: GitChangeRequestMergeMethod;
+    }) => Effect.Effect<void, GitHubCliError>;
+
+    readonly setAutoMerge: (
+      input:
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: true;
+            readonly method: GitChangeRequestMergeMethod;
+          }
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: false;
+          },
+    ) => Effect.Effect<void, GitHubCliError>;
+
+    readonly updatePullRequestState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<void, GitHubCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
       readonly cwd: string;
@@ -252,9 +324,47 @@ const RawGitHubRepositoryCloneUrlsSchema = Schema.Struct({
   url: TrimmedNonEmptyString,
   sshUrl: TrimmedNonEmptyString,
 });
+const RawGitHubMergeOptionsSchema = Schema.Struct({
+  mergeCommitAllowed: Schema.Boolean,
+  squashMergeAllowed: Schema.Boolean,
+  rebaseMergeAllowed: Schema.Boolean,
+  viewerDefaultMergeMethod: Schema.Literals(["MERGE", "SQUASH", "REBASE"]),
+});
 const decodeRawGitHubRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubRepositoryCloneUrlsSchema),
 );
+const decodeRawGitHubMergeOptions = Schema.decodeEffect(
+  Schema.fromJsonString(RawGitHubMergeOptionsSchema),
+);
+
+function mergeMethodFlag(method: GitChangeRequestMergeMethod): string {
+  switch (method) {
+    case "merge":
+      return "--merge";
+    case "squash":
+      return "--squash";
+    case "rebase":
+      return "--rebase";
+  }
+}
+
+function normalizeGitHubMergeOptions(
+  raw: Schema.Schema.Type<typeof RawGitHubMergeOptionsSchema>,
+): GitHubMergeOptions {
+  const methods: Array<GitChangeRequestMergeMethod> = [];
+  if (raw.mergeCommitAllowed) methods.push("merge");
+  if (raw.squashMergeAllowed) methods.push("squash");
+  if (raw.rebaseMergeAllowed) methods.push("rebase");
+  const configuredDefault =
+    raw.viewerDefaultMergeMethod.toLowerCase() as GitChangeRequestMergeMethod;
+  const defaultMethod = methods.includes(configuredDefault)
+    ? configuredDefault
+    : (methods[0] ?? "merge");
+  return {
+    methods: methods.length > 0 ? methods : ["merge"],
+    defaultMethod,
+  };
+}
 
 function normalizeRepositoryCloneUrls(
   raw: Schema.Schema.Type<typeof RawGitHubRepositoryCloneUrlsSchema>,
@@ -390,6 +500,73 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    listChecks: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "view", String(input.changeRequestNumber), "--json", "statusCheckRollup"],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          Effect.sync(() => decodeGitHubChecksStatusJson(raw)).pipe(
+            Effect.flatMap((decoded) =>
+              Result.isSuccess(decoded)
+                ? Effect.succeed(decoded.success)
+                : Effect.fail(
+                    new GitHubChecksDecodeError({
+                      command: "gh",
+                      cwd: input.cwd,
+                      cause: decoded.failure,
+                    }),
+                  ),
+            ),
+          ),
+        ),
+      ),
+    getMergeOptions: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "repo",
+          "view",
+          "--json",
+          "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,viewerDefaultMergeMethod",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          decodeRawGitHubMergeOptions(raw).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitHubMergeOptionsDecodeError({
+                  command: "gh",
+                  cwd: input.cwd,
+                  cause,
+                }),
+            ),
+          ),
+        ),
+        Effect.map(normalizeGitHubMergeOptions),
+      ),
+    mergePullRequest: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "merge", input.reference, mergeMethodFlag(input.method)],
+      }).pipe(Effect.asVoid),
+    setAutoMerge: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "merge",
+          input.reference,
+          ...(input.enabled ? ["--auto", mergeMethodFlag(input.method)] : ["--disable-auto"]),
+        ],
+      }).pipe(Effect.asVoid),
+    updatePullRequestState: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", input.state === "open" ? "reopen" : "close", input.reference],
+      }).pipe(Effect.asVoid),
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,
