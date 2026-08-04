@@ -7,7 +7,6 @@ import {
   orderChangeRequestMergeMethods,
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
-  resolveChecksChip,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
   resolveChangeRequestManagementState,
@@ -88,19 +87,6 @@ describe("change request management", () => {
   });
 });
 
-describe("resolveChecksChip", () => {
-  it("maps check states to concise chip presentations", () => {
-    assert.deepEqual(resolveChecksChip("pending"), { label: "Pending", tone: "pending" });
-    assert.deepEqual(resolveChecksChip("success"), { label: "Passing", tone: "success" });
-    assert.deepEqual(resolveChecksChip("failure"), { label: "Failing", tone: "failure" });
-  });
-
-  it("renders no presentation without checks data", () => {
-    assert.isNull(resolveChecksChip(null));
-    assert.isNull(resolveChecksChip(undefined));
-  });
-});
-
 function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
   return {
     isRepo: true,
@@ -122,7 +108,7 @@ function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
 }
 
 describe("when: ref is clean and has an open PR", () => {
-  it("resolveQuickAction opens the existing PR", () => {
+  it("keeps the header action quiet because PR details live in the panel", () => {
     const quick = resolveQuickAction(
       status({
         pr: {
@@ -136,7 +122,12 @@ describe("when: ref is clean and has an open PR", () => {
       }),
       false,
     );
-    assert.deepInclude(quick, { kind: "open_pr", label: "View PR", disabled: false });
+    assert.deepInclude(quick, {
+      kind: "show_hint",
+      label: "Commit",
+      disabled: true,
+      hint: "Branch is up to date. No action needed.",
+    });
   });
 
   it("buildMenuItems disables commit/push and enables open PR", () => {
@@ -752,7 +743,7 @@ describe("when: ref has no upstream configured", () => {
     });
   });
 
-  it("resolveQuickAction opens PR when clean, no upstream, no local commits are ahead, and PR exists", () => {
+  it("keeps the no-local-commits hint when the PR is available in the panel", () => {
     const quick = resolveQuickAction(
       status({
         hasUpstream: false,
@@ -769,9 +760,10 @@ describe("when: ref has no upstream configured", () => {
       false,
     );
     assert.deepInclude(quick, {
-      kind: "open_pr",
-      label: "View PR",
-      disabled: false,
+      kind: "show_hint",
+      label: "Push",
+      hint: "No local commits to push.",
+      disabled: true,
     });
   });
 

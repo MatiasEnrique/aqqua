@@ -243,6 +243,9 @@ export type GitPullRequestRefInput = typeof GitPullRequestRefInput.Type;
 export const GitGetChangeRequestMergeOptionsInput = GitPullRequestRefInput;
 export type GitGetChangeRequestMergeOptionsInput = typeof GitGetChangeRequestMergeOptionsInput.Type;
 
+export const GitGetChangeRequestChecksInput = GitPullRequestRefInput;
+export type GitGetChangeRequestChecksInput = typeof GitGetChangeRequestChecksInput.Type;
+
 export const GitMergeChangeRequestInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   reference: GitPullRequestReference,
@@ -503,6 +506,19 @@ export const GitResolvePullRequestResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,
 });
 export type GitResolvePullRequestResult = typeof GitResolvePullRequestResult.Type;
+
+export const GitChangeRequestCheck = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  status: Schema.Literals(["pending", "success", "failure", "skipped", "neutral"]),
+  detailsUrl: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitChangeRequestCheck = typeof GitChangeRequestCheck.Type;
+
+export const GitGetChangeRequestChecksResult = Schema.Struct({
+  checks: Schema.Array(GitChangeRequestCheck),
+  supported: Schema.Boolean,
+});
+export type GitGetChangeRequestChecksResult = typeof GitGetChangeRequestChecksResult.Type;
 
 export const GitGetChangeRequestMergeOptionsResult = Schema.Struct({
   methods: Schema.Array(GitChangeRequestMergeMethod).check(Schema.isMinLength(1)),

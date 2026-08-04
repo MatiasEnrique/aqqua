@@ -15,6 +15,7 @@ import {
   VcsListHistoryInput,
   VcsListHistoryResult,
   GitPreparePullRequestThreadInput,
+  GitGetChangeRequestChecksResult,
   GitGetChangeRequestMergeOptionsResult,
   GitMergeChangeRequestInput,
   GitRunStackedActionResult,
@@ -46,6 +47,7 @@ const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedAction
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
 const decodeMergeOptionsResult = Schema.decodeUnknownSync(GitGetChangeRequestMergeOptionsResult);
+const decodeChangeRequestChecksResult = Schema.decodeUnknownSync(GitGetChangeRequestChecksResult);
 const decodeMergeChangeRequestInput = Schema.decodeUnknownSync(GitMergeChangeRequestInput);
 const decodeSetAutoMergeInput = Schema.decodeUnknownSync(GitSetAutoMergeInput);
 const decodeUpdateChangeRequestStateInput = Schema.decodeUnknownSync(
@@ -488,6 +490,47 @@ describe("VcsStatusRemoteResult", () => {
     const parsed = decodeVcsStatusRemoteResult(remote);
 
     expect(parsed.pr?.checksStatus).toBeUndefined();
+  });
+});
+
+describe("GitGetChangeRequestChecksResult", () => {
+  it("decodes supported per-check details", () => {
+    expect(
+      decodeChangeRequestChecksResult({
+        supported: true,
+        checks: [
+          {
+            name: "unit tests",
+            status: "failure",
+            detailsUrl: "https://example.test/checks/1",
+          },
+          { name: "optional lint", status: "neutral" },
+          { name: "docs", status: "skipped" },
+        ],
+      }),
+    ).toEqual({
+      supported: true,
+      checks: [
+        {
+          name: "unit tests",
+          status: "failure",
+          detailsUrl: "https://example.test/checks/1",
+        },
+        { name: "optional lint", status: "neutral" },
+        { name: "docs", status: "skipped" },
+      ],
+    });
+  });
+
+  it("distinguishes an unsupported provider from a supported provider with no checks", () => {
+    expect(decodeChangeRequestChecksResult({ supported: false, checks: [] })).toEqual({
+      supported: false,
+      checks: [],
+    });
+    expect(decodeChangeRequestChecksResult({ supported: true, checks: [] })).toEqual({
+      supported: true,
+      checks: [],
+    });
   });
 });
 

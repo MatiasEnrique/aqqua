@@ -9,6 +9,7 @@ import type * as DateTime from "effect/DateTime";
 
 import {
   TrimmedNonEmptyString,
+  type GitChangeRequestCheck,
   type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
@@ -17,6 +18,8 @@ import {
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
   decodeGitLabChecksStatusJson,
+  decodeGitLabLatestPipelineIdJson,
+  decodeGitLabPipelineJobsJson,
   decodeGitLabMergeRequestJson,
   decodeGitLabMergeRequestListJson,
   type GitLabChecksStatus,
@@ -217,7 +220,7 @@ export class GitLabChecksDecodeError extends Schema.TaggedErrorClass<GitLabCheck
   "GitLabChecksDecodeError",
   {
     ...gitLabCliDecodeErrorContext,
-    operation: Schema.Literal("listChecks"),
+    operation: Schema.Literals(["listChecks", "listCheckDetails"]),
   },
 ) {
   get detail(): string {
@@ -310,6 +313,11 @@ export class GitLabCli extends Context.Service<
       readonly cwd: string;
       readonly changeRequestNumber: number;
     }) => Effect.Effect<GitLabChecksStatus, GitLabCliError>;
+
+    readonly listCheckDetails: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitChangeRequestCheck>, GitLabCliError>;
 
     readonly getMergeOptions: (input: {
       readonly cwd: string;
@@ -618,6 +626,61 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    listCheckDetails: Effect.fn("GitLabCli.listCheckDetails")(function* (input) {
+      const reference = normalizeChangeRequestId(input.reference);
+      const pipelines = yield* execute({
+        cwd: input.cwd,
+        args: ["api", `projects/:fullpath/merge_requests/${reference}/pipelines?per_page=1`],
+      });
+      const pipelineId = yield* Effect.sync(() =>
+        decodeGitLabLatestPipelineIdJson(pipelines.stdout.trim()),
+      ).pipe(
+        Effect.flatMap((decoded) =>
+          Result.isSuccess(decoded)
+            ? Effect.succeed(decoded.success)
+            : Effect.fail(
+                new GitLabChecksDecodeError({
+                  operation: "listCheckDetails",
+                  command: "glab",
+                  cwd: input.cwd,
+                  cause: decoded.failure,
+                }),
+              ),
+        ),
+      );
+      if (pipelineId === null) return [];
+
+      const checks: GitChangeRequestCheck[] = [];
+      let page = 1;
+      while (true) {
+        const jobs = yield* execute({
+          cwd: input.cwd,
+          args: [
+            "api",
+            `projects/:fullpath/pipelines/${pipelineId}/jobs?per_page=100&page=${page}`,
+          ],
+        });
+        const decoded = yield* Effect.sync(() =>
+          decodeGitLabPipelineJobsJson(jobs.stdout.trim()),
+        ).pipe(
+          Effect.flatMap((result) =>
+            Result.isSuccess(result)
+              ? Effect.succeed(result.success)
+              : Effect.fail(
+                  new GitLabChecksDecodeError({
+                    operation: "listCheckDetails",
+                    command: "glab",
+                    cwd: input.cwd,
+                    cause: result.failure,
+                  }),
+                ),
+          ),
+        );
+        checks.push(...decoded);
+        if (decoded.length < 100) return checks;
+        page += 1;
+      }
+    }),
     getMergeOptions: (input) =>
       Effect.all(
         [

@@ -4,7 +4,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { PositiveInt, TrimmedNonEmptyString } from "@aqqua/contracts";
+import { PositiveInt, TrimmedNonEmptyString, type GitChangeRequestCheck } from "@aqqua/contracts";
 import { decodeJsonResult, formatSchemaError } from "@aqqua/shared/schemaJson";
 
 export interface NormalizedGitHubPullRequestRecord {
@@ -114,6 +114,10 @@ const GitHubStatusCheckRollupSchema = Schema.Struct({
       status: Schema.optional(Schema.NullOr(Schema.String)),
       conclusion: Schema.optional(Schema.NullOr(Schema.String)),
       state: Schema.optional(Schema.NullOr(Schema.String)),
+      name: Schema.optional(Schema.NullOr(Schema.String)),
+      context: Schema.optional(Schema.NullOr(Schema.String)),
+      detailsUrl: Schema.optional(Schema.NullOr(Schema.String)),
+      targetUrl: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 });
@@ -194,4 +198,49 @@ export function decodeGitHubChecksStatusJson(
   }
 
   return Result.succeed(pending ? "pending" : "success");
+}
+
+function normalizeGitHubCheckStatus(check: {
+  readonly status?: string | null | undefined;
+  readonly conclusion?: string | null | undefined;
+  readonly state?: string | null | undefined;
+}): GitChangeRequestCheck["status"] {
+  const status = check.status?.trim().toUpperCase();
+  const conclusion = check.conclusion?.trim().toUpperCase();
+  const state = check.state?.trim().toUpperCase();
+  if (state === "SUCCESS" || conclusion === "SUCCESS") return "success";
+  if (conclusion === "SKIPPED") return "skipped";
+  if (conclusion === "NEUTRAL") return "neutral";
+  if (
+    state === "FAILURE" ||
+    state === "ERROR" ||
+    ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"].includes(
+      conclusion ?? "",
+    )
+  ) {
+    return "failure";
+  }
+  return status === "COMPLETED" && conclusion ? "neutral" : "pending";
+}
+
+export function decodeGitHubCheckDetailsJson(
+  raw: string,
+): Result.Result<ReadonlyArray<GitChangeRequestCheck>, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeGitHubStatusCheckRollup(raw);
+  if (!Result.isSuccess(result)) return Result.fail(result.failure);
+
+  return Result.succeed(
+    result.success.statusCheckRollup.flatMap((check) => {
+      const name = check.name?.trim() || check.context?.trim();
+      if (!name) return [];
+      const detailsUrl = check.detailsUrl?.trim() || check.targetUrl?.trim();
+      return [
+        {
+          name,
+          status: normalizeGitHubCheckStatus(check),
+          ...(detailsUrl ? { detailsUrl } : {}),
+        },
+      ];
+    }),
+  );
 }

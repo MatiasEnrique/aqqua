@@ -35,7 +35,7 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "bitbucket",
-    capabilities: { checks: true, merge: true, changeRequestState: true },
+    capabilities: { checks: true, checkDetails: true, merge: true, changeRequestState: true },
     listChecks: (input) =>
       bitbucket.listChecks(input).pipe(
         Effect.mapError(
@@ -50,6 +50,25 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    listCheckDetails: Effect.fn("BitbucketSourceControlProvider.listCheckDetails")(
+      function* (input) {
+        return yield* bitbucket.listCheckDetails(input).pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "bitbucket",
+                operation: "listCheckDetails",
+                cwd: input.cwd,
+                reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                  input.reference,
+                ),
+                detail: "Failed to list check details.",
+                cause: error,
+              }),
+          ),
+        );
+      },
+    ),
     getChangeRequestMergeOptions: (input) =>
       bitbucket.getMergeOptions(input).pipe(
         Effect.mapError(

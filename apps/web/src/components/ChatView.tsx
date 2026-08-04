@@ -152,6 +152,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   GitBranchIcon,
+  GitPullRequestIcon,
   HistoryIcon,
   TriangleAlertIcon,
   WifiOffIcon,
@@ -159,6 +160,7 @@ import {
 import { cn, randomHex } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { Toggle } from "./ui/toggle";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
@@ -415,6 +417,9 @@ const GitHistoryPanel = lazy(() =>
   import("./gitHistory/GitHistoryPanel").then((module) => ({
     default: module.GitHistoryPanel,
   })),
+);
+const PullRequestPanel = lazy(() =>
+  import("./PullRequestPanel").then((module) => ({ default: module.PullRequestPanel })),
 );
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
@@ -2648,6 +2653,12 @@ function ChatViewContent(props: ChatViewProps) {
       useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "diff");
     }
   }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceOwner]);
+  const onTogglePullRequest = useCallback(() => {
+    if (!diffSurfaceAvailable || !rightPanelWorkspaceOwner) {
+      return;
+    }
+    useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "pullRequest");
+  }, [diffSurfaceAvailable, rightPanelWorkspaceOwner]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3244,6 +3255,21 @@ function ChatViewContent(props: ChatViewProps) {
     const store = useRightPanelStore.getState();
     store.close(activeThreadRef);
     store.open(rightPanelWorkspaceOwner, "history");
+  }, [
+    activeThreadRef,
+    diffSurfaceAvailable,
+    dismissPlanSidebarForCurrentTurn,
+    planSidebarOpen,
+    rightPanelWorkspaceOwner,
+  ]);
+  const addPullRequestSurface = useCallback(() => {
+    if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
+    if (planSidebarOpen) {
+      dismissPlanSidebarForCurrentTurn();
+    }
+    const store = useRightPanelStore.getState();
+    store.close(activeThreadRef);
+    store.open(rightPanelWorkspaceOwner, "pullRequest");
   }, [
     activeThreadRef,
     diffSurfaceAvailable,
@@ -6017,18 +6043,42 @@ function ChatViewContent(props: ChatViewProps) {
     />
   );
   const rightPanelSurfaceControls = (
-    <RightPanelSurfaceControls
-      activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
-      availability={{
-        files: activeProject !== null,
-        diff: diffSurfaceAvailable,
-        history: diffSurfaceAvailable,
-        terminal: activeProject !== null,
-        browser: isPreviewSupportedInRuntime(),
-      }}
-      onOpenSurface={openRightPanelSurface}
-      onCloseSurface={closePreviewPanel}
-    />
+    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <RightPanelSurfaceControls
+        activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
+        availability={{
+          files: activeProject !== null,
+          diff: diffSurfaceAvailable,
+          history: diffSurfaceAvailable,
+          terminal: activeProject !== null,
+          browser: isPreviewSupportedInRuntime(),
+        }}
+        onOpenSurface={openRightPanelSurface}
+        onCloseSurface={closePreviewPanel}
+      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              pressed={rightPanelOpen && activeRightPanelSurface?.kind === "pullRequest"}
+              onPressedChange={onTogglePullRequest}
+              aria-label="Pull request"
+              variant="ghost"
+              size="sm"
+              disabled={!diffSurfaceAvailable}
+            >
+              <GitPullRequestIcon className="size-3.5" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {diffSurfaceAvailable
+            ? "Pull request"
+            : "Pull requests are only available for projects in Git repositories."}
+        </TooltipPopup>
+      </Tooltip>
+    </div>
   );
   const panelLayoutControls = (
     <div className="workspace-titlebar-controls z-50 gap-1 [-webkit-app-region:no-drag]">
@@ -6098,6 +6148,17 @@ function ChatViewContent(props: ChatViewProps) {
           composerDraftTarget={composerDraftTarget}
           threadRef={activeThreadRef}
           workspaceRef={activeWorkspacePanelRef}
+        />
+      </Suspense>
+    ) : activeRightPanelSurface?.kind === "pullRequest" && gitStatusCwd ? (
+      <Suspense fallback={null}>
+        <PullRequestPanel
+          environmentId={activeThreadRef.environmentId}
+          threadRef={activeThreadRef}
+          cwd={gitStatusCwd}
+          status={gitStatusQuery.data}
+          statusError={gitStatusQuery.error}
+          statusPending={gitStatusQuery.isPending}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
@@ -6568,10 +6629,12 @@ function ChatViewContent(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddHistory={addHistorySurface}
+          onAddPullRequest={addPullRequestSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={diffSurfaceAvailable}
           historyAvailable={diffSurfaceAvailable}
+          pullRequestAvailable={diffSurfaceAvailable}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -6597,10 +6660,12 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddHistory={addHistorySurface}
+            onAddPullRequest={addPullRequestSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={diffSurfaceAvailable}
             historyAvailable={diffSurfaceAvailable}
+            pullRequestAvailable={diffSurfaceAvailable}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}

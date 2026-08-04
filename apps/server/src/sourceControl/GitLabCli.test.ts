@@ -108,6 +108,87 @@ layer("GitLabCli.layer", (it) => {
     }),
   );
 
+  it.effect("lists jobs from the latest merge request pipeline", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify([
+                {
+                  name: "unit tests",
+                  status: "success",
+                  web_url: "https://gitlab.com/acme/repo/-/jobs/1",
+                },
+                { name: "docs", status: "skipped" },
+              ]),
+            ),
+          ),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "#42" });
+
+      assert.deepStrictEqual(result, [
+        {
+          name: "unit tests",
+          status: "success",
+          detailsUrl: "https://gitlab.com/acme/repo/-/jobs/1",
+        },
+        { name: "docs", status: "skipped" },
+      ]);
+      assert.deepStrictEqual(
+        mockedRun.mock.calls.map(([input]) => input.args),
+        [
+          ["api", "projects/:fullpath/merge_requests/42/pipelines?per_page=1"],
+          ["api", "projects/:fullpath/pipelines/99/jobs?per_page=100&page=1"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("includes later pages of jobs from the latest pipeline", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify(
+                Array.from({ length: 100 }, (_, index) => ({
+                  name: `job-${index + 1}`,
+                  status: "success",
+                })),
+              ),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ name: "job-101", status: "failed" }]))),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "42" });
+
+      assert.strictEqual(result.length, 101);
+      assert.deepStrictEqual(result.at(-1), { name: "job-101", status: "failure" });
+      assert.deepStrictEqual(mockedRun.mock.calls.at(-1)?.[0].args, [
+        "api",
+        "projects/:fullpath/pipelines/99/jobs?per_page=100&page=2",
+      ]);
+    }),
+  );
+
   it.effect("maps project squash settings and issues explicit mutation commands", () =>
     Effect.gen(function* () {
       mockedRun

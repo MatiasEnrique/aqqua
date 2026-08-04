@@ -13,6 +13,11 @@ export function createGitEnvironmentAtoms<R, E>(
       label: "environment-data:git:resolve-pull-request",
       tag: WS_METHODS.gitResolvePullRequest,
     }),
+    changeRequestChecks: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:git:change-request-checks",
+      tag: WS_METHODS.gitGetChangeRequestChecks,
+      staleTimeMs: 5 * 60_000,
+    }),
     changeRequestMergeOptions: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:git:change-request-merge-options",
       tag: WS_METHODS.gitGetChangeRequestMergeOptions,

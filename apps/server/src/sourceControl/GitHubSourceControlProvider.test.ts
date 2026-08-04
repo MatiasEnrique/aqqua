@@ -68,34 +68,45 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
   }),
 );
 
-it.effect("advertises checks and maps GitHub rollups through the provider surface", () =>
-  Effect.gen(function* () {
-    let checksInput: Parameters<GitHubCli.GitHubCli["Service"]["listChecks"]>[0] | null = null;
-    const provider = yield* makeProvider({
-      listChecks: (input) => {
-        checksInput = input;
-        return Effect.succeed("failure");
-      },
-    });
+it.effect(
+  "advertises checks and maps GitHub rollups and details through the provider surface",
+  () =>
+    Effect.gen(function* () {
+      let checksInput: Parameters<GitHubCli.GitHubCli["Service"]["listChecks"]>[0] | null = null;
+      const provider = yield* makeProvider({
+        listChecks: (input) => {
+          checksInput = input;
+          return Effect.succeed("failure");
+        },
+        listCheckDetails: () =>
+          Effect.succeed([
+            { name: "unit", status: "failure", detailsUrl: "https://example.test/unit" },
+          ]),
+      });
 
-    const listChecks = provider.listChecks;
-    if (!listChecks) {
-      return assert.fail("Expected GitHub checks capability");
-    }
-    const status = yield* listChecks({
-      cwd: "/repo",
-      changeRequestNumber: 42,
-    });
+      const listChecks = provider.listChecks;
+      if (!listChecks) {
+        return assert.fail("Expected GitHub checks capability");
+      }
+      const status = yield* listChecks({
+        cwd: "/repo",
+        changeRequestNumber: 42,
+      });
+      const details = yield* provider.listCheckDetails!({ cwd: "/repo", reference: "#42" });
 
-    assert.deepStrictEqual(provider.capabilities, {
-      checks: true,
-      merge: true,
-      autoMerge: true,
-      changeRequestState: true,
-    });
-    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
-    assert.strictEqual(status, "failure");
-  }),
+      assert.deepStrictEqual(provider.capabilities, {
+        checks: true,
+        checkDetails: true,
+        merge: true,
+        autoMerge: true,
+        changeRequestState: true,
+      });
+      assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+      assert.strictEqual(status, "failure");
+      assert.deepStrictEqual(details, [
+        { name: "unit", status: "failure", detailsUrl: "https://example.test/unit" },
+      ]);
+    }),
 );
 
 it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
@@ -141,6 +152,7 @@ it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
 
     assert.deepStrictEqual(provider.capabilities, {
       checks: true,
+      checkDetails: true,
       merge: true,
       autoMerge: true,
       changeRequestState: true,

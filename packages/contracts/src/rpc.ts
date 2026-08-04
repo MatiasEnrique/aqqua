@@ -44,6 +44,8 @@ import {
   VcsListRefsInput,
   VcsListRefsResult,
   GitManagerServiceError,
+  GitGetChangeRequestChecksInput,
+  GitGetChangeRequestChecksResult,
   GitGetChangeRequestMergeOptionsInput,
   GitGetChangeRequestMergeOptionsResult,
   GitMergeChangeRequestInput,
@@ -251,6 +253,7 @@ export const WS_METHODS = {
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
+  gitGetChangeRequestChecks: "git.getChangeRequestChecks",
   gitGetChangeRequestMergeOptions: "git.getChangeRequestMergeOptions",
   gitMergeChangeRequest: "git.mergeChangeRequest",
   gitSetAutoMerge: "git.setAutoMerge",
@@ -608,6 +611,12 @@ export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction,
 export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   payload: GitPullRequestRefInput,
   success: GitResolvePullRequestResult,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitGetChangeRequestChecksRpc = Rpc.make(WS_METHODS.gitGetChangeRequestChecks, {
+  payload: GitGetChangeRequestChecksInput,
+  success: GitGetChangeRequestChecksResult,
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
@@ -1023,6 +1032,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
+  WsGitGetChangeRequestChecksRpc,
   WsGitGetChangeRequestMergeOptionsRpc,
   WsGitMergeChangeRequestRpc,
   WsGitSetAutoMergeRpc,

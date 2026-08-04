@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 
 import {
   TrimmedNonEmptyString,
+  type GitChangeRequestCheck,
   type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
@@ -15,6 +16,7 @@ import {
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
   decodeGitHubChecksStatusJson,
+  decodeGitHubCheckDetailsJson,
   decodeGitHubPullRequestJson,
   decodeGitHubPullRequestListJson,
   type GitHubChecksStatus,
@@ -257,6 +259,11 @@ export class GitHubCli extends Context.Service<
       readonly changeRequestNumber: number;
     }) => Effect.Effect<GitHubChecksStatus, GitHubCliError>;
 
+    readonly listCheckDetails: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitChangeRequestCheck>, GitHubCliError>;
+
     readonly getMergeOptions: (input: {
       readonly cwd: string;
     }) => Effect.Effect<GitHubMergeOptions, GitHubCliError>;
@@ -427,6 +434,44 @@ export const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
 
+  const readCheckRollup = Effect.fn("GitHubCli.readCheckRollup")(function* (input: {
+    readonly cwd: string;
+    readonly reference: string;
+  }) {
+    const output = yield* execute({
+      cwd: input.cwd,
+      args: ["pr", "view", input.reference, "--json", "statusCheckRollup"],
+    });
+    const raw = output.stdout.trim();
+    const status = yield* Effect.sync(() => decodeGitHubChecksStatusJson(raw)).pipe(
+      Effect.flatMap((decoded) =>
+        Result.isSuccess(decoded)
+          ? Effect.succeed(decoded.success)
+          : Effect.fail(
+              new GitHubChecksDecodeError({
+                command: "gh",
+                cwd: input.cwd,
+                cause: decoded.failure,
+              }),
+            ),
+      ),
+    );
+    const details = yield* Effect.sync(() => decodeGitHubCheckDetailsJson(raw)).pipe(
+      Effect.flatMap((decoded) =>
+        Result.isSuccess(decoded)
+          ? Effect.succeed(decoded.success)
+          : Effect.fail(
+              new GitHubChecksDecodeError({
+                command: "gh",
+                cwd: input.cwd,
+                cause: decoded.failure,
+              }),
+            ),
+      ),
+    );
+    return { status, details };
+  });
+
   return GitHubCli.of({
     execute,
     listOpenPullRequests: (input) =>
@@ -500,28 +545,15 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
-    listChecks: (input) =>
-      execute({
+    listChecks: Effect.fn("GitHubCli.listChecks")(function* (input) {
+      return (yield* readCheckRollup({
         cwd: input.cwd,
-        args: ["pr", "view", String(input.changeRequestNumber), "--json", "statusCheckRollup"],
-      }).pipe(
-        Effect.map((result) => result.stdout.trim()),
-        Effect.flatMap((raw) =>
-          Effect.sync(() => decodeGitHubChecksStatusJson(raw)).pipe(
-            Effect.flatMap((decoded) =>
-              Result.isSuccess(decoded)
-                ? Effect.succeed(decoded.success)
-                : Effect.fail(
-                    new GitHubChecksDecodeError({
-                      command: "gh",
-                      cwd: input.cwd,
-                      cause: decoded.failure,
-                    }),
-                  ),
-            ),
-          ),
-        ),
-      ),
+        reference: String(input.changeRequestNumber),
+      })).status;
+    }),
+    listCheckDetails: Effect.fn("GitHubCli.listCheckDetails")(function* (input) {
+      return (yield* readCheckRollup(input)).details;
+    }),
     getMergeOptions: (input) =>
       execute({
         cwd: input.cwd,

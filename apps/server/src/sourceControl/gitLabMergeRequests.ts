@@ -4,7 +4,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { PositiveInt, TrimmedNonEmptyString } from "@aqqua/contracts";
+import { PositiveInt, TrimmedNonEmptyString, type GitChangeRequestCheck } from "@aqqua/contracts";
 import { decodeJsonResult, formatSchemaError } from "@aqqua/shared/schemaJson";
 
 export interface NormalizedGitLabMergeRequestRecord {
@@ -121,9 +121,16 @@ const decodeGitLabMergeRequestList = decodeJsonResult(Schema.Array(Schema.Unknow
 const decodeGitLabMergeRequest = decodeJsonResult(GitLabMergeRequestSchema);
 const decodeGitLabMergeRequestEntry = Schema.decodeUnknownExit(GitLabMergeRequestSchema);
 const GitLabPipelineSchema = Schema.Struct({
+  id: Schema.optional(PositiveInt),
   status: Schema.String,
 });
 const decodeGitLabPipelines = decodeJsonResult(Schema.Array(GitLabPipelineSchema));
+const GitLabPipelineJobSchema = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  status: Schema.String,
+  web_url: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+const decodeGitLabPipelineJobs = decodeJsonResult(Schema.Array(GitLabPipelineJobSchema));
 
 export const formatGitLabJsonDecodeError = formatSchemaError;
 
@@ -176,4 +183,41 @@ export function decodeGitLabChecksStatusJson(
     return Result.succeed("failure");
   }
   return Result.succeed("pending");
+}
+
+export function decodeGitLabLatestPipelineIdJson(
+  raw: string,
+): Result.Result<number | null, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeGitLabPipelines(raw);
+  return Result.isSuccess(result)
+    ? Result.succeed(result.success[0]?.id ?? null)
+    : Result.fail(result.failure);
+}
+
+function normalizeGitLabJobStatus(status: string): GitChangeRequestCheck["status"] {
+  switch (status.trim().toLowerCase()) {
+    case "success":
+      return "success";
+    case "failed":
+    case "canceled":
+      return "failure";
+    case "skipped":
+      return "skipped";
+    default:
+      return "pending";
+  }
+}
+
+export function decodeGitLabPipelineJobsJson(
+  raw: string,
+): Result.Result<ReadonlyArray<GitChangeRequestCheck>, Cause.Cause<Schema.SchemaError>> {
+  const result = decodeGitLabPipelineJobs(raw);
+  if (!Result.isSuccess(result)) return Result.fail(result.failure);
+  return Result.succeed(
+    result.success.map((job) => ({
+      name: job.name,
+      status: normalizeGitLabJobStatus(job.status),
+      ...(job.web_url ? { detailsUrl: job.web_url } : {}),
+    })),
+  );
 }

@@ -105,7 +105,13 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "gitlab",
-    capabilities: { checks: true, merge: true, autoMerge: true, changeRequestState: true },
+    capabilities: {
+      checks: true,
+      checkDetails: true,
+      merge: true,
+      autoMerge: true,
+      changeRequestState: true,
+    },
     listChecks: (input) =>
       gitlab.listChecks(input).pipe(
         Effect.mapError(
@@ -121,6 +127,24 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    listCheckDetails: Effect.fn("GitLabSourceControlProvider.listCheckDetails")(function* (input) {
+      return yield* gitlab.listCheckDetails(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "listCheckDetails",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      );
+    }),
     getChangeRequestMergeOptions: (input) =>
       gitlab.getMergeOptions(input).pipe(
         Effect.mapError(

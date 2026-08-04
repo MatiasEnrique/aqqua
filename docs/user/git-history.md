@@ -15,6 +15,19 @@ aqqua reads refs already present in the repository and never fetches while loadi
 Use the refresh button after fetching or switching branches to read the latest local ref state.
 Tags on commits in the visible graph remain available as labels.
 
+## Watch a pull request
+
+Select the **Pull request** icon in the chat header to watch the change request associated with the
+checked-out branch. Select it again to close the panel. The panel shows its number, title, state,
+base and head refs, aggregate CI status, and each check reported by the remote host. Status changes
+arrive through the workspace's live Git status stream; the check list refreshes when that remote
+state changes. Use the panel's refresh button to request both a fresh repository status and fresh
+per-check details, or **Manage** to merge, configure auto-merge, close, or reopen the change request.
+
+If the current branch has no pull request or merge request, create one from the Git actions control
+in the workspace toolbar. Some source-control hosts provide only an aggregate checks status; the
+panel keeps showing that status and explains when individual check details are unavailable.
+
 ## Auto-settle after a merge
 
 By default, aqqua settles a worktree thread when its pull request or merge request is merged.

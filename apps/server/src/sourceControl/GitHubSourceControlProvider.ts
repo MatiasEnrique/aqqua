@@ -186,7 +186,13 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "github",
-    capabilities: { checks: true, merge: true, autoMerge: true, changeRequestState: true },
+    capabilities: {
+      checks: true,
+      checkDetails: true,
+      merge: true,
+      autoMerge: true,
+      changeRequestState: true,
+    },
     listChecks: (input) =>
       github.listChecks(input).pipe(
         Effect.mapError(
@@ -202,6 +208,24 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    listCheckDetails: Effect.fn("GitHubSourceControlProvider.listCheckDetails")(function* (input) {
+      return yield* github.listCheckDetails(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "listCheckDetails",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      );
+    }),
     getChangeRequestMergeOptions: (input) =>
       github.getMergeOptions(input).pipe(
         Effect.mapError(

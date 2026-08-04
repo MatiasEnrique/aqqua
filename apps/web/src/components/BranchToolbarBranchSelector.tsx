@@ -5,15 +5,7 @@ import {
 } from "@aqqua/client-runtime/state/runtime";
 import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@aqqua/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import {
-  ChevronDownIcon,
-  CircleCheckIcon,
-  CircleXIcon,
-  Clock3Icon,
-  GitBranchIcon,
-  RefreshCwIcon,
-  SearchIcon,
-} from "lucide-react";
+import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -31,7 +23,6 @@ import {
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { readLocalApi } from "../localApi";
-import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches";
 import { usePaginatedBranches } from "../state/queries";
 import { useProject, useThread } from "../state/entities";
@@ -45,22 +36,13 @@ import { getSourceControlPresentation } from "../sourceControlPresentation";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
-  resolveBranchToolbarChecksChip,
-  resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
-import type { ChecksChipPresentation } from "./GitActionsControl.logic";
-import {
-  ChangeRequestStatusIcon,
-  prStatusIndicator,
-  resolveThreadPr,
-} from "./ThreadStatusIndicators";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 import {
   Combobox,
@@ -88,34 +70,6 @@ interface BranchToolbarBranchSelectorProps {
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
-}
-
-function BranchChecksStatusChip({ presentation }: { presentation: ChecksChipPresentation }) {
-  const Icon =
-    presentation.tone === "success"
-      ? CircleCheckIcon
-      : presentation.tone === "failure"
-        ? CircleXIcon
-        : Clock3Icon;
-  const variant =
-    presentation.tone === "success"
-      ? "success"
-      : presentation.tone === "failure"
-        ? "error"
-        : "warning";
-
-  return (
-    <Badge
-      aria-label={`CI checks ${presentation.label.toLowerCase()}`}
-      title={`CI checks ${presentation.label.toLowerCase()}`}
-      size="sm"
-      variant={variant}
-      className="h-4 gap-0.5 px-1 text-[10px]"
-    >
-      <Icon className="size-2.5" aria-hidden />
-      {presentation.label}
-    </Badge>
-  );
 }
 
 function toBranchActionErrorMessage(error: unknown): string {
@@ -649,27 +603,6 @@ export function BranchToolbarBranchSelector({
     setIsTriggerLabelClipped((previous) => (previous === clipped ? previous : clipped));
   }, []);
 
-  // PR pill shown next to the branch selector when the active branch has one.
-  const branchPr = resolveThreadPr({
-    threadBranch: resolveBranchToolbarPrBranch({
-      activeThreadBranch,
-      resolvedActiveBranch,
-    }),
-    gitStatus: branchStatusQuery.data ?? null,
-  });
-  const branchPrStatus = prStatusIndicator(branchPr, branchStatusQuery.data?.sourceControlProvider);
-  const branchChecksChip = resolveBranchToolbarChecksChip({
-    activeThreadBranch,
-    resolvedActiveBranch,
-    gitStatus: branchStatusQuery.data ?? null,
-  });
-  // Action-oriented tooltip (the pill opens the PR), distinct from the sidebar's
-  // state-description tooltip.
-  const branchPrTooltip = branchPr
-    ? `Open ${sourceControlPresentation.terminology.singular} #${branchPr.number} (${branchPr.state}) in browser`
-    : "";
-  const openPrLink = useOpenPrLink();
-
   function renderPickerItem(itemValue: string, index: number) {
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
       return (
@@ -771,28 +704,6 @@ export function BranchToolbarBranchSelector({
         data-branch-toolbar-branch="true"
         className={cn("flex min-w-0 items-center gap-1", className)}
       >
-        {branchPr && branchPrStatus ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={branchPrTooltip}
-                  onClick={(event) => openPrLink(event, branchPrStatus.url)}
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-medium tabular-nums transition-colors hover:bg-muted/60",
-                    branchPrStatus.colorClass,
-                  )}
-                />
-              }
-            >
-              <ChangeRequestStatusIcon className="size-3" />
-              <span>#{branchPr.number}</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">{branchPrTooltip}</TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {branchChecksChip ? <BranchChecksStatusChip presentation={branchChecksChip} /> : null}
         {/* Context menu lives on the wrapper: the disabled Button has
             pointer-events-none, so the trigger itself never sees right-clicks
             while refs are loading or a branch action is pending. */}

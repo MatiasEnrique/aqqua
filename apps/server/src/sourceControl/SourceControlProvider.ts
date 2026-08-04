@@ -4,6 +4,7 @@ import type {
   ChangeRequest,
   ChangeRequestState,
   GitChangeRequestMergeMethod,
+  GitChangeRequestCheck,
   SourceControlProviderError,
   SourceControlProviderInfo,
   SourceControlProviderKind,
@@ -34,6 +35,15 @@ export interface SourceControlProviderChecksCapability {
     readonly context?: SourceControlProviderContext;
     readonly changeRequestNumber: number;
   }) => Effect.Effect<ChangeRequestChecksStatus, SourceControlProviderError>;
+}
+
+export interface SourceControlProviderCheckDetailsCapability {
+  readonly capabilities: {
+    readonly checkDetails: true;
+  };
+  readonly listCheckDetails: (
+    input: ChangeRequestOperationInput,
+  ) => Effect.Effect<ReadonlyArray<GitChangeRequestCheck>, SourceControlProviderError>;
 }
 
 export interface ChangeRequestMergeOptions {
@@ -153,11 +163,13 @@ export class SourceControlProvider extends Context.Service<
     readonly kind: SourceControlProviderKind;
     readonly capabilities?: {
       readonly checks?: boolean;
+      readonly checkDetails?: boolean;
       readonly merge?: boolean;
       readonly autoMerge?: boolean;
       readonly changeRequestState?: boolean;
     };
     readonly listChecks?: SourceControlProviderChecksCapability["listChecks"];
+    readonly listCheckDetails?: SourceControlProviderCheckDetailsCapability["listCheckDetails"];
     readonly getChangeRequestMergeOptions?: SourceControlProviderMergeCapability["getChangeRequestMergeOptions"];
     readonly mergeChangeRequest?: SourceControlProviderMergeCapability["mergeChangeRequest"];
     readonly setAutoMerge?: SourceControlProviderAutoMergeCapability["setAutoMerge"];
@@ -212,6 +224,12 @@ export function supportsChangeRequestChecks(
   provider: SourceControlProvider["Service"],
 ): provider is SourceControlProvider["Service"] & SourceControlProviderChecksCapability {
   return provider.capabilities?.checks === true && provider.listChecks !== undefined;
+}
+
+export function supportsChangeRequestCheckDetails(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderCheckDetailsCapability {
+  return provider.capabilities?.checkDetails === true && provider.listCheckDetails !== undefined;
 }
 
 export function supportsChangeRequestMerge(

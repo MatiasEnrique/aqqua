@@ -169,6 +169,18 @@ function bindProviderContext(
             }),
         }
       : {}),
+    ...(provider.listCheckDetails
+      ? {
+          listCheckDetails: Effect.fn("SourceControlProviderRegistry.listCheckDetails")(function* (
+            input: Parameters<NonNullable<typeof provider.listCheckDetails>>[0],
+          ) {
+            return yield* provider.listCheckDetails!({
+              ...input,
+              context: input.context ?? context,
+            });
+          }),
+        }
+      : {}),
     ...(provider.getChangeRequestMergeOptions
       ? {
           getChangeRequestMergeOptions: (

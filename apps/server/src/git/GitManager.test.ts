@@ -57,6 +57,11 @@ interface FakeGhScenario {
   };
   repositoryCloneUrls?: Record<string, { url: string; sshUrl: string }>;
   checksStatus?: "success" | "failure" | "pending" | null;
+  checkDetails?: ReadonlyArray<{
+    readonly name: string;
+    readonly status: "pending" | "success" | "failure" | "skipped" | "neutral";
+    readonly detailsUrl?: string;
+  }>;
   mergeOptions?: GitHubCli.GitHubMergeOptions;
   failWith?: GitHubCli.GitHubCliError;
   /** Let this many gh calls succeed before failWith kicks in (default 0 = fail immediately). */
@@ -562,6 +567,13 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           return Effect.fail(scenario.failWith);
         }
         return Effect.succeed(scenario.checksStatus ?? null);
+      },
+      listCheckDetails: (input) => {
+        ghCalls.push(`pr view ${input.reference} --json statusCheckRollup`);
+        if (scenario.failWith && ghCalls.length > (scenario.failAfterCalls ?? 0)) {
+          return Effect.fail(scenario.failWith);
+        }
+        return Effect.succeed(scenario.checkDetails ?? []);
       },
       getMergeOptions: () => {
         ghCalls.push("repo view --json merge options");
@@ -3148,6 +3160,67 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
       expect(second).toEqual(first);
       expect(ghCalls.filter((call) => call === "repo view --json merge options")).toHaveLength(1);
+    }),
+  );
+
+  it.effect("caches per-check details by repository and reference until explicit refresh", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      const otherRepoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      yield* initRepo(otherRepoDir);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          checkDetails: [
+            {
+              name: "unit tests",
+              status: "success",
+              detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+            },
+          ],
+        },
+      });
+
+      const first = yield* manager.getChangeRequestChecks({ cwd: repoDir, reference: "#42" });
+      const second = yield* manager.getChangeRequestChecks({ cwd: repoDir, reference: "#42" });
+      yield* manager.getChangeRequestChecks({ cwd: repoDir, reference: "#43" });
+      yield* manager.getChangeRequestChecks({ cwd: otherRepoDir, reference: "#42" });
+      yield* manager.invalidateStatus(repoDir);
+      const refreshed = yield* manager.getChangeRequestChecks({
+        cwd: repoDir,
+        reference: "#42",
+      });
+
+      expect(first).toEqual({
+        supported: true,
+        checks: [
+          {
+            name: "unit tests",
+            status: "success",
+            detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+          },
+        ],
+      });
+      expect(second).toEqual(first);
+      expect(refreshed).toEqual(first);
+      expect(ghCalls.filter((call) => call === "pr view 42 --json statusCheckRollup")).toHaveLength(
+        3,
+      );
+      expect(ghCalls).toContain("pr view 43 --json statusCheckRollup");
+    }),
+  );
+
+  it.effect("reports unsupported check details without calling the provider", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager, ghCalls } = yield* makeManager({ checksSupported: false });
+
+      expect(yield* manager.getChangeRequestChecks({ cwd: repoDir, reference: "#42" })).toEqual({
+        supported: false,
+        checks: [],
+      });
+      expect(ghCalls.some((call) => call.includes("statusCheckRollup"))).toBe(false);
     }),
   );
 

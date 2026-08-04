@@ -18,6 +18,8 @@ import {
   GitCommandError,
   GitGetChangeRequestMergeOptionsInput,
   GitGetChangeRequestMergeOptionsResult,
+  GitGetChangeRequestChecksInput,
+  GitGetChangeRequestChecksResult,
   GitMergeChangeRequestInput,
   GitMergeChangeRequestResult,
   GitPreparePullRequestThreadInput,
@@ -106,6 +108,9 @@ export class GitManager extends Context.Service<
     readonly getChangeRequestMergeOptions: (
       input: GitGetChangeRequestMergeOptionsInput,
     ) => Effect.Effect<GitGetChangeRequestMergeOptionsResult, GitManagerServiceError>;
+    readonly getChangeRequestChecks: (
+      input: GitGetChangeRequestChecksInput,
+    ) => Effect.Effect<GitGetChangeRequestChecksResult, GitManagerServiceError>;
     readonly mergeChangeRequest: (
       input: GitMergeChangeRequestInput,
     ) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
@@ -1810,6 +1815,33 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const changeRequestChecksCache = yield* Cache.makeWith(
+    Effect.fn("GitManager.loadChangeRequestChecks")(function* (key: string) {
+      const [cwd = "", reference = ""] = key.split("\u0000");
+      const provider = yield* sourceControlProvider(cwd);
+      if (!SourceControlProvider.supportsChangeRequestCheckDetails(provider)) {
+        return { supported: false, checks: [] } as const;
+      }
+      const checks = yield* provider.listCheckDetails({ cwd, reference });
+      return { supported: true, checks } as const;
+    }),
+    {
+      capacity: PR_LOOKUP_CACHE_CAPACITY,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? PR_LOOKUP_CACHE_TTL : Duration.zero),
+    },
+  );
+
+  const getChangeRequestChecks: GitManager["Service"]["getChangeRequestChecks"] = Effect.fn(
+    "getChangeRequestChecks",
+  )(function* (input) {
+    const cwd = yield* normalizeStatusCacheKey(input.cwd);
+    const reference = normalizePullRequestReference(input.reference);
+    return yield* Cache.get(
+      changeRequestChecksCache,
+      [cwd, reference, String(prLookupEpoch(cwd))].join("\u0000"),
+    );
+  });
+
   const getChangeRequestMergeOptions: GitManager["Service"]["getChangeRequestMergeOptions"] =
     Effect.fn("getChangeRequestMergeOptions")(function* (input) {
       const provider = yield* sourceControlProvider(input.cwd);
@@ -2328,6 +2360,7 @@ export const make = Effect.gen(function* () {
     invalidateRemoteStatus,
     invalidateStatus,
     resolvePullRequest,
+    getChangeRequestChecks,
     getChangeRequestMergeOptions,
     mergeChangeRequest,
     setAutoMerge,

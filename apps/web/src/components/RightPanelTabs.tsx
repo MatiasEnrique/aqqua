@@ -5,6 +5,7 @@ import {
   FileDiff,
   Files,
   GitGraph,
+  GitPullRequest,
   Globe2,
   PanelRightClose,
   Plus,
@@ -52,10 +53,12 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddHistory: () => void;
+  onAddPullRequest: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   historyAvailable: boolean;
+  pullRequestAvailable: boolean;
   filesAvailable: boolean;
   children: ReactNode;
 }
@@ -65,6 +68,7 @@ const SURFACE_DISABLED_REASONS = {
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for projects in Git repositories.",
   history: "History is only available for projects in Git repositories.",
+  pullRequest: "Pull request is only available for projects in Git repositories.",
 } as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
@@ -102,10 +106,12 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddHistory: () => void;
+  onAddPullRequest: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   historyAvailable: boolean;
+  pullRequestAvailable: boolean;
   filesAvailable: boolean;
 }) {
   const actions = [
@@ -148,6 +154,14 @@ function RightPanelEmptyState(props: {
       available: props.historyAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.history,
       onClick: props.onAddHistory,
+    },
+    {
+      label: "Pull request",
+      description: "Watch the current pull request and its checks.",
+      icon: GitPullRequest,
+      available: props.pullRequestAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
+      onClick: props.onAddPullRequest,
     },
   ] as const;
 
@@ -217,6 +231,8 @@ export function rightPanelSurfaceTitle(
       return "Diff";
     case "history":
       return "History";
+    case "pullRequest":
+      return "Pull request";
     case "files":
       return "Files";
     case "terminal":
@@ -272,6 +288,8 @@ function SurfaceIcon({
       return <FileDiff className="size-3.5 shrink-0" />;
     case "history":
       return <GitGraph className="size-3.5 shrink-0" />;
+    case "pullRequest":
+      return <GitPullRequest className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
     case "terminal":
@@ -492,6 +510,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <GitGraph />
                     History
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.pullRequestAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.pullRequest}
+                    onClick={props.onAddPullRequest}
+                  >
+                    <GitPullRequest />
+                    Pull request
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -520,10 +546,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddHistory={props.onAddHistory}
+            onAddPullRequest={props.onAddPullRequest}
             onAddFiles={props.onAddFiles}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             historyAvailable={props.historyAvailable}
+            pullRequestAvailable={props.pullRequestAvailable}
             filesAvailable={props.filesAvailable}
           />
         ) : (

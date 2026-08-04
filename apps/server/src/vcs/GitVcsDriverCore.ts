@@ -39,6 +39,9 @@ import { ServerConfig } from "../config.ts";
 
 const isGitCommandError = Schema.is(GitCommandError);
 const DEFAULT_TIMEOUT_MS = 30_000;
+// Push, pull, and fetch move pack data over the network, so their duration
+// scales with payload size and link speed rather than repository size on disk.
+const NETWORK_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
 const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
@@ -1876,12 +1879,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const requestedRemoteName = options?.remoteName?.trim() || null;
     if (requestedRemoteName) {
       const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote", cwd, [
-        "push",
-        "-u",
-        requestedRemoteName,
-        `HEAD:refs/heads/${publishBranch}`,
-      ]);
+      yield* executeGit(
+        "GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote",
+        cwd,
+        ["push", "-u", requestedRemoteName, `HEAD:refs/heads/${publishBranch}`],
+        { timeoutMs: NETWORK_TIMEOUT_MS },
+      ).pipe(Effect.asVoid);
       return {
         status: "pushed" as const,
         branch,
@@ -1939,12 +1942,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         });
       }
       const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushWithUpstream", cwd, [
-        "push",
-        "-u",
-        publishRemoteName,
-        `HEAD:refs/heads/${publishBranch}`,
-      ]);
+      yield* executeGit(
+        "GitVcsDriver.pushCurrentBranch.pushWithUpstream",
+        cwd,
+        ["push", "-u", publishRemoteName, `HEAD:refs/heads/${publishBranch}`],
+        { timeoutMs: NETWORK_TIMEOUT_MS },
+      ).pipe(Effect.asVoid);
       return {
         status: "pushed" as const,
         branch,
@@ -1957,11 +1960,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.orElseSucceed(() => null),
     );
     if (currentUpstream) {
-      yield* runGit("GitVcsDriver.pushCurrentBranch.pushUpstream", cwd, [
-        "push",
-        currentUpstream.remoteName,
-        `HEAD:refs/heads/${currentUpstream.branchName}`,
-      ]);
+      yield* executeGit(
+        "GitVcsDriver.pushCurrentBranch.pushUpstream",
+        cwd,
+        ["push", currentUpstream.remoteName, `HEAD:refs/heads/${currentUpstream.branchName}`],
+        { timeoutMs: NETWORK_TIMEOUT_MS },
+      ).pipe(Effect.asVoid);
       return {
         status: "pushed" as const,
         branch,
@@ -1970,7 +1974,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       };
     }
 
-    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"]);
+    yield* executeGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], {
+      timeoutMs: NETWORK_TIMEOUT_MS,
+    }).pipe(Effect.asVoid);
     return {
       status: "pushed" as const,
       branch,
@@ -2011,7 +2017,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
     yield* executeGit("GitVcsDriver.pullCurrentBranch.pull", cwd, ["pull", "--ff-only"], {
-      timeoutMs: 30_000,
+      timeoutMs: NETWORK_TIMEOUT_MS,
       fallbackErrorDetail: "git pull failed",
     });
     const afterSha = yield* runGitStdout(
@@ -2917,13 +2923,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const fetchRemoteBranch: GitVcsDriver.GitVcsDriver["Service"]["fetchRemoteBranch"] = Effect.fn(
     "fetchRemoteBranch",
   )(function* (input) {
-    yield* runGit("GitVcsDriver.fetchRemoteBranch.fetch", input.cwd, [
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      input.remoteName,
-      `+refs/heads/${input.remoteBranch}:refs/remotes/${input.remoteName}/${input.remoteBranch}`,
-    ]);
+    yield* executeGit(
+      "GitVcsDriver.fetchRemoteBranch.fetch",
+      input.cwd,
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        input.remoteName,
+        `+refs/heads/${input.remoteBranch}:refs/remotes/${input.remoteName}/${input.remoteBranch}`,
+      ],
+      { timeoutMs: NETWORK_TIMEOUT_MS },
+    ).pipe(Effect.asVoid);
 
     const localBranchAlreadyExists = yield* branchExists(input.cwd, input.localBranch);
     const targetRef = `${input.remoteName}/${input.remoteBranch}`;

@@ -224,6 +224,44 @@ it.effect("rolls up pull request commit statuses", () => {
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("lists named pull request commit statuses", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [
+          {
+            key: "build",
+            name: "Build and test",
+            state: "FAILED",
+            url: "https://ci.example.test/build/1",
+          },
+          { key: "deploy", state: "INPROGRESS" },
+        ],
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listCheckDetails({
+      cwd: "/repo",
+      reference: "#42",
+    });
+
+    assert.deepStrictEqual(result, [
+      {
+        name: "Build and test",
+        status: "failure",
+        detailsUrl: "https://ci.example.test/build/1",
+      },
+      { name: "deploy", status: "pending" },
+    ]);
+    assert.strictEqual(
+      execute.mock.calls[0]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/statuses",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("uses repository default strategy and sends merge and state mutations", () => {
   const { execute, layer } = makeLayer({
     response: () => Response.json(bitbucketPullRequest),

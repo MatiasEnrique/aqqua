@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 
 import {
   supportsChangeRequestChecks,
+  supportsChangeRequestCheckDetails,
   supportsChangeRequestAutoMerge,
   supportsChangeRequestMerge,
   supportsChangeRequestStateUpdate,
@@ -100,5 +101,27 @@ it("requires both the checks capability and method", () => {
       capabilities: { checks: true },
     }),
     false,
+  );
+});
+
+it("keeps aggregate checks support separate from per-check detail support", () => {
+  const base = { kind: "github" as const } as SourceControlProvider["Service"];
+  const listCheckDetails = () => Effect.succeed([]);
+
+  assert.strictEqual(
+    supportsChangeRequestCheckDetails({
+      ...base,
+      capabilities: { checks: true },
+      listCheckDetails,
+    }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestCheckDetails({
+      ...base,
+      capabilities: { checkDetails: true },
+      listCheckDetails,
+    }),
+    true,
   );
 });

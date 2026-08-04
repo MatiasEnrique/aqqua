@@ -210,6 +210,58 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("returns named GitHub check runs and status contexts from the rollup", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [
+                {
+                  name: "unit tests",
+                  status: "COMPLETED",
+                  conclusion: "FAILURE",
+                  detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+                },
+                {
+                  context: "deploy/preview",
+                  state: "PENDING",
+                  targetUrl: "https://preview.example.test",
+                },
+                { name: "docs", status: "COMPLETED", conclusion: "SKIPPED" },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listCheckDetails({ cwd: "/repo", reference: "#42" });
+
+      assert.deepStrictEqual(result, [
+        {
+          name: "unit tests",
+          status: "failure",
+          detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+        },
+        {
+          name: "deploy/preview",
+          status: "pending",
+          detailsUrl: "https://preview.example.test",
+        },
+        { name: "docs", status: "skipped" },
+      ]);
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "pr",
+        "view",
+        "#42",
+        "--json",
+        "statusCheckRollup",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("trims pull request fields decoded from gh json", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

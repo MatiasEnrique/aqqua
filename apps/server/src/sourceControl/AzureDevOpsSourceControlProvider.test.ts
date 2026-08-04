@@ -74,6 +74,7 @@ it.effect("advertises checks and maps Azure policies through the provider surfac
     });
     assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
     assert.strictEqual(status, "success");
+    assert.isUndefined(provider.listCheckDetails);
   }),
 );
 

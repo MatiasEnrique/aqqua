@@ -1,7 +1,6 @@
-import type { EnvironmentId, VcsRef, VcsStatusResult, ProjectId } from "@aqqua/contracts";
+import type { EnvironmentId, VcsRef, ProjectId } from "@aqqua/contracts";
 import * as Schema from "effect/Schema";
 import { toSortableTimestamp } from "../lib/threadSort";
-import { type ChecksChipPresentation, resolveChecksChip } from "./GitActionsControl.logic";
 export {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
@@ -182,25 +181,6 @@ export function resolveBranchTriggerLabel(input: {
     return `From ${baseRef}`;
   }
   return resolvedActiveBranch;
-}
-
-export function resolveBranchToolbarPrBranch(input: {
-  activeThreadBranch: string | null;
-  resolvedActiveBranch: string | null;
-}): string | null {
-  return input.activeThreadBranch === input.resolvedActiveBranch ? input.activeThreadBranch : null;
-}
-
-export function resolveBranchToolbarChecksChip(input: {
-  activeThreadBranch: string | null;
-  resolvedActiveBranch: string | null;
-  gitStatus: VcsStatusResult | null;
-}): ChecksChipPresentation | null {
-  const prBranch = resolveBranchToolbarPrBranch(input);
-  if (prBranch === null || input.gitStatus?.refName !== prBranch || !input.gitStatus.pr) {
-    return null;
-  }
-  return resolveChecksChip(input.gitStatus.pr.checksStatus);
 }
 
 export function resolveLocalCheckoutBranchMismatch(input: {

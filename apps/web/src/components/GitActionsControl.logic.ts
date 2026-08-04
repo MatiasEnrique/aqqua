@@ -14,27 +14,6 @@ import {
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
-export interface ChecksChipPresentation {
-  readonly label: "Pending" | "Passing" | "Failing";
-  readonly tone: "pending" | "success" | "failure";
-}
-
-export function resolveChecksChip(
-  checksStatus: NonNullable<VcsStatusResult["pr"]>["checksStatus"],
-): ChecksChipPresentation | null {
-  switch (checksStatus) {
-    case "pending":
-      return { label: "Pending", tone: "pending" };
-    case "success":
-      return { label: "Passing", tone: "success" };
-    case "failure":
-      return { label: "Failing", tone: "failure" };
-    case null:
-    case undefined:
-      return null;
-  }
-}
-
 const MERGE_METHOD_LABELS = {
   merge: "Merge commit",
   squash: "Squash and merge",
@@ -126,7 +105,7 @@ export interface GitActionMenuItem {
 export interface GitQuickAction {
   label: string;
   disabled: boolean;
-  kind: "run_action" | "run_pull" | "open_pr" | "open_publish" | "show_hint";
+  kind: "run_action" | "run_pull" | "open_publish" | "show_hint";
   action?: GitStackedAction;
   hint?: string;
 }
@@ -318,9 +297,6 @@ export function resolveQuickAction(
 
   if (!gitStatus.hasUpstream) {
     if (!hasPrimaryRemote) {
-      if (hasOpenPr && !isAhead) {
-        return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
-      }
       return {
         label: "Publish repository",
         disabled: false,
@@ -328,9 +304,6 @@ export function resolveQuickAction(
       };
     }
     if (!isAhead) {
-      if (hasOpenPr) {
-        return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
-      }
       return {
         label: "Push",
         disabled: true,
@@ -386,10 +359,6 @@ export function resolveQuickAction(
       kind: "run_action",
       action: "create_pr",
     };
-  }
-
-  if (hasOpenPr && gitStatus.hasUpstream) {
-    return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
   }
 
   if (hasDefaultBranchDelta && !isDefaultRef) {

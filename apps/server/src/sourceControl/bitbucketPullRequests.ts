@@ -1,7 +1,7 @@
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { PositiveInt, TrimmedNonEmptyString } from "@aqqua/contracts";
+import { PositiveInt, TrimmedNonEmptyString, type GitChangeRequestCheck } from "@aqqua/contracts";
 
 export interface NormalizedBitbucketPullRequestRecord {
   readonly number: number;
@@ -22,6 +22,9 @@ export const BitbucketCommitStatusListSchema = Schema.Struct({
   values: Schema.Array(
     Schema.Struct({
       state: Schema.String,
+      key: Schema.optional(Schema.NullOr(Schema.String)),
+      name: Schema.optional(Schema.NullOr(Schema.String)),
+      url: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
   next: Schema.optional(TrimmedNonEmptyString),
@@ -48,6 +51,30 @@ export function normalizeBitbucketChecksStatus(
     }
   }
   return pending ? "pending" : "success";
+}
+
+export function normalizeBitbucketCheckDetails(
+  input: Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>,
+): ReadonlyArray<GitChangeRequestCheck> {
+  return input.values.flatMap((status) => {
+    const name = status.name?.trim() || status.key?.trim();
+    if (!name) return [];
+    const state = status.state.trim().toUpperCase();
+    const normalizedStatus: GitChangeRequestCheck["status"] =
+      state === "SUCCESSFUL"
+        ? "success"
+        : state === "FAILED" || state === "STOPPED"
+          ? "failure"
+          : "pending";
+    const detailsUrl = status.url?.trim();
+    return [
+      {
+        name,
+        status: normalizedStatus,
+        ...(detailsUrl ? { detailsUrl } : {}),
+      },
+    ];
+  });
 }
 
 export const BitbucketRepositoryRefSchema = Schema.Struct({

@@ -9,6 +9,7 @@ import {
   NonNegativeInt,
   TrimmedNonEmptyString,
   type GitChangeRequestMergeMethod,
+  type GitChangeRequestCheck,
   type SourceControlProviderAuth,
   type SourceControlRepositoryCloneUrls,
   type SourceControlRepositoryVisibility,
@@ -22,6 +23,7 @@ import {
   BitbucketPullRequestListSchema,
   BitbucketPullRequestSchema,
   normalizeBitbucketChecksStatus,
+  normalizeBitbucketCheckDetails,
   normalizeBitbucketPullRequestRecord,
   type BitbucketChecksStatus,
   type NormalizedBitbucketPullRequestRecord,
@@ -48,6 +50,7 @@ const BitbucketApiOperation = Schema.Literals([
   "getPullRequest",
   "listPullRequests",
   "listChecks",
+  "listCheckDetails",
   "getMergeOptions",
   "mergePullRequest",
   "updatePullRequestState",
@@ -277,6 +280,11 @@ export class BitbucketApi extends Context.Service<
       readonly context?: SourceControlProvider.SourceControlProviderContext;
       readonly changeRequestNumber: number;
     }) => Effect.Effect<BitbucketChecksStatus, BitbucketApiError>;
+    readonly listCheckDetails: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitChangeRequestCheck>, BitbucketApiError>;
     readonly getMergeOptions: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProvider.SourceControlProviderContext;
@@ -847,6 +855,30 @@ export const make = Effect.gen(function* () {
           }),
         ),
       ),
+    listCheckDetails: Effect.fn("BitbucketApi.listCheckDetails")(function* (input) {
+      const repository = yield* resolveRepository(input);
+      const values: Array<
+        Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>["values"][number]
+      > = [];
+      let pageNumber = 1;
+      let hasNextPage = true;
+      while (hasNextPage) {
+        const page = yield* executeJson(
+          "listCheckDetails",
+          HttpClientRequest.get(
+            apiUrl(
+              `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}/statuses`,
+            ),
+            { urlParams: { pagelen: "100", page: String(pageNumber) } },
+          ),
+          BitbucketCommitStatusListSchema,
+        );
+        values.push(...page.values);
+        hasNextPage = page.next !== undefined;
+        pageNumber += 1;
+      }
+      return normalizeBitbucketCheckDetails({ values });
+    }),
     getMergeOptions: (input) =>
       resolveRepository(input).pipe(
         Effect.flatMap((repository) =>

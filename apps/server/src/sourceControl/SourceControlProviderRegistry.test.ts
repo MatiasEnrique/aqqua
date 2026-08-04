@@ -119,12 +119,19 @@ it.effect("preserves optional capabilities and binds detected context to their m
     let receivedContext:
       | Parameters<BitbucketApi.BitbucketApi["Service"]["getMergeOptions"]>[0]["context"]
       | null = null;
+    let receivedChecksContext:
+      | Parameters<BitbucketApi.BitbucketApi["Service"]["listCheckDetails"]>[0]["context"]
+      | null = null;
     const registry = yield* makeRegistry({
       remotes: [{ name: "origin", url: "git@bitbucket.org:pingdotgg/aqqua.git" }],
       bitbucket: {
         getMergeOptions: (input) => {
           receivedContext = input.context;
           return Effect.succeed({ methods: ["merge"], defaultMethod: "merge" });
+        },
+        listCheckDetails: (input) => {
+          receivedChecksContext = input.context;
+          return Effect.succeed([]);
         },
       },
     });
@@ -135,6 +142,7 @@ it.effect("preserves optional capabilities and binds detected context to their m
       cwd: "/repo",
       reference: "42",
     });
+    yield* provider.listCheckDetails!({ cwd: "/repo", reference: "42" });
 
     assert.deepStrictEqual(receivedContext, {
       provider: {
@@ -145,6 +153,7 @@ it.effect("preserves optional capabilities and binds detected context to their m
       remoteName: "origin",
       remoteUrl: "git@bitbucket.org:pingdotgg/aqqua.git",
     });
+    assert.deepStrictEqual(receivedChecksContext, receivedContext);
   }),
 );
 

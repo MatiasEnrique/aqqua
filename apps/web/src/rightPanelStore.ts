@@ -2,7 +2,7 @@
  * Right-panel surface state, keyed by an explicit panel owner.
  *
  * Thread-owned surfaces (plan, preview) are scoped to a real thread. Workspace-
- * owned surfaces (diff, history, files, terminal) share one bucket per
+ * owned surfaces (diff, history, pull request, files, terminal) share one bucket per
  * workspace root. Owner keying lives in `panelOwner`; persisted surface
  * parsing lives in `rightPanelPersistence`.
  *
@@ -61,6 +61,7 @@ export const RIGHT_PANEL_KINDS = [
   "plan",
   "diff",
   "history",
+  "pullRequest",
   "files",
   "preview",
   "terminal",
@@ -133,6 +134,8 @@ const singletonSurface = (
       return { id: "diff", kind };
     case "history":
       return { id: "history", kind };
+    case "pullRequest":
+      return { id: "pullRequest", kind };
     case "files":
       return {
         id: "files",

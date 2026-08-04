@@ -51,34 +51,40 @@ it.effect("maps Bitbucket PR summaries into provider-neutral change requests", (
   }),
 );
 
-it.effect("advertises checks and maps Bitbucket statuses through the provider surface", () =>
-  Effect.gen(function* () {
-    let checksInput: Parameters<BitbucketApi.BitbucketApi["Service"]["listChecks"]>[0] | null =
-      null;
-    const provider = yield* makeProvider({
-      listChecks: (input) => {
-        checksInput = input;
-        return Effect.succeed("success");
-      },
-    });
+it.effect(
+  "advertises checks and maps Bitbucket statuses and details through the provider surface",
+  () =>
+    Effect.gen(function* () {
+      let checksInput: Parameters<BitbucketApi.BitbucketApi["Service"]["listChecks"]>[0] | null =
+        null;
+      const provider = yield* makeProvider({
+        listChecks: (input) => {
+          checksInput = input;
+          return Effect.succeed("success");
+        },
+        listCheckDetails: () => Effect.succeed([{ name: "build", status: "success" }]),
+      });
 
-    const listChecks = provider.listChecks;
-    if (!listChecks) {
-      return assert.fail("Expected Bitbucket checks capability");
-    }
-    const status = yield* listChecks({
-      cwd: "/repo",
-      changeRequestNumber: 42,
-    });
+      const listChecks = provider.listChecks;
+      if (!listChecks) {
+        return assert.fail("Expected Bitbucket checks capability");
+      }
+      const status = yield* listChecks({
+        cwd: "/repo",
+        changeRequestNumber: 42,
+      });
+      const details = yield* provider.listCheckDetails!({ cwd: "/repo", reference: "42" });
 
-    assert.deepStrictEqual(provider.capabilities, {
-      checks: true,
-      merge: true,
-      changeRequestState: true,
-    });
-    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
-    assert.strictEqual(status, "success");
-  }),
+      assert.deepStrictEqual(provider.capabilities, {
+        checks: true,
+        checkDetails: true,
+        merge: true,
+        changeRequestState: true,
+      });
+      assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+      assert.strictEqual(status, "success");
+      assert.deepStrictEqual(details, [{ name: "build", status: "success" }]);
+    }),
 );
 
 it.effect("delegates Bitbucket merge and state mutations without advertising auto-merge", () =>

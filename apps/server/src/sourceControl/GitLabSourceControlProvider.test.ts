@@ -52,7 +52,7 @@ it.effect("maps GitLab MR summaries into provider-neutral change requests", () =
   }),
 );
 
-it.effect("advertises checks and maps GitLab pipelines through the provider surface", () =>
+it.effect("advertises checks and maps GitLab pipelines and jobs through the provider surface", () =>
   Effect.gen(function* () {
     let checksInput: Parameters<GitLabCli.GitLabCli["Service"]["listChecks"]>[0] | null = null;
     const provider = yield* makeProvider({
@@ -60,6 +60,7 @@ it.effect("advertises checks and maps GitLab pipelines through the provider surf
         checksInput = input;
         return Effect.succeed("pending");
       },
+      listCheckDetails: () => Effect.succeed([{ name: "test", status: "pending" }]),
     });
 
     const listChecks = provider.listChecks;
@@ -70,15 +71,18 @@ it.effect("advertises checks and maps GitLab pipelines through the provider surf
       cwd: "/repo",
       changeRequestNumber: 42,
     });
+    const details = yield* provider.listCheckDetails!({ cwd: "/repo", reference: "42" });
 
     assert.deepStrictEqual(provider.capabilities, {
       checks: true,
+      checkDetails: true,
       merge: true,
       autoMerge: true,
       changeRequestState: true,
     });
     assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
     assert.strictEqual(status, "pending");
+    assert.deepStrictEqual(details, [{ name: "test", status: "pending" }]);
   }),
 );
 
