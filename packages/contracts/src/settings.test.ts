@@ -9,6 +9,7 @@ import {
   ClientSettingsPatch,
   DEFAULT_AGENT_PROFILE_DRIVER,
   DEFAULT_SERVER_SETTINGS,
+  PiSettings,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings.ts";
@@ -20,6 +21,7 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeAgentProfile = Schema.decodeUnknownSync(AgentProfile);
 const encodeAgentProfile = Schema.encodeSync(AgentProfile);
+const decodePiSettings = Schema.decodeUnknownSync(PiSettings);
 
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
@@ -181,6 +183,40 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
         providerInstances: { "1bad": { driver: "codex" } },
       }),
     ).toThrow();
+  });
+});
+
+describe("PiSettings", () => {
+  it("decodes provider defaults", () => {
+    expect(decodePiSettings({})).toEqual({
+      enabled: true,
+      binaryPath: "pi",
+      homePath: "",
+      trustProjectFiles: false,
+      customModels: [],
+    });
+
+    expect(decodeServerSettings({}).providers.pi).toEqual(decodePiSettings({}));
+  });
+
+  it("decodes partial provider patches", () => {
+    const patch = decodeServerSettingsPatch({
+      providers: {
+        pi: {
+          binaryPath: "  /opt/homebrew/bin/pi  ",
+          homePath: "  ~/.pi/agent  ",
+          trustProjectFiles: true,
+          customModels: ["openrouter/anthropic/claude-sonnet-5"],
+        },
+      },
+    });
+
+    expect(patch.providers?.pi).toEqual({
+      binaryPath: "/opt/homebrew/bin/pi",
+      homePath: "~/.pi/agent",
+      trustProjectFiles: true,
+      customModels: ["openrouter/anthropic/claude-sonnet-5"],
+    });
   });
 });
 

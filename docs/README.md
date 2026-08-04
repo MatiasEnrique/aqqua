@@ -17,5 +17,8 @@
 - [Integrations](./integrations/source-control-providers.md)
 - [Mobile](./mobile/app.md)
 - [Operations](./operations/ci.md)
-- [Providers](./providers/codex.md)
+- Providers
+  - [Claude](./providers/claude.md)
+  - [Codex](./providers/codex.md)
+  - [pi](./providers/pi.md)
 - [Reference](./reference/encyclopedia.md)
