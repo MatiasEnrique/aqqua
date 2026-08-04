@@ -398,9 +398,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     --chat-composer-glass-surface: var(--card);
     --chat-composer-outline: rgb(0 0 0 / 8%);
     --chat-composer-radius: var(--radius-2xl);
-    --chat-composer-radius-handle: calc(var(--chat-composer-radius) * 0.4477);
-    --chat-composer-strip-radius: var(--radius-xl);
-    --chat-composer-strip-handle: calc(var(--chat-composer-strip-radius) * 0.4477);
+    /* Nested surfaces (frame, prompt panels, footer tray) sit 1px inside the
+       outline the host paints at inset 0, so their corners run 1px tighter. */
+    --chat-composer-inner-radius: calc(var(--chat-composer-radius) - 1px);
 
     position: relative;
     isolation: isolate;
@@ -422,52 +422,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     content: "";
   }
 
-  .chat-composer-glass-shell-with-context {
-    --chat-composer-context-extension: 2.25rem;
-  }
-
-  .chat-composer-glass-shell-with-context::before {
-    border-radius: 0;
-    /*
-     */
-    clip-path: shape(
-      from 0 var(--chat-composer-radius),
-      curve to var(--chat-composer-radius) 0 with 0 var(--chat-composer-radius-handle) /
-        var(--chat-composer-radius-handle) 0,
-      line to calc(100% - var(--chat-composer-radius)) 0,
-      curve to 100% var(--chat-composer-radius) with calc(100% - var(--chat-composer-radius-handle))
-        0 / 100% var(--chat-composer-radius-handle),
-      line to 100% calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius)),
-      curve to calc(100% - var(--chat-composer-radius))
-        calc(100% - var(--chat-composer-context-extension)) with 100%
-        calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius-handle)) /
-        calc(100% - var(--chat-composer-radius-handle))
-        calc(100% - var(--chat-composer-context-extension)),
-      line to calc(100% - var(--chat-composer-radius))
-        calc(100% - var(--chat-composer-strip-radius)),
-      curve to calc(100% - var(--chat-composer-radius) - var(--chat-composer-strip-radius)) 100%
-        with calc(100% - var(--chat-composer-radius)) calc(100% - var(--chat-composer-strip-handle))
-        / calc(100% - var(--chat-composer-radius) - var(--chat-composer-strip-handle)) 100%,
-      line to calc(var(--chat-composer-radius) + var(--chat-composer-strip-radius)) 100%,
-      curve to var(--chat-composer-radius) calc(100% - var(--chat-composer-strip-radius)) with
-        calc(var(--chat-composer-radius) + var(--chat-composer-strip-handle)) 100% /
-        var(--chat-composer-radius) calc(100% - var(--chat-composer-strip-handle)),
-      line to var(--chat-composer-radius) calc(100% - var(--chat-composer-context-extension)),
-      curve to 0 calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius))
-        with var(--chat-composer-radius-handle) calc(100% - var(--chat-composer-context-extension))
-        / 0 calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius-handle)),
-      line to 0 var(--chat-composer-radius),
-      close
-    );
-  }
-
-  @media (min-width: 40rem) {
-    .chat-composer-glass-shell-with-context {
-      /* The xs toolbar controls shrink by 4px at Tailwind's sm breakpoint. */
-      --chat-composer-context-extension: 2rem;
-    }
-  }
-
   .chat-composer-glass-host {
     position: relative;
     box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
@@ -483,37 +437,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     content: "";
   }
 
-  .chat-composer-glass-shell-with-context .chat-composer-glass-host::after {
-    /* Keep the attachment seam open; the strip continues the outer outline below. */
-    clip-path: polygon(
-      0 0,
-      100% 0,
-      100% 100%,
-      calc(100% - var(--chat-composer-radius)) 100%,
-      calc(100% - var(--chat-composer-radius)) calc(100% - 2px),
-      var(--chat-composer-radius) calc(100% - 2px),
-      var(--chat-composer-radius) 100%,
-      0 100%
-    );
-  }
-
-  .chat-composer-context-strip {
-    position: relative;
-    isolation: isolate;
-  }
-
-  .chat-composer-context-strip::before {
-    position: absolute;
-    z-index: -1;
-    inset: 0;
-    border: 1px solid var(--chat-composer-outline);
-    border-radius: 0 0 var(--chat-composer-strip-radius) var(--chat-composer-strip-radius);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
-    mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
-    box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
-    content: "";
-  }
-
   .dark .chat-composer-glass-shell {
     --chat-composer-glass-surface: color-mix(in srgb, var(--background) 96%, var(--color-white));
     --chat-composer-outline: color-mix(in srgb, var(--color-white) 5%, transparent);
@@ -526,49 +449,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 
   .dark .chat-composer-glass-host::after {
     box-shadow: inset 0 1px var(--chat-composer-highlight);
-  }
-
-  .dark .chat-composer-context-strip::before {
-    border-color: rgb(255 255 255 / 7%);
-    background:
-      linear-gradient(
-        to bottom,
-        transparent 0 1rem,
-        rgb(0 0 0 / 18%) 1rem,
-        transparent calc(1rem + 10px)
-      ),
-      rgb(255 255 255 / 2%);
-    box-shadow: 0 14px 32px -18px rgb(0 0 0 / 75%);
-  }
-
-  @supports not (clip-path: shape(from 0 0, line to 1px 1px)) {
-    .chat-composer-glass-shell-with-context::before {
-      inset-block-end: var(--chat-composer-context-extension);
-      border-radius: var(--chat-composer-radius);
-      clip-path: none;
-    }
-
-    .chat-composer-context-strip::before {
-      background: color-mix(
-        in srgb,
-        var(--chat-composer-glass-surface) var(--glass-opacity),
-        transparent
-      );
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-    }
-
-    .dark .chat-composer-context-strip::before {
-      background:
-        linear-gradient(
-          to bottom,
-          transparent 0 1rem,
-          rgb(0 0 0 / 18%) 1rem,
-          transparent calc(1rem + 10px)
-        ),
-        linear-gradient(rgb(255 255 255 / 2%), rgb(255 255 255 / 2%)),
-        color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent);
-    }
   }
 
   .alert-glass {
@@ -805,7 +685,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   }
 }
 
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"] {
+/* Docked composer: fade the timeline out behind the composer instead of letting
+   messages run under the context strip. */
+[data-chat-composer-overlay-docked="true"] {
   background: linear-gradient(
     to bottom,
     transparent 0,
@@ -814,162 +696,42 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   );
 }
 
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  .chat-composer-context-strip {
+/* Branch + checkout strip: a quiet full-width row directly below the composer,
+   tracking its max width. Same placement in the draft hero and docked. */
+.chat-composer-context-strip {
   width: 100%;
   max-width: 48rem;
-  margin-top: 0;
-  padding: 0.375rem 0 0;
-  font-family: var(--font-mono);
+  margin-inline: auto;
+  padding-top: 0.375rem;
   font-size: 0.75rem;
   font-weight: 400;
 }
 
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  .chat-composer-context-strip::before {
-  display: none;
-}
-
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  .chat-composer-context-strip
-  button {
+.chat-composer-context-strip button {
   padding-inline: 0;
   font: inherit;
   letter-spacing: 0;
   background: transparent;
 }
 
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  .chat-composer-context-strip
-  :where(button, span) {
+.chat-composer-context-strip :where(button, span) {
   font-weight: inherit;
 }
 
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  [data-branch-toolbar-branch-label] {
-  max-width: none;
-}
-
-[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
-  .chat-composer-context-strip
-  button:hover {
-  background: transparent;
-  color: var(--foreground);
-}
-[data-composer-skin="terminal"] {
-  --chat-composer-terminal-lit-length: 11.25rem;
-  --chat-composer-terminal-hairline: color-mix(in srgb, var(--foreground) 14%, transparent);
-  --chat-composer-terminal-lit: var(--info);
-}
-
-[data-composer-skin="terminal"]::before,
-[data-composer-skin="terminal"] .chat-composer-glass-host::after {
-  display: none;
-}
-
-[data-composer-skin="terminal"] .chat-composer-glass-host {
-  box-shadow: none;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-terminal-caret] {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 1.125rem;
-  font-weight: 600;
-  line-height: 1.75rem;
-  color: var(--chat-composer-terminal-lit);
-  user-select: none;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-terminal-rule] {
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    var(--chat-composer-terminal-lit) 0 var(--chat-composer-terminal-lit-length),
-    var(--chat-composer-terminal-hairline) var(--chat-composer-terminal-lit-length)
-  );
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-prompt-block="true"] {
-  padding-inline: 0;
-  padding-top: 0;
-  padding-bottom: 0.875rem;
-}
-
-[data-chat-composer-skin="terminal"] [data-testid="composer-editor"] {
-  min-height: 1.75rem;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] {
-  padding-inline: 0;
-  padding-bottom: 0;
-  padding-top: 0.875rem;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] button {
-  padding-inline: 0;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  background: transparent;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer-controls="true"] {
-  gap: 0.5rem;
-  flex: 0 1 auto;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] button:hover {
+.chat-composer-context-strip button:hover {
   background: transparent;
   color: var(--foreground);
 }
 
-[data-chat-composer-skin="terminal"] .chat-composer-context-strip {
-  margin: 0;
-  width: max-content;
-  max-width: 100%;
-  padding: 0;
-  gap: 0.75rem;
-}
-
-[data-chat-composer-skin="terminal"] .chat-composer-context-strip > * {
-  flex: 0 0 auto;
-  min-width: 0;
+[data-branch-toolbar-branch-label] {
   max-width: none;
-  margin-inline-start: 0;
 }
 
-[data-chat-composer-skin="terminal"] .chat-composer-context-strip [data-branch-toolbar-branch] {
-  flex: 0 1 auto;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-context-slot="true"] {
-  flex-shrink: 999;
-  min-width: 0;
-}
-
-[data-chat-composer-skin="terminal"] .chat-composer-context-strip::before {
-  display: none;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-provider-model-picker="true"] {
+/* The model name is the composer's primary orientation cue, so it keeps its full
+   width and the control row scrolls instead of truncating it. */
+[data-chat-provider-model-picker="true"] {
   flex-shrink: 0;
   max-width: none;
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] [role="separator"] {
-  width: auto;
-  height: auto;
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: color-mix(in srgb, var(--foreground) 25%, transparent);
-}
-
-[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] [role="separator"]::after {
-  content: "/";
 }
 
 /* Safe-area inset utilities for surfaces that opt into edge-to-edge rendering.
