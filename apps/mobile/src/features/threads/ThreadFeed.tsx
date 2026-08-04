@@ -161,17 +161,17 @@ function EarlierConversationHeader(props: {
   readonly instanceId: ProviderInstanceId | null;
   readonly cwd: string | null;
   readonly markdownStyles: MarkdownStyleSet;
+  readonly userBubbleColor: ColorValue;
+  readonly userBubbleMaxWidth: number;
   readonly onLinkPress: (href: string) => void;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [visibleMessageCount, setVisibleMessageCount] = useState(50);
   const reference = adoptedSessionReference(props.activity);
   const sessionId = reference?.sessionId ?? null;
   const boundaryUuid = reference?.boundaryUuid ?? null;
-  const messageCount = reference?.messageCount ?? null;
   const query = useEnvironmentQuery(
-    expanded && props.instanceId && props.cwd && sessionId && boundaryUuid
+    props.instanceId && props.cwd && sessionId && boundaryUuid
       ? providerSessionsEnvironment.readSession({
           environmentId: props.environmentId,
           input: {
@@ -186,61 +186,81 @@ function EarlierConversationHeader(props: {
 
   if (!props.activity || !sessionId) return null;
 
+  // Adopted messages render inline, in the feed's own message shapes, so a
+  // resumed thread reads as one conversation rather than a foreign panel.
   return (
-    <View className="mb-4 overflow-hidden rounded-xl border border-border bg-card">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        className="flex-row items-center justify-between px-4 py-3 active:opacity-65"
-        onPress={() => setExpanded((value) => !value)}
-      >
-        <Text className="font-aqqua-bold text-sm text-foreground">
-          Earlier conversation{messageCount === null ? "" : ` (${messageCount} messages)`}
-        </Text>
-        <SymbolView name={expanded ? "chevron.down" : "chevron.right"} size={14} />
-      </Pressable>
-      {expanded ? (
-        <View className="gap-4 border-t border-border px-4 py-4">
-          {query.isPending ? <ActivityIndicator /> : null}
-          {query.error ? (
-            <Text className="text-sm text-danger-foreground">{query.error}</Text>
-          ) : null}
-          {query.data?.messages.slice(0, visibleMessageCount).map((message) => (
-            <View
-              key={message.messageId}
-              className={message.role === "user" ? "ml-8 rounded-2xl bg-subtle p-3" : "px-1"}
-            >
-              {hasNativeSelectableMarkdownText() ? (
-                <SelectableMarkdownText
-                  markdown={message.text}
-                  skills={props.skills}
-                  textStyle={props.markdownStyles.nativeTextStyle}
-                  onLinkPress={props.onLinkPress}
-                />
-              ) : (
-                <Markdown
-                  options={{ gfm: true }}
-                  renderers={props.markdownStyles.renderers}
-                  styles={props.markdownStyles.styles}
-                  theme={props.markdownStyles.theme}
-                >
-                  {message.text}
-                </Markdown>
-              )}
-            </View>
-          ))}
-          {query.data && query.data.messages.length > visibleMessageCount ? (
-            <Pressable
-              accessibilityRole="button"
-              className="items-center rounded-xl border border-border px-3 py-2 active:opacity-65"
-              onPress={() => setVisibleMessageCount((count) => count + 50)}
-            >
-              <Text className="text-sm text-foreground-secondary">Show more earlier messages</Text>
-            </Pressable>
-          ) : null}
-        </View>
+    <View>
+      {query.isPending ? <ActivityIndicator className="mb-5" /> : null}
+      {query.error ? (
+        <Text className="mb-5 text-sm text-danger-foreground">{query.error}</Text>
       ) : null}
+      {query.data && query.data.messages.length > visibleMessageCount ? (
+        <Pressable
+          accessibilityRole="button"
+          className="mb-5 items-center rounded-xl border border-border px-3 py-2 active:opacity-65"
+          onPress={() => setVisibleMessageCount((count) => count + 50)}
+        >
+          <Text className="text-sm text-foreground-secondary">Show earlier messages</Text>
+        </Pressable>
+      ) : null}
+      {query.data?.messages.slice(0, visibleMessageCount).map((message) =>
+        message.role === "user" ? (
+          <View key={message.messageId} className="mb-5 items-end">
+            <View
+              className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+              style={{
+                backgroundColor: props.userBubbleColor,
+                maxWidth: props.userBubbleMaxWidth,
+              }}
+            >
+              <AdoptedMessageMarkdown
+                text={message.text}
+                markdownStyles={props.markdownStyles}
+                onLinkPress={props.onLinkPress}
+                skills={props.skills}
+              />
+            </View>
+          </View>
+        ) : (
+          <View key={message.messageId} className="mb-5">
+            <AdoptedMessageMarkdown
+              text={message.text}
+              markdownStyles={props.markdownStyles}
+              onLinkPress={props.onLinkPress}
+              skills={props.skills}
+            />
+          </View>
+        ),
+      )}
     </View>
+  );
+}
+
+function AdoptedMessageMarkdown(props: {
+  readonly text: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly onLinkPress: (href: string) => void;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+}) {
+  if (hasNativeSelectableMarkdownText()) {
+    return (
+      <SelectableMarkdownText
+        markdown={props.text}
+        skills={props.skills}
+        textStyle={props.markdownStyles.nativeTextStyle}
+        onLinkPress={props.onLinkPress}
+      />
+    );
+  }
+  return (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={props.markdownStyles.renderers}
+      styles={props.markdownStyles.styles}
+      theme={props.markdownStyles.theme}
+    >
+      {props.text}
+    </Markdown>
   );
 }
 
@@ -1901,6 +1921,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   instanceId={props.providerInstanceId ?? null}
                   cwd={props.workspaceRoot ?? null}
                   markdownStyles={markdownStyles.assistant}
+                  userBubbleColor={userBubbleColor}
+                  userBubbleMaxWidth={userBubbleMaxWidth}
                   onLinkPress={onMarkdownLinkPress}
                   skills={props.skills}
                 />

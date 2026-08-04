@@ -1582,13 +1582,19 @@ function ChatViewContent(props: ChatViewProps) {
   const providerSessionCwds = useMemo(() => {
     if (!activeProject) return [];
     const cwds = new Set<string>([activeProject.workspaceRoot]);
+    // The composer's own thread comes first: a draft has no persisted shell yet,
+    // so deriving worktrees from shells alone hides the one directory the thread
+    // is actually pointed at. Mirrors the server's `worktreePath ?? workspaceRoot`.
+    if (activeThread?.worktreePath) {
+      cwds.add(activeThread.worktreePath);
+    }
     for (const thread of projectThreadShells) {
       if (thread.worktreePath) {
         cwds.add(thread.worktreePath);
       }
     }
     return [...cwds];
-  }, [activeProject, projectThreadShells]);
+  }, [activeProject, activeThread?.worktreePath, projectThreadShells]);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspacePanelRef = useMemo(
     () =>
