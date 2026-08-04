@@ -62,6 +62,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  UsageRpcError,
   WS_METHODS,
   WsRpcGroup,
 } from "@aqqua/contracts";
@@ -117,6 +118,9 @@ import { requiredScopeForRpcMethod } from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
+import * as AccountRateLimits from "./usage/AccountRateLimits.ts";
+import { UsageLedgerRepository } from "./persistence/Services/UsageLedger.ts";
+import * as UsageScanner from "./usage/UsageScanner.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -471,6 +475,10 @@ const makeWsRpcLayer = (
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
+      // The live server provides this service; route-only harnesses receive an empty snapshot.
+      const accountRateLimits = yield* Effect.serviceOption(AccountRateLimits.AccountRateLimits);
+      const usageLedger = yield* Effect.serviceOption(UsageLedgerRepository);
+      const usageScanner = yield* Effect.serviceOption(UsageScanner.UsageScanner);
       const relayClient = yield* RelayClient.RelayClient;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
@@ -2445,6 +2453,152 @@ const makeWsRpcLayer = (
               ),
             ),
             { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.subscribeAccountUsage]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeAccountUsage,
+            Stream.unwrap(
+              Effect.map(
+                Option.match(accountRateLimits, {
+                  onNone: () =>
+                    Effect.succeed({
+                      latest: { rateLimits: [] },
+                      changes: Stream.empty,
+                    }),
+                  onSome: (service) => service.subscribe,
+                }),
+                ({ latest, changes }) => Stream.concat(Stream.make(latest), changes),
+              ),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.usageGetOverview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.usageGetOverview,
+            Option.match(usageLedger, {
+              onNone: () =>
+                Effect.fail(new UsageRpcError({ message: "Usage ledger is unavailable." })),
+              onSome: (ledger) =>
+                Effect.all([
+                  ledger.getOverview(input.range),
+                  Option.match(usageScanner, {
+                    onNone: () =>
+                      Effect.succeed({
+                        enabled: false,
+                        scanning: false,
+                        lastScanAt: null,
+                      }),
+                    onSome: (scanner) => scanner.state,
+                  }),
+                ]).pipe(
+                  Effect.map(([overview, scan]) => {
+                    const totals = overview.providers.reduce(
+                      (sum, provider) => ({
+                        inputTokens: sum.inputTokens + provider.inputTokens,
+                        cachedInputTokens: sum.cachedInputTokens + provider.cachedInputTokens,
+                        cacheWriteTokens: sum.cacheWriteTokens + provider.cacheWriteTokens,
+                        outputTokens: sum.outputTokens + provider.outputTokens,
+                        reasoningTokens: sum.reasoningTokens + provider.reasoningTokens,
+                        turns: sum.turns + provider.turns,
+                        sessions: sum.sessions + provider.sessions,
+                      }),
+                      {
+                        inputTokens: 0,
+                        cachedInputTokens: 0,
+                        cacheWriteTokens: 0,
+                        outputTokens: 0,
+                        reasoningTokens: 0,
+                        turns: 0,
+                        sessions: 0,
+                      },
+                    );
+                    return {
+                      range: input.range,
+                      totals,
+                      providers: overview.providers.map(({ hasNullCost, ...provider }) => ({
+                        ...provider,
+                        hasPartialCost: hasNullCost,
+                      })),
+                      daily: overview.daily.map(({ hasNullCost, ...day }) => ({
+                        ...day,
+                        hasPartialCost: hasNullCost,
+                      })),
+                      tokenMix: overview.tokenMix,
+                      costUsd: overview.costUsd,
+                      hasPartialCost: overview.hasNullCost,
+                      scan,
+                    };
+                  }),
+                  Effect.mapError(
+                    (cause) =>
+                      new UsageRpcError({
+                        message: `Failed to read usage overview: ${cause.message}`,
+                      }),
+                  ),
+                ),
+            }),
+            { "rpc.aggregate": "usage" },
+          ),
+        [WS_METHODS.usageGetBreakdown]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.usageGetBreakdown,
+            Option.match(usageLedger, {
+              onNone: () =>
+                Effect.fail(new UsageRpcError({ message: "Usage ledger is unavailable." })),
+              onSome: (ledger) =>
+                ledger.getBreakdown(input.by, input.range).pipe(
+                  Effect.map((rows) => ({
+                    by: input.by,
+                    range: input.range,
+                    rows: rows.map(({ hasNullCost, ...row }) => ({
+                      ...row,
+                      hasPartialCost: hasNullCost,
+                    })),
+                  })),
+                  Effect.mapError(
+                    (cause) =>
+                      new UsageRpcError({
+                        message: `Failed to read usage breakdown: ${cause.message}`,
+                      }),
+                  ),
+                ),
+            }),
+            { "rpc.aggregate": "usage" },
+          ),
+        [WS_METHODS.usageRefreshScan]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.usageRefreshScan,
+            Option.match(usageScanner, {
+              onNone: () =>
+                Effect.fail(new UsageRpcError({ message: "Usage scanner is unavailable." })),
+              onSome: (scanner) =>
+                scanner.scan.pipe(
+                  Effect.mapError((cause) => new UsageRpcError({ message: cause.message })),
+                ),
+            }),
+            { "rpc.aggregate": "usage" },
+          ),
+        [WS_METHODS.usageClearLedger]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.usageClearLedger,
+            Option.match(usageScanner, {
+              onNone: () =>
+                Option.match(usageLedger, {
+                  onNone: () =>
+                    Effect.fail(new UsageRpcError({ message: "Usage ledger is unavailable." })),
+                  onSome: (ledger) =>
+                    ledger
+                      .clear()
+                      .pipe(
+                        Effect.mapError((cause) => new UsageRpcError({ message: cause.message })),
+                      ),
+                }),
+              onSome: (scanner) =>
+                scanner.clear.pipe(
+                  Effect.mapError((cause) => new UsageRpcError({ message: cause.message })),
+                ),
+            }).pipe(Effect.as({})),
+            { "rpc.aggregate": "usage" },
           ),
         [BOARD_WS_METHODS.readArtifact]: (input) =>
           observeRpcEffect(BOARD_WS_METHODS.readArtifact, readBoardArtifact(input), {

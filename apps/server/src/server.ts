@@ -20,6 +20,7 @@ import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
+import { UsageLedgerRepositoryLive } from "./persistence/Layers/UsageLedger.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
@@ -102,6 +103,9 @@ import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClien
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
+import * as AccountRateLimits from "./usage/AccountRateLimits.ts";
+import * as ClaudeUsageFetcher from "./usage/ClaudeUsageFetcher.ts";
+import * as UsageScanner from "./usage/UsageScanner.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -149,6 +153,7 @@ const ResourceTelemetryLayerLive = ResourceTelemetry.layer.pipe(
   Layer.provideMerge(NativeTelemetryLayerLive),
   Layer.provideMerge(DesktopTelemetryReceiverLayerLive),
 );
+const AccountRateLimitsLayerLive = AccountRateLimits.AccountRateLimits.layer;
 
 const HostPowerMonitorLayerLive = HostPowerMonitor.layer.pipe(
   Layer.provide(DesktopTelemetryReceiverLayerLive),
@@ -243,6 +248,19 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
 );
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const UsageLedgerLayerLive = UsageLedgerRepositoryLive.pipe(
+  Layer.provideMerge(PersistenceLayerLive),
+);
+const UsageScannerLayerLive = UsageScanner.UsageScanner.layer().pipe(
+  Layer.provideMerge(UsageLedgerLayerLive),
+  Layer.provideMerge(ServerSettingsLayerLive),
+  Layer.provideMerge(AccountRateLimitsLayerLive),
+  Layer.provideMerge(RuntimeReceiptBusLive),
+);
+const ClaudeUsageFetcherLayerLive = ClaudeUsageFetcher.ClaudeUsageFetcher.layer().pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(AccountRateLimitsLayerLive),
+);
 
 const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProjectConfig.layer),
@@ -344,7 +362,11 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 
 const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
+  // Ingestion consumes account rate-limit events via `Effect.serviceOption`;
+  // the layer must be provided here or events are silently dropped, because
+  // the `RuntimeCoreDependenciesLive` mergeAll only provides to layers above
+  // it in that pipe. Same layer reference ⇒ memoized to a single instance.
+  Layer.provideMerge(OrchestrationLayerLive.pipe(Layer.provide(AccountRateLimitsLayerLive))),
 );
 
 /**
@@ -365,7 +387,15 @@ const AgentControlLayerLive = AgentControlLive.pipe(
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
-  Layer.provideMerge(ServerSettingsLayerLive),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      AccountRateLimitsLayerLive,
+      ServerSettingsLayerLive,
+      UsageLedgerLayerLive,
+      UsageScannerLayerLive,
+      ClaudeUsageFetcherLayerLive,
+    ),
+  ),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),

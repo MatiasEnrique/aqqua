@@ -615,6 +615,11 @@ export const ObservabilitySettings = Schema.Struct({
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
+export const UsageSettings = Schema.Struct({
+  scanEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+});
+export type UsageSettings = typeof UsageSettings.Type;
+
 export const SourceControlWritingStyleMode = Schema.Literals([
   "repo_conventions",
   "conventional_commits",
@@ -741,6 +746,7 @@ export const ServerSettings = Schema.Struct({
   // `resolveAgentProfile` supplies a working `implementer` when unset.
   agentProfiles: AgentProfileMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  usage: UsageSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -865,6 +871,11 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),
       otlpMetricsUrl: Schema.optionalKey(TrimmedString),
+    }),
+  ),
+  usage: Schema.optionalKey(
+    Schema.Struct({
+      scanEnabled: Schema.optionalKey(Schema.Boolean),
     }),
   ),
   providers: Schema.optionalKey(

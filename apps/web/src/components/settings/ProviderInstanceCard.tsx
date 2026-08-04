@@ -41,6 +41,7 @@ import type { DriverOption } from "./providerDriverMeta";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { ProviderAccountUsageRow } from "../chat/AccountUsageMeter";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import {
@@ -705,6 +706,15 @@ export function ProviderInstanceCard({
               {titleTailNode}
             </div>
             {authRowNode}
+            {driverKind ? (
+              <p className="text-[11px] leading-4 text-muted-foreground/70">
+                <ProviderAccountUsageRow provider={driverKind} providerInstanceId={instanceId} />
+              </p>
+            ) : (
+              <p className="text-[11px] leading-4 text-muted-foreground/70">
+                Rate limits · Not supported
+              </p>
+            )}
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
             <Button

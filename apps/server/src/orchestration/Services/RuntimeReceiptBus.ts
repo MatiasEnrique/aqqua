@@ -49,10 +49,19 @@ export const TurnProcessingQuiescedReceipt = Schema.Struct({
 });
 export type TurnProcessingQuiescedReceipt = typeof TurnProcessingQuiescedReceipt.Type;
 
+export const UsageScanCompletedReceipt = Schema.Struct({
+  type: Schema.Literal("usage.scan.completed"),
+  scannedFiles: NonNegativeInt,
+  parsedTurns: NonNegativeInt,
+  completedAt: IsoDateTime,
+});
+export type UsageScanCompletedReceipt = typeof UsageScanCompletedReceipt.Type;
+
 export const OrchestrationRuntimeReceipt = Schema.Union([
   CheckpointBaselineCapturedReceipt,
   CheckpointDiffFinalizedReceipt,
   TurnProcessingQuiescedReceipt,
+  UsageScanCompletedReceipt,
 ]);
 export type OrchestrationRuntimeReceipt = typeof OrchestrationRuntimeReceipt.Type;
 

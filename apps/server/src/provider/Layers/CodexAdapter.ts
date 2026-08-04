@@ -8,6 +8,8 @@
  * @module CodexAdapterLive
  */
 import {
+  type AccountRateLimitWindow,
+  type AccountRateLimitsSnapshot,
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
@@ -70,6 +72,59 @@ const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
 const isCodexResumeCursorSchema = Schema.is(CodexResumeCursorSchema);
 
 const PROVIDER = ProviderDriverKind.make("codex");
+
+function codexWindowKind(
+  windowMinutes: number | null,
+  position: "primary" | "secondary",
+): AccountRateLimitWindow["kind"] {
+  if (windowMinutes === null) {
+    return position === "primary" ? "five-hour" : "weekly";
+  }
+  return Math.abs(windowMinutes - 300) <= Math.abs(windowMinutes - 10_080) ? "five-hour" : "weekly";
+}
+
+export function normalizeCodexRateLimits(
+  payload: EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+  context: {
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly capturedAt: string;
+  },
+): AccountRateLimitsSnapshot {
+  const rateLimits = payload.rateLimits;
+  const windows = (["primary", "secondary"] as const).flatMap((position) => {
+    const window = rateLimits[position];
+    if (!window) {
+      return [];
+    }
+    const windowMinutes = window.windowDurationMins ?? null;
+    return [
+      {
+        kind: codexWindowKind(windowMinutes, position),
+        usedPercent: window.usedPercent,
+        resetsAt: window.resetsAt ?? null,
+        windowMinutes,
+      },
+    ];
+  });
+
+  return {
+    providerInstanceId: context.providerInstanceId,
+    provider: PROVIDER,
+    planLabel: rateLimits.planType ?? null,
+    credits: rateLimits.credits
+      ? {
+          balance: rateLimits.credits.balance ?? null,
+          hasCredits: rateLimits.credits.hasCredits,
+          unlimited: rateLimits.credits.unlimited,
+        }
+      : null,
+    windows,
+    status:
+      rateLimits.rateLimitReachedType ??
+      (rateLimits.spendControlReached === true ? "spend-control-reached" : null),
+    capturedAt: context.capturedAt,
+  };
+}
 
 export interface CodexAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
@@ -505,6 +560,7 @@ function mapItemLifecycle(
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  providerInstanceId: ProviderInstanceId,
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "error") {
     if (!event.message) {
@@ -1133,15 +1189,23 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+    const payload = readPayload(
+      EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+      event.payload,
+    );
+    if (!payload) {
       return [];
     }
     return [
       {
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
+        providerInstanceId,
         payload: {
-          rateLimits: event.payload ?? {},
+          rateLimits: normalizeCodexRateLimits(payload, {
+            providerInstanceId,
+            capturedAt: event.createdAt,
+          }),
         },
       },
     ];
@@ -1462,7 +1526,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         const eventFiber = yield* Stream.runForEach(runtime.events, (event) =>
           Effect.gen(function* () {
             yield* writeNativeEvent(event);
-            const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
+            const runtimeEvents = mapToRuntimeEvents(event, event.threadId, boundInstanceId);
             if (runtimeEvents.length === 0) {
               yield* Effect.logDebug("ignoring unhandled Codex provider event", {
                 method: event.method,

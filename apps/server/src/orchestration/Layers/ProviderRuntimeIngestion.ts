@@ -40,6 +40,7 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { makeRuntimeEventCoalescer } from "../RuntimeEventCoalescer.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { AccountRateLimits } from "../../usage/AccountRateLimits.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -693,6 +694,8 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  // The live server provides this service; lightweight ingestion harnesses omit it.
+  const accountRateLimits = yield* Effect.serviceOption(AccountRateLimits);
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1292,6 +1295,19 @@ const make = Effect.gen(function* () {
 
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
+      if (event.type === "account.rate-limits.updated") {
+        if (Option.isSome(accountRateLimits)) {
+          yield* accountRateLimits.value.ingest(event);
+        } else {
+          // Only lightweight test harnesses may omit the service; in a live
+          // server this means the layer graph is miswired and gauges starve.
+          yield* Effect.logWarning(
+            "dropping account.rate-limits.updated: AccountRateLimits absent",
+          );
+        }
+        return;
+      }
+
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 

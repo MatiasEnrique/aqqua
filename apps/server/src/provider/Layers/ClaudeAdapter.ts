@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -23,6 +24,8 @@ import {
 import { parseCliArgs } from "@aqqua/shared/cliArgs";
 import {
   ApprovalRequestId,
+  type AccountRateLimitWindow,
+  type AccountRateLimitsSnapshot,
   type CanonicalItemType,
   type CanonicalRequestType,
   type ClaudeSettings,
@@ -94,6 +97,62 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJ
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
+
+const CLAUDE_RATE_LIMIT_WINDOW = {
+  five_hour: { kind: "five-hour", windowMinutes: 300 },
+  seven_day: { kind: "weekly", windowMinutes: 10_080 },
+  seven_day_opus: { kind: "weekly-opus", windowMinutes: 10_080 },
+  seven_day_sonnet: { kind: "weekly-sonnet", windowMinutes: 10_080 },
+  overage: { kind: "overage", windowMinutes: null },
+} as const satisfies Record<
+  NonNullable<SDKRateLimitInfo["rateLimitType"]>,
+  Pick<AccountRateLimitWindow, "kind" | "windowMinutes">
+>;
+
+export function normalizeClaudeRateLimits(
+  rateLimitInfo: SDKRateLimitInfo,
+  context: {
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly capturedAt: string;
+    /**
+     * Windows accumulated from earlier events in this adapter's lifetime.
+     * Claude emits one window per rate_limit_event (a five-hour event, then a
+     * weekly event, …), so a snapshot must merge each update into what is
+     * already known instead of replacing it.
+     */
+    readonly previousWindows?: ReadonlyArray<AccountRateLimitWindow>;
+  },
+): AccountRateLimitsSnapshot {
+  const windowDefinition = rateLimitInfo.rateLimitType
+    ? CLAUDE_RATE_LIMIT_WINDOW[rateLimitInfo.rateLimitType]
+    : undefined;
+  const utilization = rateLimitInfo.utilization;
+  // SDKRateLimitInfo does not document whether utilization is fractional or percentage-based.
+  const usedPercent =
+    utilization !== undefined && utilization <= 1 ? utilization * 100 : utilization;
+  const incoming = windowDefinition
+    ? {
+        ...windowDefinition,
+        usedPercent: usedPercent ?? null,
+        resetsAt: rateLimitInfo.resetsAt ?? null,
+      }
+    : null;
+  const previous = context.previousWindows ?? [];
+  const windows = incoming
+    ? [...previous.filter((window) => window.kind !== incoming.kind), incoming]
+    : [...previous];
+
+  return {
+    providerInstanceId: context.providerInstanceId,
+    provider: PROVIDER,
+    planLabel: null,
+    credits: null,
+    windows,
+    status: rateLimitInfo.status,
+    capturedAt: context.capturedAt,
+  };
+}
+
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -1348,6 +1407,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   options?: ClaudeAdapterLiveOptions,
 ) {
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("claudeAgent");
+  // Claude reports one rate-limit window per event; accumulate them across the
+  // adapter's lifetime so snapshots always carry every window seen so far.
+  let accumulatedRateLimitWindows: ReadonlyArray<AccountRateLimitWindow> = [];
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
@@ -2930,11 +2992,23 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (message.type === "rate_limit_event") {
+      // Raw payload logged so utilization scale and event cadence can be
+      // verified against a live session (SDK leaves both undocumented).
+      yield* Effect.logDebug("Claude rate_limit_event", {
+        rateLimitInfo: message.rate_limit_info,
+      });
+      const snapshot = normalizeClaudeRateLimits(message.rate_limit_info, {
+        providerInstanceId: boundInstanceId,
+        capturedAt: stamp.createdAt,
+        previousWindows: accumulatedRateLimitWindows,
+      });
+      accumulatedRateLimitWindows = snapshot.windows;
       yield* offerRuntimeEvent({
         ...base,
+        providerInstanceId: boundInstanceId,
         type: "account.rate-limits.updated",
         payload: {
-          rateLimits: message,
+          rateLimits: snapshot,
         },
       });
       return;

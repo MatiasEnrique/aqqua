@@ -25,6 +25,7 @@ import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { EnvironmentCacheStore } from "../platform/persistence.ts";
 import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
+import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 
 export interface ServerConfigProjection {
@@ -281,6 +282,11 @@ export function createServerEnvironmentAtoms<R, E>(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
     ),
   );
+  const accountUsage = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+    label: "environment-data:server:account-usage",
+    tag: WS_METHODS.subscribeAccountUsage,
+    idleTtlMs: 0,
+  });
 
   return {
     configValueAtom,
@@ -302,6 +308,17 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:resource-telemetry",
       tag: WS_METHODS.subscribeResourceTelemetry,
       idleTtlMs: 0,
+    }),
+    accountUsage,
+    usageOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-overview",
+      tag: WS_METHODS.usageGetOverview,
+      staleTimeMs: 5_000,
+    }),
+    usageBreakdown: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-breakdown",
+      tag: WS_METHODS.usageGetBreakdown,
+      staleTimeMs: 5_000,
     }),
     resourceTelemetryHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry-history",
@@ -362,6 +379,22 @@ export function createServerEnvironmentAtoms<R, E>(
     retryResourceTelemetry: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:retry-resource-telemetry",
       tag: WS_METHODS.serverRetryResourceTelemetry,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
+    }),
+    refreshUsageScan: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:refresh-usage-scan",
+      tag: WS_METHODS.usageRefreshScan,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
+    }),
+    clearUsageLedger: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:clear-usage-ledger",
+      tag: WS_METHODS.usageClearLedger,
       concurrency: {
         mode: "singleFlight",
         key: ({ environmentId }) => environmentId,
