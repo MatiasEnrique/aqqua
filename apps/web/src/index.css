@@ -297,7 +297,32 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 
 @layer components {
   .sidebar-brand {
+    /* The crest is a fixed-aspect lockup (340x105) rendered at h-4, so its
+       rendered width is knowable in CSS: centering can be clamped rather than
+       measured. Assumes the link itself adds no padding around the mark — give
+       it any and the centering silently drifts by half of it. */
+    --sidebar-brand-width: calc(1rem * (340 / 105));
+    /* Where the header's own chrome ends. --workspace-titlebar-content-left
+       describes a single overlay button, which is the right answer everywhere
+       the app draws its own controls. */
+    --sidebar-brand-min-left: var(--workspace-titlebar-content-left, 0px);
     display: none;
+    position: absolute;
+    /* Centered in the sidebar, but never allowed to slide under the window
+       controls when the sidebar is dragged narrow. Today the container query
+       below keeps the brand hidden until the header is wide enough that the
+       centered position already clears the floor, so this is a guard against a
+       narrower future threshold rather than a live constraint. */
+    left: max(calc(50% - var(--sidebar-brand-width) / 2), var(--sidebar-brand-min-left));
+  }
+
+  /* macOS keeps its native traffic lights inside this header (hiddenInset,
+     positioned at x=16), so the floor is the cluster's right edge plus a gap —
+     roughly 3x the single-button inset the shared variable describes. Matched
+     by exclusion: Windows and Linux both draw a Window Controls Overlay and so
+     carry .wco (Windows additionally carries .electron-windows). */
+  html.electron:not(.electron-windows):not(.wco) .sidebar-brand {
+    --sidebar-brand-min-left: 4.75rem;
   }
 
   .sidebar-brand-stage {

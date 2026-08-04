@@ -1,0 +1,102 @@
+- generic [ref=f3e1]:
+    - generic [ref=f3e3]:
+        - generic [ref=f3e6]:
+            - link "Go to threads" [ref=f3e8] [cursor=pointer]:
+                - /url: /
+            - generic [ref=f3e14]:
+                - navigation "Workspace view" [ref=f3e15]:
+                    - button "Threads" [ref=f3e16]
+                    - button "Open Flows" [ref=f3e20]:
+                        - generic [ref=f3e26]: Flows
+                - generic [ref=f3e27]:
+                    - button "Search threads and commands" [ref=f3e29] [cursor=pointer]:
+                        - generic [ref=f3e33]: Search
+                        - generic: ⌘K
+                    - button "New thread" [ref=f3e35] [cursor=pointer]
+                - generic [ref=f3e39]:
+                    - button "Filter threads by project" [ref=f3e40] [cursor=pointer]:
+                        - generic [ref=f3e43]: All projects
+                    - button "New project" [ref=f3e46] [cursor=pointer]
+            - list [ref=f3e151]:
+                - listitem [ref=f3e152]:
+                    - button "hi Snooze thread Settle hi main codex, GPT-5.6-Sol" [ref=f3e153] [cursor=pointer]:
+                        - generic [ref=f3e154]:
+                            - generic [ref=f3e155]:
+                                - generic [ref=f3e156]: hi
+                                - generic [ref=f3e157]:
+                                    - status [ref=f3e169]: Working
+                                    - button "Snooze thread" [ref=f3e171]
+                                - button "Settle hi" [disabled] [ref=f3e175]
+                            - generic [ref=f3e178]:
+                                - 'generic "Branch: main Project checkout" [ref=f3e179]': main
+                                - img "codex, GPT-5.6-Sol" [ref=f3e186]
+            - list [ref=f3e54]:
+                - listitem [ref=f3e55]:
+                    - button "Settings" [ref=f3e56] [cursor=pointer]
+            - button "Resize Sidebar" [ref=f3e61]
+        - main [ref=f3e190]:
+            - generic [ref=f3e192]:
+                - generic [ref=f3e193]:
+                    - button "Toggle terminal drawer" [ref=f3e196] [cursor=pointer]
+                    - generic [ref=f3e197]:
+                        - generic [ref=f3e198]:
+                            - generic [ref=f3e199]:
+                                - button "New thread in aqqua" [ref=f3e200] [cursor=pointer]:
+                                    - generic [ref=f3e201]: aqqua
+                                - generic [ref=f3e202]: /
+                            - heading "hi" [level=2] [ref=f3e203]
+                        - generic [ref=f3e204]:
+                            - button "Project actions" [ref=f3e205] [cursor=pointer]:
+                                - generic [ref=f3e206]: Add action
+                            - group "Open in editor" [ref=f3e207]:
+                                - button "Open" [ref=f3e208] [cursor=pointer]
+                                - separator
+                                - button "Copy options" [ref=f3e210] [cursor=pointer]
+                            - group "Git actions" [ref=f3e211]:
+                                - button "Commit & push" [ref=f3e212] [cursor=pointer]
+                                - separator
+                                - button "Git action options" [ref=f3e214] [cursor=pointer]
+                            - generic [ref=f3e215]:
+                                - button "Open file explorer" [ref=f3e216] [cursor=pointer]
+                                - button "Open diff viewer" [ref=f3e217] [cursor=pointer]
+                                - button "Open Git history" [ref=f3e218] [cursor=pointer]
+                                - button "Open terminal" [ref=f3e219] [cursor=pointer]
+                                - button "Open browser" [disabled]
+                - generic [ref=f3e221]:
+                    - generic [ref=f3e228]:
+                        - generic [ref=f3e232]:
+                            - paragraph [ref=f3e237]: hi
+                            - generic [ref=f3e239]:
+                                - paragraph [ref=f3e240]: 4:11 PM
+                                - button "Copy link" [ref=f3e242] [cursor=pointer]
+                        - generic [ref=f3e243]: Working for 0s
+                    - generic [ref=f3e263]:
+                        - generic [ref=f3e268]:
+                            - generic [ref=f3e272]:
+                                - textbox [active] [ref=f3e273]:
+                                    - paragraph [ref=f3e274]
+                                - generic: Ask anything, @tag files/folders, $use skills, or / for commands
+                            - generic [ref=f3e275]:
+                                - generic [ref=f3e276]:
+                                    - button "GPT-5.6-Sol" [ref=f3e277] [cursor=pointer]
+                                    - separator [ref=f3e282]
+                                    - button "Low · Standard" [ref=f3e283] [cursor=pointer]
+                                    - separator [ref=f3e286]
+                                    - combobox "Runtime mode" [ref=f3e287] [cursor=pointer]:
+                                        - generic [ref=f3e288]: Full access
+                                    - textbox [ref=f3e290]: full-access
+                                    - separator [ref=f3e291]
+                                    - button "Default mode — click to enter plan mode" [ref=f3e292] [cursor=pointer]:
+                                        - generic [ref=f3e293]: Build
+                                - button "Stop generation" [ref=f3e296] [cursor=pointer]
+                        - generic [ref=f3e300]:
+                            - generic [ref=f3e301]: Local checkout
+                            - combobox [ref=f3e307] [cursor=pointer]:
+                                - generic [ref=f3e308]: main
+                            - textbox [ref=f3e309]: main
+        - button "Toggle main sidebar" [pressed] [ref=f3e149] [cursor=pointer]:
+            - generic [ref=f3e150]: Toggle Sidebar
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"
