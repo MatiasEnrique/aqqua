@@ -6,7 +6,12 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@aqqua/shared/Net";
 import { resolveGitWorktreePath, resolveWorktreeAqquaHome } from "@aqqua/shared/devHome";
-import { HostProcessEnvironment, HostProcessWorkingDirectory } from "@aqqua/shared/hostProcess";
+import {
+  HostProcessEnvironment,
+  HostProcessExecutablePath,
+  HostProcessPlatform,
+  HostProcessWorkingDirectory,
+} from "@aqqua/shared/hostProcess";
 import { resolveSpawnCommand } from "@aqqua/shared/shell";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -667,6 +672,8 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     });
 
     const hostEnvironment = yield* HostProcessEnvironment;
+    const hostExecutablePath = yield* HostProcessExecutablePath;
+    const hostPlatform = yield* HostProcessPlatform;
     // A dev server started inside a worktree defaults to that worktree's own
     // (gitignored) `.aqqua` — see @aqqua/shared/devHome for why this must
     // outrank an ambient AQQUA_HOME. `--home-dir` still wins.
@@ -699,10 +706,10 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     const baseDir = env.AQQUA_HOME ?? (yield* DEFAULT_AQQUA_HOME);
     const shimInstallation = yield* installAqquaDevShim({
       baseDirectoryPath: baseDir,
-      nodeExecutablePath: process.execPath,
+      nodeExecutablePath: hostExecutablePath,
     });
 
-    env.PATH = prependPathEntry(env.PATH, shimInstallation.shimDirectoryPath, process.platform);
+    env.PATH = prependPathEntry(env.PATH, shimInstallation.shimDirectoryPath, hostPlatform);
 
     yield* Effect.logInfo(
       `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.AQQUA_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,

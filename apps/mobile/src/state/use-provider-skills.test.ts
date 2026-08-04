@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 import type { ServerProviderSkill } from "@aqqua/contracts";
 import {
@@ -22,10 +22,13 @@ function makeSkill(
   } satisfies ServerProviderSkill;
 }
 
-const bindingDir = dirname(fileURLToPath(import.meta.url));
-const mobileBindingSource = readFileSync(join(bindingDir, "use-provider-skills.ts"), "utf8");
-const webBindingSource = readFileSync(
-  join(bindingDir, "../../../web/src/lib/providerSkillsState.ts"),
+const bindingDir = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
+const mobileBindingSource = NodeFS.readFileSync(
+  NodePath.join(bindingDir, "use-provider-skills.ts"),
+  "utf8",
+);
+const webBindingSource = NodeFS.readFileSync(
+  NodePath.join(bindingDir, "../../../web/src/lib/providerSkillsState.ts"),
   "utf8",
 );
 

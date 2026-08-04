@@ -9,7 +9,7 @@
  */
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 import type {
   ProjectCreateEntryInput,
@@ -84,7 +84,7 @@ export async function moveWorkspaceEntryOnDisk(
     if ((cause as NodeJS.ErrnoException).code !== "EXDEV") throw cause;
   }
 
-  const stagingPath = `${input.destinationPath}.aqqua-move-${input.stagingSuffix ?? randomUUID()}`;
+  const stagingPath = `${input.destinationPath}.aqqua-move-${input.stagingSuffix ?? NodeCrypto.randomUUID()}`;
   try {
     await operations.cp(input.sourcePath, stagingPath, {
       recursive: input.recursive,

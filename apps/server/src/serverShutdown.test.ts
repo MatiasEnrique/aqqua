@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
-import { Writable } from "node:stream";
-import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import * as NodeStream from "node:stream";
+import * as NodeTimersPromises from "node:timers/promises";
+import * as NodeURL from "node:url";
 
 import { it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -51,7 +51,7 @@ it.effect("ServerShutdown interrupts the server scope and waits for finalizers",
 );
 
 it("keeps a child backend alive after malformed telemetry, then finalizes on EOF", async () => {
-  const fixturePath = fileURLToPath(
+  const fixturePath = NodeURL.fileURLToPath(
     new URL("./testing/DesktopParentLeaseFixture.ts", import.meta.url),
   );
   const child = NodeChildProcess.spawn(process.execPath, [fixturePath], {
@@ -59,7 +59,7 @@ it("keeps a child backend alive after malformed telemetry, then finalizes on EOF
     stdio: ["ignore", "pipe", "pipe", "ignore", "pipe"],
   });
   const telemetryWriter = child.stdio[4];
-  if (!(telemetryWriter instanceof Writable)) {
+  if (!(telemetryWriter instanceof NodeStream.Writable)) {
     child.kill("SIGTERM");
     throw new Error("Child telemetry writer was not created.");
   }
@@ -95,12 +95,12 @@ it("keeps a child backend alive after malformed telemetry, then finalizes on EOF
   try {
     await Promise.race([
       ready,
-      delay(5_000).then(() => {
+      NodeTimersPromises.setTimeout(5_000).then(() => {
         throw new Error(`Child backend did not become ready.\n${stderr}`);
       }),
     ]);
     telemetryWriter.write("not-json\n");
-    await delay(100);
+    await NodeTimersPromises.setTimeout(100);
     if (child.exitCode !== null) {
       throw new Error(`Child backend exited on telemetry decode failure.\n${stderr}`);
     }
@@ -108,7 +108,7 @@ it("keeps a child backend alive after malformed telemetry, then finalizes on EOF
 
     const { code, signal } = await Promise.race([
       exited,
-      delay(5_000).then(() => {
+      NodeTimersPromises.setTimeout(5_000).then(() => {
         throw new Error(`Child backend did not exit after telemetry EOF.\n${stderr}`);
       }),
     ]);

@@ -7,9 +7,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { PNG } from "pngjs";
 import sharp from "sharp";
 
-import { applyRoundedIconCorners } from "../export-brand-icons.ts";
 import { BRAND_ASSET_PATHS } from "./brand-assets.ts";
-import { WINDOWS_ICON_SIZES } from "./icon-export.ts";
+import { applyRoundedIconCorners, WINDOWS_ICON_SIZES } from "./icon-export.ts";
 
 const repoRoot = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
