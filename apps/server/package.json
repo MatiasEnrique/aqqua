@@ -1,6 +1,6 @@
 {
   "name": "aqqua",
-  "version": "0.0.30",
+  "version": "0.0.32",
   "license": "MIT",
   "bin": {
     "aqqua": "./dist/bin.mjs"
