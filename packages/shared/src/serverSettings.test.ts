@@ -307,14 +307,14 @@ describe("serverSettings helpers", () => {
       agentProfiles: {
         [implementer]: {
           runtime: "session" as const,
-          driver: "codex",
+          target: { kind: "driver" as const, driver: ProviderDriverKind.make("codex") },
           model: "gpt-5.4",
           runtimeMode: "full-access" as const,
           interactionMode: "default" as const,
         },
         [reviewer]: {
           runtime: "terminal" as const,
-          driver: "claudeAgent",
+          target: { kind: "driver" as const, driver: ProviderDriverKind.make("claudeAgent") },
           runtimeMode: "full-access" as const,
           interactionMode: "default" as const,
         },
@@ -325,7 +325,7 @@ describe("serverSettings helpers", () => {
       agentProfiles: {
         [implementer]: {
           runtime: "session",
-          driver: "codex",
+          target: { kind: "driver", driver: ProviderDriverKind.make("codex") },
           model: "gpt-5.4-mini",
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -336,7 +336,7 @@ describe("serverSettings helpers", () => {
     expect(next.agentProfiles).toEqual({
       [implementer]: {
         runtime: "session",
-        driver: "codex",
+        target: { kind: "driver", driver: ProviderDriverKind.make("codex") },
         model: "gpt-5.4-mini",
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -350,7 +350,7 @@ describe("serverSettings helpers", () => {
     const currentProfiles = {
       [implementer]: {
         runtime: "session" as const,
-        driver: "codex",
+        target: { kind: "driver" as const, driver: ProviderDriverKind.make("codex") },
         model: "gpt-5.4",
         runtimeMode: "full-access" as const,
         interactionMode: "default" as const,

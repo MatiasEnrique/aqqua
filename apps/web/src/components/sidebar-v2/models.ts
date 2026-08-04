@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import type { SidebarConversationStateCounts } from "../Sidebar.summaryState";
 import type {
   EnvironmentId,
   ProjectId,
@@ -76,6 +77,7 @@ export type SidebarThreadsSection = {
   readonly renderedSettledThreads: readonly EnvironmentThreadShell[];
   readonly selectedSettledThreads: readonly EnvironmentThreadShell[];
   readonly activeTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
+  readonly activeSubAgentStateCountsByKey: ReadonlyMap<string, SidebarConversationStateCounts>;
   readonly settledTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
   readonly expandedThreadKeys: ReadonlySet<string>;
   readonly settledExpandedThreadKeys: ReadonlySet<string>;
