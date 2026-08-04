@@ -1,3 +1,5 @@
+import { PNG } from "pngjs";
+
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export const WINDOWS_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256] as const;
@@ -23,6 +25,38 @@ export function readPngDimensions(contents: Buffer): {
     width: contents.readUInt32BE(16),
     height: contents.readUInt32BE(20),
   };
+}
+
+export function applyRoundedIconCorners(contents: Buffer, size: number): Buffer {
+  const cornerRadius = Math.round(size * 0.22);
+  const image = PNG.sync.read(contents);
+  for (let y = 0; y < image.height; y += 1) {
+    const pixelY = y + 0.5;
+    const yDistance =
+      pixelY < cornerRadius
+        ? cornerRadius - pixelY
+        : pixelY > size - cornerRadius
+          ? pixelY - (size - cornerRadius)
+          : 0;
+    if (yDistance === 0) continue;
+
+    for (let x = 0; x < image.width; x += 1) {
+      const pixelX = x + 0.5;
+      const xDistance =
+        pixelX < cornerRadius
+          ? cornerRadius - pixelX
+          : pixelX > size - cornerRadius
+            ? pixelX - (size - cornerRadius)
+            : 0;
+      if (xDistance === 0) continue;
+
+      const distance = Math.hypot(xDistance, yDistance);
+      const coverage = Math.max(0, Math.min(1, cornerRadius + 0.5 - distance));
+      const alphaIndex = (y * image.width + x) * 4 + 3;
+      image.data[alphaIndex] = Math.round((image.data[alphaIndex] ?? 0) * coverage);
+    }
+  }
+  return PNG.sync.write(image);
 }
 
 /** Encodes PNG renditions directly into a modern, multi-resolution ICO file. */
