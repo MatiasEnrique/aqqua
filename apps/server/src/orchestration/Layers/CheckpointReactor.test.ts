@@ -734,6 +734,7 @@ describe("CheckpointReactor", () => {
     const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(midThread?.checkpoints).toHaveLength(0);
 
+    // oxlint-disable-next-line aqqua/no-manual-effect-runtime-in-tests -- This legacy async harness dispatches session state through the engine before emitting provider completion.
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
@@ -1279,6 +1280,7 @@ describe("CheckpointReactor", () => {
         createdAt,
       }),
     );
+    // oxlint-disable-next-line aqqua/no-manual-effect-runtime-in-tests -- This legacy async harness must await the second dispatch to assert sequential rollback behavior.
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
