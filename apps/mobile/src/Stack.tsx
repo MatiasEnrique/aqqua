@@ -41,6 +41,7 @@ import { AddProjectSourceRoute } from "./features/projects/AddProjectSourceRoute
 import { NewTaskDraftRouteScreen } from "./features/threads/NewTaskDraftRouteScreen";
 import { NewTaskFlowProvider } from "./features/threads/new-task-flow-provider";
 import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
+import { NewTaskResumePickerScreen } from "./features/threads/NewTaskResumePickerScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
@@ -230,6 +231,13 @@ const NewTaskSheetStack = createNativeStackNavigator({
       // The draft composer has no scroll view for glass to sample; a solid
       // header also lays the content out below the bar (no manual inset).
       options: SHEET_SOLID_HEADER_OPTIONS,
+    }),
+    NewTaskResumePicker: createNativeStackScreen({
+      screen: NewTaskResumePickerScreen,
+      linking: "resume",
+      options: {
+        title: "Earlier conversation",
+      },
     }),
     AddProject: createNativeStackScreen({
       screen: AddProjectSourceRoute,

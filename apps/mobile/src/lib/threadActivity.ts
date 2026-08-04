@@ -1354,7 +1354,9 @@ export function buildThreadFeed(
   const loadedMessages = options?.loadedMessages ?? thread.messages;
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
-  const workLogEntries = deriveWorkLogEntries(thread.activities);
+  const workLogEntries = deriveWorkLogEntries(
+    thread.activities.filter((activity) => activity.kind !== "session.resumed"),
+  );
   const entries = Arr.sortWith(
     [
       ...loadedMessages.map<RawThreadFeedEntry>((message) => ({

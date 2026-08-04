@@ -7,6 +7,7 @@ import type {
   EnvironmentId,
   MessageId,
   ModelSelection,
+  OrchestrationThreadActivity,
   OrchestrationThreadShell,
   ProviderApprovalDecision,
   ProviderInteractionMode,
@@ -50,6 +51,7 @@ export interface ThreadDetailScreenProps {
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  readonly resumedSessionActivity: OrchestrationThreadActivity | null;
   readonly activeWorkStartedAt: string | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
@@ -364,6 +366,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             environmentId={props.environmentId}
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
+            resumedSessionActivity={props.resumedSessionActivity}
+            providerInstanceId={
+              props.selectedThread.session?.providerInstanceId ??
+              props.selectedThread.modelSelection.instanceId
+            }
             feed={props.selectedThreadFeed}
             contentPresentation={props.contentPresentation}
             agentLabel={agentLabel}

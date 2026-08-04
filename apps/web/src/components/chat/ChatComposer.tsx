@@ -77,6 +77,8 @@ import {
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
 import { useProviderWorkspaceSkills } from "../../lib/providerSkillsState";
+import { useEnvironmentQuery } from "../../state/query";
+import { providerSessionsEnvironment } from "../../state/providerSessions";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -87,6 +89,7 @@ import {
 } from "../composerFooterLayout";
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { ComposerResumePicker } from "./ComposerResumePicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -100,6 +103,12 @@ import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import {
+  buildComposerBuiltInSlashCommands,
+  builtInComposerCommandNames,
+  pickerForComposerBuiltInCommand,
+} from "./composerBuiltInCommands";
+import { resumeSessionDraftContext } from "./composerResumeSelection";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -608,6 +617,8 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
+  projectWorkspaceRoot: string | null;
+  providerSessionCwds: ReadonlyArray<string>;
 
   // Refs the parent needs kept in sync
   promptRef: React.RefObject<string>;
@@ -664,7 +675,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
     isServerThread: _isServerThread,
-    isLocalDraftThread: _isLocalDraftThread,
+    isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
     skin = "card",
@@ -702,6 +713,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
+    projectWorkspaceRoot,
+    providerSessionCwds,
     promptRef,
     composerRef,
     composerImagesRef,
@@ -1018,9 +1031,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  const [isComposerResumePickerOpen, setIsComposerResumePickerOpen] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
+  const resumeSessionsQuery = useEnvironmentQuery(
+    isComposerResumePickerOpen &&
+      isLocalDraftThread &&
+      projectWorkspaceRoot !== null &&
+      providerSessionCwds.length > 0 &&
+      !noProviderAvailable
+      ? providerSessionsEnvironment.listSessions({
+          environmentId,
+          input: { instanceId: selectedInstanceId, cwds: providerSessionCwds },
+        })
+      : null,
+  );
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -1102,39 +1128,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }));
     }
     if (composerTrigger.kind === "slash-command") {
-      const builtInSlashCommandItems = [
-        {
-          id: "slash:model",
-          type: "slash-command",
-          command: "model",
-          label: "/model",
-          description: "Switch response model for this thread",
-        },
-        {
-          id: "slash:plan",
-          type: "slash-command",
-          command: "plan",
-          label: "/plan",
-          description: "Switch this thread into plan mode",
-        },
-        {
-          id: "slash:default",
-          type: "slash-command",
-          command: "default",
-          label: "/default",
-          description: "Switch this thread back to normal build mode",
-        },
-      ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
-      const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
-        (command) => ({
+      const builtInSlashCommandItems = buildComposerBuiltInSlashCommands(isLocalDraftThread);
+      const builtInCommandNames = builtInComposerCommandNames(builtInSlashCommandItems);
+      const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? [])
+        .filter((command) => !builtInCommandNames.has(command.name))
+        .map((command) => ({
           id: `provider-slash-command:${selectedProvider}:${command.name}`,
           type: "provider-slash-command" as const,
           provider: selectedProvider,
           command,
           label: `/${command.name}`,
           description: command.description ?? command.input?.hint ?? "Run provider command",
-        }),
-      );
+        }));
       const query = composerTrigger.query.trim().toLowerCase();
       const slashCommandItems = [...builtInSlashCommandItems, ...providerSlashCommandItems];
       if (!query) {
@@ -1158,6 +1163,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return [];
   }, [
     composerTrigger,
+    isLocalDraftThread,
     selectedProvider,
     selectedProviderStatus,
     workspaceEntries.entries,
@@ -1751,14 +1757,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
-        if (item.command === "model") {
+        const picker = pickerForComposerBuiltInCommand(item.command);
+        if (picker !== null) {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
             focusEditorAfterReplace: false,
           });
           if (applied) {
             setComposerHighlightedItemId(null);
-            setIsComposerModelPickerOpen(true);
+            setIsComposerModelPickerOpen(picker === "model");
+            setIsComposerResumePickerOpen(picker === "resume");
           }
           return;
         }
@@ -2953,6 +2961,47 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 />
               </ComposerCommandMenuLayer>
             )}
+
+            {isComposerResumePickerOpen &&
+              isLocalDraftThread &&
+              projectWorkspaceRoot !== null &&
+              !isComposerApprovalState && (
+                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
+                  <ComposerResumePicker
+                    sessions={resumeSessionsQuery.data?.sessions ?? []}
+                    supported={resumeSessionsQuery.data?.supported ?? null}
+                    isPending={resumeSessionsQuery.isPending}
+                    error={resumeSessionsQuery.error}
+                    providerLabel={selectedProviderEntry?.displayName ?? selectedProvider}
+                    projectRoot={projectWorkspaceRoot}
+                    onSelect={(session) => {
+                      if (!providerSessionCwds.includes(session.cwd)) {
+                        toastManager.add({
+                          type: "error",
+                          title: "Conversation belongs to another workspace",
+                        });
+                        return;
+                      }
+                      useComposerDraftStore.getState().setResumeSession(composerDraftTarget, {
+                        instanceId: selectedInstanceId,
+                        session,
+                      });
+                      useComposerDraftStore
+                        .getState()
+                        .setDraftThreadContext(
+                          composerDraftTarget,
+                          resumeSessionDraftContext(projectWorkspaceRoot, session),
+                        );
+                      setIsComposerResumePickerOpen(false);
+                      scheduleComposerFocus();
+                    }}
+                    onRequestClose={() => {
+                      setIsComposerResumePickerOpen(false);
+                      scheduleComposerFocus();
+                    }}
+                  />
+                </ComposerCommandMenuLayer>
+              )}
 
             {!isComposerCollapsedMobile &&
               !isComposerApprovalState &&

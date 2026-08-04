@@ -382,6 +382,7 @@ describe("ProviderCommandReactor", () => {
       },
       listThreadIds: () => Effect.succeed(providerBindings.map((binding) => binding.threadId)),
       listBindings: () => Effect.succeed(providerBindings),
+      deleteBinding: () => Effect.void,
     });
 
     const layer = ProviderCommandReactorLive.pipe(

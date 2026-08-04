@@ -4,7 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, ThreadId } from "@aqqua/contracts";
+import { ProviderDriverKind, ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertSome } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
@@ -120,6 +120,30 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
           activeTurnId: "turn-1",
         });
       }
+    }));
+
+  it("deletes a seeded binding by thread id", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("thread-seeded-rollback");
+
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        adapterKey: "codex",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-08-04T12:00:00.000Z",
+        resumeCursor: { threadId: "external-thread" },
+        runtimePayload: { cwd: "/tmp/project" },
+      });
+
+      yield* directory.deleteBinding(threadId);
+
+      const persisted = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isNone(persisted), true);
     }));
 
   it("lists persisted bindings with metadata in oldest-first order", () =>

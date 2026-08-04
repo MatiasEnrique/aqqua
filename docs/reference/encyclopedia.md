@@ -99,6 +99,10 @@ The backend agent runtime that actually performs work. See [ProviderService.ts][
 
 The live provider-backed runtime attached to a thread. Session shape is in [the orchestration contracts][1], and lifecycle is managed in [ProviderService.ts][14].
 
+#### Adopted session
+
+A Claude Code or Codex conversation that began in the provider's terminal UI and is attached to a new aqqua thread before its first turn. aqqua seeds the provider runtime binding with the external session's resume cursor and original cwd, then records one `session.resumed` activity. Earlier messages remain in the provider's transcript and are fetched lazily instead of being copied into aqqua's event log.
+
 #### Runtime mode
 
 The safety/access mode for a thread or session. In [the contracts][1], the main values are `approval-required` and `full-access`. See [runtime-modes.md][18].

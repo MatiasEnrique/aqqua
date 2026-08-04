@@ -1,11 +1,14 @@
 import {
   type EnvironmentId,
   type MessageId,
+  type OrchestrationThreadActivity,
+  type ProviderInstanceId,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
 } from "@aqqua/contracts";
 import { parseScopedThreadKey } from "@aqqua/client-runtime/environment";
+import { adoptedSessionReference } from "@aqqua/client-runtime/state/provider-sessions";
 import { resolveChatListAnchoredEndSpace } from "@aqqua/shared/chatList";
 import {
   createContext,
@@ -100,6 +103,8 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@aqqua/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
+import { useEnvironmentQuery } from "../../state/query";
+import { providerSessionsEnvironment } from "../../state/providerSessions";
 
 import {
   buildInlineTerminalContextText,
@@ -185,6 +190,8 @@ interface MessagesTimelineProps {
   onManualNavigation: () => void;
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
+  resumedSessionActivity?: OrchestrationThreadActivity | null;
+  providerInstanceId?: ProviderInstanceId | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +227,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onManualNavigation,
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
+  resumedSessionActivity = null,
+  providerInstanceId = null,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -516,7 +525,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
               topFadeEnabled && "chat-timeline-scroll-fade",
             )}
-            ListHeaderComponent={topFadeEnabled ? TIMELINE_LIST_FADE_HEADER : TIMELINE_LIST_HEADER}
+            ListHeaderComponent={
+              <TimelineListHeader
+                faded={topFadeEnabled}
+                activity={resumedSessionActivity}
+                environmentId={activeThreadEnvironmentId}
+                instanceId={providerInstanceId}
+                markdownCwd={markdownCwd}
+                threadRef={parseScopedThreadKey(routeThreadKey)}
+              />
+            }
             ListFooterComponent={TIMELINE_LIST_FOOTER}
           />
           <TimelineMinimap
@@ -539,6 +557,100 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     </TimelineRowCtx>
   );
 });
+
+function TimelineListHeader(props: {
+  readonly faded: boolean;
+  readonly activity: OrchestrationThreadActivity | null;
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId | null;
+  readonly markdownCwd: string | undefined;
+  readonly threadRef: ScopedThreadRef | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(100);
+  const reference = adoptedSessionReference(props.activity);
+  const sessionId = reference?.sessionId ?? null;
+  const boundaryUuid = reference?.boundaryUuid ?? null;
+  const messageCount = reference?.messageCount ?? null;
+  const query = useEnvironmentQuery(
+    expanded && props.instanceId && sessionId && boundaryUuid && props.markdownCwd
+      ? providerSessionsEnvironment.readSession({
+          environmentId: props.environmentId,
+          input: {
+            instanceId: props.instanceId,
+            sessionId,
+            cwd: props.markdownCwd,
+            boundaryUuid,
+          },
+        })
+      : null,
+  );
+
+  return (
+    <>
+      {props.faded ? TIMELINE_LIST_FADE_HEADER : TIMELINE_LIST_HEADER}
+      {props.activity && sessionId ? (
+        <div className="mx-auto mb-4 w-full min-w-0 max-w-3xl px-1" data-session-resumed>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          >
+            {expanded ? (
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
+            )}
+            <span className="font-medium">
+              Earlier conversation{messageCount === null ? "" : ` (${messageCount} messages)`}
+            </span>
+          </button>
+          {expanded ? (
+            <div className="border-x border-b border-border/50 px-3 py-3">
+              {query.isPending ? (
+                <p className="text-sm text-muted-foreground">Loading earlier conversation…</p>
+              ) : query.error ? (
+                <p className="text-sm text-destructive">{query.error}</p>
+              ) : query.data ? (
+                <div className="space-y-4">
+                  {query.data.messages.slice(0, visibleMessageCount).map((message) => (
+                    <div
+                      key={message.messageId}
+                      className={cn(
+                        "min-w-0",
+                        message.role === "user"
+                          ? "ml-auto max-w-[85%] rounded-2xl bg-accent p-3"
+                          : "px-1",
+                      )}
+                    >
+                      <ChatMarkdown
+                        text={message.text}
+                        cwd={props.markdownCwd}
+                        threadRef={props.threadRef ?? undefined}
+                      />
+                    </div>
+                  ))}
+                  {query.data.messages.length > visibleMessageCount ? (
+                    <button
+                      type="button"
+                      className="w-full rounded-lg border border-border/60 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/40"
+                      onClick={() => setVisibleMessageCount((count) => count + 100)}
+                    >
+                      Show more earlier messages
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Conversation unavailable.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 function keyExtractor(item: MessagesTimelineRow) {
   return item.id;

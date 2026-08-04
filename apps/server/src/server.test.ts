@@ -91,6 +91,8 @@ import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
+import type { ProviderInstance } from "./provider/ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -337,6 +339,12 @@ const buildAppUnderTest = (options?: {
   layers?: {
     keybindings?: Partial<Keybindings.Keybindings["Service"]>;
     providerRegistry?: Partial<ProviderRegistry.ProviderRegistry["Service"]>;
+    providerInstanceRegistry?: Partial<
+      ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]
+    >;
+    providerSessionDirectory?: Partial<
+      ProviderSessionDirectory.ProviderSessionDirectory["Service"]
+    >;
     serverSettings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
     externalLauncher?: Partial<ExternalLauncher.ExternalLauncher["Service"]>;
     vcsDriver?: Partial<VcsDriver.VcsDriver["Service"]>;
@@ -604,6 +612,10 @@ const buildAppUnderTest = (options?: {
             // Route tests never subscribe to registry changes; acquire a throwaway
             // subscription so the service shape is satisfied without extra R.
             subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
+            ...options?.layers?.providerInstanceRegistry,
+          }),
+          Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
+            ...options?.layers?.providerSessionDirectory,
           }),
         ),
       ),
@@ -7276,6 +7288,381 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ["thread.delete"],
         );
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "adopts an external session before the first turn and appends one lazy-history marker",
+    () =>
+      Effect.gen(function* () {
+        const dispatchedCommands: Array<OrchestrationCommand> = [];
+        const upsert = vi.fn(
+          (
+            _: Parameters<
+              ProviderSessionDirectory.ProviderSessionDirectory["Service"]["upsert"]
+            >[0],
+          ) => Effect.void,
+        );
+        const instance = {
+          instanceId: ProviderInstanceId.make("codex"),
+          driverKind: ProviderDriverKind.make("codex"),
+          readSession: () =>
+            Effect.succeed({
+              session: {
+                sessionId: "codex-cli-thread",
+                title: "Earlier CLI work",
+                cwd: "/tmp/default-project",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                messageCount: 2,
+              },
+              messages: [
+                {
+                  messageId: "earlier-user",
+                  role: "user" as const,
+                  text: "Earlier request",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+                {
+                  messageId: "earlier-assistant",
+                  role: "assistant" as const,
+                  text: "Earlier response",
+                  createdAt: "2026-01-01T00:00:01.000Z",
+                },
+              ],
+              boundaryUuid: "earlier-assistant",
+            }),
+          makeResumeCursor: (sessionId: string) => ({ threadId: sessionId }),
+          matchesResumeCursor: (sessionId: string, cursor: unknown) =>
+            typeof cursor === "object" &&
+            cursor !== null &&
+            "threadId" in cursor &&
+            cursor.threadId === sessionId,
+        } as unknown as ProviderInstance;
+        const projectShell = {
+          id: defaultProjectId,
+          title: "Default Project",
+          workspaceRoot: "/tmp/default-project",
+          defaultModelSelection,
+          scripts: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+
+        yield* buildAppUnderTest({
+          layers: {
+            providerInstanceRegistry: {
+              getInstance: () => Effect.succeed(instance),
+            },
+            providerSessionDirectory: {
+              upsert,
+              listBindings: () => Effect.succeed([]),
+            },
+            projectionSnapshotQuery: {
+              getProjectShellById: () => Effect.succeed(Option.some(projectShell)),
+              getShellSnapshot: () =>
+                Effect.succeed({
+                  snapshotSequence: 0,
+                  projects: [projectShell],
+                  threads: [makeDefaultOrchestrationThreadShell()],
+                  boards: [],
+                  cards: [],
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                }),
+            },
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  dispatchedCommands.push(command);
+                  return { sequence: dispatchedCommands.length };
+                }),
+              readEvents: () => Stream.empty,
+            },
+          },
+        });
+
+        const createdAt = "2026-01-01T00:00:00.000Z";
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const response = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+              type: "thread.turn.start",
+              commandId: CommandId.make("cmd-resume-bootstrap"),
+              threadId: ThreadId.make("thread-resumed"),
+              message: {
+                messageId: MessageId.make("msg-resumed-first"),
+                role: "user",
+                text: "Continue",
+                attachments: [],
+              },
+              modelSelection: defaultModelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              bootstrap: {
+                createThread: {
+                  projectId: defaultProjectId,
+                  title: "Resumed Thread",
+                  modelSelection: defaultModelSelection,
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                  createdAt,
+                },
+                resumeSession: {
+                  instanceId: ProviderInstanceId.make("codex"),
+                  sessionId: "codex-cli-thread",
+                },
+              },
+              createdAt,
+            }),
+          ),
+        );
+
+        assert.equal(response.sequence, 3);
+        assert.deepEqual(
+          dispatchedCommands.map((command) => command.type),
+          ["thread.create", "thread.activity.append", "thread.turn.start"],
+        );
+        assert.deepEqual(upsert.mock.calls[0]?.[0], {
+          threadId: ThreadId.make("thread-resumed"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          status: "stopped",
+          resumeCursor: { threadId: "codex-cli-thread" },
+          runtimePayload: { cwd: "/tmp/default-project" },
+          runtimeMode: "full-access",
+        });
+        const marker = dispatchedCommands[1];
+        assertTrue(marker?.type === "thread.activity.append");
+        if (marker?.type === "thread.activity.append") {
+          assert.equal(marker.activity.kind, "session.resumed");
+          assert.deepEqual(marker.activity.payload, {
+            provider: ProviderDriverKind.make("codex"),
+            sessionId: "codex-cli-thread",
+            messageCount: 2,
+            boundaryUuid: "earlier-assistant",
+          });
+        }
+        const finalCommand = dispatchedCommands[2];
+        assertTrue(finalCommand?.type === "thread.turn.start");
+        if (finalCommand?.type === "thread.turn.start") {
+          assert.equal(finalCommand.bootstrap, undefined);
+        }
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("removes a seeded binding when a later adoption step fails", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const upsert = vi.fn(() => Effect.void);
+      const deleteBinding = vi.fn(() => Effect.void);
+      const instance = {
+        instanceId: ProviderInstanceId.make("codex"),
+        driverKind: ProviderDriverKind.make("codex"),
+        readSession: () =>
+          Effect.succeed({
+            session: {
+              sessionId: "codex-cli-thread",
+              title: "Earlier CLI work",
+              cwd: "/tmp/default-project",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              messageCount: 2,
+            },
+            messages: [],
+            boundaryUuid: "earlier-assistant",
+          }),
+        makeResumeCursor: (sessionId: string) => ({ threadId: sessionId }),
+        matchesResumeCursor: () => false,
+      } as unknown as ProviderInstance;
+      const projectShell = {
+        id: defaultProjectId,
+        title: "Default Project",
+        workspaceRoot: "/tmp/default-project",
+        defaultModelSelection,
+        scripts: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          providerInstanceRegistry: {
+            getInstance: () => Effect.succeed(instance),
+          },
+          providerSessionDirectory: {
+            upsert,
+            deleteBinding,
+            listBindings: () => Effect.succeed([]),
+          },
+          projectionSnapshotQuery: {
+            getProjectShellById: () => Effect.succeed(Option.some(projectShell)),
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [projectShell],
+                threads: [makeDefaultOrchestrationThreadShell()],
+                boards: [],
+                cards: [],
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.activity.append") {
+                  throw new Error("marker persistence failed");
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-resume-post-seed-failure"),
+            threadId: ThreadId.make("thread-resume-post-seed-failure"),
+            message: {
+              messageId: MessageId.make("msg-resume-post-seed-failure"),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              createThread: {
+                projectId: defaultProjectId,
+                title: "Resumed Thread",
+                modelSelection: defaultModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: null,
+                worktreePath: null,
+                createdAt,
+              },
+              resumeSession: {
+                instanceId: ProviderInstanceId.make("codex"),
+                sessionId: "codex-cli-thread",
+              },
+            },
+            createdAt,
+          }),
+        ).pipe(Effect.exit),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assert.equal(upsert.mock.calls.length, 1);
+      assert.deepEqual(deleteBinding.mock.calls, [
+        [ThreadId.make("thread-resume-post-seed-failure")],
+      ]);
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.create", "thread.activity.append", "thread.delete"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("refuses a mismatched session cwd and rolls back the created thread", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const upsert = vi.fn(() => Effect.void);
+      const instance = {
+        instanceId: ProviderInstanceId.make("codex"),
+        driverKind: ProviderDriverKind.make("codex"),
+        readSession: () =>
+          Effect.succeed({
+            session: {
+              sessionId: "wrong-cwd-cli-thread",
+              title: "Wrong project",
+              cwd: "/tmp/unrelated-project",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              messageCount: 2,
+            },
+            messages: [
+              {
+                messageId: "wrong-cwd-message",
+                role: "user" as const,
+                text: "Continue somewhere else",
+              },
+            ],
+            boundaryUuid: "wrong-cwd-message",
+          }),
+        makeResumeCursor: (sessionId: string) => ({ threadId: sessionId }),
+        matchesResumeCursor: () => false,
+      } as unknown as ProviderInstance;
+
+      yield* buildAppUnderTest({
+        layers: {
+          providerInstanceRegistry: {
+            getInstance: () => Effect.succeed(instance),
+          },
+          providerSessionDirectory: {
+            upsert,
+            listBindings: () => Effect.succeed([]),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-resume-bootstrap-failure"),
+            threadId: ThreadId.make("thread-resume-failure"),
+            message: {
+              messageId: MessageId.make("msg-resume-failure"),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              createThread: {
+                projectId: defaultProjectId,
+                title: "Resumed Thread",
+                modelSelection: defaultModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: null,
+                worktreePath: null,
+                createdAt,
+              },
+              resumeSession: {
+                instanceId: ProviderInstanceId.make("codex"),
+                sessionId: "missing-cli-thread",
+              },
+            },
+            createdAt,
+          }),
+        ).pipe(Effect.exit),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.create", "thread.delete"],
+      );
+      assert.equal(upsert.mock.calls.length, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect(

@@ -87,6 +87,10 @@
       "types": "./src/state/providerSkills.ts",
       "default": "./src/state/providerSkills.ts"
     },
+    "./state/provider-sessions": {
+      "types": "./src/state/providerSessions.ts",
+      "default": "./src/state/providerSessions.ts"
+    },
     "./state/projects": {
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"

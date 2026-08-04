@@ -95,6 +95,16 @@ const fakeCursorAdapter: CursorAdapter.CursorAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const unsupportedSessionCapabilities = {
+  listSessions: () => Effect.succeed({ sessions: [], supported: false }),
+  readSession: (() =>
+    Effect.die(
+      new Error("unused external-session test capability"),
+    )) as ProviderInstance["readSession"],
+  makeResumeCursor: (_sessionId: string) => undefined,
+  matchesResumeCursor: (_sessionId: string, _cursor: unknown) => false,
+};
+
 // ProviderAdapterRegistryLive is now a facade over ProviderInstanceRegistry —
 // it walks `listInstances` once at boot and surfaces the default-instance
 // adapter keyed by its driver kind. To test the facade we supply four fake
@@ -126,6 +136,7 @@ const makeFakeInstance = (
     adapter,
     textGeneration: {} as unknown as TextGeneration.TextGeneration["Service"],
     listSkills: () => Effect.succeed([]),
+    ...unsupportedSessionCapabilities,
   };
 };
 

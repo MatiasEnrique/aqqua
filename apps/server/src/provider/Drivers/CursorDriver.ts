@@ -37,6 +37,7 @@ import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
   type ProviderInstance,
+  unsupportedProviderSessions,
 } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
@@ -175,6 +176,7 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
 
       const listSkills = (_cwd: string) =>
         snapshot.getSnapshot.pipe(Effect.map((provider) => provider.skills));
+      const readSession = unsupportedProviderSessions.readSession(instanceId, DRIVER_KIND);
 
       return {
         instanceId,
@@ -187,6 +189,10 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
         adapter,
         textGeneration,
         listSkills,
+        listSessions: unsupportedProviderSessions.listSessions,
+        readSession,
+        makeResumeCursor: unsupportedProviderSessions.makeResumeCursor,
+        matchesResumeCursor: unsupportedProviderSessions.matchesResumeCursor,
       } satisfies ProviderInstance;
     }),
 };

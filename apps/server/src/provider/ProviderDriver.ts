@@ -21,14 +21,19 @@
  *
  * @module provider/ProviderDriver
  */
+import {
+  ProviderListSessionsError,
+  type ProviderListSessionsResult,
+  type ProviderReadSessionResult,
+  type ServerProviderSkill,
+} from "@aqqua/contracts";
 import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
   ProviderListSkillsError,
-  ServerProviderSkill,
 } from "@aqqua/contracts";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
@@ -87,6 +92,19 @@ export interface ProviderInstance {
   readonly listSkills: (
     cwd: string,
   ) => Effect.Effect<ReadonlyArray<ServerProviderSkill>, ProviderListSkillsError>;
+  /** Discover CLI-originated conversations scoped to the supplied workspace cwds. */
+  readonly listSessions: (
+    cwds: ReadonlyArray<string>,
+  ) => Effect.Effect<ProviderListSessionsResult, ProviderListSessionsError>;
+  /** Lazily read one provider-native transcript, optionally through a fixed boundary. */
+  readonly readSession: (
+    sessionId: string,
+    boundaryUuid?: string,
+  ) => Effect.Effect<ProviderReadSessionResult, ProviderListSessionsError>;
+  /** Construct the provider-native cursor without leaking its shape past this boundary. */
+  readonly makeResumeCursor: (sessionId: string) => unknown;
+  /** Match a persisted native cursor without exposing its provider-specific fields. */
+  readonly matchesResumeCursor: (sessionId: string, cursor: unknown) => boolean;
 }
 
 export interface ProviderContinuationIdentity {
@@ -103,6 +121,24 @@ export function defaultProviderContinuationIdentity(input: {
     continuationKey: `${input.driverKind}:instance:${input.instanceId}`,
   };
 }
+
+export const unsupportedProviderSessions = {
+  listSessions: Effect.fn("unsupportedProviderListSessions")((_cwds: ReadonlyArray<string>) =>
+    Effect.succeed({ sessions: [], supported: false } satisfies ProviderListSessionsResult),
+  ),
+  readSession: (instanceId: ProviderInstanceId, driverKind: ProviderDriverKind) =>
+    Effect.fn("unsupportedProviderReadSession")(function* (
+      _sessionId: string,
+      _boundaryUuid?: string,
+    ) {
+      return yield* new ProviderListSessionsError({
+        instanceId,
+        reason: `Resuming external sessions is not supported by '${driverKind}'`,
+      });
+    }),
+  makeResumeCursor: (_sessionId: string): undefined => undefined,
+  matchesResumeCursor: (_sessionId: string, _cursor: unknown): false => false,
+} as const;
 
 /**
  * Inputs the registry passes to a driver's `create` function.

@@ -5,6 +5,8 @@ import type {
   ModelSelection,
   ProviderInteractionMode,
   ProviderOptionSelection,
+  ProviderExternalSession,
+  ProviderInstanceId,
   RuntimeMode,
   ServerProviderSkill,
 } from "@aqqua/contracts";
@@ -23,6 +25,10 @@ import type { TurnCommandMetadata } from "../../lib/commandMetadata";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
+import {
+  resolveResumeSessionWorkspace,
+  type ResumeSessionWorkspaceBranch,
+} from "../../lib/newTaskResumeSession";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -125,6 +131,7 @@ type NewTaskFlowContextValue = {
   readonly branchQuery: string;
   readonly branchesLoading: boolean;
   readonly availableBranches: ReadonlyArray<VcsRef>;
+  readonly managedWorktrees: ReadonlyArray<ResumeSessionWorkspaceBranch>;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
   readonly expandedProvider: string | null;
@@ -137,6 +144,10 @@ type NewTaskFlowContextValue = {
   readonly selectedModel: ModelSelection | null;
   readonly selectedModelOption: ModelOption | null;
   readonly selectedProviderSkills: ReadonlyArray<ServerProviderSkill>;
+  readonly resumeSession: {
+    readonly instanceId: ProviderInstanceId;
+    readonly session: ProviderExternalSession;
+  } | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly filteredBranches: ReadonlyArray<VcsRef>;
   readonly reset: () => void;
@@ -163,6 +174,7 @@ type NewTaskFlowContextValue = {
   readonly setSelectedModelOptions: (
     value: ReadonlyArray<ProviderOptionSelection> | undefined,
   ) => void;
+  readonly setResumeSession: (session: ProviderExternalSession | null) => boolean;
   readonly setExpandedProvider: (value: string | null) => void;
 };
 
@@ -350,6 +362,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const attachments = selectedProjectDraft.attachments;
   const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? "local";
   const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
+  const managedWorktrees = useMemo(
+    () =>
+      threads.flatMap((thread) =>
+        selectedProject &&
+        thread.environmentId === selectedProject.environmentId &&
+        thread.projectId === selectedProject.id &&
+        thread.worktreePath
+          ? [{ name: thread.branch, worktreePath: thread.worktreePath }]
+          : [],
+      ),
+    [selectedProject, threads],
+  );
   const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
@@ -384,6 +408,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const selectedModelKey = selectedModel
     ? `${selectedModel.instanceId}:${selectedModel.model}`
     : null;
+  const resumeSession = selectedProjectDraft.resumeSession ?? null;
 
   const selectedModelOption =
     modelOptions.find(
@@ -422,9 +447,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       }
       updateComposerDraftSettings(selectedProjectDraftKey, {
         modelSelection: option.selection,
+        ...(selectedProjectDraft.resumeSession?.instanceId !== option.selection.instanceId
+          ? { resumeSession: undefined }
+          : {}),
       });
     },
-    [modelOptions, selectedProjectDraftKey],
+    [modelOptions, selectedProjectDraft.resumeSession?.instanceId, selectedProjectDraftKey],
   );
   const setSelectedModelOptions = useCallback(
     (options: ReadonlyArray<ProviderOptionSelection> | undefined) => {
@@ -589,6 +617,46 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       });
     },
     [draftStartFromOrigin, selectedProject, selectedProjectDraftKey, workspaceMode],
+  );
+
+  const setResumeSession = useCallback(
+    (session: ProviderExternalSession | null): boolean => {
+      if (!selectedProject || !selectedProjectDraftKey || !selectedModel) {
+        return false;
+      }
+      if (session === null) {
+        updateComposerDraftSettings(selectedProjectDraftKey, { resumeSession: undefined });
+        return true;
+      }
+      const workspaceSelection = resolveResumeSessionWorkspace({
+        projectRoot: selectedProject.workspaceRoot,
+        branches: managedWorktrees,
+        selectedBranchName,
+        sessionCwd: session.cwd,
+      });
+      if (!workspaceSelection) {
+        return false;
+      }
+      updateComposerDraftSettings(selectedProjectDraftKey, {
+        resumeSession: {
+          instanceId: selectedModel.instanceId,
+          session,
+        },
+        workspaceSelection: {
+          ...workspaceSelection,
+          ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+        },
+      });
+      return true;
+    },
+    [
+      draftStartFromOrigin,
+      managedWorktrees,
+      selectedBranchName,
+      selectedModel,
+      selectedProject,
+      selectedProjectDraftKey,
+    ],
   );
 
   const setStartFromOrigin = useCallback(
@@ -850,6 +918,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       branchQuery,
       branchesLoading,
       availableBranches,
+      managedWorktrees,
       runtimeMode,
       interactionMode,
       expandedProvider,
@@ -859,6 +928,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedModel,
       selectedModelOption,
       selectedProviderSkills,
+      resumeSession,
       providerGroups,
       filteredBranches,
       reset,
@@ -883,11 +953,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setRuntimeMode,
       setInteractionMode,
       setSelectedModelOptions,
+      setResumeSession,
       setExpandedProvider,
     }),
     [
       attachments,
       availableBranches,
+      managedWorktrees,
       beginEditingPendingTask,
       branchQuery,
       branchesLoading,
@@ -914,7 +986,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedModelOption,
       selectedProjectDraftKey,
       selectedProviderSkills,
+      resumeSession,
       setSelectedModelOptions,
+      setResumeSession,
       selectedProject,
       selectedProjectKey,
       selectedWorktreePath,

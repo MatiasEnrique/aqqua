@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   ModelSelection,
   ProjectId,
+  ProviderExternalSession,
   ProviderInstanceId,
   ProviderInteractionMode,
   ProviderDriverKind,
@@ -54,6 +55,7 @@ import { UnifiedSettings } from "@aqqua/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
+const isProviderExternalSession = Schema.is(ProviderExternalSession);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "aqqua:composer-drafts:v1";
@@ -147,6 +149,14 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   activeProvider: Schema.optionalKey(Schema.NullOr(ProviderInstanceId)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  resumeSession: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        instanceId: ProviderInstanceId,
+        session: ProviderExternalSession,
+      }),
+    ),
+  ),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -281,6 +291,13 @@ export interface ComposerThreadDraftState {
   activeProvider: ProviderInstanceId | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  /** External CLI conversation selected for adoption on the draft's first turn. */
+  resumeSession: ComposerResumeSessionSelection | null;
+}
+
+export interface ComposerResumeSessionSelection {
+  readonly instanceId: ProviderInstanceId;
+  readonly session: ProviderExternalSession;
 }
 
 /**
@@ -467,6 +484,10 @@ interface ComposerDraftStoreState {
     threadRef: ComposerThreadTarget,
     interactionMode: ProviderInteractionMode | null | undefined,
   ) => void;
+  setResumeSession: (
+    threadRef: ComposerThreadTarget,
+    selection: ComposerResumeSessionSelection | null,
+  ) => void;
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => void;
   addImages: (threadRef: ComposerThreadTarget, images: ComposerImageAttachment[]) => void;
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
@@ -624,6 +645,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  resumeSession: null,
 });
 
 /**
@@ -646,6 +668,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    resumeSession: null,
   };
 }
 
@@ -718,7 +741,8 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.resumeSession === null
   );
 }
 
@@ -1734,6 +1758,18 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
         ? draftCandidate.interactionMode
         : null;
+    const resumeSessionCandidate = draftCandidate.resumeSession;
+    const resumeSessionInstanceId = normalizeProviderInstanceId(resumeSessionCandidate?.instanceId);
+    const resumeSession =
+      resumeSessionCandidate &&
+      typeof resumeSessionCandidate === "object" &&
+      resumeSessionInstanceId !== null &&
+      isProviderExternalSession(resumeSessionCandidate.session)
+        ? {
+            instanceId: resumeSessionInstanceId,
+            session: resumeSessionCandidate.session,
+          }
+        : null;
     const prompt = ensureInlineTerminalContextPlaceholders(
       promptCandidate,
       terminalContexts.length,
@@ -1794,7 +1830,8 @@ function normalizePersistedDraftsByThreadId(
       reviewComments.length === 0 &&
       !hasModelData &&
       !runtimeMode &&
-      !interactionMode
+      !interactionMode &&
+      !resumeSession
     ) {
       continue;
     }
@@ -1824,6 +1861,7 @@ function normalizePersistedDraftsByThreadId(
         : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(resumeSession ? { resumeSession } : {}),
     };
   }
 
@@ -1903,7 +1941,8 @@ function partializeComposerDraftStoreState(
       draft.reviewComments.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.resumeSession === null
     ) {
       continue;
     }
@@ -1962,6 +2001,7 @@ function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.resumeSession ? { resumeSession: draft.resumeSession } : {}),
     };
     persistedDraftsByThreadKey[threadKey] = persistedDraft;
   }
@@ -2199,6 +2239,7 @@ function toHydratedThreadDraft(
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    resumeSession: persistedDraft.resumeSession ?? null,
   };
 }
 
@@ -2719,6 +2760,40 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               ...base,
               modelSelectionByProvider: nextMap,
               activeProvider: nextActiveProvider,
+              resumeSession:
+                normalized && base.resumeSession?.instanceId !== normalized.instanceId
+                  ? null
+                  : base.resumeSession,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        setResumeSession: (threadRef, selection) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey];
+            if (!existing && selection === null) {
+              return state;
+            }
+            const base = existing ?? createEmptyThreadDraft();
+            if (
+              base.resumeSession?.instanceId === selection?.instanceId &&
+              base.resumeSession?.session.sessionId === selection?.session.sessionId
+            ) {
+              return state;
+            }
+            const nextDraft: ComposerThreadDraftState = {
+              ...base,
+              resumeSession: selection,
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
