@@ -27,7 +27,10 @@ export function SidebarCardActionButton(props: {
       aria-label={props.label}
       title={props.title ?? props.label}
       disabled={props.disabled === true}
-      onClick={props.onClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onClick(event);
+      }}
       onDoubleClick={(event) => event.stopPropagation()}
       className={cn(
         "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-30",
@@ -170,7 +173,7 @@ export function SidebarCardHoverActionSlot(props: {
   return (
     <span
       className={cn(
-        "relative ml-auto flex h-6 shrink-0 items-center justify-end",
+        "group/v2-hover-slot relative ml-auto flex h-6 shrink-0 items-center justify-end",
         props.reserveWidth === true && "min-w-14",
         props.className,
       )}
@@ -179,7 +182,9 @@ export function SidebarCardHoverActionSlot(props: {
         <span
           className={cn(
             "inline-flex justify-end tabular-nums transition-opacity",
-            props.actions === null ? null : "group-hover/v2-row:opacity-0",
+            props.actions === null
+              ? null
+              : "group-focus-within/v2-hover-slot:opacity-0 group-hover/v2-row:opacity-0",
           )}
         >
           {props.resting}

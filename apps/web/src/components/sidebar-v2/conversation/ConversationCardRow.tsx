@@ -46,21 +46,26 @@ export const ConversationCardRow = memo(function ConversationCardRow(
 
   return (
     <SidebarCardItem size="card">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <div
-              role="button"
-              tabIndex={0}
-              data-testid="sidebar-v2-row-card"
-              className={row.surfaceClassName}
-              onClick={row.handleClick}
-              onDoubleClick={row.handleDoubleClick}
-              onKeyDown={row.handleKeyDown}
-              onContextMenu={row.handleContextMenu}
-            />
-          }
-        >
+      <div className={row.surfaceClassName}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={thread.title}
+                data-testid="sidebar-v2-row-card"
+                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                onClick={row.handleClick}
+                onDoubleClick={row.handleDoubleClick}
+                onKeyDown={row.handleKeyDown}
+                onContextMenu={row.handleContextMenu}
+              />
+            }
+          />
+          <ConversationDetailsTooltip row={row} conversation={props} />
+        </Tooltip>
+        <div className="pointer-events-none relative z-10">
           {/* Two lines, because one couldn't hold them: the description was
               losing every pixel to the metadata beside it. The title now owns
               its own line, and everything that describes where the work lives
@@ -74,48 +79,58 @@ export const ConversationCardRow = memo(function ConversationCardRow(
                   className="size-4 shrink-0"
                 />
               ) : null}
-              <ConversationDescription
-                row={row}
-                conversation={props}
-                tone={
-                  row.isUnread || row.isWoke
-                    ? "loud"
-                    : row.shouldRecede
-                      ? "muted"
-                      : row.status === "failed"
-                        ? "strong"
-                        : "normal"
-                }
-              />
-              <ConversationPrBadge row={row} />
-              <SidebarCardStatusSwapSlot
-                pinned={row.snoozeMenuOpen}
-                // The label carries no size of its own; on this line there is no
-                // meta cluster to inherit one from, so it says so itself. It
-                // sits a step below the row's own metadata: the description is
-                // what you read first, and colour already carries the state.
-                resting={
-                  <SidebarSummaryStateLabel state={row.summaryState} className="text-[8px]" />
-                }
-                actions={
-                  row.showSnoozeButton ? (
-                    <SnoozePopoverButton
-                      open={row.snoozeMenuOpen}
-                      onOpenChange={row.setSnoozeMenuOpen}
-                      onSnooze={row.handleSnoozePreset}
-                    />
-                  ) : null
-                }
-                className="h-5"
-              />
-              {props.settlementSupported ? (
-                <SidebarCardSettleButton
-                  description={thread.title}
-                  disabled={!row.canQuickSettle}
-                  onSettle={row.handleSettleClick}
-                  shape="square"
-                  className="-my-1"
+              <span
+                className={cn("flex min-w-0 flex-1", props.isRenaming && "pointer-events-auto")}
+              >
+                <ConversationDescription
+                  row={row}
+                  conversation={props}
+                  tone={
+                    row.isUnread || row.isWoke
+                      ? "loud"
+                      : row.shouldRecede
+                        ? "muted"
+                        : row.status === "failed"
+                          ? "strong"
+                          : "normal"
+                  }
                 />
+              </span>
+              <span className="pointer-events-auto contents">
+                <ConversationPrBadge row={row} />
+              </span>
+              <span className="pointer-events-auto contents">
+                <SidebarCardStatusSwapSlot
+                  pinned={row.snoozeMenuOpen}
+                  // The label carries no size of its own; on this line there is no
+                  // meta cluster to inherit one from, so it says so itself. It
+                  // sits a step below the row's own metadata: the description is
+                  // what you read first, and colour already carries the state.
+                  resting={
+                    <SidebarSummaryStateLabel state={row.summaryState} className="text-[8px]" />
+                  }
+                  actions={
+                    row.showSnoozeButton ? (
+                      <SnoozePopoverButton
+                        open={row.snoozeMenuOpen}
+                        onOpenChange={row.setSnoozeMenuOpen}
+                        onSnooze={row.handleSnoozePreset}
+                      />
+                    ) : null
+                  }
+                  className="h-5"
+                />
+              </span>
+              {props.settlementSupported ? (
+                <span className="pointer-events-auto contents">
+                  <SidebarCardSettleButton
+                    description={thread.title}
+                    disabled={!row.canQuickSettle}
+                    onSettle={row.handleSettleClick}
+                    shape="square"
+                    className="-my-1"
+                  />
+                </span>
               ) : null}
             </SidebarCardLine>
             {/* Indented under the description when a favicon claims the left
@@ -128,13 +143,15 @@ export const ConversationCardRow = memo(function ConversationCardRow(
               )}
             >
               {/* The disclosure sits next to the tally it explains. */}
-              <SidebarCardSubThreadToggle
-                count={props.childCount}
-                isExpanded={props.isExpanded}
-                description={thread.title}
-                onToggle={row.handleToggleExpanded}
-                testId={`sidebar-v2-subagent-toggle-${thread.id}`}
-              />
+              <span className="pointer-events-auto contents">
+                <SidebarCardSubThreadToggle
+                  count={props.childCount}
+                  isExpanded={props.isExpanded}
+                  description={thread.title}
+                  onToggle={row.handleToggleExpanded}
+                  testId={`sidebar-v2-subagent-toggle-${thread.id}`}
+                />
+              </span>
               <SidebarCardSubThreadCounts counts={props.subAgentStateCounts} />
               <SidebarCardBranch
                 branch={row.branch}
@@ -152,9 +169,8 @@ export const ConversationCardRow = memo(function ConversationCardRow(
             </SidebarCardLine>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
-        </TooltipTrigger>
-        <ConversationDetailsTooltip row={row} conversation={props} />
-      </Tooltip>
+        </div>
+      </div>
     </SidebarCardItem>
   );
 });

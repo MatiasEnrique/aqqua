@@ -22,6 +22,7 @@ export function SidebarCardBranch(props: {
 }) {
   if (props.branch === null) return null;
   const Icon = props.branch.isWorktree ? FolderGit2Icon : GitBranchIcon;
+  const mismatchLabel = "Branch differs from the current checkout";
   return (
     <span
       className={cn(
@@ -29,10 +30,17 @@ export function SidebarCardBranch(props: {
         props.mismatched === true && "text-warning",
         props.className,
       )}
-      title={props.branch.title}
+      title={
+        props.mismatched === true ? `${props.branch.title}\n${mismatchLabel}` : props.branch.title
+      }
     >
       <Icon aria-hidden className="size-3 shrink-0" />
       <span className="min-w-0 truncate font-mono">{props.branch.label}</span>
+      {props.mismatched === true ? (
+        <span aria-label={mismatchLabel} className="shrink-0 font-mono font-semibold">
+          !
+        </span>
+      ) : null}
     </span>
   );
 }

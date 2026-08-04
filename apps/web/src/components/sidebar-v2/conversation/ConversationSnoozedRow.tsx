@@ -37,6 +37,7 @@ export const ConversationSnoozedRow = memo(function ConversationSnoozedRow(
           isExpanded={props.isExpanded}
           description={props.thread.title}
           onToggle={row.handleToggleExpanded}
+          testId={`sidebar-v2-subagent-toggle-${props.thread.id}`}
         />
       }
       trailing={

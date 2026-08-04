@@ -306,6 +306,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
        describes a single overlay button, which is the right answer everywhere
        the app draws its own controls. */
     --sidebar-brand-min-left: var(--workspace-titlebar-content-left, 0px);
+
     display: none;
     position: absolute;
     /* Centered in the sidebar, but never allowed to slide under the window

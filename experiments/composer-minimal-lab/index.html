@@ -405,6 +405,18 @@
         font-size: 12px;
         color: color-mix(in srgb, var(--foreground) 25%, transparent);
       }
+
+      @media (max-width: 30rem) {
+        body {
+          padding-inline: 16px;
+        }
+
+        .footer {
+          overflow-x: auto;
+          overscroll-behavior-inline: contain;
+          scrollbar-width: thin;
+        }
+      }
     </style>
   </head>
 

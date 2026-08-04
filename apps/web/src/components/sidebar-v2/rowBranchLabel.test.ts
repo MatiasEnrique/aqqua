@@ -28,6 +28,16 @@ describe("rowBranchLabel", () => {
     });
   });
 
+  it("trims branch and worktree values before displaying them", () => {
+    expect(
+      rowBranchLabel({ branch: "  feat/sidebar  ", worktreePath: "  /tmp/wt/feat-sidebar  " }),
+    ).toEqual({
+      label: "feat/sidebar",
+      title: "Branch: feat/sidebar\nWorktree: /tmp/wt/feat-sidebar",
+      isWorktree: true,
+    });
+  });
+
   it("has nothing to say for an unbranched local thread", () => {
     expect(rowBranchLabel({ branch: null, worktreePath: null })).toBeNull();
     expect(rowBranchLabel({ branch: "  ", worktreePath: "  " })).toBeNull();

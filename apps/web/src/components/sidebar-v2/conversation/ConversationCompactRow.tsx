@@ -46,63 +46,75 @@ export function ConversationCompactRow(props: {
         className={cn(row.surfaceClassName, "flex h-9 items-center gap-2.5 pr-2.5")}
         style={{ paddingInlineStart: 10 + conversation.depth * SUB_AGENT_INDENT_PX }}
       >
-        {props.leading}
         <Tooltip>
           <TooltipTrigger
             render={
               <div
                 role="button"
                 tabIndex={0}
+                aria-label={thread.title}
                 data-testid={props.testId}
-                className="flex h-full min-w-0 flex-1 items-center gap-2.5 outline-none"
+                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                 onClick={row.handleClick}
                 onDoubleClick={row.handleDoubleClick}
                 onKeyDown={row.handleKeyDown}
                 onContextMenu={row.handleContextMenu}
               />
             }
-          >
-            {/* Settled history recedes: dimmed favicon at rest, restored on
+          />
+          <ConversationDetailsTooltip row={row} conversation={conversation} />
+        </Tooltip>
+        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-2.5">
+          {props.leading === undefined ? null : (
+            <span className="pointer-events-auto contents">{props.leading}</span>
+          )}
+          {/* Settled history recedes: dimmed favicon at rest, restored on
                 hover so the tail stays scannable when you're hunting. */}
-            {conversation.showProjectIdentity ? (
-              <span
-                className={cn(
-                  "shrink-0 transition-opacity",
-                  !conversation.isActive &&
-                    "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
-                )}
-              >
-                <ProjectFavicon
-                  environmentId={thread.environmentId}
-                  cwd={conversation.projectCwd ?? ""}
-                  className="size-4"
-                  {...(props.faviconFallback === true ? { fallbackIcon: MessageSquareIcon } : {})}
-                />
-              </span>
-            ) : null}
+          {conversation.showProjectIdentity ? (
+            <span
+              className={cn(
+                "shrink-0 transition-opacity",
+                !conversation.isActive &&
+                  "opacity-40 grayscale group-hover/v2-row:opacity-100 group-hover/v2-row:grayscale-0",
+              )}
+            >
+              <ProjectFavicon
+                environmentId={thread.environmentId}
+                cwd={conversation.projectCwd ?? ""}
+                className="size-4"
+                {...(props.faviconFallback === true ? { fallbackIcon: MessageSquareIcon } : {})}
+              />
+            </span>
+          ) : null}
+          <span
+            className={cn("flex min-w-0 flex-1", conversation.isRenaming && "pointer-events-auto")}
+          >
             <ConversationDescription
               row={row}
               conversation={conversation}
               tone={props.descriptionTone}
               brightenOnHover
             />
+          </span>
+          <span className="pointer-events-auto contents">
             <ConversationPrBadge
               row={row}
               {...(props.settledPr === true
                 ? { settled: true, isActive: conversation.isActive }
                 : {})}
             />
-            <SidebarCardProvider
-              driverKind={row.provider.driverKind}
-              displayName={row.provider.displayName}
-              modelLabel={row.provider.modelLabel}
-            />
-            {props.children}
-            {props.trailing}
-            {conversation.jumpLabel ? <JumpHintBadge label={conversation.jumpLabel} /> : null}
-          </TooltipTrigger>
-          <ConversationDetailsTooltip row={row} conversation={conversation} />
-        </Tooltip>
+          </span>
+          <SidebarCardProvider
+            driverKind={row.provider.driverKind}
+            displayName={row.provider.displayName}
+            modelLabel={row.provider.modelLabel}
+          />
+          {props.children === undefined ? null : (
+            <span className="pointer-events-auto contents">{props.children}</span>
+          )}
+          <span className="pointer-events-auto contents">{props.trailing}</span>
+          {conversation.jumpLabel ? <JumpHintBadge label={conversation.jumpLabel} /> : null}
+        </div>
       </div>
     </SidebarCardItem>
   );

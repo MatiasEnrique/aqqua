@@ -1,13 +1,5 @@
 import { formatWorktreePathForDisplay } from "../../worktreeCleanup";
-
-export interface RowBranchLabel {
-  /** What the row shows: the branch name, or the worktree folder when unbranched. */
-  readonly label: string;
-  /** What the tooltip shows: the branch, and the worktree path when there is one. */
-  readonly title: string;
-  /** True when the thread runs in its own checkout rather than the project's. */
-  readonly isWorktree: boolean;
-}
+import type { SidebarCardBranchLabel } from "../sidebar/card/SidebarCardBranch";
 
 /**
  * Where a thread's work lives, said the way a person thinks of it: the branch
@@ -19,7 +11,7 @@ export interface RowBranchLabel {
 export function rowBranchLabel(thread: {
   readonly branch: string | null;
   readonly worktreePath: string | null;
-}): RowBranchLabel | null {
+}): SidebarCardBranchLabel | null {
   const branch = thread.branch?.trim() ?? "";
   const worktreePath = thread.worktreePath?.trim() ?? "";
   const isWorktree = worktreePath !== "";

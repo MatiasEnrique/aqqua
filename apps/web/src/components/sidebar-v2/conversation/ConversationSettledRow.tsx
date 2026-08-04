@@ -45,6 +45,7 @@ export const ConversationSettledRow = memo(function ConversationSettledRow(
             isExpanded={props.isExpanded}
             description={thread.title}
             onToggle={row.handleToggleExpanded}
+            testId={`sidebar-v2-subagent-toggle-${thread.id}`}
           />
         </>
       }
