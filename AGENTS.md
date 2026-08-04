@@ -96,6 +96,10 @@ read, and interrupted while they work.
 
 - `aqqua agent events --follow` — NDJSON as sub-agents start, change status, and settle.
 
+Agents can author flows with `aqqua flow` and manage the machine-local agent profiles
+those flows reference with `aqqua profile`. Start with `aqqua flow schema` and
+`aqqua profile schema`; both command groups support `--json`.
+
 Pass long tasks by file, not inline. Add `--json` for machine-readable output. A
 sub-agent cannot itself delegate.
 

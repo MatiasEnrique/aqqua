@@ -35,6 +35,12 @@ import {
   OrchestrationThreadDetailSnapshot,
 } from "./orchestration.ts";
 import {
+  EnvironmentAgentProfileEntryResponse,
+  EnvironmentAgentProfilePathParams,
+  EnvironmentAgentProfilesSettingsResponse,
+  EnvironmentAgentProfileUpsertRequest,
+} from "./settings.ts";
+import {
   RelayCloudEnvironmentHealthRequest,
   RelayCloudMintCredentialRequest,
   RelayEnvironmentConfigRequest,
@@ -251,6 +257,18 @@ export class EnvironmentHttpConflictError extends Schema.TaggedErrorClass<Enviro
   }
 }
 
+export class EnvironmentHttpNotFoundError extends Schema.TaggedErrorClass<EnvironmentHttpNotFoundError>()(
+  "EnvironmentHttpNotFoundError",
+  {
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {
+  [HttpServerRespondable.symbol]() {
+    return HttpServerResponse.schemaJson(EnvironmentHttpNotFoundError)(this, { status: 404 });
+  }
+}
+
 export class EnvironmentCloudEndpointUnavailableError extends Schema.TaggedErrorClass<EnvironmentCloudEndpointUnavailableError>()(
   "EnvironmentCloudEndpointUnavailableError",
   {
@@ -304,6 +322,17 @@ const EnvironmentOrchestrationDispatchErrors = [
 const EnvironmentAgentSpawnErrors = [
   EnvironmentHttpBadRequestError,
   EnvironmentHttpConflictError,
+  EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
+const EnvironmentAgentProfileReadErrors = [
+  EnvironmentHttpBadRequestError,
+  EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
+const EnvironmentAgentProfileMutationErrors = [
+  EnvironmentHttpBadRequestError,
+  EnvironmentHttpNotFoundError,
   EnvironmentScopeRequiredError,
   EnvironmentInternalError,
 ] as const;
@@ -505,6 +534,32 @@ export class EnvironmentAgentHttpApi extends HttpApiGroup.make("agents").add(
   }).middleware(EnvironmentAuthenticatedAuth),
 ) {}
 
+export class EnvironmentSettingsHttpApi extends HttpApiGroup.make("settings")
+  .add(
+    HttpApiEndpoint.get("agentProfiles", "/api/settings/agent-profiles", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentAgentProfilesSettingsResponse,
+      error: EnvironmentAgentProfileReadErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.put("upsertAgentProfile", "/api/settings/agent-profiles/:name", {
+      headers: OptionalBearerHeaders,
+      params: EnvironmentAgentProfilePathParams,
+      payload: EnvironmentAgentProfileUpsertRequest,
+      success: EnvironmentAgentProfileEntryResponse,
+      error: EnvironmentAgentProfileMutationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.delete("deleteAgentProfile", "/api/settings/agent-profiles/:name", {
+      headers: OptionalBearerHeaders,
+      params: EnvironmentAgentProfilePathParams,
+      success: EnvironmentAgentProfileEntryResponse,
+      error: EnvironmentAgentProfileMutationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
+
 export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   .add(
     HttpApiEndpoint.post("linkProof", "/api/connect/link-proof", {
@@ -571,4 +626,5 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentAgentHttpApi)
+  .add(EnvironmentSettingsHttpApi)
   .add(EnvironmentConnectHttpApi) {}

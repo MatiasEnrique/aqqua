@@ -99,6 +99,7 @@ import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import { AgentControlLive } from "./agent-control/Layers/AgentControl.ts";
 import { agentEnvironmentHttpApiLayer } from "./agent-control/environmentHttp.ts";
+import { settingsEnvironmentHttpApiLayer } from "./settingsHttp.ts";
 import { agentControlRouteLayer } from "./agent-control/http.ts";
 import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
 import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClient.ts";
@@ -472,6 +473,7 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(connectHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(agentEnvironmentHttpApiLayer),
+      Layer.provide(settingsEnvironmentHttpApiLayer),
       Layer.provide(serverEnvironmentHttpApiLayer),
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),

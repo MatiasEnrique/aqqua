@@ -22,6 +22,58 @@ columns you define steps; each step carries:
 Editing a flow never changes cards that are already running: a card copies the
 flow definition when you start it.
 
+## Managing flows from the CLI
+
+Use `aqqua flow` to create and manage flows without opening the web UI. The
+command resolves the project that contains your current directory.
+
+```sh
+aqqua flow list
+aqqua flow show "Ship a feature"
+aqqua flow create --file flow.json
+aqqua flow update "Ship a feature" --file flow.json
+aqqua flow delete "Ship a feature"
+aqqua flow schema
+```
+
+`show`, `update`, and `delete` accept either a flow id or an exact, unique flow
+name. `update` replaces the flow's name and steps together; it does not patch
+individual fields. `delete` marks the flow as deleted, so it disappears from
+the active list.
+
+Flow definition files are JSON. Run `aqqua flow schema` for the complete shape,
+placeholder grammar, validation rules, and a canonical example:
+
+```json
+{
+  "name": "Ship a feature",
+  "steps": [
+    {
+      "name": "Plan",
+      "profileName": "Planning",
+      "promptTemplate": "Plan ${card_title}: ${request}"
+    },
+    {
+      "name": "Implement",
+      "profileName": "implementer",
+      "promptTemplate": "Implement the plan:\n${artifact}",
+      "continuation": "manual"
+    }
+  ]
+}
+```
+
+Before saving, `create` and `update` require 1–20 steps, artifact-safe step
+names that are unique ignoring case, and existing [agent profiles](./agent-profiles.md).
+The first step cannot use `${artifact}`, and `${artifact:Step name}` must name
+an earlier step exactly. Unknown profiles fail validation unless you pass
+`--allow-unknown-profiles`, which saves the flow with a warning instead.
+
+After a successful create or update, the command prints the parameters cards
+on the flow will require. Add `--json` to any subcommand for machine-readable
+output; `show --json` includes step ids and can be used as the starting point
+for an update file.
+
 ## Cards
 
 Creating a card is cheap — the creation form is generated from the union of

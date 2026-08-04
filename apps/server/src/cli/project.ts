@@ -1,42 +1,25 @@
 import {
   CommandId,
   AuthAdministrativeScopes,
-  EnvironmentHttpApi,
   EnvironmentHttpCommonError,
   type OrchestrationReadModel,
   ProjectId,
   type ClientOrchestrationCommand,
 } from "@aqqua/contracts";
-import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
-import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/http";
-import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
+import { Argument, Command, Flag } from "effect/unstable/cli";
+import { HttpClient, HttpClientError } from "effect/unstable/http";
 
-import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-
-import * as ServerConfig from "../config.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
-import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as ServerRuntimeStartup from "../serverRuntimeStartup.ts";
-import {
-  clearPersistedServerRuntimeState,
-  readPersistedServerRuntimeState,
-} from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { type CliAuthLocationFlags, projectLocationFlags } from "./config.ts";
+import { type EnvironmentAccessMode, runWithEnvironmentAccess } from "./environmentAccess.ts";
 
 type ProjectMutationTarget = {
   readonly id: ProjectId;
@@ -44,7 +27,6 @@ type ProjectMutationTarget = {
   readonly workspaceRoot: string;
 };
 
-type ProjectCommandExecutionMode = "live" | "offline";
 type ProjectCliDispatchCommand = Extract<
   ClientOrchestrationCommand,
   { type: "project.create" | "project.meta.update" | "project.delete" }
@@ -198,36 +180,6 @@ const projectCommandUuid = Crypto.Crypto.pipe(
   ),
 );
 
-const ProjectCliRuntimeLive = Layer.mergeAll(
-  WorkspacePaths.layer,
-  OrchestrationLayerLive.pipe(
-    Layer.provideMerge(RepositoryIdentityResolver.layer),
-    Layer.provideMerge(SqlitePersistenceLayerLive),
-  ),
-);
-
-const PROJECT_CLI_LIVE_SERVER_TIMEOUT = Duration.seconds(1);
-const withProjectCliSessionToken = <A, E, R>(
-  environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
-  run: (token: string) => Effect.Effect<A, E, R>,
-) =>
-  Effect.acquireUseRelease(
-    environmentAuth.issueSession({
-      scopes: AuthAdministrativeScopes,
-      label: "aqqua project cli",
-    }),
-    (issued) => run(issued.token),
-    (issued) => environmentAuth.revokeSession(issued.sessionId).pipe(Effect.ignore({ log: true })),
-  );
-
-const withProjectCliLiveServerTimeout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.timeout(PROJECT_CLI_LIVE_SERVER_TIMEOUT));
-
-const makeLiveServerClient = (origin: string) =>
-  HttpApiClient.make(EnvironmentHttpApi, {
-    baseUrl: origin,
-  });
-
 const normalizeWorkspaceRootForProjectCommand = Effect.fn(
   "normalizeWorkspaceRootForProjectCommand",
 )(function* (workspaceRoot: string) {
@@ -308,70 +260,6 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
   } satisfies ProjectMutationTarget;
 });
 
-const fetchLiveOrchestrationSnapshot = (origin: string, bearerToken: string) =>
-  Effect.gen(function* () {
-    const client = yield* makeLiveServerClient(origin);
-    return yield* client.orchestration.snapshot({
-      headers: { authorization: `Bearer ${bearerToken}` },
-    });
-  }).pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
-  );
-
-const dispatchLiveOrchestrationCommand = (
-  origin: string,
-  bearerToken: string,
-  command: ProjectCliDispatchCommand,
-) =>
-  Effect.gen(function* () {
-    const client = yield* makeLiveServerClient(origin);
-    yield* client.orchestration.dispatch({
-      headers: { authorization: `Bearer ${bearerToken}` },
-      payload: command,
-    } as Parameters<typeof client.orchestration.dispatch>[0]);
-  }).pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
-  );
-
-const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  return yield* projectionSnapshotQuery.getSnapshot();
-});
-
-const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecutionMode")(
-  function* (
-    environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
-    config: ServerConfig.ServerConfig["Service"],
-  ) {
-    const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    if (Option.isNone(runtimeState)) {
-      return Option.none<{ readonly origin: string }>();
-    }
-
-    const attempt = withProjectCliSessionToken(environmentAuth, (token) =>
-      fetchLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
-        Effect.as({
-          origin: runtimeState.value.origin,
-        }),
-      ),
-    );
-
-    const attempted = yield* Effect.result(attempt);
-    if (attempted._tag === "Success") {
-      return Option.some(attempted.success);
-    }
-
-    yield* Effect.logDebug("Failed to connect to the persisted project CLI server.", {
-      origin: runtimeState.value.origin,
-      cause: attempted.failure,
-    });
-    yield* clearPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    return Option.none<{ readonly origin: string }>();
-  },
-);
-
 const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   flags: CliAuthLocationFlags,
   run: (input: {
@@ -379,7 +267,7 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
     readonly dispatch: (
       command: ProjectCliDispatchCommand,
     ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
-    readonly mode: ProjectCommandExecutionMode;
+    readonly mode: EnvironmentAccessMode;
   }) => Effect.Effect<
     string,
     Error,
@@ -390,52 +278,15 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
     | WorkspacePaths.WorkspacePaths
   >,
 ) {
-  const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(flags, logLevel);
-  const minimumLogLevel = config.logLevel;
-
-  return yield* Effect.gen(function* () {
-    const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
-    const liveMode = yield* tryResolveLiveProjectExecutionMode(environmentAuth, config);
-
-    if (Option.isSome(liveMode)) {
-      return yield* withProjectCliSessionToken(environmentAuth, (token) =>
-        Effect.gen(function* () {
-          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token);
-          const output = yield* run({
-            snapshot,
-            dispatch: (command) =>
-              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command),
-            mode: "live",
-          });
-          yield* Console.log(output);
-        }),
-      );
-    }
-
-    const offlineRuntimeLayer = ProjectCliRuntimeLive.pipe(
-      Layer.provide(ServerConfig.layer(config)),
-      Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
-    );
-
-    return yield* Effect.gen(function* () {
-      const snapshot = yield* getOfflineSnapshot();
-      const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
-      const output = yield* run({
-        snapshot,
-        dispatch: (command) => orchestrationEngine.dispatch(command),
-        mode: "offline",
-      });
-      yield* Console.log(output);
-    }).pipe(Effect.provide(offlineRuntimeLayer));
-  }).pipe(
-    Effect.provide(
-      Layer.mergeAll(EnvironmentAuth.runtimeLayer, WorkspacePaths.layer).pipe(
-        Layer.provideMerge(FetchHttpClient.layer),
-        Layer.provide(ServerConfig.layer(config)),
-        Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
-      ),
-    ),
+  return yield* runWithEnvironmentAccess(
+    flags,
+    {
+      scopes: AuthAdministrativeScopes,
+      label: "aqqua project cli",
+      mapLiveServerError: projectCommandErrorFromLiveServerRequest,
+      connectionFailureLogMessage: "Failed to connect to the persisted project CLI server.",
+    },
+    run,
   );
 });
 
