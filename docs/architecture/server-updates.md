@@ -104,11 +104,10 @@ safety timeout releases it. If a boot-service restart closes the connection befo
 the UI releases the interrupted action without reporting a false update failure and lets reconnect
 and the next version check determine the result.
 
-## Release Invariant
+## Future Release Constraint
 
-The exact client version must exist as the `aqqua` npm package before a client carrying that version is
-published. The release workflow therefore makes the GitHub release depend on CLI publication, and
-the hosted web deployment depends on that release. See [Release Checklist](../operations/release.md#server-self-update-release-invariant).
+There is no release automation today. If published clients are introduced, the exact client version
+must exist as the `aqqua` npm package before a client carrying that version is published.
 
 ## Source Map
 
