@@ -10,8 +10,10 @@ import { expect } from "vite-plus/test";
 import { PiSettings, ProviderInstanceId } from "@aqqua/contracts";
 import { createModelSelection } from "@aqqua/shared/model";
 
+import * as Stream from "effect/Stream";
+
 import * as TextGeneration from "./TextGeneration.ts";
-import { makePiTextGeneration } from "./PiTextGeneration.ts";
+import { makePiTextGeneration, readStreamTail } from "./PiTextGeneration.ts";
 
 const decodePiSettings = Schema.decodeSync(PiSettings);
 const PI_INSTANCE_ID = ProviderInstanceId.make("pi");
@@ -201,6 +203,26 @@ it.layer(NodeServices.layer)("PiTextGeneration", (it) => {
           expect(generated.title).toBe("Investigate pi text generation output handling");
         }),
     ),
+  );
+
+  it.effect("readStreamTail keeps the exact trailing window across many small chunks", () =>
+    Effect.gen(function* () {
+      const encoder = new TextEncoder();
+      const pieces = Array.from({ length: 500 }, (_, index) => `chunk-${index};`);
+      const tail = yield* readStreamTail(
+        "generateThreadTitle",
+        Stream.fromIterable(pieces.map((piece) => encoder.encode(piece))),
+        64,
+      );
+      expect(tail).toBe(pieces.join("").slice(-64));
+
+      const oversized = yield* readStreamTail(
+        "generateThreadTitle",
+        Stream.fromIterable([encoder.encode("x".repeat(200)), encoder.encode("tail-end")]),
+        64,
+      );
+      expect(oversized).toBe(`${"x".repeat(56)}tail-end`);
+    }),
   );
 
   it.effect("keeps the final assistant text when stdout exceeds the tail cap", () => {

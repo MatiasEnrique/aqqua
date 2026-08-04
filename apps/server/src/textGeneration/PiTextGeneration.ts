@@ -101,6 +101,50 @@ function piModelArgs(
   return Effect.succeed(["--provider", parsed.provider, "--model", parsed.modelId]);
 }
 
+/**
+ * Collect a stream's trailing `tailCharacters` characters. Decoded chunks are
+ * kept in a list and whole head chunks dropped as the window fills, so each
+ * incoming chunk costs its own size rather than a copy of the full window;
+ * the single join and exact-tail slice happen once at the end. Exported for
+ * direct chunking tests.
+ */
+export const readStreamTail = <E>(
+  operation: PiTextGenerationOperation,
+  stream: Stream.Stream<Uint8Array, E>,
+  tailCharacters: number,
+): Effect.Effect<string, TextGenerationError> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => ({ chunks: [] as Array<string>, length: 0 }),
+      (acc, chunk) => {
+        if (chunk.length === 0) return acc;
+        if (chunk.length >= tailCharacters) {
+          acc.chunks.length = 0;
+          acc.chunks.push(chunk.slice(-tailCharacters));
+          acc.length = tailCharacters;
+          return acc;
+        }
+        acc.chunks.push(chunk);
+        acc.length += chunk.length;
+        while (acc.chunks.length > 1) {
+          const head = acc.chunks[0];
+          if (head === undefined || acc.length - head.length < tailCharacters) break;
+          acc.length -= head.length;
+          acc.chunks.shift();
+        }
+        return acc;
+      },
+    ),
+    Effect.map((acc) => {
+      const joined = acc.chunks.join("");
+      return joined.length <= tailCharacters ? joined : joined.slice(-tailCharacters);
+    }),
+    Effect.mapError((cause) =>
+      normalizeCliError("pi", operation, cause, "Failed to collect pi process output"),
+    ),
+  );
+
 /** Build one-shot pi text generation bound to a specific provider instance's settings. */
 export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* (
   piSettings: PiSettings,
@@ -108,25 +152,6 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
 ) {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const resolvedEnvironment = environment ?? process.env;
-
-  const readStreamTail = <E>(
-    operation: PiTextGenerationOperation,
-    stream: Stream.Stream<Uint8Array, E>,
-    tailCharacters: number,
-  ): Effect.Effect<string, TextGenerationError> =>
-    stream.pipe(
-      Stream.decodeText(),
-      Stream.runFold(
-        () => "",
-        (acc, chunk) => {
-          const next = acc + chunk;
-          return next.length <= tailCharacters ? next : next.slice(-tailCharacters);
-        },
-      ),
-      Effect.mapError((cause) =>
-        normalizeCliError("pi", operation, cause, "Failed to collect pi process output"),
-      ),
-    );
 
   const runPiJson = Effect.fn("runPiJson")(function* <S extends Schema.Top>(input: {
     readonly operation: PiTextGenerationOperation;
