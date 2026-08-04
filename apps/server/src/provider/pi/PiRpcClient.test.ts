@@ -189,6 +189,27 @@ describe("PiRpcClient", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("fails the matching request when a response record cannot be decoded", () =>
+    Effect.gen(function* () {
+      const peer = yield* makePiRpcMockPeer();
+      const client = yield* spawnPiRpcClient(spawnOptions).pipe(Effect.provide(peer.layer));
+      const requestFiber = yield* client.request({ type: "get_tree" }).pipe(Effect.forkChild);
+      const command = yield* peer.takeCommand;
+      yield* peer.writeRecord({
+        type: "response",
+        id: command.id,
+        command: "get_tree",
+        success: false,
+      });
+
+      const error = yield* Fiber.join(requestFiber).pipe(Effect.flip);
+      assert.instanceOf(error, PiRpcRequestError);
+      assert.equal(error.id, command.id);
+      assert.equal(error.command, "get_tree");
+      assert.equal(error.error, "Pi returned a response that could not be decoded.");
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("fails pending requests and ends events when the process dies", () =>
     Effect.gen(function* () {
       const peer = yield* makePiRpcMockPeer();

@@ -25,6 +25,11 @@ import {
 } from "./TextGenerationUtils.ts";
 
 const PI_TIMEOUT_MS = 180_000;
+// The final assistant text sits at the end of pi's JSONL transcript, so the
+// collectors keep a bounded tail instead of the whole stream; a line cut at
+// the buffer head fails decoding and is skipped.
+const PI_STDOUT_TAIL_CHARACTERS = 4_000_000;
+const PI_STDERR_TAIL_CHARACTERS = 16_384;
 
 type PiTextGenerationOperation =
   | "generateCommitMessage"
@@ -104,15 +109,19 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const resolvedEnvironment = environment ?? process.env;
 
-  const readStreamAsString = <E>(
+  const readStreamTail = <E>(
     operation: PiTextGenerationOperation,
     stream: Stream.Stream<Uint8Array, E>,
+    tailCharacters: number,
   ): Effect.Effect<string, TextGenerationError> =>
     stream.pipe(
       Stream.decodeText(),
       Stream.runFold(
         () => "",
-        (acc, chunk) => acc + chunk,
+        (acc, chunk) => {
+          const next = acc + chunk;
+          return next.length <= tailCharacters ? next : next.slice(-tailCharacters);
+        },
       ),
       Effect.mapError((cause) =>
         normalizeCliError("pi", operation, cause, "Failed to collect pi process output"),
@@ -153,8 +162,8 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         );
       const [stdout, stderr, exitCode] = yield* Effect.all(
         [
-          readStreamAsString(input.operation, child.stdout),
-          readStreamAsString(input.operation, child.stderr),
+          readStreamTail(input.operation, child.stdout, PI_STDOUT_TAIL_CHARACTERS),
+          readStreamTail(input.operation, child.stderr, PI_STDERR_TAIL_CHARACTERS),
           child.exitCode.pipe(
             Effect.mapError((cause) =>
               normalizeCliError("pi", input.operation, cause, "Failed to read pi CLI exit code"),

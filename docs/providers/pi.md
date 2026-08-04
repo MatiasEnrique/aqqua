@@ -35,7 +35,7 @@ pi
 You can also provide API keys through the environment, such as `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY`. The required variable depends on the model provider you use.
 
-## Configure pi In aqqua
+## Configure pi in aqqua
 
 Add or edit the pi provider in aqqua Settings.
 

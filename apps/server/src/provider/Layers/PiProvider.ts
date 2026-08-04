@@ -68,7 +68,9 @@ const PiCommandsData = Schema.Struct({
     Schema.Struct({
       name: Schema.String,
       description: Schema.optional(Schema.String),
-      source: Schema.Literals(["extension", "prompt", "skill"]),
+      // pi is Early Access and grows new command sources; an unknown source
+      // must not fail the whole listing, so this stays an open string.
+      source: Schema.String,
       location: Schema.optional(Schema.String),
       path: Schema.optional(Schema.String),
     }),
@@ -363,7 +365,7 @@ function listSkillsReason(cause: unknown): string {
   ) {
     return cause.message.trim();
   }
-  return "pi get_commands failed";
+  return "no failure detail available";
 }
 
 /** Discover pi commands for one active project using a scoped RPC process. */

@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { PiSettings, ProviderInstanceId, ProviderListSkillsError } from "@aqqua/contracts";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -9,6 +10,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { makePiRpcMockPeer } from "../testUtils/piRpcMockPeer.ts";
@@ -162,15 +164,17 @@ const TimeoutSpawnerLayer = Layer.succeed(
   ChildProcessSpawner.ChildProcessSpawner,
   ChildProcessSpawner.make(() => Effect.succeed(timeoutHandle)),
 );
-it.live("reports a timed-out version probe", () =>
+it.effect("reports a timed-out version probe", () =>
   Effect.gen(function* () {
-    const snapshot = yield* checkPiProviderStatus(
+    const probeFiber = yield* checkPiProviderStatus(
       decodePiSettings({ binaryPath: "/fake/pi" }),
-    ).pipe(Effect.provide(TimeoutSpawnerLayer));
+    ).pipe(Effect.provide(TimeoutSpawnerLayer), Effect.forkChild);
+    yield* TestClock.adjust(Duration.seconds(5));
+    const snapshot = yield* Fiber.join(probeFiber);
     expect(snapshot.installed).toBe(true);
     expect(snapshot.status).toBe("error");
     expect(snapshot.message).toContain("timed out");
-  }),
+  }).pipe(Effect.provide(TestClock.layer())),
 );
 
 describe("listPiSkills", () => {

@@ -203,6 +203,24 @@ it.layer(NodeServices.layer)("PiTextGeneration", (it) => {
     ),
   );
 
+  it.effect("keeps the final assistant text when stdout exceeds the tail cap", () => {
+    // @effect-diagnostics-next-line preferSchemaOverJson:off
+    const noiseLine = JSON.stringify({ type: "message_update", filler: "x".repeat(1024) });
+    const noise = Array.from({ length: 4200 }, () => noiseLine).join("\n");
+    return withFakePi(
+      { output: `${noise}\n${piJsonOutput('{"title":"Cap survives the noise flood"}')}` },
+      ({ textGeneration }) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Name this thread.",
+            modelSelection: createModelSelection(PI_INSTANCE_ID, "anthropic/claude-sonnet-5"),
+          });
+          expect(generated.title).toBe("Cap survives the noise flood");
+        }),
+    );
+  });
+
   it.effect("maps process failures to TextGenerationError", () =>
     withFakePi(
       { output: "", exitCode: 7, stderr: "provider credentials unavailable" },

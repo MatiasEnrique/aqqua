@@ -31,6 +31,7 @@ import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import {
   makePackageManagedProviderMaintenanceResolver,
+  normalizeCommandPath,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "../providerMaintenance.ts";
 import {
@@ -41,6 +42,19 @@ import {
 
 const decodePiSettings = Schema.decodeSync(PiSettings);
 const DRIVER_KIND = ProviderDriverKind.make("pi");
+
+// pi's standalone installer (https://pi.dev/install.sh) lands in ~/.local/bin
+// with support files under ~/.local/share/pi-node; package-manager installs
+// stay with their own update flow.
+function isPiNativeCommandPath(commandPath: string): boolean {
+  const normalized = normalizeCommandPath(commandPath);
+  return (
+    normalized.endsWith("/.local/bin/pi") ||
+    normalized.endsWith("/.local/bin/pi.exe") ||
+    normalized.includes("/.local/share/pi-node/")
+  );
+}
+
 const UPDATE = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER_KIND,
   npmPackageName: "@earendil-works/pi-coding-agent",
@@ -49,7 +63,7 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
     executable: "pi",
     args: ["update", "--self"],
     lockKey: "pi-native",
-    isCommandPath: () => true,
+    isCommandPath: isPiNativeCommandPath,
   },
 });
 

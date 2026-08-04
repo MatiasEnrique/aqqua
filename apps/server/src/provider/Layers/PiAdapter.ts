@@ -21,6 +21,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as PubSub from "effect/PubSub";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -1085,7 +1086,9 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         issue: "Turn requires non-empty text or attachments.",
       });
     }
-    yield* applyModelSelection(ctx, input.modelSelection);
+    // set_model/set_thinking_level and the prompt must land on pi as one unit:
+    // a concurrent sendTurn carrying a different model could otherwise slip its
+    // own set_model between this turn's set_model and prompt.
     const prepared = yield* ctx.lock.withPermit(
       Effect.gen(function* () {
         if (ctx.stopped || sessions.get(input.threadId) !== ctx) {
@@ -1094,6 +1097,7 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
             threadId: input.threadId,
           });
         }
+        yield* applyModelSelection(ctx, input.modelSelection);
         const streamingBehavior = ctx.streaming
           ? ("steer" as const)
           : ctx.activeTurnId !== undefined
@@ -1106,34 +1110,29 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
           streamingBehavior === undefined ? "connecting" : "running",
           turnId,
         );
-        return {
-          command: {
-            type: "prompt" as const,
+        const promptOutcome = yield* ctx.client
+          .request({
+            type: "prompt",
             message: text ?? "",
             ...(images.length === 0 ? {} : { images }),
             ...(streamingBehavior === undefined ? {} : { streamingBehavior }),
-          },
-          turnId,
-          wasStreaming: streamingBehavior !== undefined,
-        };
+          })
+          .pipe(Effect.result);
+        return { promptOutcome, turnId, wasStreaming: streamingBehavior !== undefined };
       }),
     );
-    yield* ctx.client.request(prepared.command).pipe(
-      Effect.mapError((cause) => adapterError(input.threadId, "prompt", cause)),
-      Effect.tapError((cause) =>
-        Effect.gen(function* () {
-          if (cause._tag === "ProviderAdapterProcessError") {
-            yield* handleUnexpectedProcessExit(ctx, cause.message, cause);
-            return;
-          }
-          if (ctx.stopped) return;
-          yield* emitError(ctx, cause.message, cause);
-          if (!prepared.wasStreaming) {
-            yield* completeActiveTurn(ctx, "failed", cause.message);
-          }
-        }),
-      ),
-    );
+    if (Result.isFailure(prepared.promptOutcome)) {
+      const cause = adapterError(input.threadId, "prompt", prepared.promptOutcome.failure);
+      if (cause._tag === "ProviderAdapterProcessError") {
+        yield* handleUnexpectedProcessExit(ctx, cause.message, cause);
+      } else if (!ctx.stopped) {
+        yield* emitError(ctx, cause.message, cause);
+        if (!prepared.wasStreaming) {
+          yield* completeActiveTurn(ctx, "failed", cause.message);
+        }
+      }
+      return yield* cause;
+    }
     return {
       threadId: input.threadId,
       turnId: prepared.turnId,

@@ -117,22 +117,37 @@ const collectEvents = Effect.fn("collectPiTestEvents")(function* (
 ) {
   const events: Array<ProviderRuntimeEvent> = [];
   const completed = yield* Deferred.make<void>();
+  const waiters: Array<{
+    predicate: (events: ReadonlyArray<ProviderRuntimeEvent>) => boolean;
+    deferred: Deferred.Deferred<void>;
+  }> = [];
   const fiber = yield* stream.pipe(
     Stream.runForEach((event) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         events.push(event);
-      }).pipe(
-        Effect.andThen(
-          event.type === "turn.completed"
-            ? Deferred.succeed(completed, undefined).pipe(Effect.ignore)
-            : Effect.void,
-        ),
-      ),
+        if (event.type === "turn.completed") {
+          yield* Deferred.succeed(completed, undefined).pipe(Effect.ignore);
+        }
+        const satisfied = waiters.filter((waiter) => waiter.predicate(events));
+        for (const waiter of satisfied) {
+          waiters.splice(waiters.indexOf(waiter), 1);
+          yield* Deferred.succeed(waiter.deferred, undefined).pipe(Effect.ignore);
+        }
+      }),
     ),
     Effect.forkChild,
   );
+  // Deterministic drain: resolves as soon as the collector has seen events
+  // satisfying the predicate, instead of counting scheduler yields.
+  const waitUntil = (predicate: (events: ReadonlyArray<ProviderRuntimeEvent>) => boolean) =>
+    Effect.gen(function* () {
+      if (predicate(events)) return;
+      const deferred = yield* Deferred.make<void>();
+      waiters.push({ predicate, deferred });
+      yield* Deferred.await(deferred);
+    });
   yield* Effect.yieldNow;
-  return { events, completed, fiber } as const;
+  return { events, completed, fiber, waitUntil } as const;
 });
 
 describe("PiAdapter", () => {
@@ -178,7 +193,9 @@ describe("PiAdapter", () => {
         message: {},
         assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: " world" },
       });
-      for (let index = 0; index < 4; index += 1) yield* Effect.yieldNow;
+      yield* collected.waitUntil(
+        (events) => events.filter((event) => event.type === "content.delta").length >= 2,
+      );
       assert.deepEqual(
         collected.events
           .filter(
@@ -205,7 +222,19 @@ describe("PiAdapter", () => {
         },
       });
       yield* peer.writeRecord({ type: "agent_end", willRetry: false });
-      for (let index = 0; index < 4; index += 1) yield* Effect.yieldNow;
+      // The adapter emits nothing for agent_end itself, so a probe tool event
+      // written after it provides the receipt that agent_end was processed.
+      yield* peer.writeRecord({
+        type: "tool_execution_start",
+        toolCallId: "agent-end-probe",
+        toolName: "read",
+        args: {},
+      });
+      yield* collected.waitUntil((events) =>
+        events.some(
+          (event) => event.type === "item.started" && String(event.itemId) === "agent-end-probe",
+        ),
+      );
       assert.lengthOf(
         collected.events.filter((event) => event.type === "turn.completed"),
         0,
@@ -466,12 +495,17 @@ describe("PiAdapter", () => {
       const collected = yield* collectEvents(adapter.streamEvents);
       yield* startSession({ adapter, peer, threadId });
 
+      // sendTurn holds the session lock through the prompt acknowledgement so
+      // set_model and prompt land on pi atomically; a second sendTurn queues
+      // behind the first, so each prompt is acknowledged before the next.
       const firstFiber = yield* adapter
         .sendTurn({ threadId, input: "first", attachments: [] })
         .pipe(Effect.forkChild);
       const firstPrompt = yield* peer.takeCommand;
       assert.equal(firstPrompt.type, "prompt");
       assert.isUndefined(firstPrompt["streamingBehavior"]);
+      yield* peer.respond(firstPrompt, {});
+      const first = yield* Fiber.join(firstFiber);
 
       const followUpFiber = yield* adapter
         .sendTurn({ threadId, input: "after first", attachments: [] })
@@ -483,12 +517,10 @@ describe("PiAdapter", () => {
         streamingBehavior: "followUp",
       });
       yield* peer.respond(followUp, {});
-      yield* peer.respond(firstPrompt, {});
-      const first = yield* Fiber.join(firstFiber);
       const followedUp = yield* Fiber.join(followUpFiber);
       assert.equal(String(followedUp.turnId), String(first.turnId));
       yield* peer.writeRecord({ type: "agent_start" });
-      for (let index = 0; index < 4; index += 1) yield* Effect.yieldNow;
+      yield* collected.waitUntil((events) => events.some((event) => event.type === "turn.started"));
 
       const steerFiber = yield* adapter
         .sendTurn({
@@ -852,7 +884,9 @@ describe("PiAdapter", () => {
       );
       assert.equal(completed?.payload.state, "failed");
       assert.isFalse(yield* adapter.hasSession(threadId));
-      for (let index = 0; index < 4; index += 1) yield* Effect.yieldNow;
+      yield* collected.waitUntil((events) =>
+        events.some((event) => event.type === "session.exited"),
+      );
       assert.isTrue(
         collected.events.some(
           (event) => event.type === "session.exited" && event.payload.exitKind === "error",

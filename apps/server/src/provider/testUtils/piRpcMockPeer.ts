@@ -40,7 +40,7 @@ export interface PiRpcMockPeer {
   readonly killCount: Effect.Effect<number>;
 }
 
-const decodeJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
+const decodeJson = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
 const encodeJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 
 export const makePiRpcMockPeer = Effect.fn("makePiRpcMockPeer")(function* () {
@@ -69,7 +69,10 @@ export const makePiRpcMockPeer = Effect.fn("makePiRpcMockPeer")(function* () {
         continue;
       }
       const parsed = decodeJson(line);
-      const command = decodeMockCommand(parsed);
+      if (Exit.isFailure(parsed)) {
+        return yield* Effect.die(new Error("Pi RPC mock received an invalid command"));
+      }
+      const command = decodeMockCommand(parsed.value);
       if (Exit.isFailure(command)) {
         return yield* Effect.die(new Error("Pi RPC mock received an invalid command"));
       }

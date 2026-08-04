@@ -198,6 +198,17 @@ export const spawnPiRpcClient = Effect.fn("spawnPiRpcClient")(function* (
     );
   });
 
+  const takePending = (id: string) =>
+    Ref.modify(state, (current) => {
+      const found = current.pending.get(id);
+      if (found === undefined) {
+        return [undefined, current] as const;
+      }
+      const next = new Map(current.pending);
+      next.delete(id);
+      return [found, { ...current, pending: next }] as const;
+    });
+
   const routeRecord = Effect.fn("PiRpcClient.routeRecord")(function* (
     value: unknown,
     line: string,
@@ -213,18 +224,24 @@ export const spawnPiRpcClient = Effect.fn("spawnPiRpcClient")(function* (
       const decoded = decodeResponse(record);
       if (Exit.isFailure(decoded)) {
         yield* publishDiagnostic(line, "Invalid pi RPC response record");
+        const rawId = record["id"];
+        if (typeof rawId === "string") {
+          const pending = yield* takePending(rawId);
+          if (pending !== undefined) {
+            yield* Deferred.fail(
+              pending.deferred,
+              new PiRpcRequestError({
+                id: rawId,
+                command: pending.command,
+                error: "Pi returned a response that could not be decoded.",
+              }),
+            );
+          }
+        }
         return;
       }
       const response = decoded.value;
-      const pending = yield* Ref.modify(state, (current) => {
-        const found = current.pending.get(response.id);
-        if (found === undefined) {
-          return [undefined, current] as const;
-        }
-        const next = new Map(current.pending);
-        next.delete(response.id);
-        return [found, { ...current, pending: next }] as const;
-      });
+      const pending = yield* takePending(response.id);
       if (pending === undefined) {
         return;
       }
@@ -415,7 +432,9 @@ export const spawnPiRpcClient = Effect.fn("spawnPiRpcClient")(function* (
       yield* failClient(error);
       return yield* error;
     }
-    return yield* Deferred.await(deferred);
+    return yield* Deferred.await(deferred).pipe(
+      Effect.onInterrupt(() => Effect.ignore(takePending(id))),
+    );
   });
 
   return {
