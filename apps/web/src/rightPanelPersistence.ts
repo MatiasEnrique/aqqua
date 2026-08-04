@@ -25,11 +25,10 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "history"; kind: "history" }
-  | { id: "files"; kind: "files" }
   | {
-      id: `file:${string}`;
-      kind: "file";
-      relativePath: string;
+      id: "files";
+      kind: "files";
+      relativePath: string | null;
       revealLine: number | null;
       revealRequestId: number;
     }
@@ -69,8 +68,8 @@ function parsePersistedSurface(
         : 0;
     return [
       {
-        id: surface.id as `file:${string}`,
-        kind: "file",
+        id: "files",
+        kind: "files",
         relativePath: surface.relativePath,
         revealLine,
         revealRequestId,
@@ -84,7 +83,21 @@ function parsePersistedSurface(
     return [{ id: "history", kind: "history" }];
   }
   if (surface.kind === "files" && surface.id === "files") {
-    return [{ id: "files", kind: "files" }];
+    const relativePath = typeof surface.relativePath === "string" ? surface.relativePath : null;
+    const revealLine =
+      relativePath !== null &&
+      typeof surface.revealLine === "number" &&
+      Number.isFinite(surface.revealLine)
+        ? Math.max(1, Math.trunc(surface.revealLine))
+        : null;
+    const revealRequestId =
+      relativePath !== null &&
+      typeof surface.revealRequestId === "number" &&
+      Number.isSafeInteger(surface.revealRequestId) &&
+      surface.revealRequestId >= 0
+        ? surface.revealRequestId
+        : 0;
+    return [{ id: "files", kind: "files", relativePath, revealLine, revealRequestId }];
   }
   if (surface.kind === "plan" && surface.id === "plan") {
     return [{ id: "plan", kind: "plan" }];
@@ -194,15 +207,40 @@ function migratePersistedOwnerState(
     persistedThreadRef && !isWorkspaceTerminalOwnerThreadId(persistedThreadRef.threadId)
       ? persistedThreadRef.threadId
       : undefined;
-  const surfaces = Array.isArray(validThreadState?.surfaces)
-    ? validThreadState.surfaces.flatMap((value) =>
-        parsePersistedSurface(value, legacyOriginThreadId),
-      )
+  const persistedSurfaces = Array.isArray(validThreadState?.surfaces)
+    ? validThreadState.surfaces
     : [];
-  const activeSurfaceId = surfaces.some(
-    (surface) => surface.id === validThreadState?.activeSurfaceId,
-  )
-    ? (validThreadState?.activeSurfaceId ?? null)
+  const parsedSurfaces = persistedSurfaces.flatMap((value) =>
+    parsePersistedSurface(value, legacyOriginThreadId),
+  );
+  const activePersistedSurface = persistedSurfaces.find(
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      "id" in value &&
+      value.id === validThreadState?.activeSurfaceId,
+  );
+  const activeParsedSurface = parsePersistedSurface(
+    activePersistedSurface,
+    legacyOriginThreadId,
+  )[0];
+  const surfaces: RightPanelSurface[] = [];
+  for (const surface of parsedSurfaces) {
+    const existingIndex = surfaces.findIndex((candidate) => candidate.id === surface.id);
+    if (existingIndex < 0) surfaces.push(surface);
+    else if (surface.kind === "files") surfaces[existingIndex] = surface;
+  }
+  if (activeParsedSurface?.kind === "files") {
+    const filesIndex = surfaces.findIndex((surface) => surface.kind === "files");
+    if (filesIndex >= 0) surfaces[filesIndex] = activeParsedSurface;
+  }
+  const migratedActiveSurfaceId =
+    activeParsedSurface?.id ??
+    (typeof validThreadState?.activeSurfaceId === "string"
+      ? validThreadState.activeSurfaceId
+      : null);
+  const activeSurfaceId = surfaces.some((surface) => surface.id === migratedActiveSurfaceId)
+    ? migratedActiveSurfaceId
     : null;
   const isOpen =
     typeof validThreadState?.isOpen === "boolean"

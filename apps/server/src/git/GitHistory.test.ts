@@ -473,9 +473,16 @@ it.layer(TestLayer)("GitHistory", (it) => {
 
         const history = yield* GitHistory.GitHistory;
         const result = yield* history.getDiff({ cwd, commitId });
+        const fileResult = yield* history.getFileDiff({
+          cwd,
+          commitId,
+          path: "root.txt",
+          previousPath: null,
+        });
 
         assert.match(result.diff, /diff --git a\/root\.txt b\/root\.txt/);
         assert.match(result.diff, /^\+root contents$/m);
+        assert.equal(fileResult.diff, result.diff);
         assert.equal(result.truncated, false);
       }),
     );
@@ -562,6 +569,16 @@ it.layer(TestLayer)("GitHistory", (it) => {
           })),
           [{ kind: "renamed", previousPath: "source.txt", path: "renamed.txt" }],
         );
+        const renameDiff = yield* history.getDiff({ cwd, commitId: renameCommit });
+        const renameFileDiff = yield* history.getFileDiff({
+          cwd,
+          commitId: renameCommit,
+          path: "renamed.txt",
+          previousPath: "source.txt",
+        });
+        assert.match(renameDiff.diff, /^rename from source\.txt$/m);
+        assert.match(renameDiff.diff, /^rename to renamed\.txt$/m);
+        assert.equal(renameFileDiff.diff, renameDiff.diff);
 
         yield* writeFile(cwd, "copied.txt", "one\ntwo\nthree\n");
         yield* git(cwd, ["add", "copied.txt"]);
@@ -570,6 +587,16 @@ it.layer(TestLayer)("GitHistory", (it) => {
         const copyDetails = yield* history.getDetails({ cwd, commitId: copyCommit });
         assert.equal(copyDetails.files[0]?.kind, "copied");
         assert.equal(copyDetails.files[0]?.previousPath, "renamed.txt");
+        const copyDiff = yield* history.getDiff({ cwd, commitId: copyCommit });
+        const copyFileDiff = yield* history.getFileDiff({
+          cwd,
+          commitId: copyCommit,
+          path: "copied.txt",
+          previousPath: "renamed.txt",
+        });
+        assert.match(copyDiff.diff, /^copy from renamed\.txt$/m);
+        assert.match(copyDiff.diff, /^copy to copied\.txt$/m);
+        assert.equal(copyFileDiff.diff, copyDiff.diff);
 
         yield* git(cwd, ["rm", "delete.txt"]);
         yield* writeBytes(cwd, "binary.dat", new Uint8Array([0, 1, 2, 3, 4, 5]));
@@ -623,6 +650,42 @@ it.layer(TestLayer)("GitHistory", (it) => {
         });
         assert.match(fileDiff.diff, /diff --git a\/feature\.txt b\/feature\.txt/);
         assert.match(fileDiff.diff, /^\+feature$/m);
+        const wholeDiff = yield* history.getDiff({ cwd, commitId: merge });
+        assert.equal(fileDiff.diff, wholeDiff.diff);
+      }),
+    );
+
+    it.effect("treats selected file paths as literal pathspecs", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepo(cwd);
+        const literalPath = ":(glob)*.txt";
+        yield* writeFile(cwd, literalPath, "literal\n");
+        yield* writeFile(cwd, "sibling.txt", "sibling\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Root"]);
+        yield* writeFile(cwd, literalPath, "literal\nselected\n");
+        yield* writeFile(cwd, "sibling.txt", "sibling\nnot selected\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "Change literal path"]);
+        const commitId = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const history = yield* GitHistory.GitHistory;
+        const details = yield* history.getDetails({ cwd, commitId });
+        assert.deepStrictEqual(
+          details.files.map((file) => file.path),
+          [literalPath, "sibling.txt"],
+        );
+
+        const fileDiff = yield* history.getFileDiff({
+          cwd,
+          commitId,
+          path: literalPath,
+          previousPath: null,
+        });
+        assert.match(fileDiff.diff, /^\+selected$/m);
+        assert.equal(fileDiff.diff.includes("sibling.txt"), false);
+        assert.equal(fileDiff.diff.includes("not selected"), false);
       }),
     );
 
@@ -688,6 +751,11 @@ it.layer(TestLayer)("GitHistory", (it) => {
         );
         assert.equal(fileDiffError._tag, "GitCommandError");
         assert.equal(fileDiffError.detail, "The selected commit could not be resolved.");
+
+        const blobId = yield* git(cwd, ["hash-object", "large.txt"]);
+        const blobError = yield* Effect.flip(history.getDiff({ cwd, commitId: blobId }));
+        assert.equal(blobError._tag, "GitCommandError");
+        assert.equal(blobError.detail, "The selected commit could not be resolved.");
       }),
     );
   });
@@ -700,12 +768,12 @@ describe("GitHistory bounded-output parsing", () => {
     const gitLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       execute: (input) => {
         switch (input.operation) {
-          case "GitHistory.getDetails.verify":
-            return Effect.succeed(executeResult(""));
+          case "GitHistory.getDetails.comparison":
+            return Effect.succeed(executeResult(`${commitId} ${parentId}\n`));
           case "GitHistory.getDetails.metadata":
             return Effect.succeed(
               executeResult(
-                ["Test Committer", "test@example.com", "2026-07-29T12:00:00Z", parentId].join("\0"),
+                ["Test Committer", "test@example.com", "2026-07-29T12:00:00Z"].join("\0"),
               ),
             );
           case "GitHistory.getDetails.body":
@@ -748,8 +816,8 @@ describe("GitHistory bounded-output parsing", () => {
       execute: (input) => {
         calls.push(input.args);
         switch (input.operation) {
-          case "GitHistory.getFileDiff.parents":
-            return Effect.succeed(executeResult(`${parentId}\n`));
+          case "GitHistory.getFileDiff.comparison":
+            return Effect.succeed(executeResult(`${commitId} ${parentId}\n`));
           case "GitHistory.getFileDiff.patch":
             return Effect.succeed(
               executeResult("diff --git a/old.ts b/new.ts\n", { truncated: true }),
@@ -776,6 +844,9 @@ describe("GitHistory bounded-output parsing", () => {
         truncated: true,
       });
       assert.equal(calls.at(-1)?.includes("--literal-pathspecs"), true);
+      assert.equal(calls.at(-1)?.includes("--find-copies-harder"), true);
+      assert.equal(calls.at(-1)?.includes("--no-ext-diff"), true);
+      assert.equal(calls.at(-1)?.includes("--no-textconv"), true);
       assert.deepStrictEqual(calls.at(-1)?.slice(-3), ["--", "old.ts", "new.ts"]);
     }).pipe(Effect.provide(gitLayer));
   });

@@ -7,7 +7,9 @@
  *
  * @module WorkspaceFileSystem
  */
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 
 import type {
   ProjectCreateEntryInput,
@@ -41,7 +43,78 @@ type WorkspaceEntryMutationOperation =
   | "create-file"
   | "rename"
   | "stat"
-  | "remove";
+  | "remove"
+  | "write-file";
+
+export interface WorkspaceMoveOperations {
+  readonly rename: typeof NodeFSP.rename;
+  readonly cp: typeof NodeFSP.cp;
+  readonly rm: typeof NodeFSP.rm;
+  readonly lstat: typeof NodeFSP.lstat;
+}
+
+const defaultWorkspaceMoveOperations: WorkspaceMoveOperations = {
+  rename: NodeFSP.rename,
+  cp: NodeFSP.cp,
+  rm: NodeFSP.rm,
+  lstat: NodeFSP.lstat,
+};
+
+/**
+ * Move an entry with an atomic rename when both paths share a filesystem.
+ *
+ * EXDEV is the only reason to copy. That fallback copies to a private sibling,
+ * publishes it with a same-filesystem rename, and removes the source last. If
+ * source removal fails, deleting the published destination is the best rollback
+ * Node can provide without a filesystem transaction.
+ */
+export async function moveWorkspaceEntryOnDisk(
+  input: {
+    readonly sourcePath: string;
+    readonly destinationPath: string;
+    readonly recursive: boolean;
+    readonly stagingSuffix?: string;
+  },
+  operations: WorkspaceMoveOperations = defaultWorkspaceMoveOperations,
+): Promise<void> {
+  try {
+    await operations.rename(input.sourcePath, input.destinationPath);
+    return;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "EXDEV") throw cause;
+  }
+
+  const stagingPath = `${input.destinationPath}.aqqua-move-${input.stagingSuffix ?? randomUUID()}`;
+  try {
+    await operations.cp(input.sourcePath, stagingPath, {
+      recursive: input.recursive,
+      force: false,
+      errorOnExist: true,
+      preserveTimestamps: true,
+    });
+    try {
+      await operations.lstat(input.destinationPath);
+      const collision = new Error(`Destination already exists: ${input.destinationPath}`);
+      (collision as NodeJS.ErrnoException).code = "EEXIST";
+      throw collision;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+    await operations.rename(stagingPath, input.destinationPath);
+  } catch (cause) {
+    await operations.rm(stagingPath, { recursive: true, force: true }).catch(() => undefined);
+    throw cause;
+  }
+
+  try {
+    await operations.rm(input.sourcePath, { recursive: input.recursive });
+  } catch (cause) {
+    await operations
+      .rm(input.destinationPath, { recursive: true, force: true })
+      .catch(() => undefined);
+    throw cause;
+  }
+}
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -485,31 +558,119 @@ export const make = Effect.gen(function* () {
       relativePath: input.relativePath,
     });
 
-    yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new WorkspaceFileSystemOperationError({
+    const initialTarget = yield* mutationTargetWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+      absolutePath: target.absolutePath,
+    });
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.mkdir(path.dirname(initialTarget.resolvedPath), { recursive: true }),
+      catch: (cause) =>
+        operationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: initialTarget.resolvedPath,
+          operationPath: path.dirname(initialTarget.resolvedPath),
+          operation: "make-directory",
+          cause,
+        }),
+    });
+
+    // mkdir and open are pathname-based in Node. Resolve again after directory
+    // creation, then validate the opened inode before truncating it so a swapped
+    // parent or target cannot redirect file contents outside the workspace.
+    const writableTarget = yield* mutationTargetWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+      absolutePath: target.absolutePath,
+    });
+    const openFlags = writableTarget.exists
+      ? NodeFS.constants.O_RDWR | NodeFS.constants.O_NOFOLLOW
+      : NodeFS.constants.O_CREAT |
+        NodeFS.constants.O_EXCL |
+        NodeFS.constants.O_RDWR |
+        NodeFS.constants.O_NOFOLLOW;
+    yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: () => NodeFSP.open(writableTarget.resolvedPath, openFlags, 0o666),
+        catch: (cause) =>
+          operationError({
             workspaceRoot: input.cwd,
             relativePath: input.relativePath,
-            resolvedPath: target.absolutePath,
-            operationPath: path.dirname(target.absolutePath),
-            operation: "make-directory",
-            cause,
-          }),
-      ),
-    );
-    yield* fileSystem.writeFileString(target.absolutePath, input.contents).pipe(
-      Effect.mapError(
-        (cause) =>
-          new WorkspaceFileSystemOperationError({
-            workspaceRoot: input.cwd,
-            relativePath: input.relativePath,
-            resolvedPath: target.absolutePath,
-            operationPath: target.absolutePath,
+            resolvedPath: writableTarget.resolvedPath,
+            operationPath: writableTarget.resolvedPath,
             operation: "write-file",
             cause,
           }),
-      ),
+      }),
+      (handle) =>
+        Effect.gen(function* () {
+          const [handleStat, pathStat, openedRealPath] = yield* Effect.tryPromise({
+            try: () =>
+              Promise.all([
+                handle.stat(),
+                NodeFSP.lstat(writableTarget.resolvedPath),
+                NodeFSP.realpath(writableTarget.resolvedPath),
+              ]),
+            catch: (cause) =>
+              operationError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath: writableTarget.resolvedPath,
+                operationPath: writableTarget.resolvedPath,
+                operation: "stat",
+                cause,
+              }),
+          });
+          yield* assertRealPathWithinRoot({
+            workspaceRoot: input.cwd,
+            relativePath: input.relativePath,
+            resolvedWorkspaceRoot: writableTarget.resolvedWorkspaceRoot,
+            resolvedPath: openedRealPath,
+          });
+          if (
+            pathStat.isSymbolicLink() ||
+            handleStat.dev !== pathStat.dev ||
+            handleStat.ino !== pathStat.ino
+          ) {
+            return yield* operationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: writableTarget.resolvedPath,
+              operationPath: writableTarget.resolvedPath,
+              operation: "stat",
+              cause: new Error("Workspace write target changed while it was being opened."),
+            });
+          }
+          yield* Effect.tryPromise({
+            try: async () => {
+              await handle.truncate(0);
+              await handle.writeFile(input.contents, "utf8");
+            },
+            catch: (cause) =>
+              operationError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath: writableTarget.resolvedPath,
+                operationPath: writableTarget.resolvedPath,
+                operation: "write-file",
+                cause,
+              }),
+          });
+        }),
+      (handle) =>
+        Effect.tryPromise({
+          try: () => handle.close(),
+          catch: (cause) =>
+            operationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: writableTarget.resolvedPath,
+              operationPath: writableTarget.resolvedPath,
+              operation: "write-file",
+              cause,
+            }),
+        }),
     );
     yield* workspaceEntries.refresh(input.cwd);
     return { relativePath: target.relativePath };
@@ -649,48 +810,50 @@ export const make = Effect.gen(function* () {
         }),
     });
     yield* Effect.tryPromise({
-      try: async () => {
-        try {
-          await NodeFSP.cp(source.absolutePath, resolvedDestination.resolvedPath, {
-            recursive: sourceStat.isDirectory(),
-            force: false,
-            errorOnExist: true,
-            preserveTimestamps: true,
-          });
-        } catch (cause) {
-          const code = (cause as NodeJS.ErrnoException).code;
-          if (code !== "EEXIST" && code !== "ENOTEMPTY") {
-            await NodeFSP.rm(resolvedDestination.resolvedPath, {
-              recursive: true,
-              force: true,
-            }).catch(() => undefined);
-          }
-          throw cause;
-        }
-        try {
-          await NodeFSP.rm(source.absolutePath, {
-            recursive: sourceStat.isDirectory(),
-          });
-        } catch (cause) {
-          await NodeFSP.rm(resolvedDestination.resolvedPath, {
-            recursive: true,
-            force: true,
-          }).catch(() => undefined);
-          throw cause;
-        }
-      },
+      try: () => NodeFSP.mkdir(path.dirname(resolvedDestination.resolvedPath), { recursive: true }),
+      catch: (cause) =>
+        operationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.destinationPath,
+          resolvedPath: resolvedDestination.resolvedPath,
+          operationPath: path.dirname(resolvedDestination.resolvedPath),
+          operation: "make-directory",
+          cause,
+        }),
+    });
+    const publishDestination = yield* mutationTargetWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.destinationPath,
+      absolutePath: destination.absolutePath,
+    });
+    if (publishDestination.exists) {
+      return yield* new WorkspaceEntryCollisionError({
+        workspaceRoot: input.cwd,
+        relativePath: input.destinationPath,
+        resolvedPath: publishDestination.resolvedPath,
+      });
+    }
+    yield* Effect.tryPromise({
+      try: () =>
+        moveWorkspaceEntryOnDisk({
+          // Rename the entry itself, not the canonical target of an in-workspace
+          // symlink. The realpath check above is only the containment proof.
+          sourcePath: source.absolutePath,
+          destinationPath: publishDestination.resolvedPath,
+          recursive: sourceStat.isDirectory(),
+        }),
       catch: (cause) =>
         ["EEXIST", "ENOTEMPTY"].includes((cause as NodeJS.ErrnoException).code ?? "")
           ? new WorkspaceEntryCollisionError({
               workspaceRoot: input.cwd,
               relativePath: input.destinationPath,
-              resolvedPath: resolvedDestination.resolvedPath,
+              resolvedPath: publishDestination.resolvedPath,
             })
           : operationError({
               workspaceRoot: input.cwd,
               relativePath: input.sourcePath,
               resolvedPath: resolvedSourcePath,
-              operationPath: resolvedDestination.resolvedPath,
+              operationPath: publishDestination.resolvedPath,
               operation: "rename",
               cause,
             }),
@@ -698,7 +861,7 @@ export const make = Effect.gen(function* () {
     yield* realExistingTargetWithinRoot({
       workspaceRoot: input.cwd,
       relativePath: input.destinationPath,
-      absolutePath: resolvedDestination.resolvedPath,
+      absolutePath: publishDestination.resolvedPath,
     });
     yield* workspaceEntries.refresh(input.cwd);
     return {

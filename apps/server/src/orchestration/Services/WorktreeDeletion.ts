@@ -49,10 +49,15 @@ export type WorktreeDeletionStepError = {
   readonly message: string;
 };
 
+type WorktreeRemovalInspection = VcsInspectWorktreeRemovalResult & {
+  /** Internal registered-worktree identity; intentionally absent from the wire contract. */
+  readonly worktreeIdentity?: string | undefined;
+};
+
 export interface WorktreeDeletionDeps {
   readonly inspectWorktreeRemoval: (
     input: Pick<VcsDeleteWorktreeInput, "cwd" | "path">,
-  ) => Effect.Effect<VcsInspectWorktreeRemovalResult, GitCommandError>;
+  ) => Effect.Effect<WorktreeRemovalInspection, GitCommandError>;
   readonly removeWorktree: (input: VcsDeleteWorktreeInput) => Effect.Effect<void, GitCommandError>;
   readonly deleteLocalBranch?: (input: {
     readonly cwd: string;
@@ -92,6 +97,18 @@ const conversationPartial = (
   worktreeRemoval,
 });
 
+const sameRemovalInspection = (
+  confirmed: WorktreeRemovalInspection,
+  current: WorktreeRemovalInspection,
+): boolean =>
+  confirmed.availability === current.availability &&
+  confirmed.refName === current.refName &&
+  confirmed.headCommit === current.headCommit &&
+  confirmed.baseRef === current.baseRef &&
+  confirmed.mergeStatus === current.mergeStatus &&
+  confirmed.workingTreeStatus === current.workingTreeStatus &&
+  confirmed.worktreeIdentity === current.worktreeIdentity;
+
 /**
  * Delete every conversation for a worktree path, then remove the worktree.
  *
@@ -107,6 +124,7 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
     cwd: input.cwd,
     path: input.path,
   });
+  let worktreeRemoved = false;
 
   return yield* deps.pathCoordination.withDeletion(
     input.path,
@@ -177,13 +195,48 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
         };
       }
 
+      const reinspectionResult = yield* deps
+        .inspectWorktreeRemoval({
+          cwd: input.cwd,
+          path: input.path,
+        })
+        .pipe(Effect.result);
+      if (Result.isFailure(reinspectionResult)) {
+        return {
+          status: "partial" as const,
+          stage: "worktree" as const,
+          deletedThreadIds,
+          retryable: true,
+          detail: reinspectionResult.failure.message,
+          worktreeRemoval: "not_attempted" as const,
+        };
+      }
+      if (!sameRemovalInspection(inspection, reinspectionResult.success)) {
+        return {
+          status: "partial" as const,
+          stage: "worktree" as const,
+          deletedThreadIds,
+          retryable: true,
+          detail: "Worktree changed after deletion confirmation; inspect it again before retrying.",
+          worktreeRemoval: "not_attempted" as const,
+        };
+      }
+
       const removeResult = yield* deps
         .removeWorktree({
           cwd: input.cwd,
           path: input.path,
           force: input.force ?? true,
         })
-        .pipe(Effect.result);
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              worktreeRemoved = true;
+            }),
+          ),
+          Effect.result,
+          Effect.uninterruptible,
+        );
 
       if (Result.isFailure(removeResult)) {
         return {
@@ -200,8 +253,8 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
       let branchRemoval: "removed" | "unavailable" | null = null;
       if (input.deleteBranch) {
         if (
-          inspection.refName === null ||
-          inspection.headCommit === null ||
+          reinspectionResult.success.refName === null ||
+          reinspectionResult.success.headCommit === null ||
           deps.deleteLocalBranch === undefined
         ) {
           branchRemoval = "unavailable";
@@ -209,8 +262,8 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
           const branchResult = yield* deps
             .deleteLocalBranch({
               cwd: input.cwd,
-              refName: inspection.refName,
-              expectedHeadCommit: inspection.headCommit,
+              refName: reinspectionResult.success.refName,
+              expectedHeadCommit: reinspectionResult.success.headCommit,
             })
             .pipe(Effect.result);
           if (Result.isFailure(branchResult)) {
@@ -246,5 +299,8 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
       };
     }),
     (result): WorktreePathDeletionRelease => releaseOutcomeForDeleteResult(result),
+    {
+      releaseOnFailure: () => (worktreeRemoved ? "removed" : "kept"),
+    },
   );
 });

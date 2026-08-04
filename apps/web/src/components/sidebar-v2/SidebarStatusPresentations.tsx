@@ -1,42 +1,17 @@
-import { CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, ClockIcon } from "lucide-react";
 import type { SidebarConversationSummaryState } from "../Sidebar.summaryState";
 import type { SidebarProjectState, SidebarWorktreeStateCounts } from "../Sidebar.worktreeGroups";
 import { cn } from "~/lib/utils";
+import { CONVERSATION_STATE_PRESENTATIONS } from "../conversationStatePresentation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export type SidebarSummaryState = SidebarConversationSummaryState | "settled";
 
 export const SIDEBAR_STATE_PRESENTATIONS = {
-  working: {
-    label: "Working",
-    description: "An agent session is running.",
-    icon: CircleDashedIcon,
-    className: "text-sky-600 dark:text-sky-400",
-  },
-  needsInput: {
-    label: "Needs input",
-    description: "Waiting for your reply or approval.",
-    icon: CircleAlertIcon,
-    className: "text-violet-600 dark:text-violet-300",
-  },
-  done: {
-    label: "Done",
-    description: "Completed or ready, still in the active list.",
-    icon: CircleCheckIcon,
-    className: "text-emerald-700 dark:text-emerald-300",
-  },
-  stale: {
-    label: "Stale",
-    description: "A draft, interrupted turn, or failed session.",
-    icon: ClockIcon,
-    className: "text-muted-foreground/60",
-  },
-  settled: {
-    label: "Settled",
-    description: "Stored in the shared Settled section.",
-    icon: CircleCheckIcon,
-    className: "text-amber-600 dark:text-amber-300",
-  },
+  working: CONVERSATION_STATE_PRESENTATIONS.working,
+  needsInput: CONVERSATION_STATE_PRESENTATIONS.needsInput,
+  done: CONVERSATION_STATE_PRESENTATIONS.done,
+  stale: CONVERSATION_STATE_PRESENTATIONS.stale,
+  settled: CONVERSATION_STATE_PRESENTATIONS.settled,
 } as const;
 
 export function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {

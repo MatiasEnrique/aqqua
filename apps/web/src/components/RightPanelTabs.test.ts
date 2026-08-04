@@ -8,4 +8,20 @@ describe("rightPanelSurfaceTitle", () => {
       "History",
     );
   });
+
+  it("keeps the Explorer tab label while showing a file", () => {
+    expect(
+      rightPanelSurfaceTitle(
+        {
+          id: "files",
+          kind: "files",
+          relativePath: "src/index.ts",
+          revealLine: null,
+          revealRequestId: 1,
+        },
+        {},
+        new Map(),
+      ),
+    ).toBe("Files");
+  });
 });

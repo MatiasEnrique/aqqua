@@ -624,7 +624,7 @@ function ExpandedStep({
         {...drag.attributes}
         {...drag.listeners}
         aria-label={`Drag step ${index + 1} to reorder`}
-        className="shrink-0 cursor-grab touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+        className="shrink-0 cursor-grab touch-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
       >
         <StepNumber index={index} variant="active" />
       </button>

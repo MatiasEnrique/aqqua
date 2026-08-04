@@ -72,6 +72,8 @@ export interface DeletionOptions {
   readonly onOwnershipMarked?: Effect.Effect<void>;
   /** After create leases have drained, immediately before the deletion body. */
   readonly onReadyForBody?: Effect.Effect<void>;
+  /** Release outcome when the body fails after completing a destructive step. */
+  readonly releaseOnFailure?: () => WorktreePathDeletionRelease;
 }
 
 /**
@@ -450,7 +452,7 @@ const withDeletion = <A, E, R>(
     (_acquired, exit) => {
       const release: WorktreePathDeletionRelease = Exit.isSuccess(exit)
         ? releaseOf(exit.value)
-        : "kept";
+        : (options?.releaseOnFailure?.() ?? "kept");
       return finalizeDeletionOwnership(key, release);
     },
   );
@@ -541,7 +543,7 @@ export const layer = Layer.succeed(WorktreePathCoordination, WorktreePathCoordin
 export function releaseOutcomeForDeleteResult(result: {
   readonly status: string;
   readonly worktreeRemoval?: string;
-  readonly preservedUnverifiedPath?: boolean;
+  readonly preservedUnverifiedPath?: boolean | undefined;
 }): WorktreePathDeletionRelease {
   if (result.status === "completed") {
     if (result.preservedUnverifiedPath === true) return "kept";

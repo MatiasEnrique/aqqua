@@ -1920,11 +1920,68 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "card.archive": {
-      const card = yield* requireCardNotArchived({
-        readModel,
-        command,
-        cardId: command.cardId,
-      });
+      const card = yield* requireCard({ readModel, command, cardId: command.cardId });
+      if (command.operationId !== undefined) {
+        const operation = yield* requireMatchingCardOperation(
+          card,
+          command.type,
+          command.operationId,
+          ["deleting"],
+        );
+        if (
+          operation.kind !== "deleting" ||
+          (operation.purpose ?? "delete") !== "archive" ||
+          operation.cleanupStage !== "artifacts-removed"
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Card '${command.cardId}' archive cleanup is not complete.`,
+          });
+        }
+        const occurredAt = yield* nowIso;
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "card",
+            aggregateId: command.cardId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "card.archived",
+          payload: {
+            cardId: command.cardId,
+            archivedAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        };
+      }
+      if (card.archivedAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is archived.`,
+        });
+      }
+      if (
+        card.operation?.kind === "deleting" &&
+        (card.operation.purpose ?? "delete") === "archive" &&
+        card.lastError !== null
+      ) {
+        const occurredAt = yield* nowIso;
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "card",
+            aggregateId: command.cardId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "card.delete-requested",
+          payload: {
+            cardId: command.cardId,
+            requestedAt: occurredAt,
+            operationId: card.operation.operationId,
+            purpose: "archive",
+          },
+        };
+      }
       yield* rejectIfCardHasOperation(card, command.type);
       if (card.position.kind !== "done" || card.settledAt === null) {
         return yield* new OrchestrationCommandInvariantError({
@@ -1933,6 +1990,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
+      const operationId = cardOperationIdFromCommand(command.commandId);
       return {
         ...(yield* withEventBase({
           aggregateKind: "card",
@@ -1940,11 +1998,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         })),
-        type: "card.archived",
+        type: "card.delete-requested",
         payload: {
           cardId: command.cardId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
+          requestedAt: occurredAt,
+          operationId,
+          purpose: "archive",
         },
       };
     }
@@ -1969,6 +2028,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             cardId: command.cardId,
             requestedAt: occurredAt,
             operationId: card.operation.operationId,
+            purpose: card.operation.purpose ?? "delete",
           },
         };
       }
@@ -1993,6 +2053,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           cardId: command.cardId,
           requestedAt: occurredAt,
           operationId,
+          purpose: "delete",
         },
       };
     }

@@ -11,6 +11,11 @@ export function makeBoardReconciliationEvents(
 ): ReadonlyArray<BoardReactorEvent> {
   const events: BoardReactorEvent[] = [];
   for (const card of cards) {
+    // Historical archive receipts may predate operation clearing. An already
+    // archived card is final and must never resume stale cleanup metadata.
+    if (card.archivedAt !== null) {
+      continue;
+    }
     const operation = card.operation;
     if (operation === null) {
       // Legacy status:deleting without a durable claim.
@@ -133,6 +138,7 @@ export function makeBoardReconciliationEvents(
             cardId: card.id,
             requestedAt: operation.requestedAt,
             operationId: operation.operationId,
+            purpose: operation.purpose ?? "delete",
           },
         } as BoardReactorEvent);
         break;

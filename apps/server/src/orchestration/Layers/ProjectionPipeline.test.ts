@@ -405,6 +405,49 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.equal(deletingRows[0]?.status, null);
       assert.ok(deletingRows[0]?.operationJson?.includes("deleting"));
       assert.ok(deletingRows[0]?.operationJson?.includes("op-delete"));
+      assert.ok(deletingRows[0]?.operationJson?.includes('"purpose":"delete"'));
+
+      const archiveRequested = yield* eventStore.append({
+        type: "card.delete-requested",
+        eventId: EventId.make("evt-card-archive-requested"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-archive-requested"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-card-archive-requested"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          requestedAt: now,
+          operationId: "op-archive" as never,
+          purpose: "archive",
+        },
+      });
+      yield* projectionPipeline.projectEvent(archiveRequested);
+      const archiveRetry = yield* eventStore.append({
+        type: "card.delete-requested",
+        eventId: EventId.make("evt-card-archive-retried"),
+        aggregateKind: "card",
+        aggregateId: "card-1" as never,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-card-archive-retried"),
+        causationEventId: archiveRequested.eventId,
+        correlationId: CommandId.make("cmd-card-archive-requested"),
+        metadata: {},
+        payload: {
+          cardId: "card-1" as never,
+          requestedAt: now,
+          operationId: "op-archive" as never,
+        },
+      });
+      yield* projectionPipeline.projectEvent(archiveRetry);
+      const archivingRows = yield* sql<{ readonly operationJson: string | null }>`
+        SELECT operation_json AS "operationJson"
+        FROM projection_cards
+        WHERE card_id = 'card-1'
+      `;
+      assert.ok(archivingRows[0]?.operationJson?.includes('"purpose":"archive"'));
 
       const deleted = yield* eventStore.append({
         type: "card.deleted",

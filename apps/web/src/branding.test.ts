@@ -118,13 +118,12 @@ describe("branding logic", () => {
 });
 
 describe("resolveSidebarV2Default", () => {
-  it.each(["Nightly", "Dev", "nightly", " dev "])("enables the beta for %s builds", (stage) => {
-    expect(resolveSidebarV2Default(stage)).toBe(true);
-  });
-
-  it.each(["Alpha", "Latest", ""])("leaves the beta off for %s builds", (stage) => {
-    expect(resolveSidebarV2Default(stage)).toBe(false);
-  });
+  it.each(["Nightly", "Dev", "nightly", " dev ", "Alpha", "Latest", ""])(
+    "leaves the worktree view opt-in for %s builds",
+    (stage) => {
+      expect(resolveSidebarV2Default(stage)).toBe(false);
+    },
+  );
 });
 
 describe("resolveSidebarV2Enabled", () => {
@@ -154,7 +153,7 @@ describe("resolveSidebarV2Enabled", () => {
         configuredByUser: false,
         stageLabel: "Nightly",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       resolveSidebarV2Enabled({
         ...hydrated,
@@ -176,7 +175,7 @@ describe("resolveSidebarV2Enabled", () => {
     ).toBe(false);
   });
 
-  it("holds v1 until settings hydrate so the sidebar does not remount", () => {
+  it("holds the regular sidebar until settings hydrate so the sidebar does not remount", () => {
     expect(
       resolveSidebarV2Enabled({
         enabled: true,

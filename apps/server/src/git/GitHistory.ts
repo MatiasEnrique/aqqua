@@ -345,6 +345,41 @@ interface ParsedNumstat {
   readonly binary: boolean;
 }
 
+interface CommitComparison {
+  readonly commitId: GitObjectIdType;
+  readonly comparisonParentId: GitObjectIdType | null;
+}
+
+type ComparisonOutput = "name-status" | "numstat" | "patch";
+
+function comparisonArgs(
+  comparison: CommitComparison,
+  output: ComparisonOutput,
+  literalPathspecs: ReadonlyArray<string> = [],
+): string[] {
+  const command = comparison.comparisonParentId
+    ? ["diff"]
+    : ["diff-tree", "--root", "--no-commit-id", "-r"];
+  const outputArgs =
+    output === "patch" ? ["--patch", "--no-color", "--no-textconv"] : [`--${output}`, "-z"];
+  const targets = comparison.comparisonParentId
+    ? [comparison.comparisonParentId, comparison.commitId]
+    : [comparison.commitId];
+
+  return [
+    ...(literalPathspecs.length > 0 ? ["--literal-pathspecs"] : []),
+    ...command,
+    "--no-ext-diff",
+    "--find-renames",
+    "--find-copies",
+    "--find-copies-harder",
+    ...outputArgs,
+    ...targets,
+    "--",
+    ...literalPathspecs,
+  ];
+}
+
 function parseCount(value: string): number | null | undefined {
   if (value === "-") return null;
   if (!/^\d+$/.test(value)) return undefined;
@@ -434,6 +469,43 @@ export const make = Effect.gen(function* () {
         ? {}
         : { allowNonZeroExit: options.allowNonZeroExit }),
     });
+
+  const resolveComparison = Effect.fn("GitHistory.resolveComparison")(function* (
+    operation: string,
+    cwd: string,
+    commitId: GitObjectIdType,
+  ): Effect.fn.Return<CommitComparison, GitCommandError> {
+    if (!parseObjectId(commitId)) {
+      return yield* historyError(operation, cwd, "The selected commit could not be resolved.");
+    }
+
+    const comparisonResult = yield* execute(
+      `${operation}.comparison`,
+      cwd,
+      ["rev-list", "--parents", "--max-count=1", commitId, "--"],
+      { allowNonZeroExit: true },
+    );
+    if (comparisonResult.exitCode !== 0) {
+      return yield* historyError(operation, cwd, "The selected commit could not be resolved.");
+    }
+
+    const objectIds = comparisonResult.stdout.trim().split(" ").filter(Boolean).map(parseObjectId);
+    if (objectIds[0] !== commitId) {
+      return yield* historyError(operation, cwd, "The selected commit could not be resolved.");
+    }
+    if (objectIds.some((objectId) => objectId === null)) {
+      return yield* historyError(
+        `${operation}.parseComparison`,
+        cwd,
+        "Git commit metadata contained an invalid parent id.",
+      );
+    }
+
+    return {
+      commitId,
+      comparisonParentId: (objectIds[1] ?? null) as GitObjectIdType | null,
+    };
+  });
 
   const list: GitHistory["Service"]["list"] = Effect.fn("GitHistory.list")(function* (input) {
     const [headResult, currentRefResult, refsResult] = yield* Effect.all(
@@ -556,19 +628,11 @@ export const make = Effect.gen(function* () {
 
   const getDetails: GitHistory["Service"]["getDetails"] = Effect.fn("GitHistory.getDetails")(
     function* (input) {
-      const verifyResult = yield* execute(
-        "GitHistory.getDetails.verify",
+      const comparison = yield* resolveComparison(
+        "GitHistory.getDetails",
         input.cwd,
-        ["cat-file", "-e", `${input.commitId}^{commit}`],
-        { allowNonZeroExit: true },
+        input.commitId,
       );
-      if (verifyResult.exitCode !== 0) {
-        return yield* historyError(
-          "GitHistory.getDetails",
-          input.cwd,
-          "The selected commit could not be resolved.",
-        );
-      }
 
       const [metadata, bodyResult] = yield* Effect.all(
         [
@@ -576,7 +640,7 @@ export const make = Effect.gen(function* () {
             "show",
             "-s",
             "-z",
-            "--format=%cn%x00%ce%x00%cI%x00%P",
+            "--format=%cn%x00%ce%x00%cI",
             input.commitId,
           ]),
           execute(
@@ -592,42 +656,19 @@ export const make = Effect.gen(function* () {
         { concurrency: "unbounded" },
       );
       const fields = metadata.stdout.split("\0");
-      if (fields.length < 4) {
+      if (fields.length < 3) {
         return yield* historyError(
           "GitHistory.getDetails.parseMetadata",
           input.cwd,
           "Git commit metadata was incomplete.",
         );
       }
-      const parentIds = (fields[3] ?? "").split(" ").filter(Boolean).map(parseObjectId);
-      if (parentIds.some((parentId) => parentId === null)) {
-        return yield* historyError(
-          "GitHistory.getDetails.parseMetadata",
-          input.cwd,
-          "Git commit metadata contained an invalid parent id.",
-        );
-      }
-      const comparisonParentId = (parentIds[0] ?? null) as GitObjectIdType | null;
-      const diffBaseArgs = comparisonParentId
-        ? ["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--find-copies-harder"]
-        : [
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "--find-renames",
-            "--find-copies",
-            "--find-copies-harder",
-          ];
-      const diffTargetArgs = comparisonParentId
-        ? [comparisonParentId, input.commitId, "--"]
-        : [input.commitId, "--"];
       const [nameStatusResult, numstatResult] = yield* Effect.all(
         [
           execute(
             "GitHistory.getDetails.nameStatus",
             input.cwd,
-            [...diffBaseArgs, "--name-status", "-z", ...diffTargetArgs],
+            comparisonArgs(comparison, "name-status"),
             {
               maxOutputBytes: HISTORY_FILES_MAX_OUTPUT_BYTES,
               truncateOutput: true,
@@ -636,7 +677,7 @@ export const make = Effect.gen(function* () {
           execute(
             "GitHistory.getDetails.numstat",
             input.cwd,
-            [...diffBaseArgs, "--numstat", "-z", ...diffTargetArgs],
+            comparisonArgs(comparison, "numstat"),
             {
               maxOutputBytes: HISTORY_FILES_MAX_OUTPUT_BYTES,
               truncateOutput: true,
@@ -664,7 +705,7 @@ export const make = Effect.gen(function* () {
             ? bodyResult.stdout.slice(0, -1)
             : bodyResult.stdout,
         bodyTruncated: bodyResult.stdoutTruncated,
-        comparisonParentId,
+        comparisonParentId: comparison.comparisonParentId,
         files: combineFileChanges(statuses, stats),
         filesTruncated: nameStatusResult.stdoutTruncated || numstatResult.stdoutTruncated,
       };
@@ -673,67 +714,23 @@ export const make = Effect.gen(function* () {
 
   const getFileDiff: GitHistory["Service"]["getFileDiff"] = Effect.fn("GitHistory.getFileDiff")(
     function* (input) {
-      const parentsResult = yield* execute(
-        "GitHistory.getFileDiff.parents",
+      const comparison = yield* resolveComparison(
+        "GitHistory.getFileDiff",
         input.cwd,
-        ["show", "-s", "--format=%P", input.commitId],
-        { allowNonZeroExit: true },
+        input.commitId,
       );
-      if (parentsResult.exitCode !== 0) {
-        return yield* historyError(
-          "GitHistory.getFileDiff",
-          input.cwd,
-          "The selected commit could not be resolved.",
-        );
-      }
-
-      const parentValues = parentsResult.stdout.trim().split(" ").filter(Boolean);
-      const parentIds = parentValues.map(parseObjectId);
-      if (parentIds.some((parentId) => parentId === null)) {
-        return yield* historyError(
-          "GitHistory.getFileDiff.parseParents",
-          input.cwd,
-          "Git commit metadata contained an invalid parent id.",
-        );
-      }
-      const comparisonParentId = (parentIds[0] ?? null) as GitObjectIdType | null;
       const pathspec = [
         ...new Set([input.previousPath, input.path].filter((path) => path !== null)),
       ];
-      const patchArgs = comparisonParentId
-        ? [
-            "--literal-pathspecs",
-            "diff",
-            "--no-ext-diff",
-            "--find-renames",
-            "--find-copies",
-            "--patch",
-            "--no-color",
-            "--no-textconv",
-            comparisonParentId,
-            input.commitId,
-            "--",
-            ...pathspec,
-          ]
-        : [
-            "--literal-pathspecs",
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "--find-renames",
-            "--find-copies",
-            "--patch",
-            "--no-color",
-            "--no-textconv",
-            input.commitId,
-            "--",
-            ...pathspec,
-          ];
-      const patchResult = yield* execute("GitHistory.getFileDiff.patch", input.cwd, patchArgs, {
-        maxOutputBytes: HISTORY_DIFF_MAX_OUTPUT_BYTES,
-        truncateOutput: true,
-      });
+      const patchResult = yield* execute(
+        "GitHistory.getFileDiff.patch",
+        input.cwd,
+        comparisonArgs(comparison, "patch", pathspec),
+        {
+          maxOutputBytes: HISTORY_DIFF_MAX_OUTPUT_BYTES,
+          truncateOutput: true,
+        },
+      );
 
       return {
         commitId: input.commitId,
@@ -746,60 +743,16 @@ export const make = Effect.gen(function* () {
 
   const getDiff: GitHistory["Service"]["getDiff"] = Effect.fn("GitHistory.getDiff")(
     function* (input) {
-      const parentsResult = yield* execute(
-        "GitHistory.getDiff.parents",
+      const comparison = yield* resolveComparison("GitHistory.getDiff", input.cwd, input.commitId);
+      const patchResult = yield* execute(
+        "GitHistory.getDiff.patch",
         input.cwd,
-        ["show", "-s", "--format=%P", input.commitId],
-        { allowNonZeroExit: true },
+        comparisonArgs(comparison, "patch"),
+        {
+          maxOutputBytes: HISTORY_DIFF_MAX_OUTPUT_BYTES,
+          truncateOutput: true,
+        },
       );
-      if (parentsResult.exitCode !== 0) {
-        return yield* historyError(
-          "GitHistory.getDiff",
-          input.cwd,
-          "The selected commit could not be resolved.",
-        );
-      }
-
-      const parentValues = parentsResult.stdout.trim().split(" ").filter(Boolean);
-      const parentIds = parentValues.map(parseObjectId);
-      if (parentIds.some((parentId) => parentId === null)) {
-        return yield* historyError(
-          "GitHistory.getDiff.parseParents",
-          input.cwd,
-          "Git commit metadata contained an invalid parent id.",
-        );
-      }
-      const comparisonParentId = (parentIds[0] ?? null) as GitObjectIdType | null;
-      const patchArgs = comparisonParentId
-        ? [
-            "diff",
-            "--no-ext-diff",
-            "--find-renames",
-            "--find-copies",
-            "--patch",
-            "--no-color",
-            "--no-textconv",
-            comparisonParentId,
-            input.commitId,
-            "--",
-          ]
-        : [
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "--find-renames",
-            "--find-copies",
-            "--patch",
-            "--no-color",
-            "--no-textconv",
-            input.commitId,
-            "--",
-          ];
-      const patchResult = yield* execute("GitHistory.getDiff.patch", input.cwd, patchArgs, {
-        maxOutputBytes: HISTORY_DIFF_MAX_OUTPUT_BYTES,
-        truncateOutput: true,
-      });
 
       return {
         commitId: input.commitId,

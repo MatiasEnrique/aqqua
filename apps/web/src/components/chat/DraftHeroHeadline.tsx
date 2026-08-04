@@ -145,14 +145,19 @@ export function DraftHeroHeadline({
   );
 
   return (
-    <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-      {hasResolvedProject ? (
-        <>What should we build in {projectSelector}?</>
-      ) : canChooseProject ? (
-        <>{projectSelector} to start</>
-      ) : (
-        <>Add a project to start</>
-      )}
-    </h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+      <span className="font-medium font-mono text-[0.6875rem] text-muted-foreground uppercase leading-4 tracking-[0.16em]">
+        {activeProjectDisplayName ?? "aqqua"} · new thread
+      </span>
+      <h1 className="font-semibold text-3xl text-foreground leading-tight tracking-[-0.035em] sm:text-4xl">
+        {hasResolvedProject ? (
+          <>Let's surf {projectSelector}</>
+        ) : canChooseProject ? (
+          <>{projectSelector} to start</>
+        ) : (
+          <>Add a project to start</>
+        )}
+      </h1>
+    </div>
   );
 }

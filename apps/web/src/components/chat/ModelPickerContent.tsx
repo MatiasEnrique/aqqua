@@ -6,7 +6,6 @@ import {
 import { resolveSelectableModel } from "@aqqua/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { SearchIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { isModelPickerNewModel } from "./modelPickerModelHighlights";
@@ -525,7 +524,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   return (
     <TooltipProvider delay={0}>
       <div
-        className="dropdown-glass model-picker-surface relative flex h-screen max-h-86.5 w-screen max-w-90 flex-row overflow-hidden rounded-lg text-popover-foreground [clip-path:inset(0_round_var(--radius-lg))]"
+        className="model-picker-surface relative flex h-screen max-h-86.5 w-screen max-w-90 flex-row overflow-hidden rounded-none text-popover-foreground"
         data-model-picker-content="true"
       >
         {/* Sidebar */}
@@ -574,21 +573,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         >
           <div
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/40",
+              "flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent",
               showSidebar && "border-l border-border/70",
             )}
           >
-            {/* Search bar */}
-            <div className="px-2 pt-2">
-              <div className="border-b border-border/70 pb-2.5 transition-colors focus-within:border-ring">
+            <div className="flex items-center gap-2 border-b border-border/70 px-3 transition-colors focus-within:border-ring">
+              <div className="min-w-0 flex-1">
                 <ComboboxInput
                   ref={searchInputRef}
-                  className="[&_input]:h-6.5 [&_input]:font-sans [&_input]:leading-6.5"
-                  inputClassName="rounded-none bg-transparent text-sm"
-                  placeholder="Search models..."
+                  className="[&_input]:h-8.5 [&_input]:font-mono [&_input]:leading-8.5"
+                  inputClassName="rounded-none bg-transparent text-xs lowercase"
+                  placeholder="search models"
                   showTrigger={false}
                   startAddon={
-                    <SearchIcon className="-translate-x-0.5 size-4 shrink-0 text-muted-foreground opacity-70" />
+                    <span aria-hidden="true" className="shrink-0 font-mono text-primary text-xs">
+                      &rsaquo;
+                    </span>
                   }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -619,6 +619,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   unstyled
                 />
               </div>
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+                {filteredModels.length} of {flatModels.length}
+              </span>
             </div>
 
             {/* Model list */}
@@ -660,7 +663,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   estimatedItemSize={60}
                   drawDistance={480}
                   recycleItems
-                  contentContainerClassName="pl-2 pr-px"
+                  contentContainerClassName="pr-px"
                   ItemSeparatorComponent={ModelListSeparator}
                   onLayout={updateModelListScrollFades}
                   onScroll={updateModelListScrollFades}

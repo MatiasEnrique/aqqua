@@ -468,6 +468,30 @@ export const SidebarConversationRow = memo(function SidebarConversationRow(props
       </button>
     ) : null;
 
+  const subAgentCountToggle =
+    childCount > 0 ? (
+      <button
+        type="button"
+        data-thread-selection-safe
+        data-testid={`sidebar-v2-subagent-toggle-${thread.id}`}
+        aria-expanded={isExpanded}
+        aria-label={
+          isExpanded
+            ? `Collapse sub-agents of ${thread.title}`
+            : `Expand sub-agents of ${thread.title}`
+        }
+        onClick={handleToggleExpanded}
+        className="-ml-0.5 inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-1 text-[11px] font-medium tabular-nums text-muted-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <NetworkIcon aria-hidden className="size-3" />
+        {childCount}
+        <ChevronDownIcon
+          aria-hidden
+          className={cn("size-3 transition-transform", !isExpanded && "-rotate-90")}
+        />
+      </button>
+    ) : null;
+
   if (variant === "sub") {
     return (
       <li data-thread-item className="relative list-none">
@@ -559,16 +583,20 @@ export const SidebarConversationRow = memo(function SidebarConversationRow(props
         data-thread-item
         className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]"
       >
-        <div className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}>
+        <div
+          className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 pr-2.5")}
+          style={{ paddingInlineStart: 10 + depth * SUB_AGENT_INDENT_PX }}
+        >
           {variantAction === "unsettle" ? (
             <Checkbox
               data-thread-selection-safe
               aria-label={`Select ${thread.title}`}
               checked={isSelected}
               onCheckedChange={handleSelectionCheckedChange}
-              className="size-4 opacity-65 transition-opacity group-hover/v2-row:opacity-100 data-checked:opacity-100"
+              className="size-4 shrink-0 opacity-65 transition-opacity group-hover/v2-row:opacity-100 data-checked:opacity-100"
             />
           ) : null}
+          {subAgentCountToggle}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -749,28 +777,7 @@ export const SidebarConversationRow = memo(function SidebarConversationRow(props
                 className="size-4 shrink-0"
               />
             ) : null}
-            {childCount > 0 ? (
-              <button
-                type="button"
-                data-thread-selection-safe
-                data-testid={`sidebar-v2-subagent-toggle-${thread.id}`}
-                aria-expanded={isExpanded}
-                aria-label={
-                  isExpanded
-                    ? `Collapse sub-agents of ${thread.title}`
-                    : `Expand sub-agents of ${thread.title}`
-                }
-                onClick={handleToggleExpanded}
-                className="-ml-0.5 inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-1 text-[11px] font-medium tabular-nums text-muted-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <NetworkIcon aria-hidden className="size-3" />
-                {childCount}
-                <ChevronDownIcon
-                  aria-hidden
-                  className={cn("size-3 transition-transform", !isExpanded && "-rotate-90")}
-                />
-              </button>
-            ) : null}
+            {subAgentCountToggle}
             <div className="flex min-w-0 flex-1 items-center gap-2">
               {title}
               {prBadge}

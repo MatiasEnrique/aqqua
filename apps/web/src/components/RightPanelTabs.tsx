@@ -29,11 +29,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { faviconUrlForOrigin } from "~/lib/favicon";
-import { useTheme } from "~/hooks/useTheme";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
 import { PreviewPanelShell, type PreviewPanelMode } from "./preview/PreviewPanelShell";
-import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 
 interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -221,8 +219,6 @@ export function rightPanelSurfaceTitle(
       return "History";
     case "files":
       return "Files";
-    case "file":
-      return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -262,11 +258,9 @@ function PreviewFavicon({ url }: { url: string | null }) {
 function SurfaceIcon({
   surface,
   sessions,
-  theme,
 }: {
   surface: RightPanelSurface;
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>;
-  theme: "light" | "dark";
 }) {
   switch (surface.kind) {
     case "preview": {
@@ -280,15 +274,6 @@ function SurfaceIcon({
       return <GitGraph className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
-    case "file":
-      return (
-        <PierreEntryIcon
-          pathValue={surface.relativePath}
-          kind="file"
-          theme={theme}
-          className="size-3.5"
-        />
-      );
     case "terminal":
       return <TerminalSquare className="size-3.5 shrink-0" />;
     case "plan":
@@ -298,7 +283,6 @@ function SurfaceIcon({
 
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
-  const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
 
   const handleTabContextMenu = useCallback(
@@ -313,7 +297,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       if (surfaceIndex < 0) return;
 
       const items: ContextMenuItem<TabContextMenuAction>[] = [];
-      if (surface.kind === "file") {
+      if (surface.kind === "files" && surface.relativePath !== null) {
         items.push({ id: "copy-path", label: "Copy path" });
       }
       items.push(
@@ -338,7 +322,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
       switch (action) {
         case "copy-path":
-          if (surface.kind === "file") props.onCopyFilePath(surface.relativePath);
+          if (surface.kind === "files" && surface.relativePath !== null) {
+            props.onCopyFilePath(surface.relativePath);
+          }
           break;
         case "close":
           props.onCloseSurface(surface);
@@ -430,11 +416,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                           className="flex min-w-0 flex-1 items-center gap-1.5"
                           onClick={() => props.onActivate(surface)}
                         >
-                          <SurfaceIcon
-                            surface={surface}
-                            sessions={props.previewSessions}
-                            theme={resolvedTheme}
-                          />
+                          <SurfaceIcon surface={surface} sessions={props.previewSessions} />
                           <span className="truncate">{title}</span>
                         </button>
                       }

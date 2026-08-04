@@ -5,12 +5,7 @@ import type {
   ScopedThreadRef,
 } from "@aqqua/contracts";
 import { isWorkspaceImagePreviewPath } from "@aqqua/shared/filePreview";
-import {
-  VirtualizedFile,
-  type DiffLineAnnotation,
-  type FileContents,
-  type SelectedLineRange,
-} from "@pierre/diffs";
+import { type DiffLineAnnotation, type FileContents, type SelectedLineRange } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
 import { EditProvider, File, type FileOptions, Virtualizer } from "@pierre/diffs/react";
 import {
@@ -22,8 +17,6 @@ import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useInsertionEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
-import { useAssetUrlState } from "~/assets/assetUrls";
-import ChatMarkdown from "~/components/ChatMarkdown";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -65,7 +58,18 @@ import {
   resolveFileEditingSession,
 } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { FilePreviewImageSurface } from "./FilePreviewImageSurface";
+import {
+  FILE_LINK_REVEAL_UNSAFE_CSS,
+  type FilePostRender,
+  useFileLineReveal,
+} from "./FilePreviewLineReveal";
+import { FilePreviewReadOnlySurface } from "./FilePreviewReadOnlySurface";
+import {
+  isMarkdownPreviewFile,
+  resolveFilePreviewMode,
+  setMarkdownTaskChecked,
+} from "./filePreviewMode";
 import { FileSaveCoordinator, type FileSaveFailure } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -73,6 +77,7 @@ import {
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
+import { RenderedMarkdownPreview } from "./RenderedMarkdownPreview";
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -92,40 +97,6 @@ interface FilePreviewPanelProps {
 const FILE_EXPLORER_STORAGE_KEY = "aqqua.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "aqqua.renderMarkdown";
 const FILE_SAVE_DEBOUNCE_MS = 500;
-const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
-const FILE_LINK_REVEAL_UNSAFE_CSS = `
-  [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
-    background-color: light-dark(
-      color-mix(
-        in lab,
-        var(--diffs-computed-diff-line-bg) 82%,
-        var(--diffs-bg-selection-override, var(--diffs-selection-base))
-      ),
-      color-mix(
-        in lab,
-        var(--diffs-computed-diff-line-bg) 75%,
-        var(--diffs-bg-selection-override, var(--diffs-selection-base))
-      )
-    ) !important;
-  }
-
-  [${FILE_LINK_REVEAL_ATTRIBUTE}][data-column-number] {
-    background-color: light-dark(
-      color-mix(
-        in lab,
-        var(--diffs-computed-diff-line-bg) 75%,
-        var(--diffs-bg-selection-number-override, var(--diffs-selection-base))
-      ),
-      color-mix(
-        in lab,
-        var(--diffs-computed-diff-line-bg) 60%,
-        var(--diffs-bg-selection-number-override, var(--diffs-selection-base))
-      )
-    ) !important;
-    color: var(--diffs-selection-number-fg) !important;
-  }
-`;
-type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
 
 /**
  * A callback with a permanently stable identity that always calls the latest
@@ -147,171 +118,6 @@ function useStableHandler<A extends unknown[], R>(handler: (...args: A) => R): (
     handlerRef.current = handler;
   });
   return useCallback((...args: A) => handlerRef.current(...args), []);
-}
-
-function WorkspaceImagePreview(props: {
-  readonly environmentId: EnvironmentId;
-  readonly threadRef: ScopedThreadRef;
-  readonly absolutePath: string;
-  readonly alt: string;
-}) {
-  const assetUrl = useAssetUrlState(props.environmentId, {
-    _tag: "workspace-file",
-    threadId: props.threadRef.threadId,
-    path: props.absolutePath,
-  });
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-
-  if (assetUrl._tag === "Failure" || (assetUrl._tag === "Success" && failedUrl === assetUrl.url)) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-        Unable to load workspace image.
-      </div>
-    );
-  }
-
-  return assetUrl._tag === "Success" ? (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-      <img
-        className="max-h-full max-w-full object-contain"
-        src={assetUrl.url}
-        alt={props.alt}
-        onError={() => setFailedUrl(assetUrl.url)}
-      />
-    </div>
-  ) : (
-    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-      <LoaderCircle className="size-5 animate-spin" />
-    </div>
-  );
-}
-
-function clampFileLine(contents: string, requestedLine: number): number {
-  let lineCount = 1;
-  for (let index = 0; index < contents.length; index += 1) {
-    const character = contents.charCodeAt(index);
-    if (character === 10) {
-      lineCount += 1;
-    } else if (character === 13) {
-      lineCount += 1;
-      if (contents.charCodeAt(index + 1) === 10) index += 1;
-    }
-  }
-  return Math.min(Math.max(1, requestedLine), lineCount);
-}
-
-function updateFileLinkReveal(fileContainer: HTMLElement, line: number | null): void {
-  const root = fileContainer.shadowRoot ?? fileContainer;
-  for (const element of root.querySelectorAll<HTMLElement>(`[${FILE_LINK_REVEAL_ATTRIBUTE}]`)) {
-    element.removeAttribute(FILE_LINK_REVEAL_ATTRIBUTE);
-  }
-  if (line === null) return;
-
-  root
-    .querySelector<HTMLElement>(`[data-line="${line}"]`)
-    ?.setAttribute(FILE_LINK_REVEAL_ATTRIBUTE, "");
-  root
-    .querySelector<HTMLElement>(`[data-column-number="${line}"]`)
-    ?.setAttribute(FILE_LINK_REVEAL_ATTRIBUTE, "");
-}
-
-function useFileLineReveal(
-  relativePath: string | null,
-  revealLine: number | null,
-  revealRequestId: number,
-): FilePostRender {
-  const [handledRequestIdsByPath] = useState(() => new Map<string, number>());
-  const [latestRequestIdsByPath] = useState(() => new Map<string, number>());
-  const [pendingFramesByPath] = useState(() => new Map<string, number>());
-
-  return useCallback<FilePostRender>(
-    (fileContainer, instance, phase) => {
-      if (relativePath === null) return;
-
-      const cancelPendingReveal = () => {
-        const frameId = pendingFramesByPath.get(relativePath);
-        if (frameId !== undefined) {
-          cancelAnimationFrame(frameId);
-          pendingFramesByPath.delete(relativePath);
-        }
-      };
-
-      if (phase === "unmount") {
-        cancelPendingReveal();
-        return;
-      }
-
-      const targetLine =
-        revealLine === null ? null : clampFileLine(instance.file?.contents ?? "", revealLine);
-      updateFileLinkReveal(fileContainer, targetLine);
-
-      if (!(instance instanceof VirtualizedFile)) return;
-
-      if (latestRequestIdsByPath.get(relativePath) !== revealRequestId) {
-        cancelPendingReveal();
-        latestRequestIdsByPath.set(relativePath, revealRequestId);
-      }
-
-      if (targetLine === null) {
-        fileContainer.style.minHeight = "";
-        return;
-      }
-
-      const scrollContainer = fileContainer.closest<HTMLElement>(".file-preview-virtualizer");
-      if (!scrollContainer) return;
-      fileContainer.style.minHeight = `${Math.ceil(
-        Math.max(instance.height, scrollContainer.clientHeight),
-      )}px`;
-
-      if (
-        handledRequestIdsByPath.get(relativePath) === revealRequestId ||
-        pendingFramesByPath.has(relativePath)
-      ) {
-        return;
-      }
-
-      const reveal = () => {
-        pendingFramesByPath.delete(relativePath);
-        if (
-          latestRequestIdsByPath.get(relativePath) !== revealRequestId ||
-          !fileContainer.isConnected
-        ) {
-          return;
-        }
-
-        const linePosition = instance.getLinePosition(targetLine);
-        if (!linePosition) return;
-
-        const fileTop =
-          scrollContainer.scrollTop +
-          fileContainer.getBoundingClientRect().top -
-          scrollContainer.getBoundingClientRect().top;
-        const centeredTop = Math.max(
-          0,
-          fileTop +
-            linePosition.top -
-            Math.max(0, (scrollContainer.clientHeight - linePosition.height) / 2),
-        );
-        const maxScrollTop = Math.max(
-          0,
-          scrollContainer.scrollHeight - scrollContainer.clientHeight,
-        );
-
-        scrollContainer.scrollTop = Math.min(centeredTop, maxScrollTop);
-        handledRequestIdsByPath.set(relativePath, revealRequestId);
-      };
-
-      pendingFramesByPath.set(relativePath, requestAnimationFrame(reveal));
-    },
-    [
-      handledRequestIdsByPath,
-      latestRequestIdsByPath,
-      pendingFramesByPath,
-      relativePath,
-      revealLine,
-      revealRequestId,
-    ],
-  );
 }
 
 interface EditableFileSurfaceProps {
@@ -761,23 +567,19 @@ function RenderedMarkdownSurface({
   });
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <ChatMarkdown
-        text={contents}
-        cwd={cwd}
-        threadRef={threadRef}
-        className="mx-auto max-w-4xl px-6 py-5"
-        onTaskListChange={({ markerOffset, checked }) => {
-          const currentContents =
-            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-            contents;
-          const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-          if (nextContents === currentContents) return;
-          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-          saveCoordinator.change(nextContents);
-        }}
-      />
-    </ScrollArea>
+    <RenderedMarkdownPreview
+      contents={contents}
+      cwd={cwd}
+      threadRef={threadRef}
+      onTaskListChange={({ markerOffset, checked }) => {
+        const currentContents =
+          getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ?? contents;
+        const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
+        if (nextContents === currentContents) return;
+        setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+        saveCoordinator.change(nextContents);
+      }}
+    />
   );
 }
 
@@ -824,9 +626,8 @@ export default function FilePreviewPanel({
     false,
     Schema.Boolean,
   );
-  // Paired with the path on purpose: each file surface counts its reveals from
-  // one, so a bare id would let a dismissed reveal on one file swallow the first
-  // reveal on the next.
+  // Paired with the path so a dismissed reveal on one file cannot swallow the
+  // first reveal after the Explorer switches to another file.
   const [handledReveal, setHandledReveal] = useState<{ path: string; requestId: number } | null>(
     null,
   );
@@ -846,6 +647,14 @@ export default function FilePreviewPanel({
     [projectName, relativePath],
   );
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  const previewMode =
+    relativePath && file.data
+      ? resolveFilePreviewMode({
+          relativePath,
+          truncated: file.data.truncated,
+          renderMarkdown,
+        })
+      : null;
 
   useEffect(() => {
     const currentCrumb = breadcrumbRef.current?.querySelector<HTMLElement>(
@@ -936,7 +745,7 @@ export default function FilePreviewPanel({
               enableShortcut={false}
             />
           ) : null}
-          {isMarkdown ? (
+          {isMarkdown && !file.data?.truncated ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -1017,7 +826,7 @@ export default function FilePreviewPanel({
           )}
         >
           {relativePath && isImage && absolutePath ? (
-            <WorkspaceImagePreview
+            <FilePreviewImageSurface
               key={absolutePath}
               environmentId={environmentId}
               threadRef={threadRef}
@@ -1033,7 +842,7 @@ export default function FilePreviewPanel({
               <LoaderCircle className="size-5 animate-spin" />
             </div>
           ) : relativePath && file.data ? (
-            isMarkdown && renderMarkdown ? (
+            previewMode === "rendered-markdown" ? (
               <RenderedMarkdownSurface
                 environmentId={environmentId}
                 cwd={cwd}
@@ -1042,32 +851,16 @@ export default function FilePreviewPanel({
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />
-            ) : file.data.truncated ? (
-              <Virtualizer
-                key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
-                className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
-                config={{
-                  overscrollSize: 600,
-                  intersectionObserverMargin: 1200,
-                }}
-              >
-                <File
-                  file={{
-                    name: relativePath,
-                    contents: file.data.contents,
-                    cacheKey: projectFileCacheKey(cwd, relativePath, file.data.contents),
-                  }}
-                  options={{
-                    disableFileHeader: true,
-                    overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme,
-                    unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-                    onPostRender: onFilePostRender,
-                  }}
-                  className="min-h-full"
-                />
-              </Virtualizer>
+            ) : previewMode === "read-only-source" ? (
+              <FilePreviewReadOnlySurface
+                cwd={cwd}
+                relativePath={relativePath}
+                contents={file.data.contents}
+                byteLength={file.data.byteLength}
+                resolvedTheme={resolvedTheme}
+                wordWrap={wordWrap}
+                onPostRender={onFilePostRender}
+              />
             ) : (
               <EditableFileSurface
                 key={`${relativePath}:${resolvedTheme}`}

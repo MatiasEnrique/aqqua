@@ -9,6 +9,7 @@ import {
   BoardId,
   type BoardStep,
   BoardStepId,
+  type CardCleanupStage,
   CardId,
   CardOperationId,
   CommandId,
@@ -25,6 +26,7 @@ import {
 } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
@@ -32,10 +34,12 @@ import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
+import { ProjectionCardRepositoryLive } from "../../persistence/Layers/ProjectionCards.ts";
 import {
   makeSqlitePersistenceLive,
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
+import { ProjectionCardRepository } from "../../persistence/Services/ProjectionCards.ts";
 import { ProjectSetupScriptRunner } from "../../project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
@@ -66,6 +70,7 @@ import {
   threadHasOpenBlockingRequest,
 } from "./BoardReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
+import { makeBoardReconciliationEvents } from "./BoardReconciliation.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 
@@ -1047,6 +1052,246 @@ describe("BoardReactor", () => {
         status: "running",
       });
     });
+
+  const completeAndSettleCard = (harness: BoardHarness) =>
+    Effect.gen(function* () {
+      yield* harness.releaseCard;
+      for (let stepIndex = 0; stepIndex < STEPS.length; stepIndex += 1) {
+        const card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        const currentThread = [...card.stepThreads]
+          .toReversed()
+          .find((entry) => entry.stepIndex === stepIndex)!;
+        yield* stopCurrentStepSession(harness, currentThread.threadId);
+        yield* harness.dispatch({
+          type: "card.step.report",
+          commandId: CommandId.make(`cmd-complete-for-archive-${stepIndex}`),
+          cardId: harness.cardId,
+          stepIndex,
+          threadId: currentThread.threadId,
+          outcome: "success",
+        });
+        yield* harness.drain;
+      }
+      yield* harness.dispatch({
+        type: "card.settle",
+        commandId: CommandId.make("cmd-settle-for-archive"),
+        cardId: harness.cardId,
+      });
+    });
+
+  const verifyCleanupRestartFromStage = (
+    cleanupStage: CardCleanupStage,
+    purpose: "archive" | undefined = "archive",
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(
+          NodePath.join(NodeOS.tmpdir(), "aqqua-board-archive-restart-"),
+        );
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+        const workspaceRoot = NodePath.join(baseDir, "workspace");
+        const worktreePath = NodePath.join(workspaceRoot, ".worktrees", "board-card");
+        NodeFS.mkdirSync(worktreePath, { recursive: true });
+
+        const removeWorktree = vi.fn(() => Effect.void);
+        const gitLayer = Layer.mock(GitWorkflowService)({
+          removeWorktree,
+          inspectWorktreeRemoval: () =>
+            Effect.succeed({
+              availability: "available" as const,
+              refName: "board/archive-restart",
+              headCommit: "abc123",
+              baseRef: "main",
+              mergeStatus: "unmerged" as const,
+              workingTreeStatus: "clean" as const,
+            }),
+        } satisfies Partial<GitWorkflowService["Service"]>);
+        const registryStub = Layer.succeed(ProviderAdapterRegistry, {
+          getByInstance: () => Effect.die("unused"),
+          getInstanceInfo: () => Effect.die("unused"),
+          listInstances: () => Effect.succeed([codexInstanceId]),
+          listProviders: () => Effect.succeed([ProviderDriverKind.make("codex")]),
+          streamChanges: Stream.empty,
+          subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
+        } as unknown as typeof ProviderAdapterRegistry.Service);
+        const textGenerationLayer = Layer.succeed(TextGeneration, {
+          generateCommitMessage: () => Effect.die("unused"),
+          generatePrContent: () => Effect.die("unused"),
+          generateBranchName: () => Effect.die("unused"),
+          generateThreadTitle: () => Effect.succeed({ title: "" }),
+        } as unknown as typeof TextGeneration.Service);
+        const setupScriptRunnerStub = Layer.succeed(
+          ProjectSetupScriptRunner,
+          ProjectSetupScriptRunner.of({
+            runForThread: () => Effect.succeed({ status: "no-script" as const }),
+          }),
+        );
+        const persistenceLayer = makeSqlitePersistenceLive(
+          NodePath.join(baseDir, "userdata", "state.sqlite"),
+        );
+        const makeProcessLayer = () => {
+          const orchestrationLayer = OrchestrationEngineLive.pipe(
+            Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+            Layer.provide(OrchestrationProjectionPipelineLive),
+            Layer.provide(OrchestrationEventStoreLive),
+            Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+            Layer.provide(RepositoryIdentityResolver.layer),
+            Layer.provide(persistenceLayer),
+          );
+          const snapshotLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
+            Layer.provide(RepositoryIdentityResolver.layer),
+            Layer.provide(persistenceLayer),
+          );
+          const cardsLayer = ProjectionCardRepositoryLive.pipe(Layer.provide(persistenceLayer));
+          return BoardReactorLive.pipe(
+            Layer.provideMerge(orchestrationLayer),
+            Layer.provideMerge(snapshotLayer),
+            Layer.provideMerge(cardsLayer),
+            Layer.provideMerge(gitLayer),
+            Layer.provideMerge(registryStub),
+            Layer.provideMerge(textGenerationLayer),
+            Layer.provideMerge(setupScriptRunnerStub),
+            Layer.provideMerge(WorktreePathCoordinationLive),
+            Layer.provideMerge(
+              serverSettingsLayerTest({
+                agentProfiles: {} as never,
+                textGenerationModelSelection: {
+                  instanceId: codexInstanceId,
+                  model: "gpt-5-codex",
+                },
+              }),
+            ),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+            Layer.provideMerge(NodeServices.layer),
+          );
+        };
+
+        const projectId = ProjectId.make("project-archive-restart");
+        const boardId = BoardId.make("board-archive-restart");
+        const cardId = CardId.make("card-archive-restart");
+        let artifactDir = "";
+
+        // Process 1 persists a partially completed archive operation, then exits.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const engine = yield* OrchestrationEngineService;
+            const cards = yield* ProjectionCardRepository;
+            const config = yield* ServerConfig;
+            const dispatch = (command: Parameters<OrchestrationEngineShape["dispatch"]>[0]) =>
+              engine.dispatch(command).pipe(Effect.asVoid, Effect.orDie);
+            yield* dispatch({
+              type: "project.create",
+              commandId: CommandId.make("cmd-project-archive-restart"),
+              projectId,
+              title: "Archive restart",
+              workspaceRoot,
+              defaultModelSelection: { instanceId: codexInstanceId, model: "gpt-5-codex" },
+              createdAt: NOW,
+            });
+            yield* dispatch({
+              type: "board.create",
+              commandId: CommandId.make("cmd-board-archive-restart"),
+              boardId,
+              projectId,
+              name: "Delivery",
+              steps: STEPS,
+            });
+            yield* dispatch({
+              type: "card.create",
+              commandId: CommandId.make("cmd-card-archive-restart"),
+              cardId,
+              boardId,
+              title: "Archive after restart",
+              parameters: {},
+            });
+            if (cleanupStage === "cleanup-started") {
+              yield* dispatch({
+                type: "thread.create",
+                commandId: CommandId.make("cmd-thread-archive-restart"),
+                threadId: ThreadId.make("thread-archive-restart"),
+                projectId,
+                parentThreadId: null,
+                title: "Archive member",
+                modelSelection: { instanceId: codexInstanceId, model: "gpt-5-codex" },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                branch: "board/archive-restart",
+                worktreePath,
+                createdAt: NOW,
+              });
+            }
+            const row = yield* cards
+              .getById({ cardId })
+              .pipe(Effect.map(Option.getOrThrow), Effect.orDie);
+            yield* cards
+              .upsert({
+                ...row,
+                positionKind: "done",
+                status: null,
+                snapshot: { name: "Delivery", steps: STEPS },
+                branch: "board/archive-restart",
+                worktreePath,
+                releasedAt: NOW,
+                completedAt: NOW,
+                settledAt: NOW,
+                operation: {
+                  kind: "deleting",
+                  operationId: CardOperationId.make(
+                    purpose === undefined ? "archive:historical-delete" : "cmd-before-restart",
+                  ),
+                  requestedAt: NOW,
+                  ...(purpose === undefined ? {} : { purpose }),
+                  cleanupStage,
+                },
+                lastError: "process stopped",
+              })
+              .pipe(Effect.orDie);
+            artifactDir = NodePath.join(config.stateDir, "board-artifacts", cardId);
+            if (cleanupStage !== "artifacts-removed") {
+              NodeFS.mkdirSync(artifactDir, { recursive: true });
+              NodeFS.writeFileSync(NodePath.join(artifactDir, "Implement.md"), "persisted");
+            }
+          }).pipe(Effect.provide(makeProcessLayer()), Effect.orDie),
+        );
+
+        // Process 2 rehydrates the claim and executes the real reconciled handler.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const engine = yield* OrchestrationEngineService;
+            const reactor = yield* BoardReactor;
+            const snapshotQuery = yield* ProjectionSnapshotQuery;
+            yield* reactor.start();
+            yield* Effect.yieldNow;
+            yield* reactor.drain;
+
+            const card = (yield* snapshotQuery.getSnapshot().pipe(Effect.orDie)).cards.find(
+              (entry) => entry.id === cardId,
+            );
+            if (purpose === "archive") {
+              expect(card?.archivedAt).not.toBeNull();
+              expect(card?.operation).toBeNull();
+            } else {
+              expect(card).toBeUndefined();
+            }
+            expect(NodeFS.existsSync(artifactDir)).toBe(false);
+            expect(removeWorktree).toHaveBeenCalledTimes(
+              cleanupStage === "cleanup-started" || cleanupStage === "conversations-deleted"
+                ? 1
+                : 0,
+            );
+            const events = yield* Stream.runCollect(engine.readEvents(0)).pipe(
+              Effect.map((chunk) => Array.from(chunk)),
+              Effect.orDie,
+            );
+            expect(events.filter((event) => event.type === "thread.deleted")).toHaveLength(
+              cleanupStage === "cleanup-started" ? 1 : 0,
+            );
+          }).pipe(Effect.provide(makeProcessLayer()), Effect.orDie),
+        );
+      }),
+    );
 
   it.effect("step.report success on a 2-step snapshot advances to step 2", () =>
     withBoardReactorHarness({}, (harness) =>
@@ -2852,8 +3097,194 @@ describe("BoardReactor", () => {
         model = yield* harness.readModel;
         card = model.cards.find((entry) => entry.id === harness.cardId)!;
         expect(card.archivedAt).not.toBeNull();
+        expect(card.operation).toBeNull();
+        expect(card.branch).toBe("board/fix-flaky-test-rdboard1");
         expect(harness.removeWorktree).toHaveBeenCalled();
+        expect(harness.removeWorktree).toHaveBeenCalledWith(
+          expect.not.objectContaining({ deleteBranch: true }),
+        );
         expect(NodeFS.existsSync(artifactDir)).toBe(false);
+
+        const lifecycleEvents = (yield* harness.readEvents).filter(
+          (event) =>
+            event.aggregateId === harness.cardId &&
+            (event.type === "card.delete-requested" ||
+              event.type === "card.cleanup-progressed" ||
+              event.type === "card.archived"),
+        );
+        expect(lifecycleEvents.at(-1)?.type).toBe("card.archived");
+        expect(
+          lifecycleEvents.some(
+            (event) =>
+              event.type === "card.cleanup-progressed" &&
+              (event.payload as { stage?: string }).stage === "artifacts-removed",
+          ),
+        ).toBe(true);
+      }),
+    ),
+  );
+
+  it.effect("archive worktree failure stays visible and resumes the same cleanup claim", () =>
+    withBoardReactorHarness({ removeWorktreeFails: true }, (harness) =>
+      Effect.gen(function* () {
+        yield* completeAndSettleCard(harness);
+        const artifactDir = NodePath.join(harness.stateDir, "board-artifacts", harness.cardId);
+        NodeFS.writeFileSync(NodePath.join(artifactDir, "Implement.md"), "partial", "utf8");
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-archive-worktree-failure"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        let card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card).toMatchObject({
+          archivedAt: null,
+          settledAt: expect.any(String),
+          operation: {
+            kind: "deleting",
+            operationId: "cmd-archive-worktree-failure",
+            purpose: "archive",
+            cleanupStage: "conversations-deleted",
+          },
+        });
+        expect(card.lastError).toMatch(/Archive failed/i);
+        expect(NodeFS.existsSync(artifactDir)).toBe(true);
+        const deletedConversationCount = (yield* harness.readEvents).filter(
+          (event) => event.type === "thread.deleted",
+        ).length;
+
+        harness.removeWorktree.mockImplementation(() => Effect.void);
+        yield* harness.dispatch({
+          type: "card.delete",
+          commandId: CommandId.make("cmd-archive-worktree-retry"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.archivedAt).not.toBeNull();
+        expect(card.operation).toBeNull();
+        expect(card.lastError).toBeNull();
+        expect(
+          (yield* harness.readEvents).filter((event) => event.type === "thread.deleted"),
+        ).toHaveLength(deletedConversationCount);
+      }),
+    ),
+  );
+
+  it.effect("archive artifact failure resumes after worktree cleanup without repeating it", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* completeAndSettleCard(harness);
+        const artifactDir = NodePath.join(harness.stateDir, "board-artifacts", harness.cardId);
+        NodeFS.writeFileSync(NodePath.join(artifactDir, "Implement.md"), "partial", "utf8");
+        NodeFS.chmodSync(artifactDir, 0o555);
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-archive-artifact-failure"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+        NodeFS.chmodSync(artifactDir, 0o755);
+
+        let card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card).toMatchObject({
+          archivedAt: null,
+          operation: {
+            operationId: "cmd-archive-artifact-failure",
+            purpose: "archive",
+            cleanupStage: "worktree-removed",
+          },
+        });
+        expect(card.lastError).toMatch(/Archive failed while removing artifacts/i);
+        expect(harness.removeWorktree).toHaveBeenCalledTimes(1);
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-archive-artifact-retry"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.archivedAt).not.toBeNull();
+        expect(card.operation).toBeNull();
+        expect(harness.removeWorktree).toHaveBeenCalledTimes(1);
+        expect(NodeFS.existsSync(artifactDir)).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("archive treats an already-missing artifact directory as completed cleanup", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* completeAndSettleCard(harness);
+        const artifactDir = NodePath.join(harness.stateDir, "board-artifacts", harness.cardId);
+        NodeFS.rmSync(artifactDir, { recursive: true, force: true });
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-archive-missing-artifacts"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        const card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.archivedAt).not.toBeNull();
+        expect(card.operation).toBeNull();
+        expect(makeBoardReconciliationEvents([card])).toEqual([]);
+      }),
+    ),
+  );
+
+  for (const cleanupStage of [
+    "cleanup-started",
+    "conversations-deleted",
+    "worktree-removed",
+    "artifacts-removed",
+  ] as const satisfies ReadonlyArray<CardCleanupStage>) {
+    it.effect(`restart reconciliation resumes archive cleanup from ${cleanupStage}`, () =>
+      verifyCleanupRestartFromStage(cleanupStage),
+    );
+  }
+
+  it.effect("restart treats a historical deleting operation without purpose as delete", () =>
+    verifyCleanupRestartFromStage("artifacts-removed", undefined),
+  );
+
+  it.effect("delete command ids beginning with archive: remain deletion operations", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+        yield* harness.dispatch({
+          type: "card.status.set",
+          commandId: CommandId.make("cmd-delete-prefix-cancelled"),
+          cardId: harness.cardId,
+          status: "cancelled",
+        });
+        yield* harness.dispatch({
+          type: "card.delete",
+          commandId: CommandId.make("archive:normal-delete-command"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        const model = yield* harness.readModel;
+        expect(model.cards.find((entry) => entry.id === harness.cardId)).toBeUndefined();
+        const lifecycleEvents = (yield* harness.readEvents).filter(
+          (event) => event.aggregateId === harness.cardId,
+        );
+        expect(lifecycleEvents.some((event) => event.type === "card.deleted")).toBe(true);
+        expect(lifecycleEvents.some((event) => event.type === "card.archived")).toBe(false);
+        expect(
+          lifecycleEvents.find((event) => event.type === "card.delete-requested")?.payload,
+        ).toMatchObject({
+          operationId: "archive:normal-delete-command",
+          purpose: "delete",
+        });
       }),
     ),
   );

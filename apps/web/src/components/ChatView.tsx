@@ -229,6 +229,7 @@ import { environmentShell } from "../state/shell";
 import {
   ChatComposer,
   type ChatComposerHandle,
+  type ComposerSkin,
   type ComposerIdlePrimaryActionRenderer,
 } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
@@ -415,6 +416,7 @@ const GitHistoryPanel = lazy(() =>
 );
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
+const PENDING_FILES_SURFACE_IDS: ReadonlySet<string> = new Set(["files"]);
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
   "textarea",
@@ -1610,7 +1612,7 @@ function ChatViewContent(props: ChatViewProps) {
   const activeRightPanelKind = activeRightPanelSurface?.kind ?? null;
   const diffOpen = activeRightPanelKind === "diff";
   const activeFileSurface =
-    activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;
+    activeRightPanelSurface?.kind === "files" ? activeRightPanelSurface : null;
   const activeRightPanelSurfaceButtonKind = rightPanelSurfaceButtonKindOf(
     activeRightPanelSurface?.kind ?? null,
   );
@@ -1723,22 +1725,23 @@ function ChatViewContent(props: ChatViewProps) {
   const activeProjectKey = activeProject
     ? `${activeProject.environmentId}:${activeProject.workspaceRoot}`
     : null;
-  const [pendingFileSurfaceIdsByProject, setPendingFileSurfaceIdsByProject] = useState<
+  const [pendingFilePathsByProject, setPendingFilePathsByProject] = useState<
     ReadonlyMap<string, ReadonlySet<string>>
   >(() => new Map());
-  const pendingFileSurfaceIds = activeProjectKey
-    ? (pendingFileSurfaceIdsByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS)
+  const pendingFilePaths = activeProjectKey
+    ? (pendingFilePathsByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS)
     : EMPTY_PENDING_FILE_SURFACE_IDS;
+  const pendingFileSurfaceIds =
+    pendingFilePaths.size > 0 ? PENDING_FILES_SURFACE_IDS : EMPTY_PENDING_FILE_SURFACE_IDS;
   const handleFilePendingChange = useCallback(
     (relativePath: string, pending: boolean) => {
       if (!activeProjectKey) return;
-      setPendingFileSurfaceIdsByProject((currentByProject) => {
+      setPendingFilePathsByProject((currentByProject) => {
         const current = currentByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS;
-        const surfaceId = `file:${relativePath}`;
-        if (current.has(surfaceId) === pending) return currentByProject;
+        if (current.has(relativePath) === pending) return currentByProject;
         const next = new Set(current);
-        if (pending) next.add(surfaceId);
-        else next.delete(surfaceId);
+        if (pending) next.add(relativePath);
+        else next.delete(relativePath);
         const nextByProject = new Map(currentByProject);
         if (next.size === 0) nextByProject.delete(activeProjectKey);
         else nextByProject.set(activeProjectKey, next);
@@ -5996,9 +5999,7 @@ function ChatViewContent(props: ChatViewProps) {
         timestampFormat={timestampFormat}
         mode="embedded"
       />
-    ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
-      activeProject &&
-      activeWorkspaceRoot ? (
+    ) : activeRightPanelSurface?.kind === "files" && activeProject && activeWorkspaceRoot ? (
       <Suspense fallback={null}>
         <FilePreviewPanel
           key={`${activeProject.environmentId}:${activeWorkspaceRoot}`}
@@ -6009,9 +6010,7 @@ function ChatViewContent(props: ChatViewProps) {
           composerDraftTarget={composerDraftTarget}
           keybindings={keybindings}
           availableEditors={availableEditors}
-          relativePath={
-            activeRightPanelSurface.kind === "file" ? activeRightPanelSurface.relativePath : null
-          }
+          relativePath={activeRightPanelSurface.relativePath}
           revealLine={activeFileSurface?.revealLine ?? null}
           revealRequestId={activeFileSurface?.revealRequestId ?? 0}
           onOpenFile={openFileSurface}
@@ -6020,6 +6019,36 @@ function ChatViewContent(props: ChatViewProps) {
       </Suspense>
     ) : null
   ) : null;
+
+  const composerSkin: ComposerSkin = "terminal";
+
+  const contextStripBelowComposer = !isDraftHeroState;
+
+  const composerContextStrip =
+    showComposerContextStrip && activeThread ? (
+      <BranchToolbar
+        environmentId={activeThread.environmentId}
+        threadId={activeThread.id}
+        {...(routeKind === "draft" && draftId ? { draftId } : {})}
+        onEnvModeChange={onEnvModeChange}
+        startFromOrigin={startFromOrigin}
+        onStartFromOriginChange={onStartFromOriginChange}
+        {...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {})}
+        {...(canOverrideServerThreadEnvMode
+          ? {
+              activeThreadBranchOverride: activeThreadBranch,
+              onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+            }
+          : {})}
+        envLocked={envLocked}
+        onComposerFocusRequest={scheduleComposerFocus}
+        {...(canCheckoutPullRequestIntoThread
+          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+          : {})}
+        {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+        availableEnvironments={logicalProjectEnvironments}
+      />
+    ) : null;
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
@@ -6156,7 +6185,7 @@ function ChatViewContent(props: ChatViewProps) {
                         aria-label="Scroll to end"
                         title="Scroll to end"
                         onClick={() => scrollToEnd(true)}
-                        className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                        className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
                       >
                         <ChevronDownIcon className="size-3.5" />
                         Scroll to end
@@ -6171,6 +6200,8 @@ function ChatViewContent(props: ChatViewProps) {
             <div
               ref={setComposerOverlayElement}
               data-chat-composer-overlay="true"
+              data-chat-composer-overlay-docked={isDraftHeroState ? "false" : "true"}
+              data-composer-skin={composerSkin}
               className={
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center"
@@ -6185,7 +6216,7 @@ function ChatViewContent(props: ChatViewProps) {
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
                       <div
-                        className="pb-8"
+                        className="pb-12"
                         style={
                           forceExpandedMobileComposer
                             ? {
@@ -6216,12 +6247,10 @@ function ChatViewContent(props: ChatViewProps) {
                     }
                   >
                     <div
-                      className={cn(
-                        "chat-composer-glass-shell relative mx-auto w-full max-w-3xl",
-                        showComposerContextStrip && "chat-composer-glass-shell-with-context",
-                      )}
+                      data-composer-skin={composerSkin}
+                      className="chat-composer-glass-shell relative mx-auto w-full max-w-3xl"
                     >
-                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
+                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[var(--chat-composer-radius,10px)]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
                             composerRef={composerRef}
@@ -6237,6 +6266,10 @@ function ChatViewContent(props: ChatViewProps) {
                             isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
+                            skin={composerSkin}
+                            {...(contextStripBelowComposer
+                              ? {}
+                              : { contextSlot: composerContextStrip })}
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}
                             phase={phase}
                             isConnecting={isConnecting}
@@ -6309,34 +6342,8 @@ function ChatViewContent(props: ChatViewProps) {
                           data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
                           className="relative z-0"
                         >
-                          {showComposerContextStrip && (
-                            <div className="pointer-events-auto">
-                              <BranchToolbar
-                                environmentId={activeThread.environmentId}
-                                threadId={activeThread.id}
-                                {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                                onEnvModeChange={onEnvModeChange}
-                                startFromOrigin={startFromOrigin}
-                                onStartFromOriginChange={onStartFromOriginChange}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? { effectiveEnvModeOverride: envMode }
-                                  : {})}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? {
-                                      activeThreadBranchOverride: activeThreadBranch,
-                                      onActiveThreadBranchOverrideChange:
-                                        setPendingServerThreadBranch,
-                                    }
-                                  : {})}
-                                envLocked={envLocked}
-                                onComposerFocusRequest={scheduleComposerFocus}
-                                {...(canCheckoutPullRequestIntoThread
-                                  ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                                  : {})}
-                                {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                                availableEnvironments={logicalProjectEnvironments}
-                              />
-                            </div>
+                          {contextStripBelowComposer && composerContextStrip !== null && (
+                            <div className="pointer-events-auto">{composerContextStrip}</div>
                           )}
                         </div>
                       </div>

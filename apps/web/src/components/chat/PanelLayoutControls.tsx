@@ -73,7 +73,6 @@ export function rightPanelSurfaceButtonKindOf(
 ): RightPanelSurfaceButtonKind | null {
   switch (surfaceKind) {
     case "files":
-    case "file":
       return "files";
     case "diff":
       return "diff";

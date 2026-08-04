@@ -3,9 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { rightPanelSurfaceButtonKindOf } from "./PanelLayoutControls";
 
 describe("rightPanelSurfaceButtonKindOf", () => {
-  it("treats the explorer and an individual file as the same header button", () => {
+  it("maps the explorer surface onto the files header button", () => {
     expect(rightPanelSurfaceButtonKindOf("files")).toBe("files");
-    expect(rightPanelSurfaceButtonKindOf("file")).toBe("files");
   });
 
   it("maps the remaining surfaces onto their header buttons", () => {

@@ -155,103 +155,6 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
     );
   });
 
-  const processCardArchived = Effect.fn("BoardReactor.processCardArchived")(function* (
-    event: Extract<BoardReactorEvent, { type: "card.archived" }>,
-  ) {
-    const cardId = event.payload.cardId;
-    // Re-read for worktree path (archived cards stay in projection).
-    const cardOption = yield* projectionSnapshotQuery.getCardById(cardId);
-    if (Option.isNone(cardOption)) {
-      return;
-    }
-    const card = cardOption.value;
-
-    // Artifacts first (independent of worktree membership).
-    const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
-    yield* fs.remove(artifactDir, { recursive: true }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("board reactor failed to remove card artifact directory", {
-          cardId,
-          artifactDir,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-
-    if (card.worktreePath === null) {
-      return;
-    }
-
-    const project = yield* projectionSnapshotQuery
-      .getProjectShellById(card.projectId)
-      .pipe(Effect.map(Option.getOrUndefined));
-    const cwd = project?.workspaceRoot ?? card.worktreePath;
-
-    yield* deleteWorktreeOwned(
-      {
-        cwd,
-        path: card.worktreePath,
-      },
-      {
-        inspectWorktreeRemoval: (input) => gitWorkflow.inspectWorktreeRemoval(input),
-        removeWorktree: (input) => gitWorkflow.removeWorktree(input),
-        listMemberThreads: (worktreePath) =>
-          Effect.gen(function* () {
-            const [live, archived] = yield* Effect.all([
-              projectionSnapshotQuery.getShellSnapshot(),
-              projectionSnapshotQuery.getArchivedShellSnapshot(),
-            ]);
-            const members = [...live.threads, ...archived.threads].map((thread) => ({
-              id: thread.id,
-              parentThreadId: thread.parentThreadId,
-              worktreePath: thread.worktreePath,
-              deletedAt: null,
-              archivedAt: thread.archivedAt,
-            }));
-            return listActiveThreadsForWorktreePath(members, worktreePath);
-          }).pipe(
-            Effect.mapError((error) => ({
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to load worktree conversation membership.",
-            })),
-          ),
-        dispatchThreadDelete: ({ commandId, threadId }) =>
-          orchestrationEngine
-            .dispatch({
-              type: "thread.delete",
-              commandId,
-              threadId,
-            })
-            .pipe(
-              Effect.asVoid,
-              Effect.mapError((error) => ({
-                message: error instanceof Error ? error.message : String(error),
-              })),
-            ),
-        allocateCommandId: (tag) =>
-          serverCommandId(tag).pipe(
-            Effect.mapError((error) => ({
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to allocate worktree deletion command id.",
-            })),
-          ),
-        pathCoordination,
-      },
-    ).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("board reactor failed to delete card worktree on archive", {
-          cardId,
-          worktreePath: card.worktreePath,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-  });
-
   const processCardDeleteRequested = Effect.fn("BoardReactor.processCardDeleteRequested")(
     function* (event: Extract<BoardReactorEvent, { type: "card.delete-requested" }>) {
       const cardId = event.payload.cardId;
@@ -262,24 +165,24 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
       }
       const card = cardOption.value;
 
-      // Durable deleting claim (preferred) or legacy status: deleting.
+      // Durable cleanup claim (preferred) or legacy status: deleting.
       const isLegacyDeleting = card.status === "deleting" && card.operation === null;
+      const cleanupOperation = card.operation?.kind === "deleting" ? card.operation : null;
       if (operationId !== undefined && !cardOperationMatches(card, operationId, ["deleting"])) {
         if (!isLegacyDeleting) {
           return;
         }
-      } else if (card.operation?.kind !== "deleting" && !isLegacyDeleting) {
+      } else if (cleanupOperation === null && !isLegacyDeleting) {
         return;
       }
 
-      const failDelete = (reason: string) => failCardOperation(card, reason);
-      let cleanupStage =
-        card.operation?.kind === "deleting"
-          ? (card.operation.cleanupStage ?? "pending")
-          : "pending";
+      const isArchive = cleanupOperation?.purpose === "archive";
+      const operationLabel = isArchive ? "Archive" : "Delete";
+      const failCleanup = (reason: string) => failCardOperation(card, reason);
+      let cleanupStage = cleanupOperation?.cleanupStage ?? "pending";
 
-      if (card.operation?.kind === "deleting" && cleanupStage === "pending") {
-        yield* progressCardCleanup(card, "deleting", "cleanup-started");
+      if (cleanupOperation !== null && cleanupStage === "pending") {
+        yield* progressCardCleanup(card, cleanupOperation.kind, "cleanup-started");
         cleanupStage = "cleanup-started";
       }
 
@@ -342,8 +245,8 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
         ).pipe(Effect.result);
 
         if (Result.isFailure(cleanup)) {
-          yield* failDelete(
-            `Delete failed: ${cleanup.failure instanceof Error ? cleanup.failure.message : String(cleanup.failure)}`,
+          yield* failCleanup(
+            `${operationLabel} failed: ${cleanup.failure instanceof Error ? cleanup.failure.message : String(cleanup.failure)}`,
           );
           return;
         }
@@ -353,44 +256,60 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
             cleanup.success.stage === "worktree" &&
             cleanupStage === "cleanup-started"
           ) {
-            yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+            if (cleanupOperation !== null) {
+              yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+            }
           }
           const detail =
             cleanup.success.status === "partial"
               ? cleanup.success.detail
               : `Worktree cleanup was rejected (${cleanup.success.reason}).`;
-          yield* failDelete(`Delete failed: ${detail}`);
+          yield* failCleanup(`${operationLabel} failed: ${detail}`);
           return;
         }
         if (cleanupStage === "cleanup-started") {
-          yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+          if (cleanupOperation !== null) {
+            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+          }
         }
-        yield* progressCardCleanup(card, "deleting", "worktree-removed");
+        if (cleanupOperation !== null) {
+          yield* progressCardCleanup(card, cleanupOperation.kind, "worktree-removed");
+        }
       } else if (
         card.worktreePath === null &&
         cleanupStage !== "worktree-removed" &&
         cleanupStage !== "artifacts-removed"
       ) {
         if (cleanupStage === "cleanup-started") {
-          yield* progressCardCleanup(card, "deleting", "conversations-deleted");
+          if (cleanupOperation !== null) {
+            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+          }
         }
-        yield* progressCardCleanup(card, "deleting", "worktree-removed");
+        if (cleanupOperation !== null) {
+          yield* progressCardCleanup(card, cleanupOperation.kind, "worktree-removed");
+        }
       }
 
       if (cleanupStage !== "artifacts-removed") {
         const artifactDir = NodePath.join(boardArtifactsRoot(config.stateDir), card.id);
         const artifactCleanup = yield* fs
-          .remove(artifactDir, { recursive: true })
+          .remove(artifactDir, { recursive: true, force: true })
           .pipe(Effect.result);
         if (Result.isFailure(artifactCleanup)) {
-          yield* failDelete(
-            `Delete failed while removing artifacts: ${artifactCleanup.failure instanceof Error ? artifactCleanup.failure.message : String(artifactCleanup.failure)}`,
+          yield* failCleanup(
+            `${operationLabel} failed while removing artifacts: ${artifactCleanup.failure instanceof Error ? artifactCleanup.failure.message : String(artifactCleanup.failure)}`,
           );
           return;
         }
         const beforeArtifactProgress = yield* projectionSnapshotQuery.getCardById(cardId);
         if (Option.isSome(beforeArtifactProgress)) {
-          yield* progressCardCleanup(beforeArtifactProgress.value, "deleting", "artifacts-removed");
+          if (cleanupOperation !== null) {
+            yield* progressCardCleanup(
+              beforeArtifactProgress.value,
+              cleanupOperation.kind,
+              "artifacts-removed",
+            );
+          }
         }
       }
 
@@ -414,17 +333,28 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
         return;
       }
 
-      yield* dispatch({
-        type: "card.delete.complete",
-        commandId: yield* serverCommandId("delete-complete"),
-        cardId,
-        operationId: claimedOperationId,
-      });
+      if (
+        latest.value.operation?.kind === "deleting" &&
+        latest.value.operation.purpose === "archive"
+      ) {
+        yield* dispatch({
+          type: "card.archive",
+          commandId: yield* serverCommandId("archive-complete"),
+          cardId,
+          operationId: claimedOperationId,
+        });
+      } else {
+        yield* dispatch({
+          type: "card.delete.complete",
+          commandId: yield* serverCommandId("delete-complete"),
+          cardId,
+          operationId: claimedOperationId,
+        });
+      }
     },
   );
 
   return {
-    processCardArchived,
     processCardCreated,
     processCardDeleteRequested,
   } as const;

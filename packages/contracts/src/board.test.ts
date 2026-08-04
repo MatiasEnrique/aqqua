@@ -11,6 +11,7 @@ import {
   BoardStep,
   BoardWriteArtifactInput,
   CardCreateCommand,
+  CardDeleteRequestedPayload,
   CardOperation,
   CardPosition,
   CardReleaseCompleteCommand,
@@ -40,6 +41,7 @@ const decodeCardStepReportCommand = Schema.decodeUnknownEffect(CardStepReportCom
 const decodeCardReleaseCompleteCommand = Schema.decodeUnknownEffect(CardReleaseCompleteCommand);
 const decodeBoardCreatedPayload = Schema.decodeUnknownEffect(BoardCreatedPayload);
 const decodeCardOperation = Schema.decodeUnknownEffect(CardOperation);
+const decodeCardDeleteRequestedPayload = Schema.decodeUnknownEffect(CardDeleteRequestedPayload);
 const decodeCardPosition = Schema.decodeUnknownEffect(CardPosition);
 const decodeCardStatus = Schema.decodeUnknownEffect(CardStatus);
 const decodeBoardReadArtifactInput = Schema.decodeUnknownEffect(BoardReadArtifactInput);
@@ -205,6 +207,24 @@ it.effect("roundtrips OrchestrationBoard and OrchestrationCard", () =>
       threadIds: ["thread-1", "thread-2"],
     });
     assert.strictEqual(resetting.kind, "resetting");
+
+    const archiveRequest = yield* decodeCardDeleteRequestedPayload({
+      cardId: "card-1",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      operationId: "op-archive",
+      purpose: "archive",
+    });
+    assert.strictEqual(archiveRequest.purpose, "archive");
+
+    const historicalDelete = yield* decodeCardOperation({
+      kind: "deleting",
+      operationId: "archive:historical-delete-command",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(historicalDelete.kind, "deleting");
+    if (historicalDelete.kind === "deleting") {
+      assert.strictEqual(historicalDelete.purpose, undefined);
+    }
 
     // Legacy step-entry ops without threadId default to null.
     const legacyStarting = yield* decodeCardOperation({

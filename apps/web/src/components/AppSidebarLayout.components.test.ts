@@ -7,7 +7,7 @@ const sidebarMocks = vi.hoisted(() => ({
   regular: function RegularSidebarMock() {
     return null;
   },
-  v2: function SidebarV2Mock() {
+  worktree: function WorktreeSidebarMock() {
     return null;
   },
 }));
@@ -15,19 +15,19 @@ const sidebarMocks = vi.hoisted(() => ({
 vi.mock("./Sidebar", () => ({
   default: sidebarMocks.settings,
 }));
-vi.mock("./SidebarWorktree", () => ({
+vi.mock("./SidebarV2", () => ({
   default: sidebarMocks.regular,
 }));
-vi.mock("./SidebarV2", () => ({
-  default: sidebarMocks.v2,
+vi.mock("./SidebarWorktree", () => ({
+  default: sidebarMocks.worktree,
 }));
 
 describe("APP_SIDEBAR_COMPONENTS", () => {
-  it("maps regular and v2 to their intended sidebar implementations", async () => {
+  it("maps regular and worktree to their intended sidebar implementations", async () => {
     const { APP_SIDEBAR_COMPONENTS } = await import("./AppSidebarLayout");
 
     expect(APP_SIDEBAR_COMPONENTS.settings).toBe(sidebarMocks.settings);
     expect(APP_SIDEBAR_COMPONENTS.regular).toBe(sidebarMocks.regular);
-    expect(APP_SIDEBAR_COMPONENTS.v2).toBe(sidebarMocks.v2);
+    expect(APP_SIDEBAR_COMPONENTS.worktree).toBe(sidebarMocks.worktree);
   });
 });

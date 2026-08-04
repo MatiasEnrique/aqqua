@@ -53,11 +53,11 @@ import {
   SidebarWorktreeStateCounters,
 } from "./SidebarStatusPresentations";
 
-const SidebarBoardPanel = lazy(() =>
+const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
     default: module.SidebarBoardPanel,
-  })),
-);
+  }));
+const SidebarBoardPanel = lazy(loadSidebarBoardPanel);
 
 export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   const {
@@ -103,7 +103,9 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    settledTreeMetaByKey,
     expandedThreadKeys,
+    settledExpandedThreadKeys,
     reserveSubAgentGutter,
     draftRows,
     groupedDraftRows,
@@ -114,6 +116,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     settledShelfExpanded,
     toggleSettledShelf,
     hiddenSettledCount,
+    settledRootCount,
     showMoreSettled,
     sidebarThreadGroupingMode,
     handleChangeRequestState,
@@ -192,7 +195,10 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
         className="@container/sidebar-conversations gap-0"
         fixedHeader={
           <SidebarGroup className="gap-1 p-2">
-            <SidebarSurfaceSwitcher scopedProjectRef={boardProjectRef} />
+            <SidebarSurfaceSwitcher
+              scopedProjectRef={boardProjectRef}
+              onFlowsIntent={loadSidebarBoardPanel}
+            />
             <div className="flex items-center gap-1">
               <div className="min-w-0 flex-1">
                 <CommandDialogTrigger
@@ -402,8 +408,13 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                     const threadKey = scopedThreadKey(
                       scopeThreadRef(thread.environmentId, thread.id),
                     );
-                    const treeMeta = activeTreeMetaByKey.get(threadKey);
-                    const depth = section === "active" ? (treeMeta?.depth ?? 0) : 0;
+                    const treeMeta =
+                      section === "active"
+                        ? activeTreeMetaByKey.get(threadKey)
+                        : section === "settled"
+                          ? settledTreeMetaByKey.get(threadKey)
+                          : undefined;
+                    const depth = treeMeta?.depth ?? 0;
                     // Settled, snoozed and sub-agent rows are the ONLY things
                     // that collapse a row: every other thread is a full card.
                     // Density comes from users (or the auto rules) actually
@@ -423,9 +434,12 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                         thread={thread}
                         variant={rowVariant}
                         depth={depth}
-                        childCount={section === "active" ? (treeMeta?.childCount ?? 0) : 0}
+                        childCount={treeMeta?.childCount ?? 0}
                         reserveExpandGutter={reserveSubAgentGutter}
-                        isExpanded={expandedThreadKeys.has(threadKey)}
+                        isExpanded={
+                          expandedThreadKeys.has(threadKey) ||
+                          settledExpandedThreadKeys.has(threadKey)
+                        }
                         onToggleExpanded={toggleThreadExpanded}
                         // Snoozed rows wake; settled rows un-settle (explicit
                         // settles clear the override, auto-settled rows get
@@ -538,7 +552,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                         <div
                           key={`${group.key}:header`}
                           data-thread-selection-safe
-                          className="mb-1 mt-1 flex items-center gap-1 rounded-lg"
+                          className="mb-1 mt-1 flex items-start gap-1 rounded-lg"
                         >
                           <button
                             type="button"
@@ -557,29 +571,35 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                               });
                             }}
                             className={cn(
-                              "flex min-h-14 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-2 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
+                              "flex min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sidebar-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover motion-reduce:transform-none",
                               hasVisibleChildren
                                 ? "cursor-pointer active:scale-[0.96]"
                                 : "cursor-default",
                             )}
                           >
-                            {hasVisibleChildren ? (
-                              expanded ? (
-                                <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0" />
+                            <span aria-hidden className="flex h-5 shrink-0 items-center">
+                              {hasVisibleChildren ? (
+                                expanded ? (
+                                  <ChevronDownIcon className="size-3.5" />
+                                ) : (
+                                  <ChevronRightIcon className="size-3.5" />
+                                )
                               ) : (
-                                <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0" />
-                              )
-                            ) : (
-                              <span aria-hidden className="size-3.5 shrink-0" />
-                            )}
-                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                <span className="size-3.5" />
+                              )}
+                            </span>
+                            <span aria-hidden className="flex h-5 shrink-0 items-center">
+                              <GitBranchIcon className="size-4 text-muted-foreground" />
+                            </span>
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium">
+                              <span className="block truncate text-sm leading-5 font-medium">
                                 {group.label}
                               </span>
-                              <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground/65">
+                              <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 tabular-nums text-muted-foreground/65">
                                 <SidebarWorktreeStateCounters counts={group.stateCounts} />
-                                <span aria-hidden>·</span>
+                                {Object.values(group.stateCounts).some((count) => count > 0) ? (
+                                  <span aria-hidden>·</span>
+                                ) : null}
                                 <span className="truncate">
                                   {group.isProjectCheckout ? "Current checkout" : "Worktree"}
                                 </span>
@@ -592,7 +612,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                                 <button
                                   type="button"
                                   aria-label={`Worktree actions for ${group.label}`}
-                                  className="mr-1 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] motion-reduce:transform-none"
+                                  className="mr-1 mt-0.5 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] motion-reduce:transform-none"
                                 />
                               }
                             >
@@ -838,9 +858,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2.5 text-left"
                           >
                             <span className="text-xs font-medium text-muted-foreground/50">
-                              {settledShelfExpanded
-                                ? "Settled"
-                                : `Settled (${settledThreads.length})`}
+                              {settledShelfExpanded ? "Settled" : `Settled (${settledRootCount})`}
                             </span>
                             <span className="h-px flex-1 bg-sidebar-border/60" />
                             <ChevronDownIcon
@@ -893,14 +911,15 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                 {projects.length === 0 ? (
                   <>
                     <span>No projects yet</span>
-                    <button
-                      type="button"
+                    <Button
+                      size="xs"
+                      variant="outline"
                       onClick={openAddProjectCommandPalette}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                      className="border-sidebar-border bg-transparent text-[11px] text-sidebar-muted-foreground shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                     >
-                      <PlusIcon className="-mx-0.5 size-3" />
+                      <PlusIcon className="size-3" />
                       Add project
-                    </button>
+                    </Button>
                   </>
                 ) : scopedProjectGroup ? (
                   `No threads in ${scopedProjectGroup.displayName} yet`

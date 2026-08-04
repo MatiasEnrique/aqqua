@@ -56,12 +56,7 @@ export function CardComposerActions({
 
   if (promptHasText) {
     return (
-      <Button
-        type="submit"
-        size="sm"
-        className="h-9 rounded-full px-4 sm:h-8"
-        disabled={disabled || busy}
-      >
+      <Button type="submit" size="sm" className="h-9 px-4 sm:h-8" disabled={disabled || busy}>
         Send &amp; resume
       </Button>
     );
@@ -72,7 +67,7 @@ export function CardComposerActions({
       <Button
         type="button"
         size="sm"
-        className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+        className="h-9 rounded-r-none px-4 sm:h-8"
         disabled={disabled || busy || !canResumeWithoutMessage}
         onClick={onResume}
       >
@@ -84,7 +79,7 @@ export function CardComposerActions({
             <Button
               size="sm"
               variant="default"
-              className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+              className="h-9 rounded-l-none border-l-white/12 px-2 sm:h-8"
               aria-label="Card actions"
               disabled={disabled || busy}
             />

@@ -1341,6 +1341,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
         const pathService = yield* Path.Path;
         const worktreePath = pathService.join(
           yield* makeTmpDir("git-worktrees-"),
@@ -1348,6 +1349,9 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         );
         const driver = yield* GitVcsDriver.GitVcsDriver;
         const refName = "feature/delete-local-only";
+        const hooksDir = pathService.join(cwd, "test-hooks");
+        const transactionHook = pathService.join(hooksDir, "reference-transaction");
+        const hookMarker = pathService.join(cwd, "reference-transaction-hook-invoked");
 
         yield* driver.createWorktree({
           cwd,
@@ -1358,11 +1362,55 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const headCommit = yield* git(worktreePath, ["rev-parse", "HEAD"]);
         yield* git(cwd, ["update-ref", `refs/remotes/origin/${refName}`, headCommit]);
         yield* driver.removeWorktree({ cwd, path: worktreePath });
+        yield* fileSystem.makeDirectory(hooksDir);
+        yield* fileSystem.writeFileString(
+          transactionHook,
+          "#!/bin/sh\nprintf invoked > reference-transaction-hook-invoked\n",
+        );
+        yield* fileSystem.chmod(transactionHook, 0o700);
+        yield* git(cwd, ["config", "core.hooksPath", hooksDir]);
 
         yield* driver.deleteLocalBranch({ cwd, refName, expectedHeadCommit: headCommit });
 
         assert.notInclude(yield* driver.listLocalBranchNames(cwd), refName);
         assert.equal(yield* git(cwd, ["rev-parse", `refs/remotes/origin/${refName}`]), headCommit);
+        assert.isTrue(yield* fileSystem.exists(hookMarker));
+      }),
+    );
+
+    it.effect("changes identity when a worktree registration is replaced at the same path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "reused-registration",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const refName = "feature/reused-registration";
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: refName,
+          baseRefName: initialBranch,
+        });
+
+        const before = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        yield* driver.removeWorktree({ cwd, path: worktreePath, force: true });
+        yield* git(cwd, ["worktree", "add", worktreePath, refName]);
+        const after = yield* driver.inspectWorktreeRemoval({ cwd, path: worktreePath });
+        const beforeIdentity = (
+          before as typeof before & { readonly worktreeIdentity?: string | undefined }
+        ).worktreeIdentity;
+        const afterIdentity = (
+          after as typeof after & { readonly worktreeIdentity?: string | undefined }
+        ).worktreeIdentity;
+
+        assert.isString(beforeIdentity);
+        assert.isString(afterIdentity);
+        assert.notEqual(afterIdentity, beforeIdentity);
       }),
     );
 
@@ -1389,6 +1437,30 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         assert.isTrue(Result.isFailure(result));
         assert.include(yield* driver.listLocalBranchNames(cwd), refName);
+      }),
+    );
+
+    it.effect("keeps a local branch checked out in another registered worktree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const linkedWorktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "branch-owner",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const refName = "feature/owned-by-linked-worktree";
+        const expectedHeadCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["worktree", "add", "-b", refName, linkedWorktreePath]);
+
+        const result = yield* driver
+          .deleteLocalBranch({ cwd, refName, expectedHeadCommit })
+          .pipe(Effect.result);
+
+        assert.isTrue(Result.isFailure(result));
+        assert.equal(yield* git(linkedWorktreePath, ["branch", "--show-current"]), refName);
+        assert.equal(yield* git(cwd, ["rev-parse", `refs/heads/${refName}`]), expectedHeadCommit);
       }),
     );
   });

@@ -17,8 +17,8 @@ import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useSidebarV2Enabled } from "../hooks/useSettings";
 import SettingsSidebar from "./Sidebar";
-import ThreadSidebarV2 from "./SidebarV2";
-import ThreadSidebar from "./SidebarWorktree";
+import ThreadSidebar from "./SidebarV2";
+import WorktreeSidebar from "./SidebarWorktree";
 import { resolveAppSidebarVariant, type AppSidebarVariant } from "./AppSidebarLayout.logic";
 import {
   resolveInitialThreadSidebarWidth,
@@ -35,7 +35,7 @@ const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "90px";
 export const APP_SIDEBAR_COMPONENTS = {
   settings: SettingsSidebar,
   regular: ThreadSidebar,
-  v2: ThreadSidebarV2,
+  worktree: WorktreeSidebar,
 } satisfies Record<AppSidebarVariant, ComponentType>;
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
@@ -106,12 +106,12 @@ function SidebarControl() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const sidebarV2Enabled = useSidebarV2Enabled();
-  // Settings routes render the settings nav, which lives in the v1 component
-  // and is identical for both sidebars — so v1 stays mounted there.
+  // Opt-in beta: off in every build stage until the user flips Settings →
+  // Beta → Worktree view.
+  const worktreeViewEnabled = useSidebarV2Enabled();
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-  const sidebarVariant = resolveAppSidebarVariant({ isOnSettings, sidebarV2Enabled });
+  const sidebarVariant = resolveAppSidebarVariant({ isOnSettings, worktreeViewEnabled });
   const ThreadSidebarComponent = APP_SIDEBAR_COMPONENTS[sidebarVariant];
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);

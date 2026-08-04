@@ -86,11 +86,13 @@ function startingOperation(operationId = "op-start"): CardOperation {
 
 function deletingOperation(
   operationId = "op-delete",
+  purpose?: "delete" | "archive",
 ): Extract<CardOperation, { kind: "deleting" }> {
   return {
     kind: "deleting",
     operationId: CardOperationId.make(operationId),
     requestedAt: NOW,
+    ...(purpose === undefined ? {} : { purpose }),
   };
 }
 
@@ -704,7 +706,59 @@ it.layer(NodeServices.layer)("board/card decider", (it) => {
           ],
         }),
       });
-      expect(asEvents(archive)[0]?.type).toBe("card.archived");
+      const archiveEvents = asEvents(archive);
+      expect(archiveEvents[0]?.type).toBe("card.delete-requested");
+      if (archiveEvents[0]?.type === "card.delete-requested") {
+        expect(archiveEvents[0].payload).toMatchObject({
+          operationId: "cmd-archive",
+          purpose: "archive",
+        });
+      }
+
+      const archiving = makeCard({
+        position: { kind: "done" },
+        completedAt: NOW,
+        settledAt: NOW,
+        operation: {
+          ...deletingOperation("cmd-archive", "archive"),
+          cleanupStage: "artifacts-removed",
+        },
+      });
+      const completedArchive = yield* decideOrchestrationCommand({
+        command: {
+          type: "card.archive",
+          commandId: CommandId.make("cmd-archive-complete"),
+          cardId: archiving.id,
+          operationId: CardOperationId.make("cmd-archive"),
+        },
+        readModel: makeReadModel({ boards: [makeBoard()], cards: [archiving] }),
+      });
+      expect(asEvents(completedArchive).map((event) => event.type)).toEqual(["card.archived"]);
+
+      const retryArchive = yield* decideOrchestrationCommand({
+        command: {
+          type: "card.delete",
+          commandId: CommandId.make("cmd-archive-retry"),
+          cardId: archiving.id,
+        },
+        readModel: makeReadModel({
+          boards: [makeBoard()],
+          cards: [
+            makeCard({
+              ...archiving,
+              operation: {
+                ...deletingOperation("cmd-archive", "archive"),
+                cleanupStage: "worktree-removed",
+              },
+              lastError: "Archive failed while removing artifacts",
+            }),
+          ],
+        }),
+      });
+      expect(asEvents(retryArchive)[0]).toMatchObject({
+        type: "card.delete-requested",
+        payload: { operationId: "cmd-archive", purpose: "archive" },
+      });
 
       const archiveUnsettled = yield* decideOrchestrationCommand({
         command: {

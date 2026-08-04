@@ -165,6 +165,8 @@ export const CardOperation = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("deleting"),
     ...CardOperationBase,
+    /** Missing on historical projected rows, which are deletion operations. */
+    purpose: Schema.optionalKey(Schema.Literals(["delete", "archive"])),
     cleanupStage: Schema.optionalKey(CardCleanupStage),
   }),
 ]);
@@ -462,6 +464,8 @@ export const CardDeleteRequestedPayload = Schema.Struct({
   cardId: CardId,
   requestedAt: IsoDateTime,
   operationId: Schema.optional(CardOperationId),
+  /** Missing on historical events, which are deletion requests. */
+  purpose: Schema.optional(Schema.Literals(["delete", "archive"])),
 });
 export type CardDeleteRequestedPayload = typeof CardDeleteRequestedPayload.Type;
 
@@ -564,6 +568,8 @@ export const CardArchiveCommand = Schema.Struct({
   type: Schema.Literal("card.archive"),
   commandId: CommandId,
   cardId: CardId,
+  /** Internal completion receipt; omitted by user-issued archive commands. */
+  operationId: Schema.optional(CardOperationId),
 });
 export type CardArchiveCommand = typeof CardArchiveCommand.Type;
 

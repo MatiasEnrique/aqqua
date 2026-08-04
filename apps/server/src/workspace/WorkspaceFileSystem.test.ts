@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFSP from "node:fs/promises";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -264,6 +267,49 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         expect(escapedStat).toBeNull();
       }),
     );
+
+    it.effect("rejects a symlinked file without changing its outside target", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "outside.md", "keep outside\n");
+        yield* fileSystem.symlink(path.join(outsideDir, "outside.md"), path.join(cwd, "linked.md"));
+
+        const error = yield* workspaceFileSystem
+          .writeFile({ cwd, relativePath: "linked.md", contents: "escape\n" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        expect(
+          yield* fileSystem.readFileString(path.join(outsideDir, "outside.md")).pipe(Effect.orDie),
+        ).toBe("keep outside\n");
+      }),
+    );
+
+    it.effect("rejects a symlinked parent without creating an outside file", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* fileSystem.symlink(outsideDir, path.join(cwd, "linked-dir"));
+
+        const error = yield* workspaceFileSystem
+          .writeFile({ cwd, relativePath: "linked-dir/escape.md", contents: "escape\n" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        expect(
+          yield* fileSystem
+            .stat(path.join(outsideDir, "escape.md"))
+            .pipe(Effect.orElseSucceed(() => null)),
+        ).toBeNull();
+      }),
+    );
   });
 
   describe("createEntry", () => {
@@ -381,6 +427,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         yield* writeTextFile(cwd, "before.md", "contents\n");
         yield* workspaceEntries.list({ cwd });
 
+        const sourceStat = yield* fileSystem.stat(path.join(cwd, "before.md")).pipe(Effect.orDie);
         const result = yield* workspaceFileSystem.moveEntry({
           cwd,
           sourcePath: "before.md",
@@ -395,6 +442,10 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .readFileString(path.join(cwd, "after.md"))
           .pipe(Effect.orDie);
         expect(contents).toBe("contents\n");
+        const destinationStat = yield* fileSystem
+          .stat(path.join(cwd, "after.md"))
+          .pipe(Effect.orDie);
+        expect(destinationStat.ino).toEqual(sourceStat.ino);
         const afterMove = yield* workspaceEntries.list({ cwd });
         expect(afterMove.entries.some((entry) => entry.path === "before.md")).toBe(false);
         expect(afterMove.entries).toEqual(
@@ -424,6 +475,131 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .stat(path.join(cwd, "before"))
           .pipe(Effect.orElseSucceed(() => null));
         expect(oldDirectory).toBeNull();
+      }),
+    );
+
+    it.effect("renames an in-workspace symlink without moving its target", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "target.md", "target contents\n");
+        yield* fileSystem.symlink("target.md", path.join(cwd, "before.md"));
+
+        yield* workspaceFileSystem.moveEntry({
+          cwd,
+          sourcePath: "before.md",
+          destinationPath: "after.md",
+        });
+
+        expect(
+          (yield* Effect.promise(() => NodeFSP.lstat(path.join(cwd, "after.md")))).isSymbolicLink(),
+        ).toBe(true);
+        expect(
+          yield* fileSystem.readFileString(path.join(cwd, "target.md")).pipe(Effect.orDie),
+        ).toBe("target contents\n");
+      }),
+    );
+
+    it.effect("publishes an EXDEV fallback only after the copy is complete", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const sourcePath = path.join(cwd, "source.md");
+        const destinationPath = path.join(cwd, "destination.md");
+        yield* writeTextFile(cwd, "source.md", "contents\n");
+        let renameCalls = 0;
+
+        yield* Effect.promise(() =>
+          WorkspaceFileSystem.moveWorkspaceEntryOnDisk(
+            {
+              sourcePath,
+              destinationPath,
+              recursive: false,
+              stagingSuffix: "fallback-test",
+            },
+            {
+              rename: async (from, to) => {
+                renameCalls += 1;
+                if (renameCalls === 1) {
+                  throw Object.assign(new Error("cross-device move"), { code: "EXDEV" });
+                }
+                await NodeFSP.rename(from, to);
+              },
+              cp: NodeFSP.cp,
+              rm: NodeFSP.rm,
+              lstat: NodeFSP.lstat,
+            },
+          ),
+        );
+
+        expect(renameCalls).toBe(2);
+        expect(yield* fileSystem.readFileString(destinationPath).pipe(Effect.orDie)).toBe(
+          "contents\n",
+        );
+        expect(
+          yield* fileSystem.stat(sourcePath).pipe(Effect.orElseSucceed(() => null)),
+        ).toBeNull();
+        expect(
+          yield* fileSystem
+            .stat(`${destinationPath}.aqqua-move-fallback-test`)
+            .pipe(Effect.orElseSucceed(() => null)),
+        ).toBeNull();
+      }),
+    );
+
+    it.effect("removes the EXDEV destination when source removal fails", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const sourcePath = path.join(cwd, "source.md");
+        const destinationPath = path.join(cwd, "destination.md");
+        yield* writeTextFile(cwd, "source.md", "keep source\n");
+        let renameCalls = 0;
+
+        const result = yield* Effect.promise(() =>
+          WorkspaceFileSystem.moveWorkspaceEntryOnDisk(
+            {
+              sourcePath,
+              destinationPath,
+              recursive: false,
+              stagingSuffix: "rollback-test",
+            },
+            {
+              rename: async (from, to) => {
+                renameCalls += 1;
+                if (renameCalls === 1) {
+                  throw Object.assign(new Error("cross-device move"), { code: "EXDEV" });
+                }
+                await NodeFSP.rename(from, to);
+              },
+              cp: NodeFSP.cp,
+              rm: async (target, options) => {
+                if (target === sourcePath) {
+                  throw Object.assign(new Error("source is busy"), { code: "EBUSY" });
+                }
+                await NodeFSP.rm(target, options);
+              },
+              lstat: NodeFSP.lstat,
+            },
+          ).then(
+            () => ({ ok: true as const }),
+            (error: unknown) => ({ ok: false as const, error }),
+          ),
+        );
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect((result.error as NodeJS.ErrnoException).code).toBe("EBUSY");
+        expect(yield* fileSystem.readFileString(sourcePath).pipe(Effect.orDie)).toBe(
+          "keep source\n",
+        );
+        expect(
+          yield* fileSystem.stat(destinationPath).pipe(Effect.orElseSucceed(() => null)),
+        ).toBeNull();
       }),
     );
 

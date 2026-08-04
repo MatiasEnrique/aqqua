@@ -1,6 +1,7 @@
 import { CommandId, GitCommandError, ThreadId } from "@aqqua/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import { describe, expect, it } from "@effect/vitest";
@@ -64,7 +65,11 @@ describe("deleteWorktreeOwned", () => {
         { cwd: "/tmp/repo", path: "/tmp/wt", force: true },
         {
           pathCoordination: coordination,
-          inspectWorktreeRemoval: () => Effect.succeed(availableInspection),
+          inspectWorktreeRemoval: () =>
+            Effect.sync(() => {
+              calls.push("inspect");
+              return availableInspection;
+            }),
           removeWorktree: () =>
             Effect.sync(() => {
               calls.push("worktree");
@@ -95,7 +100,94 @@ describe("deleteWorktreeOwned", () => {
         deletedThreadIds: [asThreadId("live"), asThreadId("archived")],
         worktreeRemoval: "removed",
       });
-      expect(calls).toEqual(["delete:live", "delete:archived", "worktree"]);
+      expect(calls).toEqual(["inspect", "delete:live", "delete:archived", "inspect", "worktree"]);
+    }).pipe(Effect.provide(WorktreePathCoordinationLive)),
+  );
+
+  it.effect("preserves the worktree when its removal inspection changes under ownership", () =>
+    Effect.gen(function* () {
+      const coordination = yield* WorktreePathCoordination;
+      const inspections = yield* Ref.make(0);
+      const removeCalls = yield* Ref.make(0);
+
+      const result = yield* deleteWorktreeOwned(
+        { cwd: "/tmp/repo", path: "/tmp/wt-reinspection", force: true },
+        {
+          pathCoordination: coordination,
+          inspectWorktreeRemoval: () =>
+            Ref.updateAndGet(inspections, (count) => count + 1).pipe(
+              Effect.map((count) =>
+                count === 1
+                  ? { ...availableInspection, worktreeIdentity: "worktrees/confirmed" }
+                  : { ...availableInspection, worktreeIdentity: "worktrees/replacement" },
+              ),
+            ),
+          removeWorktree: () => Ref.update(removeCalls, (count) => count + 1),
+          listMemberThreads: () => Effect.succeed([]),
+          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
+        },
+      );
+
+      expect(result).toEqual({
+        status: "partial",
+        stage: "worktree",
+        deletedThreadIds: [],
+        retryable: true,
+        detail: "Worktree changed after deletion confirmation; inspect it again before retrying.",
+        worktreeRemoval: "not_attempted",
+      });
+      expect(yield* Ref.get(inspections)).toBe(2);
+      expect(yield* Ref.get(removeCalls)).toBe(0);
+      expect(releaseOutcomeForDeleteResult(result)).toBe("kept");
+    }).pipe(Effect.provide(WorktreePathCoordinationLive)),
+  );
+
+  it.effect("releases the path as removed when interrupted after filesystem removal", () =>
+    Effect.gen(function* () {
+      const coordination = yield* WorktreePathCoordination;
+      const path = "/tmp/wt-interrupted-after-remove";
+      const removalStarted = yield* Deferred.make<void>();
+      const finishRemoval = yield* Deferred.make<void>();
+      const createWaiting = yield* Deferred.make<void>();
+
+      const deletionFiber = yield* Effect.forkChild(
+        deleteWorktreeOwned(
+          { cwd: "/tmp/repo", path, force: true },
+          {
+            pathCoordination: coordination,
+            inspectWorktreeRemoval: () => Effect.succeed(availableInspection),
+            removeWorktree: () =>
+              Effect.gen(function* () {
+                yield* Deferred.succeed(removalStarted, undefined);
+                yield* Deferred.await(finishRemoval);
+              }),
+            listMemberThreads: () => Effect.succeed([]),
+            dispatchThreadDelete: () => Effect.die("should not delete threads"),
+            allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
+          },
+        ),
+      );
+      yield* Deferred.await(removalStarted);
+
+      const createFiber = yield* Effect.forkChild(
+        coordination
+          .awaitCreateAllowed(path, {
+            onWaiting: Deferred.succeed(createWaiting, undefined),
+          })
+          .pipe(Effect.result),
+      );
+      yield* Deferred.await(createWaiting);
+      const interruptionFiber = yield* Effect.forkChild(Fiber.interrupt(deletionFiber));
+
+      yield* Deferred.succeed(finishRemoval, undefined);
+      yield* Fiber.join(interruptionFiber);
+      const createResult = yield* Fiber.join(createFiber);
+
+      expect(Result.isFailure(createResult)).toBe(true);
+      if (Result.isFailure(createResult)) {
+        expect(createResult.failure.message).toContain("being deleted or was removed");
+      }
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 

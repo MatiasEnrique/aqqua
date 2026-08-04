@@ -3,35 +3,35 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveAppSidebarVariant } from "./AppSidebarLayout.logic";
 
 describe("resolveAppSidebarVariant", () => {
-  it("uses the worktree-aware sidebar as the regular sidebar", () => {
+  it("uses T3 Code's original sidebar as the regular sidebar", () => {
     expect(
       resolveAppSidebarVariant({
         isOnSettings: false,
-        sidebarV2Enabled: false,
+        worktreeViewEnabled: false,
       }),
     ).toBe("regular");
   });
 
-  it("uses aqqua's original v2 sidebar when v2 is enabled", () => {
+  it("uses the worktree-aware sidebar when the worktree view is enabled", () => {
     expect(
       resolveAppSidebarVariant({
         isOnSettings: false,
-        sidebarV2Enabled: true,
+        worktreeViewEnabled: true,
       }),
-    ).toBe("v2");
+    ).toBe("worktree");
   });
 
   it("keeps the settings navigation on settings routes", () => {
     expect(
       resolveAppSidebarVariant({
         isOnSettings: true,
-        sidebarV2Enabled: true,
+        worktreeViewEnabled: true,
       }),
     ).toBe("settings");
     expect(
       resolveAppSidebarVariant({
         isOnSettings: true,
-        sidebarV2Enabled: false,
+        worktreeViewEnabled: false,
       }),
     ).toBe("settings");
   });

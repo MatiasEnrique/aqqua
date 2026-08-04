@@ -37,6 +37,7 @@ import {
 } from "../git/remoteRefs.ts";
 import { ServerConfig } from "../config.ts";
 
+const isGitCommandError = Schema.is(GitCommandError);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
@@ -68,6 +69,41 @@ const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   SSH_ASKPASS: "",
   SSH_ASKPASS_REQUIRE: "never",
 } satisfies NodeJS.ProcessEnv);
+const EXPECTED_BRANCH_DELETE_HOOK = `#!/bin/sh
+transaction_input="$AQQUA_TRANSACTION_INPUT"
+cat > "$transaction_input" || exit 1
+
+if [ "$1" != "prepared" ]; then
+  :
+else
+  found=false
+  while read -r old_oid new_oid ref_name; do
+    if [ "$ref_name" = "$AQQUA_EXPECTED_REF" ]; then
+      found=true
+      actual_oid=$(git rev-parse --verify "$AQQUA_EXPECTED_REF") || exit 1
+      if [ "$actual_oid" != "$AQQUA_EXPECTED_OID" ]; then
+        echo "local branch changed after inspection" >&2
+        exit 1
+      fi
+      case "$new_oid" in
+        ""|*[!0]*)
+          echo "guarded branch transaction was not a deletion" >&2
+          exit 1
+          ;;
+      esac
+    fi
+  done < "$transaction_input"
+
+  if [ "$found" != "true" ]; then
+    echo "guarded branch deletion transaction was empty" >&2
+    exit 1
+  fi
+fi
+
+if [ -x "$AQQUA_ORIGINAL_REFERENCE_TRANSACTION_HOOK" ]; then
+  "$AQQUA_ORIGINAL_REFERENCE_TRANSACTION_HOOK" "$@" < "$transaction_input"
+fi
+`;
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitStatusDetails>({
@@ -233,14 +269,21 @@ function paginateBranches(input: {
   };
 }
 
-function parseWorktreeBranchPaths(stdout: string): ReadonlyMap<string, string> {
+function parseWorktreeBranchPaths(
+  stdout: string,
+  options: { readonly includePrunable?: boolean } = {},
+): ReadonlyMap<string, string> {
   const worktreePaths = new Map<string, string>();
   let currentPath: string | null = null;
   let currentBranch: string | null = null;
   let currentPrunable = false;
 
   const flush = () => {
-    if (currentPath !== null && currentBranch !== null && !currentPrunable) {
+    if (
+      currentPath !== null &&
+      currentBranch !== null &&
+      (options.includePrunable === true || !currentPrunable)
+    ) {
       worktreePaths.set(currentBranch, currentPath);
     }
     currentPath = null;
@@ -2664,14 +2707,150 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const deleteLocalBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteLocalBranch"] = Effect.fn(
     "deleteLocalBranch",
   )(function* (input) {
-    yield* executeGit(
-      "GitVcsDriver.deleteLocalBranch",
-      input.cwd,
-      ["update-ref", "-d", `refs/heads/${input.refName}`, input.expectedHeadCommit],
+    const repositoryPaths = yield* resolveRepositoryPathsUncached(input.cwd);
+    if (repositoryPaths === null) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.deleteLocalBranch.repository",
+          cwd: input.cwd,
+          args: ["rev-parse", "--git-common-dir"],
+        }),
+        detail: "Cannot delete a local branch outside a repository.",
+      });
+    }
+
+    const repositoryCwd =
+      path.basename(repositoryPaths.gitCommonDir) === ".git"
+        ? path.dirname(repositoryPaths.gitCommonDir)
+        : repositoryPaths.gitCommonDir;
+    const gitDirArgs = ["--git-dir", repositoryPaths.gitCommonDir] as const;
+    const localRef = `refs/heads/${input.refName}`;
+    const worktreesResult = yield* executeGit(
+      "GitVcsDriver.deleteLocalBranch.worktrees",
+      repositoryCwd,
+      [...gitDirArgs, "worktree", "list", "--porcelain", "-z"],
       {
         timeoutMs: 5_000,
-        fallbackErrorDetail: "local branch changed or could not be deleted",
+        maxOutputBytes: 16 * 1024 * 1024,
+        fallbackErrorDetail: "registered worktrees could not be checked before branch deletion",
       },
+    );
+    const checkedOutPath = parseWorktreeBranchPaths(worktreesResult.stdout, {
+      includePrunable: true,
+    }).get(input.refName);
+    if (checkedOutPath !== undefined) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.deleteLocalBranch.worktrees",
+          cwd: repositoryCwd,
+          args: [...gitDirArgs, "worktree", "list", "--porcelain", "-z"],
+        }),
+        detail: `Local branch ${input.refName} is checked out in registered worktree ${checkedOutPath}.`,
+      });
+    }
+
+    const headResult = yield* executeGit(
+      "GitVcsDriver.deleteLocalBranch.expectedHead",
+      repositoryCwd,
+      [...gitDirArgs, "show-ref", "--verify", "--hash", localRef],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+      },
+    );
+    if (headResult.exitCode !== 0 || headResult.stdout.trim() !== input.expectedHeadCommit) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.deleteLocalBranch.expectedHead",
+          cwd: repositoryCwd,
+          args: [...gitDirArgs, "show-ref", "--verify", "--hash", localRef],
+        }),
+        detail: "Local branch changed after inspection or no longer exists.",
+        exitCode: headResult.exitCode,
+        stdoutLength: headResult.stdout.length,
+        stderrLength: headResult.stderr.length,
+      });
+    }
+
+    const hooksPathResult = yield* executeGit(
+      "GitVcsDriver.deleteLocalBranch.hooksPath",
+      repositoryCwd,
+      [...gitDirArgs, "config", "--path", "--get", "core.hooksPath"],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+      },
+    );
+    if (Number(hooksPathResult.exitCode) > 1) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.deleteLocalBranch.hooksPath",
+          cwd: repositoryCwd,
+          args: [...gitDirArgs, "config", "--path", "--get", "core.hooksPath"],
+        }),
+        detail: "Configured Git hooks path could not be resolved before branch deletion.",
+        exitCode: hooksPathResult.exitCode,
+        stdoutLength: hooksPathResult.stdout.length,
+        stderrLength: hooksPathResult.stderr.length,
+      });
+    }
+    const configuredHooksPath = hooksPathResult.stdout.trim();
+    const originalHooksDir =
+      configuredHooksPath.length === 0
+        ? path.join(repositoryPaths.gitCommonDir, "hooks")
+        : path.isAbsolute(configuredHooksPath)
+          ? configuredHooksPath
+          : path.resolve(repositoryCwd, configuredHooksPath);
+    const originalReferenceTransactionHook = path.join(originalHooksDir, "reference-transaction");
+
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const hooksDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "aqqua-git-branch-delete-hooks-",
+        });
+        const hookPath = path.join(hooksDir, "reference-transaction");
+        yield* fileSystem.writeFileString(hookPath, EXPECTED_BRANCH_DELETE_HOOK);
+        yield* fileSystem.chmod(hookPath, 0o700);
+        yield* executeGit(
+          "GitVcsDriver.deleteLocalBranch",
+          repositoryCwd,
+          [
+            ...gitDirArgs,
+            "-c",
+            `core.hooksPath=${hooksDir}`,
+            "branch",
+            "--delete",
+            "--force",
+            "--",
+            input.refName,
+          ],
+          {
+            timeoutMs: 5_000,
+            fallbackErrorDetail: "local branch changed or could not be deleted",
+            env: {
+              AQQUA_EXPECTED_OID: input.expectedHeadCommit,
+              AQQUA_EXPECTED_REF: localRef,
+              AQQUA_ORIGINAL_REFERENCE_TRANSACTION_HOOK: originalReferenceTransactionHook,
+              AQQUA_TRANSACTION_INPUT: path.join(hooksDir, "transaction-input"),
+            },
+          },
+        );
+      }),
+    ).pipe(
+      Effect.mapError((cause) =>
+        isGitCommandError(cause)
+          ? cause
+          : new GitCommandError({
+              ...gitCommandContext({
+                operation: "GitVcsDriver.deleteLocalBranch.guard",
+                cwd: repositoryCwd,
+                args: ["branch", "--delete", "--force", "--", input.refName],
+              }),
+              detail: "Failed to prepare the guarded local branch deletion.",
+              cause,
+            }),
+      ),
+      Effect.uninterruptible,
     );
   });
 
@@ -2736,7 +2915,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         };
       }
 
-      const [branchResult, headResult, statusResult] = yield* Effect.all(
+      const [branchResult, headResult, statusResult, gitDirResult] = yield* Effect.all(
         [
           executeGit(
             "GitVcsDriver.inspectWorktreeRemoval.branch",
@@ -2756,6 +2935,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ["status", "--porcelain=2", "--untracked-files=all", "--ignored=matching"],
             { timeoutMs: 5_000, allowNonZeroExit: true },
           ),
+          executeGit(
+            "GitVcsDriver.inspectWorktreeRemoval.gitDir",
+            input.path,
+            ["rev-parse", "--path-format=absolute", "--git-dir"],
+            { timeoutMs: 5_000 },
+          ),
         ],
         { concurrency: "unbounded" },
       );
@@ -2770,6 +2955,32 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           : statusResult.stdout.trim().length > 0
             ? ("dirty" as const)
             : ("clean" as const);
+      const worktreeGitDir = yield* canonicalPath(gitDirResult.stdout.trim());
+      const worktreeGitDirInfo = yield* fileSystem.stat(worktreeGitDir).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              ...gitCommandContext({
+                operation: "GitVcsDriver.inspectWorktreeRemoval.identity",
+                cwd: input.path,
+                args: ["rev-parse", "--path-format=absolute", "--git-dir"],
+              }),
+              detail: "Worktree registration identity could not be inspected.",
+              cause,
+            }),
+        ),
+      );
+      const worktreeIdentity = [
+        worktreeGitDir,
+        String(worktreeGitDirInfo.dev),
+        String(Option.getOrNull(worktreeGitDirInfo.ino) ?? ""),
+        String(
+          Option.match(worktreeGitDirInfo.birthtime, {
+            onNone: () => "",
+            onSome: (birthtime) => birthtime.getTime(),
+          }),
+        ),
+      ].join("\0");
       const baseRef =
         refName === null
           ? null
@@ -2793,14 +3004,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               : "unknown";
       }
 
-      return {
-        availability: "available",
+      const inspection = {
+        availability: "available" as const,
         refName,
         headCommit,
         baseRef,
         mergeStatus,
         workingTreeStatus,
       };
+      Object.defineProperty(inspection, "worktreeIdentity", {
+        configurable: false,
+        enumerable: false,
+        value: worktreeIdentity,
+        writable: false,
+      });
+      return inspection;
     });
 
   const renameBranch: GitVcsDriver.GitVcsDriver["Service"]["renameBranch"] = Effect.fn(

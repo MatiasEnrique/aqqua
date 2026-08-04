@@ -12,6 +12,10 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import {
+  CONVERSATION_STATE_PRESENTATIONS,
+  type ConversationStateKey,
+} from "./conversationStatePresentation";
+import {
   classifyThreadPresentation,
   hasUnseenCompletion,
   resolveSidebarConversationSummaryState,
@@ -129,9 +133,8 @@ export interface ThreadStatusPill {
     | "Awaiting Input"
     | "Plan Ready"
     | "Failed";
+  state: ConversationStateKey;
   colorClass: string;
-  dotClass: string;
-  pulse: boolean;
 }
 
 // Pending input/approval outrank activity; failed sits below activity but
@@ -614,59 +617,26 @@ export function resolveThreadStatusPill(input: {
   const { thread } = input;
   const presentation = classifyThreadPresentation(thread);
 
+  const pill = (label: ThreadStatusPill["label"], state: ConversationStateKey) => ({
+    label,
+    state,
+    colorClass: CONVERSATION_STATE_PRESENTATIONS[state].className,
+  });
+
   switch (presentation.phase) {
     case "approval":
-      return {
-        label: "Pending Approval",
-        colorClass: "text-amber-600 dark:text-amber-300/90",
-        dotClass: "bg-amber-500 dark:bg-amber-300/90",
-        pulse: false,
-      };
+      return pill("Pending Approval", "approval");
     case "input":
-      return {
-        label: "Awaiting Input",
-        colorClass: "text-indigo-600 dark:text-indigo-300/90",
-        dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
-        pulse: false,
-      };
+      return pill("Awaiting Input", "input");
     case "working":
-      return {
-        label: "Working",
-        colorClass: "text-sky-600 dark:text-sky-300/80",
-        dotClass: "bg-sky-500 dark:bg-sky-300/80",
-        pulse: true,
-      };
+      return pill("Working", "working");
     case "starting":
-      return {
-        label: "Connecting",
-        colorClass: "text-sky-600 dark:text-sky-300/80",
-        dotClass: "bg-sky-500 dark:bg-sky-300/80",
-        pulse: true,
-      };
+      return pill("Connecting", "working");
     case "failed":
-      return {
-        label: "Failed",
-        colorClass: "text-red-600 dark:text-red-400/90",
-        dotClass: "bg-red-500 dark:bg-red-400/90",
-        pulse: false,
-      };
+      return pill("Failed", "failed");
     case "ready":
-      if (presentation.planReady) {
-        return {
-          label: "Plan Ready",
-          colorClass: "text-violet-600 dark:text-violet-300/90",
-          dotClass: "bg-violet-500 dark:bg-violet-300/90",
-          pulse: false,
-        };
-      }
-      if (presentation.unseenCompletion) {
-        return {
-          label: "Completed",
-          colorClass: "text-emerald-600 dark:text-emerald-300/90",
-          dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
-          pulse: false,
-        };
-      }
+      if (presentation.planReady) return pill("Plan Ready", "planReady");
+      if (presentation.unseenCompletion) return pill("Completed", "done");
       return null;
   }
 }

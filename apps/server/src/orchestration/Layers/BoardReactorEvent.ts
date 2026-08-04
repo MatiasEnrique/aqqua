@@ -22,7 +22,6 @@ export function eventCardId(event: BoardReactorEvent): CardId | null {
     case "card.cancel-requested":
     case "card.reset-requested":
     case "card.created":
-    case "card.archived":
     case "card.delete-requested":
       return event.payload.cardId;
     default:
@@ -63,7 +62,6 @@ export const isBoardReactorEvent = (event: OrchestrationEvent): event is BoardRe
   event.type === "card.cancel-requested" ||
   event.type === "card.reset-requested" ||
   event.type === "card.created" ||
-  event.type === "card.archived" ||
   event.type === "card.delete-requested" ||
   event.type === "thread.session-set" ||
   event.type === "thread.activity-appended" ||

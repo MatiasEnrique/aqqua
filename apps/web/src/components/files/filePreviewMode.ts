@@ -1,5 +1,19 @@
 export const isMarkdownPreviewFile = (path: string): boolean => /\.(?:md|mdx)$/i.test(path);
 
+export type FilePreviewMode = "editable-source" | "read-only-source" | "rendered-markdown";
+
+export function resolveFilePreviewMode(input: {
+  readonly relativePath: string;
+  readonly truncated: boolean;
+  readonly renderMarkdown: boolean;
+}): FilePreviewMode {
+  if (input.truncated) return "read-only-source";
+  if (input.renderMarkdown && isMarkdownPreviewFile(input.relativePath)) {
+    return "rendered-markdown";
+  }
+  return "editable-source";
+}
+
 export function setMarkdownTaskChecked(
   markdown: string,
   markerOffset: number,

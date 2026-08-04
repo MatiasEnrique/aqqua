@@ -1869,6 +1869,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionCardRepository.upsert({
               ...existingRow.value,
               archivedAt: event.payload.archivedAt,
+              lastError: null,
+              operation: null,
               updatedAt: event.payload.updatedAt,
             });
             return;
@@ -1889,6 +1891,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
             }
+            const matchingOperation =
+              existingRow.value.operation?.kind === "deleting" &&
+              existingRow.value.operation.operationId === event.payload.operationId
+                ? existingRow.value.operation
+                : null;
             yield* projectionCardRepository.upsert({
               ...existingRow.value,
               lastError: null,
@@ -1896,11 +1903,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 kind: "deleting",
                 operationId: event.payload.operationId,
                 requestedAt: event.payload.requestedAt,
-                cleanupStage:
-                  existingRow.value.operation?.kind === "deleting" &&
-                  existingRow.value.operation.operationId === event.payload.operationId
-                    ? (existingRow.value.operation.cleanupStage ?? "pending")
-                    : "pending",
+                purpose: event.payload.purpose ?? matchingOperation?.purpose ?? "delete",
+                cleanupStage: matchingOperation?.cleanupStage ?? "pending",
               },
               updatedAt: event.payload.requestedAt,
             });

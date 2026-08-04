@@ -1,9 +1,9 @@
-export type AppSidebarVariant = "settings" | "regular" | "v2";
+export type AppSidebarVariant = "settings" | "regular" | "worktree";
 
 export function resolveAppSidebarVariant(input: {
   readonly isOnSettings: boolean;
-  readonly sidebarV2Enabled: boolean;
+  readonly worktreeViewEnabled: boolean;
 }): AppSidebarVariant {
   if (input.isOnSettings) return "settings";
-  return input.sidebarV2Enabled ? "v2" : "regular";
+  return input.worktreeViewEnabled ? "worktree" : "regular";
 }

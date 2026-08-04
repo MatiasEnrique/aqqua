@@ -375,6 +375,141 @@ it.effect("projects legacy delete-requested status for historical events", () =>
   }),
 );
 
+it.effect("keeps archive cleanup visible until the final archived receipt", () =>
+  Effect.gen(function* () {
+    let model = createEmptyReadModel(NOW);
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 1,
+        type: "card.created",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: {
+          cardId: "card-archive",
+          boardId: "board-1",
+          projectId: "project-1",
+          title: "Archive me",
+          parameters: {},
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    );
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 2,
+        type: "card.delete-requested",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: {
+          cardId: "card-archive",
+          requestedAt: NOW,
+          operationId: "cmd-archive",
+          purpose: "archive",
+        },
+      }),
+    );
+    expect(model.cards[0]).toMatchObject({
+      archivedAt: null,
+      operation: { kind: "deleting", operationId: "cmd-archive", purpose: "archive" },
+    });
+
+    for (const [sequence, stage] of [
+      [3, "cleanup-started"],
+      [4, "conversations-deleted"],
+      [5, "worktree-removed"],
+    ] as const) {
+      model = yield* projectEvent(
+        model,
+        makeEvent({
+          sequence,
+          type: "card.cleanup-progressed",
+          aggregateKind: "card",
+          aggregateId: "card-archive",
+          payload: {
+            cardId: "card-archive",
+            operationId: "cmd-archive",
+            kind: "deleting",
+            stage,
+            progressedAt: NOW,
+          },
+        }),
+      );
+    }
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 6,
+        type: "card.operation-failed",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: {
+          cardId: "card-archive",
+          operationId: "cmd-archive",
+          kind: "deleting",
+          reason: "Archive failed while removing artifacts",
+          failedAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    );
+    expect(model.cards[0]).toMatchObject({
+      archivedAt: null,
+      lastError: "Archive failed while removing artifacts",
+      operation: { cleanupStage: "worktree-removed" },
+    });
+
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 7,
+        type: "card.delete-requested",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: {
+          cardId: "card-archive",
+          requestedAt: NOW,
+          operationId: "cmd-archive",
+        },
+      }),
+    );
+    expect(model.cards[0]).toMatchObject({
+      lastError: null,
+      operation: { cleanupStage: "worktree-removed", purpose: "archive" },
+    });
+
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 8,
+        type: "card.cleanup-progressed",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: {
+          cardId: "card-archive",
+          operationId: "cmd-archive",
+          kind: "deleting",
+          stage: "artifacts-removed",
+          progressedAt: NOW,
+        },
+      }),
+    );
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 9,
+        type: "card.archived",
+        aggregateKind: "card",
+        aggregateId: "card-archive",
+        payload: { cardId: "card-archive", archivedAt: NOW, updatedAt: NOW },
+      }),
+    );
+    expect(model.cards[0]).toMatchObject({ archivedAt: NOW, operation: null, lastError: null });
+  }),
+);
+
 it.effect("projects a full-card reset back to To-Do while retaining its worktree", () =>
   Effect.gen(function* () {
     let model = createEmptyReadModel(NOW);

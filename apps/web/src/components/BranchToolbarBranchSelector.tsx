@@ -601,6 +601,15 @@ export function BranchToolbarBranchSelector({
     startFromOrigin,
   });
 
+  const [isTriggerLabelClipped, setIsTriggerLabelClipped] = useState(false);
+  const triggerLabelRef = useRef<HTMLSpanElement | null>(null);
+  const measureTriggerLabelClipping = useCallback(() => {
+    const label = triggerLabelRef.current;
+    if (!label) return;
+    const clipped = label.scrollWidth > label.clientWidth + 1;
+    setIsTriggerLabelClipped((previous) => (previous === clipped ? previous : clipped));
+  }, []);
+
   // PR pill shown next to the branch selector when the active branch has one.
   const branchPr = resolveThreadPr({
     threadBranch: resolveBranchToolbarPrBranch({
@@ -714,7 +723,10 @@ export function BranchToolbarBranchSelector({
       open={isBranchMenuOpen}
       value={resolvedActiveBranch}
     >
-      <div className={cn("flex min-w-0 items-center gap-1", className)}>
+      <div
+        data-branch-toolbar-branch="true"
+        className={cn("flex min-w-0 items-center gap-1", className)}
+      >
         {branchPr && branchPrStatus ? (
           <Tooltip>
             <TooltipTrigger
@@ -739,20 +751,39 @@ export function BranchToolbarBranchSelector({
         {/* Context menu lives on the wrapper: the disabled Button has
             pointer-events-none, so the trigger itself never sees right-clicks
             while refs are loading or a branch action is pending. */}
-        <span
-          className="flex min-w-0"
-          onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
-        >
-          <ComboboxTrigger
-            render={<Button variant="ghost" size="xs" />}
-            className="min-w-0 max-w-full text-muted-foreground/70 hover:text-foreground/80"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className="flex min-w-0"
+                onPointerEnter={measureTriggerLabelClipping}
+                onFocus={measureTriggerLabelClipping}
+                onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+              />
+            }
           >
-            <GitBranchIcon className="size-3 shrink-0 opacity-70" />
-            <span className="min-w-0 max-w-[240px] truncate">{triggerLabel}</span>
-            <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
-          </ComboboxTrigger>
-        </span>
+            <ComboboxTrigger
+              render={<Button variant="ghost" size="xs" />}
+              className="min-w-0 max-w-full shrink text-muted-foreground/70 hover:text-foreground/80"
+              disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            >
+              <GitBranchIcon className="size-3 shrink-0 opacity-70" />
+              <span
+                ref={triggerLabelRef}
+                data-branch-toolbar-branch-label="true"
+                className="min-w-0 max-w-[240px] truncate"
+              >
+                {triggerLabel}
+              </span>
+              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            </ComboboxTrigger>
+          </TooltipTrigger>
+          {isTriggerLabelClipped ? (
+            <TooltipPopup side="top" className="max-w-96 break-all">
+              {triggerLabel}
+            </TooltipPopup>
+          ) : null}
+        </Tooltip>
       </div>
       <ComboboxPopup align="end" side="top" className="flex w-80 flex-col">
         <div className="shrink-0 px-3 pt-2.5">

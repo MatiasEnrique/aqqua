@@ -76,7 +76,9 @@ export type SidebarThreadsSection = {
   readonly renderedSettledThreads: readonly EnvironmentThreadShell[];
   readonly selectedSettledThreads: readonly EnvironmentThreadShell[];
   readonly activeTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
+  readonly settledTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
   readonly expandedThreadKeys: ReadonlySet<string>;
+  readonly settledExpandedThreadKeys: ReadonlySet<string>;
   readonly reserveSubAgentGutter: boolean;
   readonly draftRows: readonly SidebarDraftRow[];
   readonly groupedDraftRows: readonly SidebarDraftRow[];
@@ -95,6 +97,7 @@ export type SidebarThreadsSection = {
   readonly settledShelfExpanded: boolean;
   readonly toggleSettledShelf: () => void;
   readonly hiddenSettledCount: number;
+  readonly settledRootCount: number;
   readonly showMoreSettled: () => void;
   readonly sidebarThreadGroupingMode: "flat" | "worktree";
   readonly handleChangeRequestState: (

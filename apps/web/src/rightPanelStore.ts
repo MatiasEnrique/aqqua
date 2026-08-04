@@ -2,7 +2,7 @@
  * Right-panel surface state, keyed by an explicit panel owner.
  *
  * Thread-owned surfaces (plan, preview) are scoped to a real thread. Workspace-
- * owned surfaces (diff, history, files/file, terminal) share one bucket per
+ * owned surfaces (diff, history, files, terminal) share one bucket per
  * workspace root. Owner keying lives in `panelOwner`; persisted surface
  * parsing lives in `rightPanelPersistence`.
  *
@@ -62,7 +62,6 @@ export const RIGHT_PANEL_KINDS = [
   "diff",
   "history",
   "files",
-  "file",
   "preview",
   "terminal",
 ] as const;
@@ -86,11 +85,11 @@ export function rightPanelOwnerForKind(
 }
 
 const RIGHT_PANEL_STORAGE_KEY = "aqqua:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 9;
+const RIGHT_PANEL_STORAGE_VERSION = 10;
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
-  open: (owner: PanelStoreOwner, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  open: (owner: PanelStoreOwner, kind: Exclude<RightPanelKind, "terminal">) => void;
   openBrowser: (owner: PanelStoreOwner, tabId: string | null) => void;
   openFile: (owner: PanelStoreOwner, relativePath: string, line?: number) => void;
   openTerminal: (
@@ -122,12 +121,12 @@ interface RightPanelStoreState {
   show: (owner: PanelStoreOwner) => void;
   close: (owner: PanelStoreOwner) => void;
   toggleVisibility: (owner: PanelStoreOwner) => void;
-  toggle: (owner: PanelStoreOwner, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  toggle: (owner: PanelStoreOwner, kind: Exclude<RightPanelKind, "terminal">) => void;
   removeThread: (owner: PanelStoreOwner) => void;
 }
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal">,
+  kind: Exclude<RightPanelKind, "preview" | "terminal">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -135,7 +134,13 @@ const singletonSurface = (
     case "history":
       return { id: "history", kind };
     case "files":
-      return { id: "files", kind };
+      return {
+        id: "files",
+        kind,
+        relativePath: null,
+        revealLine: null,
+        revealRequestId: 0,
+      };
     case "plan":
       return { id: "plan", kind };
   }
@@ -146,13 +151,13 @@ const browserSurface = (tabId: string | null): RightPanelSurface =>
     ? { id: `browser:${tabId}`, kind: "preview", resourceId: tabId }
     : { id: "browser:new", kind: "preview", resourceId: null };
 
-const fileSurface = (
+const filesSurface = (
   relativePath: string,
   revealLine: number | null,
   revealRequestId: number,
 ): RightPanelSurface => ({
-  id: `file:${relativePath}`,
-  kind: "file",
+  id: "files",
+  kind: "files",
   relativePath,
   revealLine,
   revealRequestId,
@@ -232,15 +237,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openFile: (owner, relativePath, line) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, panelOwnerKey(owner), (current) => {
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
+            const existing = current.surfaces.find(
+              (surface): surface is Extract<RightPanelSurface, { kind: "files" }> =>
+                surface.kind === "files",
             );
-            const surfaceId = `file:${relativePath}` as const;
-            const existing = withoutStandaloneExplorer.find(
-              (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
-                surface.id === surfaceId && surface.kind === "file",
-            );
-            const surface = fileSurface(
+            const surface = filesSurface(
               relativePath,
               normalizeRevealLine(line),
               (existing?.revealRequestId ?? 0) + 1,
@@ -249,10 +250,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               isOpen: true,
               activeSurfaceId: surface.id,
               surfaces: existing
-                ? withoutStandaloneExplorer.map((entry) =>
-                    entry.id === surface.id ? surface : entry,
-                  )
-                : [...withoutStandaloneExplorer, surface],
+                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                : [...current.surfaces, surface],
             };
           }),
         })),
@@ -464,9 +463,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, panelOwnerKey(owner), (current) => {
             if (workspaceAvailable) return current;
-            const surfaces = current.surfaces.filter(
-              (surface) => surface.kind !== "files" && surface.kind !== "file",
-            );
+            const surfaces = current.surfaces.filter((surface) => surface.kind !== "files");
             if (surfaces.length === current.surfaces.length) return current;
             const activeStillExists = surfaces.some(
               (surface) => surface.id === current.activeSurfaceId,

@@ -12,7 +12,11 @@ import {
   resolveFileEditingSession,
   type FileEditingSession,
 } from "./fileContentRevision";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import {
+  isMarkdownPreviewFile,
+  resolveFilePreviewMode,
+  setMarkdownTaskChecked,
+} from "./filePreviewMode";
 
 describe("file comment annotations", () => {
   it("normalizes and formats selected line ranges", () => {
@@ -70,6 +74,35 @@ describe("isMarkdownPreviewFile", () => {
   it("does not treat other text files as markdown", () => {
     expect(isMarkdownPreviewFile("docs/guide.txt")).toBe(false);
     expect(isMarkdownPreviewFile("docs/markdown.ts")).toBe(false);
+  });
+});
+
+describe("resolveFilePreviewMode", () => {
+  it("keeps truncated Markdown read-only even when rendered Markdown is preferred", () => {
+    expect(
+      resolveFilePreviewMode({
+        relativePath: "tasks.md",
+        truncated: true,
+        renderMarkdown: true,
+      }),
+    ).toBe("read-only-source");
+  });
+
+  it("selects rendered Markdown and editable source only for complete files", () => {
+    expect(
+      resolveFilePreviewMode({
+        relativePath: "tasks.md",
+        truncated: false,
+        renderMarkdown: true,
+      }),
+    ).toBe("rendered-markdown");
+    expect(
+      resolveFilePreviewMode({
+        relativePath: "tasks.md",
+        truncated: false,
+        renderMarkdown: false,
+      }),
+    ).toBe("editable-source");
   });
 });
 

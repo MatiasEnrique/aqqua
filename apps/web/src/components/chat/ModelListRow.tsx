@@ -50,15 +50,15 @@ export const ModelListRow = memo(function ModelListRow(props: {
       disabled={Boolean(props.disabledReason)}
       contentClassName="flex w-full items-center gap-3"
       className={cn(
-        "group relative w-full !min-w-0 max-w-full cursor-pointer rounded-md px-2 py-2 transition-[background-color,box-shadow,color]",
-        "hover:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))] data-highlighted:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))] data-selected:bg-foreground/[0.08] data-selected:text-foreground data-selected:ring-0 [&[data-highlighted][data-selected]]:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))]",
+        "group relative w-full !min-w-0 max-w-full cursor-pointer rounded-none border-transparent border-l-2 py-2 pr-2 pl-2.5 transition-[background-color,border-color,color]",
+        "hover:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))] data-highlighted:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))] data-selected:border-l-primary data-selected:bg-foreground/[0.06] data-selected:text-foreground data-selected:ring-0 [&[data-highlighted][data-selected]]:bg-[color-mix(in_srgb,var(--popover)_90%,var(--foreground))]",
         props.disabledReason &&
           "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed data-disabled:hover:bg-transparent",
       )}
     >
       <div className="min-w-0 flex-1 text-left">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="min-w-0 truncate text-xs font-medium leading-snug">
+          <div className="min-w-0 truncate font-medium font-mono text-xs lowercase leading-snug tracking-tight">
             {props.useTriggerLabel
               ? getTriggerDisplayModelLabel(props.model)
               : getDisplayModelName(
@@ -68,7 +68,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
           </div>
           {props.showNewBadge ? (
             <span
-              className="shrink-0 rounded border border-amber-500/35 bg-amber-500/15 px-0.5 py-px text-[10px] font-bold uppercase leading-none tracking-wide text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/12 dark:text-amber-200"
+              className="shrink-0 rounded-none border border-amber-500/35 bg-amber-500/15 px-1 py-px font-mono font-bold text-[9px] uppercase leading-none tracking-wider text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/12 dark:text-amber-200"
               aria-label="New model"
             >
               New
@@ -78,7 +78,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
         {props.showProvider && (
           <div className="mt-1 flex items-center gap-1.5">
             {ProviderIcon ? <ProviderIcon className="size-3 shrink-0" /> : null}
-            <span className="truncate text-xs font-normal leading-snug text-muted-foreground/70">
+            <span className="truncate font-mono font-normal text-[11px] lowercase leading-snug text-muted-foreground/70">
               {providerLabel}
             </span>
           </div>
@@ -87,7 +87,9 @@ export const ModelListRow = memo(function ModelListRow(props: {
 
       <div className="flex shrink-0 items-center gap-1.5">
         {props.jumpLabel ? (
-          <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{props.jumpLabel}</Kbd>
+          <Kbd className="h-4 min-w-0 rounded-none bg-transparent px-1 font-mono text-[10px]">
+            {props.jumpLabel}
+          </Kbd>
         ) : null}
         <Tooltip>
           <TooltipTrigger

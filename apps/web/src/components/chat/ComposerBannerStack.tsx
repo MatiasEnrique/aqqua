@@ -174,7 +174,7 @@ function ComposerBannerStackAlert({
   return (
     <Alert
       variant={item.variant}
-      className={cn("alert-glass rounded-[22px]", item.className)}
+      className={cn("alert-glass rounded-[var(--chat-composer-radius,10px)]", item.className)}
       data-variant={item.variant}
     >
       {item.icon}

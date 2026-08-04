@@ -145,6 +145,95 @@ export function filterVisibleSidebarThreadEntries<T>(input: {
   return visible;
 }
 
+export type SidebarThreadSection = "active" | "snoozed" | "settled";
+
+export function inheritSettledFromOrchestrators<T extends SidebarTreeThread>(input: {
+  threads: readonly T[];
+  classify: (thread: T) => SidebarThreadSection;
+}): Map<string, SidebarThreadSection> {
+  const { classify, threads } = input;
+  const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
+  const ownSection = new Map(threads.map((thread) => [thread.id, classify(thread)] as const));
+  const resolved = new Map<string, SidebarThreadSection>();
+
+  const resolve = (thread: T): SidebarThreadSection => {
+    const cached = resolved.get(thread.id);
+    if (cached !== undefined) return cached;
+    const own = ownSection.get(thread.id) ?? "active";
+    resolved.set(thread.id, own);
+    if (own !== "active") return own;
+
+    const parentId = thread.parentThreadId ?? null;
+    const parent = parentId === null || parentId === thread.id ? undefined : byId.get(parentId);
+    const section = parent !== undefined && resolve(parent) === "settled" ? "settled" : own;
+    resolved.set(thread.id, section);
+    return section;
+  };
+
+  for (const thread of threads) resolve(thread);
+  return resolved;
+}
+
+export function selectSidebarThreadFamilyPage<T>(input: {
+  entries: readonly SidebarThreadTreeEntry<T>[];
+  isExpanded: (entry: SidebarThreadTreeEntry<T>) => boolean;
+  rootLimit: number;
+  pinnedThreadId: string | null;
+  getThreadId: (thread: T) => string;
+}): {
+  rows: SidebarThreadTreeEntry<T>[];
+  rootCount: number;
+  hiddenRootCount: number;
+  expandedThreadIds: Set<string>;
+} {
+  const { entries, getThreadId, pinnedThreadId, rootLimit } = input;
+  const pinnedAncestors = new Set(
+    pinnedThreadId === null
+      ? []
+      : resolveSidebarThreadAncestorIds({ entries, threadId: pinnedThreadId, getThreadId }),
+  );
+  const isEntryExpanded = (entry: SidebarThreadTreeEntry<T>) =>
+    pinnedAncestors.has(getThreadId(entry.thread)) || input.isExpanded(entry);
+  const visible = filterVisibleSidebarThreadEntries({ entries, isExpanded: isEntryExpanded });
+  const page = takeSidebarThreadFamilies({ entries: visible, rootLimit });
+  const rows = [...page.visible];
+  let hiddenRootCount = page.hidden.reduce(
+    (count, entry) => (entry.depth === 0 ? count + 1 : count),
+    0,
+  );
+
+  if (pinnedThreadId !== null) {
+    let familyStart = -1;
+    let pinnedFamilyStart = -1;
+    for (const [index, entry] of page.hidden.entries()) {
+      if (entry.depth === 0) familyStart = index;
+      if (getThreadId(entry.thread) === pinnedThreadId) {
+        pinnedFamilyStart = familyStart;
+        break;
+      }
+    }
+    if (pinnedFamilyStart >= 0) {
+      let familyEnd = pinnedFamilyStart + 1;
+      while (familyEnd < page.hidden.length && page.hidden[familyEnd]!.depth > 0) {
+        familyEnd += 1;
+      }
+      rows.push(...page.hidden.slice(pinnedFamilyStart, familyEnd));
+      hiddenRootCount -= 1;
+    }
+  }
+
+  return {
+    rows,
+    rootCount: page.rootCount,
+    hiddenRootCount,
+    expandedThreadIds: new Set(
+      visible
+        .filter((entry) => entry.childCount > 0 && isEntryExpanded(entry))
+        .map((entry) => getThreadId(entry.thread)),
+    ),
+  };
+}
+
 /**
  * Apply the sidebar preview limit by whole family rather than by row.
  *

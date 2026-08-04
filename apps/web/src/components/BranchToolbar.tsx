@@ -304,7 +304,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   if (!hasActiveThread || !activeProject) return null;
 
   return (
-    <div className="chat-composer-context-strip -mt-4 mx-auto flex w-[calc(100%-2.75rem)] max-w-[calc(48rem-2.75rem)] items-center gap-2 px-1 pt-5 pb-1">
+    <div className="chat-composer-context-strip -mt-4 mx-auto flex w-[calc(100%-2*var(--chat-composer-radius,10px))] max-w-[calc(48rem-2*var(--chat-composer-radius,10px))] items-center gap-2 px-1 pt-5 pb-1">
       {isMobile ? (
         <MobileRunContextSelector
           envLocked={envLocked}
@@ -345,7 +345,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       )}
 
       <BranchToolbarBranchSelector
-        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
+        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-initial"
         environmentId={environmentId}
         threadId={threadId}
         {...(draftId ? { draftId } : {})}

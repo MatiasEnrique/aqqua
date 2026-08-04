@@ -92,14 +92,17 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("upgrades saved file surfaces with neutral reveal state", () => {
+  it("migrates saved file tabs into one explorer surface", () => {
     expect(
       migratePersistedRightPanelState({
         byThreadKey: {
           "env-1:thread-A": {
             isOpen: true,
             activeSurfaceId: "file:src/index.ts",
-            surfaces: [{ id: "file:src/index.ts", kind: "file", relativePath: "src/index.ts" }],
+            surfaces: [
+              { id: "file:src/index.ts", kind: "file", relativePath: "src/index.ts" },
+              { id: "file:README.md", kind: "file", relativePath: "README.md" },
+            ],
           },
         },
       }),
@@ -107,11 +110,11 @@ describe("rightPanelStore", () => {
       byThreadKey: {
         "env-1:thread-A": {
           isOpen: true,
-          activeSurfaceId: "file:src/index.ts",
+          activeSurfaceId: "files",
           surfaces: [
             {
-              id: "file:src/index.ts",
-              kind: "file",
+              id: "files",
+              kind: "files",
               relativePath: "src/index.ts",
               revealLine: null,
               revealRequestId: 0,
@@ -208,7 +211,15 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "files",
-      surfaces: [{ id: "files", kind: "files" }],
+      surfaces: [
+        {
+          id: "files",
+          kind: "files",
+          relativePath: null,
+          revealLine: null,
+          revealRequestId: 0,
+        },
+      ],
     });
   });
 
@@ -222,30 +233,24 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("replaces the standalone explorer with peer file surfaces", () => {
+  it("shows every opened file in one active explorer surface", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");
-    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().openFile(refA, "README.md");
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
-      activeSurfaceId: "file:README.md",
+      activeSurfaceId: "files",
       surfaces: [
         {
-          id: "file:src/index.ts",
-          kind: "file",
-          relativePath: "src/index.ts",
+          id: "files",
+          kind: "files",
+          relativePath: "README.md",
           revealLine: null,
           revealRequestId: 2,
         },
-        {
-          id: "file:README.md",
-          kind: "file",
-          relativePath: "README.md",
-          revealLine: null,
-          revealRequestId: 1,
-        },
+        { id: "diff", kind: "diff" },
       ],
     });
   });
@@ -256,11 +261,11 @@ describe("rightPanelStore", () => {
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
-      activeSurfaceId: "file:src/index.ts",
+      activeSurfaceId: "files",
       surfaces: [
         {
-          id: "file:src/index.ts",
-          kind: "file",
+          id: "files",
+          kind: "files",
           relativePath: "src/index.ts",
           revealLine: 87,
           revealRequestId: 2,
@@ -272,11 +277,11 @@ describe("rightPanelStore", () => {
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
-      activeSurfaceId: "file:src/index.ts",
+      activeSurfaceId: "files",
       surfaces: [
         {
-          id: "file:src/index.ts",
-          kind: "file",
+          id: "files",
+          kind: "files",
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 3,
@@ -585,15 +590,15 @@ describe("rightPanelStore", () => {
     useRightPanelStore.getState().openFile(refA, "src/index.ts");
     useRightPanelStore.getState().openTerminal(refA, "term-1");
 
-    useRightPanelStore.getState().closeOtherSurfaces(refA, "file:src/index.ts");
+    useRightPanelStore.getState().closeOtherSurfaces(refA, "files");
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
-      activeSurfaceId: "file:src/index.ts",
+      activeSurfaceId: "files",
       surfaces: [
         {
-          id: "file:src/index.ts",
-          kind: "file",
+          id: "files",
+          kind: "files",
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 1,
@@ -656,9 +661,9 @@ describe("rightPanelStore", () => {
       workspaceRef,
     });
 
-    expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff", "file"]);
-    expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["diff", "file"]);
-    expect(stateB.activeSurfaceId).toBe("file:src/index.ts");
+    expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff", "files"]);
+    expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["diff", "files"]);
+    expect(stateB.activeSurfaceId).toBe("files");
   });
 
   it("is a pure derivation and allocates a fresh snapshot each call", () => {

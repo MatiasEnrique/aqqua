@@ -811,8 +811,7 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const { processCardArchived, processCardCreated, processCardDeleteRequested } =
-    yield* makeBoardCardResourceSaga;
+  const { processCardCreated, processCardDeleteRequested } = yield* makeBoardCardResourceSaga;
 
   const processEvent = Effect.fn("BoardReactor.processEvent")(function* (event: BoardReactorEvent) {
     if (
@@ -836,8 +835,6 @@ const make = Effect.gen(function* () {
         return yield* processCardResetRequested(event);
       case "card.created":
         return yield* processCardCreated(event);
-      case "card.archived":
-        return yield* processCardArchived(event);
       case "card.delete-requested":
         return yield* processCardDeleteRequested(event);
       case "thread.session-set":

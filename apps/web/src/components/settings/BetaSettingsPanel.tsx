@@ -55,7 +55,7 @@ function AutoSettleDaysInput({
 }
 
 export function BetaSettingsPanel() {
-  const sidebarV2Enabled = useSidebarV2Enabled();
+  const worktreeViewEnabled = useSidebarV2Enabled();
   const sidebarAutoSettleAfterDays = useClientSettings(
     (settings) => settings.sidebarAutoSettleAfterDays,
   );
@@ -65,24 +65,23 @@ export function BetaSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection title="Beta features">
         <SettingsRow
-          title="Sidebar v2"
-          description="One flat thread list in creation order. Active work renders as rich cards; settled threads collapse to compact rows. Settling requires an up-to-date server — on older servers threads simply stay active. Switch back any time."
+          title="Worktree view"
+          description="Group the sidebar by worktree instead of one flat thread list. Active work renders as rich cards; settled threads collapse to compact rows. Settling requires an up-to-date server — on older servers threads simply stay active. Switch back any time."
           control={
             <Switch
-              checked={sidebarV2Enabled}
+              checked={worktreeViewEnabled}
               // Touching the switch pins the choice, so a nightly build that
-              // defaults v2 on does not flip it back after the user opts out.
               onCheckedChange={(checked) =>
                 updateSettings({
                   sidebarV2Enabled: Boolean(checked),
                   sidebarV2ConfiguredByUser: true,
                 })
               }
-              aria-label="Enable the sidebar v2 beta"
+              aria-label="Enable the worktree view beta"
             />
           }
         />
-        {sidebarV2Enabled ? (
+        {worktreeViewEnabled ? (
           <>
             <SettingsRow
               title="Auto-settle inactive threads"

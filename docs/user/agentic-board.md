@@ -3,10 +3,10 @@
 Flows is a kanban-style workspace where each user-defined column is an agentic
 step. You design a workflow once — steps with prompt templates, an agent
 profile, and a continuation mode — and agents execute inside its rails. Use the
-**Conversations / Flows** switch at the top of the sidebar to move between a
-project's regular conversations and Flows. The switch uses the selected project,
-the current conversation's project, or the first visible project. You can also
-open Flows via **Open Flows** in the command palette.
+regular threads and Flows. The switch uses the selected project,
+the current conversation's project, or the first visible project. Switching back
+after entering Flows from a conversation or draft returns directly to it. You can
+also open Flows via **Open Flows** in the command palette.
 
 ## Flows and steps
 
@@ -39,7 +39,9 @@ like any other. Each step runs in a fresh conversation to keep context clean.
 In Flows the sidebar lists the selected flow's cards, grouped by urgency: **Needs
 you** (paused, needs input, or failed), **Active** (running), **To-Do** (the
 backlog, with Start inline), **Done**, and **Settled** at the bottom.
-Opening a flow always lands on a card — the most urgent one first. A card's
+When active cards exist, opening a flow lands on the most urgent one. If the
+flow contains only settled cards, its landing stays empty until you choose
+**Settled** history. A card's
 **position** (To-Do, a step, Done) is the segment track on its row and only
 moves on successful step completion. Its **status** colors the dot and the
 current segment and never moves the card:
@@ -58,7 +60,7 @@ reset the card, or mark the step done.
 
 ### Operations
 
-Start, Continue, Retry, Reset, and Delete are **operations**: the server records
+Start, Continue, Retry, Reset, Archive, and Delete are **operations**: the server records
 that it has taken the request, then does the work. While one is in flight the
 card's badge says what is happening — Starting, Advancing, Retrying, Resetting,
 or Deleting — and the card's own actions are unavailable, in the sidebar and in
@@ -94,7 +96,7 @@ Every path stays inside the model:
   its artifacts, and returns the card to To-Do. Starting it again captures the
   latest flow configuration while keeping the card's worktree changes.
 
-## Done, Settled, and Delete
+## Done, Settled, Archive, and Delete
 
 Done keeps everything — worktree, branch, artifacts — so you can push
 follow-ups from the step conversations. Settle a Done card to move it out of
@@ -105,8 +107,13 @@ directory. Running cards must be reset first, and a starting card must finish
 starting before it can be reset, so cleanup cannot race an active agent. Commits
 on the card's branch remain in the repository.
 
-Deleting is immediate as far as the flow is concerned: the card leaves every
-section as soon as the server takes the request, and if you were looking at it
-you land on the next card straight away — cleanup finishes in the background. A
-deletion that fails puts the card back where it was, with the reason on its row,
-and you can delete it again.
+**Archive** is available after a Done card is settled. It removes the card's
+conversations, worktree, and artifact directory before the card becomes finally
+archived. The branch and its commits remain in the repository. Cleanup progress
+is saved, so a failure stays visible as a cleanup receipt with its reason and
+can be retried without repeating stages that already finished.
+
+Delete also waits for cleanup. While it runs, the card remains as a **Deleting**
+receipt/retry row instead of disappearing from every visible section. If cleanup
+fails, the row shows the reason and Delete is available again; retry continues
+the saved operation rather than starting destructive work over.

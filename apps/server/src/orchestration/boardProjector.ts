@@ -417,6 +417,8 @@ export function projectBoardEvent(
           ...nextBase,
           cards: updateCard(nextBase.cards ?? [], payload.cardId, {
             archivedAt: payload.archivedAt,
+            lastError: null,
+            operation: null,
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -436,11 +438,13 @@ export function projectBoardEvent(
             };
           }
           const current = (nextBase.cards ?? []).find((card) => card.id === payload.cardId);
-          const cleanupStage =
+          const matchingOperation =
             current?.operation?.kind === "deleting" &&
             current.operation.operationId === payload.operationId
-              ? (current.operation.cleanupStage ?? "pending")
-              : "pending";
+              ? current.operation
+              : null;
+          const cleanupStage = matchingOperation?.cleanupStage ?? "pending";
+          const purpose = payload.purpose ?? matchingOperation?.purpose ?? "delete";
           return {
             ...nextBase,
             cards: updateCard(nextBase.cards ?? [], payload.cardId, {
@@ -449,6 +453,7 @@ export function projectBoardEvent(
                 kind: "deleting",
                 operationId: payload.operationId,
                 requestedAt: payload.requestedAt,
+                purpose,
                 cleanupStage,
               },
               updatedAt: payload.requestedAt,

@@ -160,6 +160,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
+  --animate-aqqua-ring-dot: aqqua-ring-dot 1.5s ease-in-out infinite;
   /* Product UI, body, anything at or below 16px. */
   --font-sans:
     "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -203,15 +204,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --color-sidebar-row-active: var(--sidebar-row-active);
   --color-sidebar-row-selected: var(--sidebar-row-selected);
   --color-sidebar-border: var(--sidebar-border);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: 4px;
+  --radius-md: 5px;
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
-  /* The landing pills everything interactive: buttons, chips, avatars, nav. */
-  --radius-pill: 9999px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 12px;
+  --radius-4xl: 14px;
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -245,6 +244,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     100% {
       opacity: 0;
       scale: 2;
+    }
+  }
+  @keyframes aqqua-ring-dot {
+    0%,
+    100% {
+      scale: 1;
+      opacity: 1;
+    }
+    50% {
+      scale: 0.5;
+      opacity: 0.3;
     }
   }
   @keyframes sidebar-working-text {
@@ -387,6 +397,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   .chat-composer-glass-shell {
     --chat-composer-glass-surface: var(--card);
     --chat-composer-outline: rgb(0 0 0 / 8%);
+    --chat-composer-radius: var(--radius-2xl);
+    --chat-composer-radius-handle: calc(var(--chat-composer-radius) * 0.4477);
+    --chat-composer-strip-radius: var(--radius-xl);
+    --chat-composer-strip-handle: calc(var(--chat-composer-strip-radius) * 0.4477);
 
     position: relative;
     isolation: isolate;
@@ -397,7 +411,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     position: absolute;
     z-index: 0;
     inset: 0;
-    border-radius: 22px;
+    border-radius: var(--chat-composer-radius);
     background: color-mix(
       in srgb,
       var(--chat-composer-glass-surface) var(--glass-opacity),
@@ -415,28 +429,34 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   .chat-composer-glass-shell-with-context::before {
     border-radius: 0;
     /*
-     * One continuous glass layer: a 22px composer joined to a 16px strip,
-     * whose visible sides align with the composer's bottom tangents.
      */
     clip-path: shape(
-      from 0 22px,
-      curve to 22px 0 with 0 9.85px / 9.85px 0,
-      line to calc(100% - 22px) 0,
-      curve to 100% 22px with calc(100% - 9.85px) 0 / 100% 9.85px,
-      line to 100% calc(100% - var(--chat-composer-context-extension) - 22px),
-      curve to calc(100% - 22px) calc(100% - var(--chat-composer-context-extension)) with 100%
-        calc(100% - var(--chat-composer-context-extension) - 9.85px) / calc(100% - 9.85px)
+      from 0 var(--chat-composer-radius),
+      curve to var(--chat-composer-radius) 0 with 0 var(--chat-composer-radius-handle) /
+        var(--chat-composer-radius-handle) 0,
+      line to calc(100% - var(--chat-composer-radius)) 0,
+      curve to 100% var(--chat-composer-radius) with calc(100% - var(--chat-composer-radius-handle))
+        0 / 100% var(--chat-composer-radius-handle),
+      line to 100% calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius)),
+      curve to calc(100% - var(--chat-composer-radius))
+        calc(100% - var(--chat-composer-context-extension)) with 100%
+        calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius-handle)) /
+        calc(100% - var(--chat-composer-radius-handle))
         calc(100% - var(--chat-composer-context-extension)),
-      line to calc(100% - 22px) calc(100% - 16px),
-      curve to calc(100% - 38px) 100% with calc(100% - 22px) calc(100% - 7.16px) /
-        calc(100% - 29.16px) 100%,
-      line to 38px 100%,
-      curve to 22px calc(100% - 16px) with 29.16px 100% / 22px calc(100% - 7.16px),
-      line to 22px calc(100% - var(--chat-composer-context-extension)),
-      curve to 0 calc(100% - var(--chat-composer-context-extension) - 22px) with 9.85px
-        calc(100% - var(--chat-composer-context-extension)) / 0
-        calc(100% - var(--chat-composer-context-extension) - 9.85px),
-      line to 0 22px,
+      line to calc(100% - var(--chat-composer-radius))
+        calc(100% - var(--chat-composer-strip-radius)),
+      curve to calc(100% - var(--chat-composer-radius) - var(--chat-composer-strip-radius)) 100%
+        with calc(100% - var(--chat-composer-radius)) calc(100% - var(--chat-composer-strip-handle))
+        / calc(100% - var(--chat-composer-radius) - var(--chat-composer-strip-handle)) 100%,
+      line to calc(var(--chat-composer-radius) + var(--chat-composer-strip-radius)) 100%,
+      curve to var(--chat-composer-radius) calc(100% - var(--chat-composer-strip-radius)) with
+        calc(var(--chat-composer-radius) + var(--chat-composer-strip-handle)) 100% /
+        var(--chat-composer-radius) calc(100% - var(--chat-composer-strip-handle)),
+      line to var(--chat-composer-radius) calc(100% - var(--chat-composer-context-extension)),
+      curve to 0 calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius))
+        with var(--chat-composer-radius-handle) calc(100% - var(--chat-composer-context-extension))
+        / 0 calc(100% - var(--chat-composer-context-extension) - var(--chat-composer-radius-handle)),
+      line to 0 var(--chat-composer-radius),
       close
     );
   }
@@ -469,10 +489,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
       0 0,
       100% 0,
       100% 100%,
-      calc(100% - 22px) 100%,
-      calc(100% - 22px) calc(100% - 2px),
-      22px calc(100% - 2px),
-      22px 100%,
+      calc(100% - var(--chat-composer-radius)) 100%,
+      calc(100% - var(--chat-composer-radius)) calc(100% - 2px),
+      var(--chat-composer-radius) calc(100% - 2px),
+      var(--chat-composer-radius) 100%,
       0 100%
     );
   }
@@ -487,8 +507,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     z-index: -1;
     inset: 0;
     border: 1px solid var(--chat-composer-outline);
-    border-radius: 0 0 16px 16px;
-    /* Start the strip outline exactly where the composer's 22px curve reaches its tangent. */
+    border-radius: 0 0 var(--chat-composer-strip-radius) var(--chat-composer-strip-radius);
     -webkit-mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
@@ -525,7 +544,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   @supports not (clip-path: shape(from 0 0, line to 1px 1px)) {
     .chat-composer-glass-shell-with-context::before {
       inset-block-end: var(--chat-composer-context-extension);
-      border-radius: 22px;
+      border-radius: var(--chat-composer-radius);
       clip-path: none;
     }
 
@@ -620,12 +639,15 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     box-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%);
   }
 
-  .dark .model-picker-surface.model-picker-surface {
-    background: color-mix(
-      in srgb,
-      var(--popover) 18%,
-      color-mix(in srgb, var(--popover) var(--glass-opacity), transparent)
-    );
+  .model-picker-surface {
+    background: var(--popover);
+    border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+    box-shadow: 0 18px 44px -18px rgb(0 0 0 / 55%);
+  }
+
+  .dark .model-picker-surface {
+    border-color: color-mix(in srgb, var(--color-white) 8%, transparent);
+    box-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%);
   }
 
   .dark .dialog-glass {
@@ -783,6 +805,173 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   }
 }
 
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"] {
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--background) 2.5rem,
+    var(--background) 100%
+  );
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  .chat-composer-context-strip {
+  width: 100%;
+  max-width: 48rem;
+  margin-top: 0;
+  padding: 0.375rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  .chat-composer-context-strip::before {
+  display: none;
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  .chat-composer-context-strip
+  button {
+  padding-inline: 0;
+  font: inherit;
+  letter-spacing: 0;
+  background: transparent;
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  .chat-composer-context-strip
+  :where(button, span) {
+  font-weight: inherit;
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  [data-branch-toolbar-branch-label] {
+  max-width: none;
+}
+
+[data-chat-composer-overlay-docked="true"][data-composer-skin="terminal"]
+  .chat-composer-context-strip
+  button:hover {
+  background: transparent;
+  color: var(--foreground);
+}
+[data-composer-skin="terminal"] {
+  --chat-composer-terminal-lit-length: 11.25rem;
+  --chat-composer-terminal-hairline: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --chat-composer-terminal-lit: var(--info);
+}
+
+[data-composer-skin="terminal"]::before,
+[data-composer-skin="terminal"] .chat-composer-glass-host::after {
+  display: none;
+}
+
+[data-composer-skin="terminal"] .chat-composer-glass-host {
+  box-shadow: none;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-terminal-caret] {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  color: var(--chat-composer-terminal-lit);
+  user-select: none;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-terminal-rule] {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--chat-composer-terminal-lit) 0 var(--chat-composer-terminal-lit-length),
+    var(--chat-composer-terminal-hairline) var(--chat-composer-terminal-lit-length)
+  );
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-prompt-block="true"] {
+  padding-inline: 0;
+  padding-top: 0;
+  padding-bottom: 0.875rem;
+}
+
+[data-chat-composer-skin="terminal"] [data-testid="composer-editor"] {
+  min-height: 1.75rem;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] {
+  padding-inline: 0;
+  padding-bottom: 0;
+  padding-top: 0.875rem;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] button {
+  padding-inline: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  background: transparent;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer-controls="true"] {
+  gap: 0.5rem;
+  flex: 0 1 auto;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] button:hover {
+  background: transparent;
+  color: var(--foreground);
+}
+
+[data-chat-composer-skin="terminal"] .chat-composer-context-strip {
+  margin: 0;
+  width: max-content;
+  max-width: 100%;
+  padding: 0;
+  gap: 0.75rem;
+}
+
+[data-chat-composer-skin="terminal"] .chat-composer-context-strip > * {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  margin-inline-start: 0;
+}
+
+[data-chat-composer-skin="terminal"] .chat-composer-context-strip [data-branch-toolbar-branch] {
+  flex: 0 1 auto;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-context-slot="true"] {
+  flex-shrink: 999;
+  min-width: 0;
+}
+
+[data-chat-composer-skin="terminal"] .chat-composer-context-strip::before {
+  display: none;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-provider-model-picker="true"] {
+  flex-shrink: 0;
+  max-width: none;
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] [role="separator"] {
+  width: auto;
+  height: auto;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: color-mix(in srgb, var(--foreground) 25%, transparent);
+}
+
+[data-chat-composer-skin="terminal"] [data-chat-composer-footer="true"] [role="separator"]::after {
+  content: "/";
+}
+
 /* Safe-area inset utilities for surfaces that opt into edge-to-edge rendering.
    Insets resolve to 0 when the browser already constrains the layout viewport
    to the safe area. */
@@ -819,9 +1008,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 
 :root {
   color-scheme: light;
-  /* Re-anchored so the calc ladder lands on the brand's two shapes: cards at
-     radius-xl (16px) and inner controls at radius-sm (8px). */
-  --radius: 0.75rem;
+  --radius: 0.375rem;
   --background: var(--color-ink-25);
   --app-chrome-background: var(--background);
   --surface-raised: color-mix(in srgb, var(--card) 20%, transparent);
@@ -1293,7 +1480,7 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown :not(pre) > code {
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
+  border-radius: var(--radius-sm);
   background: var(--muted);
   padding: 0.1rem 0.35rem;
   color: var(--foreground);
@@ -1319,7 +1506,7 @@ label:has(> select#reasoning-effort) select {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-xl);
   background: var(--muted);
   padding: 0.8rem 0.9rem;
 }
@@ -1371,7 +1558,7 @@ label:has(> select#reasoning-effort) select {
   margin: 0.65rem 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--muted) 78%, var(--background));
 }
 
@@ -1522,7 +1709,7 @@ label:has(> select#reasoning-effort) select {
 .diff-render-file,
 .diff-render-surface > diffs-container {
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   overflow: clip;
   background: color-mix(in srgb, var(--card) 92%, var(--background));
 }

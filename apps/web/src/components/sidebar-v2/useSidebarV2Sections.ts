@@ -51,6 +51,8 @@ import {
 import {
   buildSidebarThreadTree,
   filterVisibleSidebarThreadEntries,
+  inheritSettledFromOrchestrators,
+  selectSidebarThreadFamilyPage,
   shouldReserveThreadExpandGutter,
 } from "../Sidebar.threadTree";
 import {
@@ -87,6 +89,14 @@ type AtomCommandRunner<C> =
   C extends AtomCommand<infer W, infer A, infer E>
     ? (value: W) => Promise<AtomCommandResult<A, E>>
     : never;
+
+export type SidebarV2SectionsOptions = {
+  /**
+   * Pins how conversations are grouped. Omitted, grouping follows
+   * `sidebarThreadGroupingMode` — the worktree view's own preference.
+   */
+  readonly groupingMode?: SidebarThreadsSection["sidebarThreadGroupingMode"];
+};
 
 export type SidebarV2Sections = {
   readonly route: SidebarRouteSection;
@@ -136,7 +146,7 @@ export type SidebarV2Runtime = {
  * Controllers consume `runtime` + the sections they need; the view never sees
  * the flat bag of every intermediate binding.
  */
-export function useSidebarV2Sections(): SidebarV2Sections {
+export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): SidebarV2Sections {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
@@ -146,7 +156,11 @@ export function useSidebarV2Sections(): SidebarV2Sections {
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const sidebarThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
+  const settingsThreadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
+  // The entry component owns grouping: the regular sidebar is flat by
+  // definition, so it pins the mode rather than reading a setting that only
+  // the worktree view exposes.
+  const sidebarThreadGroupingMode = options.groupingMode ?? settingsThreadGroupingMode;
   const {
     settleThread,
     settleThreads,
@@ -404,29 +418,34 @@ export function useSidebarV2Sections(): SidebarV2Sections {
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
     );
+    const sectionById = inheritSettledFromOrchestrators({
+      threads: visible,
+      classify: (thread) => {
+        const supportsSettlement =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
+          true;
+        const supportsSnooze =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
+        if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) return "snoozed";
+        if (
+          supportsSettlement &&
+          effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
+        ) {
+          return "settled";
+        }
+        return "active";
+      },
+    });
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     for (const thread of visible) {
-      // Threads on servers without the settlement capability (old server,
-      // or descriptor not loaded yet) never classify as settled: the user
-      // could neither un-settle nor pin them, so auto-settling them would
-      // strand rows in a tail with no working affordances.
-      const supportsSettlement =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
-      const supportsSnooze =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
-      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-      const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
-      // Snooze outranks settled classification: an explicitly snoozed thread
-      // belongs to the shelf even if it would also auto-settle (the shelf's
-      // wake time is a stronger statement about when it matters again).
-      if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
+      const section = sectionById.get(thread.id) ?? "active";
+      if (section === "snoozed") {
         snoozed.push(thread);
-      } else if (
-        supportsSettlement &&
-        effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
-      ) {
+      } else if (section === "settled") {
         settled.push(thread);
       } else {
         active.push(thread);
@@ -563,24 +582,42 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     lastSettledResetKeyRef.current = settledResetKey;
     setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
   }
-  const visibleSettledThreads = useMemo(() => {
-    if (settledThreads.length <= settledVisibleCount) return settledThreads;
-    const visible = settledThreads.slice(0, settledVisibleCount);
-    // The open thread must never hide under "Show more": navigating into a
-    // deep settled thread (search, deep link) pulls its row into the visible
-    // tail so the highlight and the un-settle affordance stay reachable.
-    if (routeThreadKey !== null) {
-      const routeThread = settledThreads
-        .slice(settledVisibleCount)
-        .find(
-          (thread) =>
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
-        );
-      if (routeThread !== undefined) visible.push(routeThread);
-    }
-    return visible;
-  }, [routeThreadKey, settledThreads, settledVisibleCount]);
-  const hiddenSettledCount = settledThreads.length - visibleSettledThreads.length;
+  const settledThreadEntries = useMemo(
+    () => buildSidebarThreadTree({ threads: settledThreads }),
+    [settledThreads],
+  );
+  const {
+    hiddenSettledCount,
+    settledExpandedThreadKeys,
+    settledRootCount,
+    settledTreeMetaByKey,
+    visibleSettledThreads,
+  } = useMemo(() => {
+    const threadKeyOf = (thread: EnvironmentThreadShell) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    const page = selectSidebarThreadFamilyPage({
+      entries: settledThreadEntries,
+      isExpanded: (entry) =>
+        resolveThreadExpanded(threadExpandedById, [threadKeyOf(entry.thread)], {
+          fallback: false,
+        }),
+      rootLimit: settledVisibleCount,
+      pinnedThreadId: routeThreadKey,
+      getThreadId: threadKeyOf,
+    });
+    return {
+      hiddenSettledCount: page.hiddenRootCount,
+      settledExpandedThreadKeys: page.expandedThreadIds,
+      settledRootCount: page.rootCount,
+      settledTreeMetaByKey: new Map(
+        page.rows.map((entry) => [
+          threadKeyOf(entry.thread),
+          { childCount: entry.childCount, depth: entry.depth },
+        ]),
+      ),
+      visibleSettledThreads: page.rows.map((entry) => entry.thread),
+    };
+  }, [routeThreadKey, settledThreadEntries, settledVisibleCount, threadExpandedById]);
   const showMoreSettled = useCallback(
     () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
     [],
@@ -800,7 +837,9 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    settledTreeMetaByKey,
     expandedThreadKeys,
+    settledExpandedThreadKeys,
     reserveSubAgentGutter,
     draftRows,
     groupedDraftRows,
@@ -819,6 +858,7 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     settledShelfExpanded,
     toggleSettledShelf,
     hiddenSettledCount,
+    settledRootCount,
     showMoreSettled,
     sidebarThreadGroupingMode,
     handleChangeRequestState,

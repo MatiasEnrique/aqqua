@@ -2,10 +2,15 @@
 
 The left sidebar can show conversations as a flat list or group them by worktree.
 
-On web and desktop, the regular sidebar is the worktree-aware view described below. Enable
-**Settings → Beta → Sidebar v2** to use aqqua's original flat Sidebar V2 instead. Mobile keeps
-its separate, device-local **Thread List v2** preference and is not changed by the web/desktop
-sidebar switch.
+On web and desktop, the regular sidebar is the flat Sidebar V2 from the original T3 Code repo.
+Enable **Settings → Beta → Worktree view** to use the worktree-aware sidebar described below
+instead. The worktree view is opt-in in every build — nightly and local dev builds start on the
+regular sidebar too, and only your own choice in Settings turns it on. Mobile keeps its separate,
+device-local **Thread List v2** preference and is not changed by the web/desktop sidebar switch.
+
+Both sidebars are the same implementation with different grouping: the regular sidebar is always
+flat, while **Settings → Appearance → General → Group threads by worktree** shapes the worktree view
+(and can flatten it without leaving the beta).
 
 In worktree mode:
 
@@ -59,6 +64,20 @@ The current project checkout shows the action disabled. If the directory was alr
 outside aqqua, retrying the action deletes its remaining conversation history, leaves any
 unverified directory untouched, and cleans up the stale sidebar entry.
 
-Settled rows include selection checkboxes. Select multiple rows and use **Delete N** in the
-Settled header to permanently delete those conversation histories. Deleting conversations cannot
-be undone.
+## The Settled shelf
+
+Both sidebars share one Settled shelf, and it behaves identically in each — conversations and
+sub-agents are supported the same way everywhere.
+
+- Settled rows carry selection checkboxes, and **Delete N** appears in the Settled header once
+  anything is selected. Deleting conversations cannot be undone.
+- Settling an orchestrator settles its whole delegation: the sub-agents follow it out of the inbox
+  and fold underneath it, represented by a count next to the row. Click the count to expand them.
+  The **Settled** header count and **Show more** count orchestrators too, so a delegation that
+  fanned out to ten sub-agents settles as `1`, not `11`. Un-settling the orchestrator brings the
+  whole family back — nothing is settled on the server but the orchestrator itself.
+- A sub-agent that is snoozed in its own right keeps its return date and stays on the **Snoozed**
+  shelf. A snoozed orchestrator does not take its sub-agents with it; they stay in the inbox until
+  it wakes.
+- Opening a settled sub-agent (by deep link or search) expands its orchestrator and pulls the
+  whole group onto the page, so the open conversation is never hidden behind **Show more**.

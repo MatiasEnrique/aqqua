@@ -29,7 +29,14 @@ describe("openDiffFilePrimaryAction", () => {
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
     ).toMatchObject({
       isOpen: true,
-      activeSurfaceId: "file:apps/web/src/components/DiffPanel.tsx",
+      activeSurfaceId: "files",
+      surfaces: [
+        {
+          id: "files",
+          kind: "files",
+          relativePath: "apps/web/src/components/DiffPanel.tsx",
+        },
+      ],
     });
     expect(openInEditor).not.toHaveBeenCalled();
   });
