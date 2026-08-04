@@ -12,6 +12,11 @@ Both sidebars are the same implementation with different grouping: the regular s
 flat, while **Settings → Appearance → General → Group threads by worktree** shapes the worktree view
 (and can flatten it without leaving the beta).
 
+In the regular sidebar, an orchestrator card keeps its own state label and also shows a colored
+counter for every nonzero state among its sub-agents, including sub-agents hidden by a collapsed
+branch. This uses the same state colors and hover breakdown as worktree summaries, so Working,
+Needs input, Done, Stale, and Settled work remain visible without expanding the delegation.
+
 In worktree mode:
 
 - Empty conversation groups use the selected base branch as their label.
