@@ -16,6 +16,7 @@ import {
   type AccountRateLimitWindow,
   type AccountRateLimitsSnapshot,
 } from "@aqqua/contracts";
+import { HostProcessPlatform } from "@aqqua/shared/hostProcess";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -188,9 +189,10 @@ export class ClaudeUsageFetcher extends Context.Service<
         const processRunner = yield* ProcessRunner;
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const platform = yield* HostProcessPlatform;
 
         const tokenFromKeychain = Effect.gen(function* () {
-          if (process.platform !== "darwin") return null;
+          if (platform !== "darwin") return null;
           const output = yield* processRunner
             .run({
               command: "security",
@@ -210,7 +212,7 @@ export class ClaudeUsageFetcher extends Context.Service<
           return Option.isNone(content) ? null : readAccessToken(content.value);
         });
 
-        const refresh = Effect.fn("ClaudeUsageFetcher.refresh")(function* () {
+        const refresh = Effect.gen(function* () {
           const token = (yield* tokenFromKeychain) ?? (yield* tokenFromCredentialsFile);
           if (token === null) {
             yield* Effect.logDebug("Claude usage fetch skipped: no OAuth credentials found");
@@ -248,7 +250,7 @@ export class ClaudeUsageFetcher extends Context.Service<
 
           yield* accountRateLimits.report(snapshot);
           return true;
-        })();
+        }).pipe(Effect.withSpan("ClaudeUsageFetcher.refresh"));
 
         if (options?.runInBackground !== false) {
           yield* refresh.pipe(
