@@ -4,6 +4,7 @@ import { ThreadId } from "@aqqua/contracts";
 import { getVisibleSidebarThreadIds } from "./Sidebar.logic";
 import {
   buildSidebarThreadTree,
+  buildSidebarThreadSubAgentStateCounts,
   filterVisibleSidebarThreadEntries,
   inheritSettledFromOrchestrators,
   resolveCollapsedThreadSelectionTarget,
@@ -14,6 +15,88 @@ import {
   type SidebarThreadSection,
   type SidebarThreadTreeEntry,
 } from "./Sidebar.threadTree";
+
+describe("buildSidebarThreadSubAgentStateCounts", () => {
+  const entries: ReadonlyArray<
+    SidebarThreadTreeEntry<{
+      id: string;
+      parentThreadId?: string;
+      state: "working" | "needsInput" | "done" | "stale" | "settled";
+    }>
+  > = [
+    { thread: { id: "root", state: "done" }, depth: 0, childCount: 3 },
+    {
+      thread: { id: "child-a", parentThreadId: "root", state: "working" },
+      depth: 1,
+      childCount: 1,
+    },
+    {
+      thread: { id: "grandchild", parentThreadId: "child-a", state: "needsInput" },
+      depth: 2,
+      childCount: 0,
+    },
+    {
+      thread: { id: "child-b", parentThreadId: "root", state: "working" },
+      depth: 1,
+      childCount: 0,
+    },
+    {
+      thread: { id: "settled-child", parentThreadId: "root", state: "settled" },
+      depth: 1,
+      childCount: 0,
+    },
+    { thread: { id: "other-root", state: "stale" }, depth: 0, childCount: 0 },
+  ];
+
+  it("summarizes every descendant state on the root, excluding the root itself", () => {
+    expect(
+      buildSidebarThreadSubAgentStateCounts({
+        entries,
+        getKey: (thread) => thread.id,
+        classify: (thread) => thread.state,
+      }).get("root"),
+    ).toEqual({
+      working: 2,
+      needsInput: 1,
+      // The root's own "done" belongs to its status label, not these counters.
+      done: 0,
+      stale: 0,
+      settled: 1,
+    });
+  });
+
+  it("summarizes descendants for a nested orchestrator that can be promoted to a root", () => {
+    expect(
+      buildSidebarThreadSubAgentStateCounts({
+        entries,
+        getKey: (thread) => thread.id,
+        classify: (thread) => thread.state,
+      }).get("child-a"),
+    ).toEqual({
+      working: 0,
+      needsInput: 1,
+      done: 0,
+      stale: 0,
+      settled: 0,
+    });
+  });
+
+  it("leaves a childless root with an empty tally", () => {
+    expect(
+      buildSidebarThreadSubAgentStateCounts({
+        entries,
+        getKey: (thread) => thread.id,
+        classify: (thread) => thread.state,
+      }).get("other-root"),
+    ).toEqual({
+      working: 0,
+      needsInput: 0,
+      done: 0,
+      stale: 0,
+      settled: 0,
+    });
+  });
+});
 
 describe("resolveSidebarThreadAncestorIds", () => {
   const entries: ReadonlyArray<SidebarThreadTreeEntry<{ id: string }>> = [

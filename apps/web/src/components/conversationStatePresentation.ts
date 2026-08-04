@@ -80,7 +80,7 @@ export const CONVERSATION_STATE_PRESENTATIONS: Record<
     label: "Settled",
     description: "Stored in the shared Settled section.",
     icon: AqquaRestingStateIcon,
-    className: "text-teal-700/85 dark:text-teal-400/75",
+    className: "text-yellow-600 dark:text-yellow-300",
   },
 };
 

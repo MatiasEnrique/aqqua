@@ -27,6 +27,7 @@ import { resolveProjectExpanded } from "../../uiStateStore";
 import { SidebarSurfaceSwitcher } from "../board/SidebarSurfaceSwitcher";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { snoozeWakeLabel } from "../Sidebar.snooze";
+import { resolveRegularSidebarSubAgentStateCounts } from "../Sidebar.summaryState";
 import {
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeDeleteAction,
@@ -48,10 +49,7 @@ import { ProjectNewWorktreeButton } from "./ProjectNewWorktreeButton";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { SidebarConversationRow } from "./SidebarConversationRow";
 import { SidebarDraftRow } from "./SidebarDraftRow";
-import {
-  SidebarProjectStateIndicator,
-  SidebarWorktreeStateCounters,
-} from "./SidebarStatusPresentations";
+import { SidebarProjectStateIndicator, SidebarStateCounters } from "./SidebarStatusPresentations";
 
 const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
@@ -103,6 +101,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    activeSubAgentStateCountsByKey,
     settledTreeMetaByKey,
     expandedThreadKeys,
     settledExpandedThreadKeys,
@@ -435,6 +434,11 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                         variant={rowVariant}
                         depth={depth}
                         childCount={treeMeta?.childCount ?? 0}
+                        subAgentStateCounts={resolveRegularSidebarSubAgentStateCounts({
+                          groupingMode: sidebarThreadGroupingMode,
+                          threadKey,
+                          countsByThreadKey: activeSubAgentStateCountsByKey,
+                        })}
                         reserveExpandGutter={reserveSubAgentGutter}
                         isExpanded={
                           expandedThreadKeys.has(threadKey) ||
@@ -596,7 +600,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                                 {group.label}
                               </span>
                               <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 tabular-nums text-muted-foreground/65">
-                                <SidebarWorktreeStateCounters counts={group.stateCounts} />
+                                <SidebarStateCounters counts={group.stateCounts} />
                                 {Object.values(group.stateCounts).some((count) => count > 0) ? (
                                   <span aria-hidden>·</span>
                                 ) : null}

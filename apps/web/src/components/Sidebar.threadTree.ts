@@ -1,3 +1,9 @@
+import {
+  createEmptySidebarConversationStateCounts,
+  type SidebarConversationCountedState,
+  type SidebarConversationStateCounts,
+} from "./Sidebar.summaryState";
+
 /** Deepest nesting level the sidebar will indent to before flattening visually. */
 export const SIDEBAR_THREAD_MAX_DEPTH = 4;
 
@@ -15,6 +21,50 @@ type SidebarTreeThread = {
   // contract field is `Schema.optional(...)`, which admits an explicit undefined.
   readonly parentThreadId?: string | null | undefined;
 };
+
+/**
+ * Summarize the conversation states below every thread with sub-agents.
+ *
+ * Each thread is deliberately excluded from its own tally: its status renders
+ * beside these counts on the same row. Returning an entry for nested
+ * orchestrators also preserves their summary when section partitioning promotes
+ * them to a visible root.
+ *
+ * `entries` is depth-first. Walking it backwards lets each thread consume its
+ * already-completed child subtrees in linear time, including collapsed and
+ * display-depth-clamped descendants.
+ */
+export function buildSidebarThreadSubAgentStateCounts<T extends SidebarTreeThread>(input: {
+  entries: readonly SidebarThreadTreeEntry<T>[];
+  getKey: (thread: T) => string;
+  classify: (thread: T) => SidebarConversationCountedState;
+}): ReadonlyMap<string, SidebarConversationStateCounts> {
+  const countsByThreadKey = new Map<string, SidebarConversationStateCounts>();
+  const completedSubtrees: Array<{
+    thread: T;
+    countsIncludingSelf: SidebarConversationStateCounts;
+  }> = [];
+
+  for (const entry of input.entries.toReversed()) {
+    const descendantCounts = createEmptySidebarConversationStateCounts();
+    for (let childIndex = 0; childIndex < entry.childCount; childIndex += 1) {
+      const child = completedSubtrees.at(-1);
+      if (child === undefined || child.thread.parentThreadId !== entry.thread.id) break;
+      completedSubtrees.pop();
+      descendantCounts.working += child.countsIncludingSelf.working;
+      descendantCounts.needsInput += child.countsIncludingSelf.needsInput;
+      descendantCounts.done += child.countsIncludingSelf.done;
+      descendantCounts.stale += child.countsIncludingSelf.stale;
+      descendantCounts.settled += child.countsIncludingSelf.settled;
+    }
+    countsByThreadKey.set(input.getKey(entry.thread), descendantCounts);
+    const countsIncludingSelf = { ...descendantCounts };
+    countsIncludingSelf[input.classify(entry.thread)] += 1;
+    completedSubtrees.push({ thread: entry.thread, countsIncludingSelf });
+  }
+
+  return countsByThreadKey;
+}
 
 /**
  * Flatten threads into sidebar display order: each orchestrator is immediately

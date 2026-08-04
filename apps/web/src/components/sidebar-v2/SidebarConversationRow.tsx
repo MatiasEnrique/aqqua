@@ -55,8 +55,10 @@ import { JumpHintBadge, SidebarV2ThreadTooltip, SnoozePopoverButton } from "./ro
 import { settledTimeLabel, threadTimeLabel } from "./rowTimeLabels";
 import {
   SIDEBAR_STATE_PRESENTATIONS,
+  SidebarStateCounters,
   SidebarSummaryStateLabel,
 } from "./SidebarStatusPresentations";
+import type { SidebarConversationStateCounts } from "../Sidebar.summaryState";
 
 export const SidebarConversationRow = memo(function SidebarConversationRow(props: {
   thread: SidebarThreadSummary;
@@ -81,6 +83,11 @@ export const SidebarConversationRow = memo(function SidebarConversationRow(props
   depth: number;
   /** Direct sub-agent count among the rows this section renders. */
   childCount: number;
+  /**
+   * State tally for this orchestrator's sub-agents, excluding the orchestrator
+   * itself — the card shows its own status next to these, not folded into them.
+   */
+  subAgentStateCounts: SidebarConversationStateCounts | null;
   /**
    * Whether nested rows reserve the expand-toggle column. Set for every sub-agent
    * row once any of them owns a toggle, so sibling titles keep one left edge.
@@ -800,6 +807,14 @@ export const SidebarConversationRow = memo(function SidebarConversationRow(props
               <span className="shrink-0 leading-none text-muted-foreground/45 tabular-nums @max-[300px]/sidebar-conversations:hidden">
                 Updated {threadTimeLabel(thread)}
               </span>
+              {/* Sub-agent tally sits outside the status slot: it survives the
+                  hover cross-fade to the snooze button, and it reads as what it
+                  is — the fan-out below this card, not this card's own state. */}
+              {props.subAgentStateCounts === null ? null : (
+                <span className="shrink-0">
+                  <SidebarStateCounters counts={props.subAgentStateCounts} />
+                </span>
+              )}
               <span className="group/v2-status-slot relative flex h-7 min-w-14 shrink-0 items-center justify-end">
                 <span
                   className={cn(

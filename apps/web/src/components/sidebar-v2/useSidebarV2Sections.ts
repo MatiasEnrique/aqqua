@@ -49,12 +49,14 @@ import {
   sortThreadsForSidebarV2,
 } from "../Sidebar.logic";
 import {
+  buildSidebarThreadSubAgentStateCounts,
   buildSidebarThreadTree,
   filterVisibleSidebarThreadEntries,
   inheritSettledFromOrchestrators,
   selectSidebarThreadFamilyPage,
   shouldReserveThreadExpandGutter,
 } from "../Sidebar.threadTree";
+import { resolveSidebarConversationSummaryState } from "../Sidebar.summaryState";
 import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
@@ -513,6 +515,23 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
         : buildSidebarThreadTree({ threads: activeThreads }),
     [activeThreads, sidebarThreadGroupingMode, worktreeProjectsByKey],
   );
+  const activeSubAgentStateCountsByKey = useMemo(() => {
+    const settledKeys = new Set(
+      settledThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      ),
+    );
+    return buildSidebarThreadSubAgentStateCounts({
+      entries: buildSidebarThreadTree({
+        threads: [...activeThreads, ...snoozedThreads, ...settledThreads],
+      }),
+      getKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      classify: (thread) =>
+        settledKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)))
+          ? "settled"
+          : resolveSidebarConversationSummaryState(thread),
+    });
+  }, [activeThreads, settledThreads, snoozedThreads]);
   const { activeTreeMetaByKey, expandedThreadKeys, reserveSubAgentGutter, visibleActiveThreads } =
     useMemo(() => {
       const entryKey = (entry: { thread: EnvironmentThreadShell }) =>
@@ -837,6 +856,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    activeSubAgentStateCountsByKey,
     settledTreeMetaByKey,
     expandedThreadKeys,
     settledExpandedThreadKeys,

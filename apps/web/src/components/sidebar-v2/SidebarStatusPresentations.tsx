@@ -1,4 +1,7 @@
-import type { SidebarConversationSummaryState } from "../Sidebar.summaryState";
+import type {
+  SidebarConversationStateCounts,
+  SidebarConversationSummaryState,
+} from "../Sidebar.summaryState";
 import type { SidebarProjectState, SidebarWorktreeStateCounts } from "../Sidebar.worktreeGroups";
 import { cn } from "~/lib/utils";
 import { CONVERSATION_STATE_PRESENTATIONS } from "../conversationStatePresentation";
@@ -67,15 +70,15 @@ export function SidebarSummaryStateLabel(props: {
 
 const SIDEBAR_WORKTREE_STATE_ORDER = ["working", "needsInput", "done", "stale", "settled"] as const;
 
-function worktreeStatePresentations(counts: SidebarWorktreeStateCounts) {
+function statePresentations(counts: SidebarConversationStateCounts) {
   return SIDEBAR_WORKTREE_STATE_ORDER.flatMap((key) => {
     const count = counts[key];
     return count > 0 ? [{ key, ...SIDEBAR_STATE_PRESENTATIONS[key], count }] : [];
   });
 }
 
-export function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeStateCounts }) {
-  const counters = worktreeStatePresentations(props.counts);
+export function SidebarStateCounters(props: { counts: SidebarConversationStateCounts }) {
+  const counters = statePresentations(props.counts);
   const summary = counters
     .map(
       (counter) =>
@@ -118,7 +121,7 @@ export function SidebarWorktreeStateCounters(props: { counts: SidebarWorktreeSta
 }
 
 export function SidebarWorktreeStateDetails(props: { counts: SidebarWorktreeStateCounts }) {
-  const states = worktreeStatePresentations(props.counts);
+  const states = statePresentations(props.counts);
   return (
     <div className="grid gap-1 p-1">
       {states.map((state) => {
