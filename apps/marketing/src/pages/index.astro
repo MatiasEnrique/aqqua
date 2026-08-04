@@ -1,6 +1,6 @@
 ---
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import DownloadButton from "../components/DownloadButton.astro";
 import GithubGlyph from "../components/GithubGlyph.astro";
@@ -28,7 +28,8 @@ const PRODUCT_SHOT = "/product/flows-v2.webp";
 const PRODUCT_SHOT_WIDTH = 3120;
 const PRODUCT_SHOT_HEIGHT = 1880;
 
-const publicFile = (path: string) => (existsSync(join(process.cwd(), "public", path)) ? `/${path}` : null);
+const publicFile = (path: string) =>
+  NodeFS.existsSync(NodePath.join(process.cwd(), "public", path)) ? `/${path}` : null;
 
 const productShot = publicFile(PRODUCT_SHOT.slice(1));
 

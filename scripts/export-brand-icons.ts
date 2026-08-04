@@ -12,11 +12,15 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { PNG } from "pngjs";
 import sharp from "sharp";
 
 import { BRAND_ASSET_PATHS, DEVELOPMENT_PUBLIC_ICON_OVERRIDES } from "./lib/brand-assets.ts";
-import { encodePngIco, readPngDimensions, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
+import {
+  applyRoundedIconCorners,
+  encodePngIco,
+  readPngDimensions,
+  WINDOWS_ICON_SIZES,
+} from "./lib/icon-export.ts";
 
 const DESIGN_GENERATION = 26;
 const ICON_COMPOSER_EXECUTABLE_PARTS = [
@@ -574,38 +578,6 @@ const renderIcon = Effect.fn("iconExport.renderIcon")(function* (
   }
   return buffer;
 });
-
-export function applyRoundedIconCorners(contents: Buffer, size: number): Buffer {
-  const cornerRadius = Math.round(size * 0.22);
-  const image = PNG.sync.read(contents);
-  for (let y = 0; y < image.height; y += 1) {
-    const pixelY = y + 0.5;
-    const yDistance =
-      pixelY < cornerRadius
-        ? cornerRadius - pixelY
-        : pixelY > size - cornerRadius
-          ? pixelY - (size - cornerRadius)
-          : 0;
-    if (yDistance === 0) continue;
-
-    for (let x = 0; x < image.width; x += 1) {
-      const pixelX = x + 0.5;
-      const xDistance =
-        pixelX < cornerRadius
-          ? cornerRadius - pixelX
-          : pixelX > size - cornerRadius
-            ? pixelX - (size - cornerRadius)
-            : 0;
-      if (xDistance === 0) continue;
-
-      const distance = Math.hypot(xDistance, yDistance);
-      const coverage = Math.max(0, Math.min(1, cornerRadius + 0.5 - distance));
-      const alphaIndex = (y * image.width + x) * 4 + 3;
-      image.data[alphaIndex] = Math.round((image.data[alphaIndex] ?? 0) * coverage);
-    }
-  }
-  return PNG.sync.write(image);
-}
 
 const roundIconCorners = Effect.fn("iconExport.roundIconCorners")(function* (
   contents: Buffer,
