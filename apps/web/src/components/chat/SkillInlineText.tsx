@@ -8,7 +8,6 @@ import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   SKILL_CHIP_ICON_SVG,
 } from "../composerInlineChip";
-import { cn } from "~/lib/utils";
 
 const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
 
@@ -75,12 +74,7 @@ export function renderSkillInlineMarkdownChildren(
 function SkillChip(props: { skill: InlineSkill; rawText: string }) {
   return (
     <span className="inline-flex align-middle leading-none" data-markdown-copy={props.rawText}>
-      <span
-        className={cn(
-          CHAT_INLINE_CHIP_CLASS_NAME,
-          "border-fuchsia-500/25 bg-fuchsia-500/12 text-fuchsia-700 dark:text-fuchsia-300",
-        )}
-      >
+      <span className={CHAT_INLINE_CHIP_CLASS_NAME}>
         <span
           aria-hidden="true"
           className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}

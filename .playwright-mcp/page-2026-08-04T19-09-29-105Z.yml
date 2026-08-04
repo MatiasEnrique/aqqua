@@ -1,0 +1,82 @@
+- generic [ref=f1e1]:
+    - generic [ref=f1e3]:
+        - generic [ref=f1e6]:
+            - link [ref=f1e54] [cursor=pointer]:
+                - /url: /
+            - generic [ref=f1e14]:
+                - navigation [ref=f1e55]:
+                    - button [ref=f1e56]:
+                        - generic [ref=f1e19]: Threads
+                    - button [disabled]:
+                        - generic: Flows
+                - generic [ref=f1e20]:
+                    - button [expanded] [ref=f1e57] [cursor=pointer]:
+                        - generic [ref=f1e26]: Search
+                        - generic: ⌘K
+                    - generic [ref=f1e27]:
+                        - button [disabled]
+            - generic [ref=f1e31]:
+                - generic [ref=f1e32]: No projects yet
+                - button [ref=f1e58] [cursor=pointer]: Add project
+            - list [ref=f1e35]:
+                - listitem [ref=f1e36]:
+                    - button [ref=f1e59] [cursor=pointer]:
+                        - generic [ref=f1e41]: Settings
+            - button [ref=f1e60]
+        - main [ref=f1e43]:
+            - generic [ref=f1e47]:
+                - generic [ref=f1e48]: What should we work on?
+                - generic [ref=f1e49]: Add a project to start your first thread.
+                - button [ref=f1e61] [cursor=pointer]: Add project
+        - button [pressed] [ref=f1e62] [cursor=pointer]:
+            - generic [ref=f1e53]: Toggle Sidebar
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"
+    - dialog "Command palette" [ref=f1e65]:
+        - generic [ref=f1e68]:
+            - button [ref=f1e70] [cursor=pointer]
+            - combobox "Search..." [active] [ref=f1e74]
+        - listbox [ref=f1e77]:
+            - group "Sources" [ref=f1e78]:
+                - option "Local folder Browse a folder on disk" [ref=f1e80] [cursor=pointer]:
+                    - generic [ref=f1e83]:
+                        - generic [ref=f1e84]: Local folder
+                        - generic [ref=f1e86]: Browse a folder on disk
+                - option "Git URL Clone from a remote URL" [ref=f1e87] [cursor=pointer]:
+                    - generic [ref=f1e91]:
+                        - generic [ref=f1e92]: Git URL
+                        - generic [ref=f1e94]: Clone from a remote URL
+                - generic [ref=f1e95]:
+                    - generic [ref=f1e101]:
+                        - generic [ref=f1e102]: Azure DevOps repository
+                        - generic [ref=f1e104]: Clone Azure DevOps project/repository
+                    - button "Setup Required" [ref=f1e106] [cursor=pointer]
+                - generic [ref=f1e107]:
+                    - generic [ref=f1e112]:
+                        - generic [ref=f1e113]: Bitbucket repository
+                        - generic [ref=f1e115]: Clone Bitbucket workspace/repository
+                    - button "Setup Required" [ref=f1e117] [cursor=pointer]
+                - generic [ref=f1e118]:
+                    - generic [ref=f1e121]:
+                        - generic [ref=f1e122]: GitHub repository
+                        - generic [ref=f1e124]: Clone GitHub owner/repo
+                    - button "Setup Required" [ref=f1e126] [cursor=pointer]
+                - generic [ref=f1e127]:
+                    - generic [ref=f1e133]:
+                        - generic [ref=f1e134]: GitLab repository
+                        - generic [ref=f1e136]: Clone GitLab group/project
+                    - button "Setup Required" [ref=f1e138] [cursor=pointer]
+        - generic [ref=f1e142]:
+            - generic [ref=f1e143]: Navigate
+            - generic [ref=f1e145]:
+                - generic: Enter
+                - generic [ref=f1e146]: Select
+            - generic [ref=f1e147]:
+                - generic: Backspace
+                - generic [ref=f1e148]: Back
+            - generic [ref=f1e149]:
+                - generic: Esc
+                - generic [ref=f1e150]: Close
+        - textbox [ref=f1e151]
