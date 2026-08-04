@@ -201,9 +201,9 @@ function ConfiguredConnectOnboardingDialog() {
     if (!ok) return;
     toastManager.add({
       type: "success",
-      title: "aqqua Connect enabled",
+      title: "Aqqua Connect enabled",
       description: exposeEnvironment
-        ? "This environment is available to your other devices through aqqua Connect."
+        ? "This environment is available to your other devices through Aqqua Connect."
         : "This environment publishes agent activity to your mobile clients.",
     });
     setStep("devices");
@@ -220,7 +220,7 @@ function ConfiguredConnectOnboardingDialog() {
     >
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Set up aqqua Connect</DialogTitle>
+          <DialogTitle>Set up Aqqua Connect</DialogTitle>
           <DialogDescription>
             Mesh your devices together — publish this environment and connect the rest, all in one
             place.
@@ -362,7 +362,7 @@ function PublishStep({
       <div className="rounded-lg border">
         <OnboardingToggleRow
           title="Publish this environment"
-          description="Make this environment available to your other devices through aqqua Connect."
+          description="Make this environment available to your other devices through Aqqua Connect."
           checked={exposeEnvironment}
           disabled={disabled}
           onCheckedChange={onExposeEnvironmentChange}

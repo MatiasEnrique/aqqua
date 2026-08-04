@@ -52,9 +52,9 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
   Effect.gen(function* () {
     assert.equal(
       yield* hostedAppUrlConfig.pipe(
-        provideEnv({ AQQUA_HOSTED_APP_URL: "https://nightly.app.aqqua.codes" }),
+        provideEnv({ AQQUA_HOSTED_APP_URL: "https://preview.aqqua.codes" }),
       ),
-      "https://nightly.app.aqqua.codes",
+      "https://preview.aqqua.codes",
     );
     assert.equal(
       yield* hostedAppUrlConfig.pipe(provideEnv({ AQQUA_HOSTED_APP_URL: "http://localhost:5733" })),

@@ -13,7 +13,7 @@ import * as Path from "effect/Path";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
-import { isNightlyDesktopVersion, isSigmaDesktopVersion } from "../updates/updateChannels.ts";
+import { isSigmaDesktopVersion } from "../updates/updateChannels.ts";
 
 export interface MakeDesktopEnvironmentInput {
   readonly dirname: string;
@@ -76,7 +76,7 @@ export class DesktopEnvironment extends Context.Service<
   }
 >()("@aqqua/desktop/app/DesktopEnvironment") {}
 
-const APP_BASE_NAME = "aqqua";
+const APP_BASE_NAME = "Aqqua";
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
@@ -89,7 +89,7 @@ function resolveDesktopAppStageLabel(input: {
     return "Sigma";
   }
 
-  return isNightlyDesktopVersion(input.appVersion) ? "Nightly" : "Alpha";
+  return "Alpha";
 }
 
 function resolveDesktopAppBranding(input: {

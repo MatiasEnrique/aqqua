@@ -130,7 +130,7 @@ describe("DesktopEnvironment", () => {
       assert.equal(release.stateDir, "/Users/alice/.aqqua/userdata");
 
       assert.equal(sigma.branding.stageLabel, "Sigma");
-      assert.equal(sigma.displayName, "aqqua (Sigma)");
+      assert.equal(sigma.displayName, "Aqqua (Sigma)");
       assert.equal(sigma.appUserModelId, "com.aqqua.aqqua.sigma");
       assert.equal(sigma.userDataDirName, "aqqua-sigma");
       assert.equal(sigma.linuxWmClass, "aqqua-sigma");

@@ -38,9 +38,9 @@ const DEVELOPMENT_ASSETS = {
 } as const;
 
 const PREVIEW_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.previewUniversalIconPng),
+  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.previewIconComposerProject),
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.previewUniversalIconPng),
   androidAdaptiveForeground: "./assets/android-icon-mark.png",
   androidAdaptiveBackgroundColor: "#FFFFFF",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
@@ -61,7 +61,7 @@ const RELEASE_ASSETS = {
 
 const VARIANT_CONFIG = {
   development: {
-    appName: "aqqua Dev",
+    appName: "Aqqua Dev",
     scheme: "aqqua-dev",
     iosBundleIdentifier: "com.aqqua.aqqua.dev",
     androidPackage: "com.aqqua.aqqua.dev",
@@ -69,7 +69,7 @@ const VARIANT_CONFIG = {
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
-    appName: "aqqua Preview",
+    appName: "Aqqua Preview",
     scheme: "aqqua-preview",
     iosBundleIdentifier: "com.aqqua.aqqua.preview",
     androidPackage: "com.aqqua.aqqua.preview",
@@ -77,7 +77,7 @@ const VARIANT_CONFIG = {
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "aqqua",
+    appName: "Aqqua",
     scheme: "aqqua",
     iosBundleIdentifier: "com.aqqua.aqqua",
     androidPackage: "com.aqqua.aqqua",
@@ -121,7 +121,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
       {
         name: "AgentActivity",
         displayName: "Agent Activity",
-        description: "Shows the current state of active aqqua agents.",
+        description: "Shows the current state of active Aqqua agents.",
         supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
       },
     ],
@@ -195,7 +195,7 @@ const config: ExpoConfig = {
         NSAllowsArbitraryLoads: true,
       },
       NSLocalNetworkUsageDescription:
-        "Allow aqqua to connect to aqqua servers on your local network or tailnet.",
+        "Allow Aqqua to connect to Aqqua servers on your local network or tailnet.",
       ITSAppUsesNonExemptEncryption: false,
     },
   },
@@ -274,7 +274,7 @@ const config: ExpoConfig = {
     [
       "expo-camera",
       {
-        cameraPermission: "Allow aqqua to access your camera so you can scan pairing QR codes.",
+        cameraPermission: "Allow Aqqua to access your camera so you can scan pairing QR codes.",
         barcodeScannerEnabled: true,
         recordAudioAndroid: false,
       },

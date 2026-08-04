@@ -69,8 +69,8 @@ export function RelayClientInstallDialog() {
           </DialogTitle>
           <DialogDescription>
             {isInstalling
-              ? "aqqua is preparing this environment for secure access through aqqua Connect."
-              : "aqqua needs the relay client to make this environment available through aqqua Connect."}
+              ? "Aqqua is preparing this environment for secure access through Aqqua Connect."
+              : "Aqqua needs the relay client to make this environment available through Aqqua Connect."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>

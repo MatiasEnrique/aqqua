@@ -35,7 +35,7 @@ describe("connectCliAuth", () => {
   it("builds the Clerk authorize URL with the configured hosted origin's callback", () => {
     vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
     vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_123");
-    vi.stubEnv("VITE_HOSTED_APP_URL", "https://nightly.app.aqqua.codes");
+    vi.stubEnv("VITE_HOSTED_APP_URL", "https://preview.aqqua.codes");
 
     const authorizeUrl = buildConnectCliClerkAuthorizeUrl({
       state: "state-1",
@@ -47,7 +47,7 @@ describe("connectCliAuth", () => {
     expect(url.hostname).toBe("witty-mole-42.clerk.accounts.dev");
     expect(url.pathname).toBe("/oauth/authorize");
     expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://nightly.app.aqqua.codes/connect/callback",
+      "https://preview.aqqua.codes/connect/callback",
     );
     expect(url.searchParams.get("state")).toBe("state-1");
     expect(url.searchParams.get("code_challenge")).toBe("challenge-1");

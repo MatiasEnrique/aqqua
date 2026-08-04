@@ -24,7 +24,7 @@ const BUILDS = [
   { os: "linux", name: "Linux", arch: "x86_64", format: "AppImage", asset: "x86_64.AppImage", detect: true },
 ] as const;
 
-const PRODUCT_SHOT = "/product/flows.webp";
+const PRODUCT_SHOT = "/product/flows-v2.webp";
 const PRODUCT_SHOT_WIDTH = 3120;
 const PRODUCT_SHOT_HEIGHT = 1880;
 
@@ -205,7 +205,6 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
 
       <div class="feature-row reveal">
         <div class="feature-copy">
-          <span class="eyebrow eyebrow--dim">01 — Agent profiles</span>
           <h3>Name a model once, use it everywhere</h3>
           <p>
             A profile pins the provider, model and runtime a main agent runs
@@ -296,7 +295,6 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
         </div>
 
         <div class="feature-copy">
-          <span class="eyebrow eyebrow--dim">02 — Orchestration</span>
           <h3>Cross-provider agent orchestration</h3>
           <p>
             Spawn a swarm against one branch and supervise every thread in one
@@ -312,7 +310,6 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
 
       <div id="flows" class="feature-row reveal">
         <div class="feature-copy">
-          <span class="eyebrow eyebrow--dim">03 — Flows</span>
           <h3>Deterministic steps, parameterised prompts</h3>
           <p>
             Describe the pipeline once. Each step runs in its own thread, in

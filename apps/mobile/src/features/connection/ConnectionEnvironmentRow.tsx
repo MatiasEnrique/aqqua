@@ -136,7 +136,7 @@ export function ConnectionEnvironmentRow(props: {
         >
           {props.environment.isRelayManaged ? (
             <Text className="text-sm text-foreground-muted">
-              Managed by aqqua Connect. Tunnel details update automatically.
+              Managed by Aqqua Connect. Tunnel details update automatically.
             </Text>
           ) : (
             <>

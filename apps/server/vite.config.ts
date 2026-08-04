@@ -3,7 +3,6 @@ import { defineConfig, mergeConfig } from "vite-plus";
 
 import baseConfig from "../../vite.config.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
-import packageJson from "./package.json" with { type: "json" };
 
 const bundledPackagePrefixes = [
   "@pierre/diffs",
@@ -17,8 +16,6 @@ export function shouldBundleCliDependency(id: string): boolean {
 }
 
 const repoEnv = loadRepoEnv();
-const cliBuildChannel = packageJson.version.includes("-nightly.") ? "nightly" : "latest";
-
 export default mergeConfig(
   baseConfig,
   defineConfig({
@@ -44,7 +41,7 @@ export default mergeConfig(
         js: "#!/usr/bin/env node\n",
       },
       define: {
-        __AQQUA_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
+        __AQQUA_BUILD_CHANNEL__: JSON.stringify("latest"),
         __AQQUA_BUILD_RELAY_URL__: JSON.stringify(repoEnv.AQQUA_RELAY_URL?.trim() ?? ""),
         __AQQUA_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
           repoEnv.AQQUA_CLERK_PUBLISHABLE_KEY?.trim() ?? "",

@@ -76,10 +76,10 @@ export default function App() {
               />
               <View className="flex-1 items-center justify-center bg-screen px-8">
                 <Text className="text-center text-2xl font-bold text-foreground">
-                  aqqua Mobile is not available yet
+                  Aqqua Mobile is not available yet
                 </Text>
                 <Text className="mt-3 text-center text-base leading-6 text-foreground-muted">
-                  Use the aqqua desktop app for now.
+                  Use the Aqqua desktop app for now.
                 </Text>
               </View>
             </SafeAreaProvider>

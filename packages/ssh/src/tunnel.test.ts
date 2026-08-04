@@ -124,12 +124,12 @@ describe("ssh tunnel scripts", () => {
 
   it("shell-quotes package specs in the remote aqqua runner", () => {
     const script = buildRemoteAqquaRunnerScript({
-      packageSpec: "aqqua@nightly; touch /tmp/aqqua-owned",
+      packageSpec: "aqqua@latest; touch /tmp/aqqua-owned",
     });
 
-    assert.include(script, "exec npx --yes 'aqqua@nightly; touch /tmp/aqqua-owned' \"$@\"");
-    assert.include(script, "exec npm exec --yes 'aqqua@nightly; touch /tmp/aqqua-owned' -- \"$@\"");
-    assert.notInclude(script, "exec npx --yes aqqua@nightly; touch /tmp/aqqua-owned");
+    assert.include(script, "exec npx --yes 'aqqua@latest; touch /tmp/aqqua-owned' \"$@\"");
+    assert.include(script, "exec npm exec --yes 'aqqua@latest; touch /tmp/aqqua-owned' -- \"$@\"");
+    assert.notInclude(script, "exec npx --yes aqqua@latest; touch /tmp/aqqua-owned");
   });
 
   it("builds the remote aqqua runner with a node script override", () => {
@@ -173,7 +173,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(buildRemoteLaunchScript(), '--base-dir "$DEFAULT_SERVER_HOME"');
     assert.notInclude(buildRemoteLaunchScript(), "server-home");
     assert.include(buildRemoteLaunchScript(), "Remote aqqua server did not become ready");
-    assert.include(buildRemoteLaunchScript({ packageSpec: "aqqua@nightly" }), "aqqua@nightly");
+    assert.include(buildRemoteLaunchScript({ packageSpec: "aqqua@latest" }), "aqqua@latest");
     assert.include(
       buildRemotePairingScript(target),
       '"$RUNNER_FILE" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json',
@@ -181,8 +181,8 @@ describe("ssh tunnel scripts", () => {
     assert.include(buildRemotePairingScript(target), 'PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"');
     assert.notInclude(buildRemotePairingScript(target), "server-home");
     assert.include(
-      buildRemotePairingScript(target, { packageSpec: "aqqua@nightly" }),
-      "aqqua@nightly",
+      buildRemotePairingScript(target, { packageSpec: "aqqua@latest" }),
+      "aqqua@latest",
     );
     assert.include(
       buildRemoteStopScript(target),

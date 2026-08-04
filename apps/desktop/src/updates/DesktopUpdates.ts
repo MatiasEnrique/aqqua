@@ -338,16 +338,15 @@ export const make = Effect.gen(function* () {
     channel: DesktopUpdateChannel,
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
-    const allowsPrerelease = channel === "nightly";
     yield* electronUpdater.setChannel(channel);
-    yield* electronUpdater.setAllowPrerelease(allowsPrerelease);
-    yield* electronUpdater.setAllowDowngrade(allowsPrerelease);
-    yield* electronUpdater.setFullChangelog(allowsPrerelease);
+    yield* electronUpdater.setAllowPrerelease(false);
+    yield* electronUpdater.setAllowDowngrade(false);
+    yield* electronUpdater.setFullChangelog(false);
     yield* logUpdaterInfo("using update channel", {
       channel,
-      allowPrerelease: allowsPrerelease,
-      allowDowngrade: allowsPrerelease,
-      fullChangelog: allowsPrerelease,
+      allowPrerelease: false,
+      allowDowngrade: false,
+      fullChangelog: false,
     });
   });
 
@@ -779,41 +778,10 @@ export const make = Effect.gen(function* () {
     setChannel: Effect.fn("desktop.updates.setChannel")(function* (
       nextChannel: DesktopUpdateChannel,
     ) {
+      // Retain the IPC method for older renderer bundles during upgrades. The
+      // contract accepts only `latest`, so this is a compatibility read rather
+      // than a remaining channel-selection path.
       yield* Effect.annotateCurrentSpan({ channel: nextChannel });
-      const activeAction = yield* activeUpdateAction;
-      if (Option.isSome(activeAction)) {
-        return yield* new DesktopUpdateActionInProgressError({
-          action: activeAction.value,
-          requestedChannel: nextChannel,
-        });
-      }
-
-      const state = yield* Ref.get(updateStateRef);
-      if (nextChannel === state.channel) {
-        return state;
-      }
-
-      yield* desktopSettings
-        .setUpdateChannel(nextChannel)
-        .pipe(
-          Effect.mapError(
-            (cause) => new DesktopUpdateChannelPersistenceError({ channel: nextChannel, cause }),
-          ),
-        );
-
-      const enabled = yield* shouldEnableAutoUpdates;
-      yield* setState(createBaseUpdateState(nextChannel, enabled, environment));
-
-      if (!enabled || !(yield* Ref.get(updaterConfiguredRef))) {
-        return yield* Ref.get(updateStateRef);
-      }
-
-      yield* applyAutoUpdaterChannel(nextChannel);
-      const allowDowngrade = yield* electronUpdater.allowDowngrade;
-      yield* electronUpdater.setAllowDowngrade(true);
-      yield* checkForUpdates("channel-change").pipe(
-        Effect.ensuring(electronUpdater.setAllowDowngrade(allowDowngrade).pipe(Effect.ignore)),
-      );
       return yield* Ref.get(updateStateRef);
     }),
     check: Effect.fn("desktop.updates.check")(function* (reason: string) {

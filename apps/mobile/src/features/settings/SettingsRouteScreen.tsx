@@ -243,7 +243,7 @@ function ConfiguredSettingsRouteScreen() {
       } else {
         Alert.alert(
           "Couldn't finish enabling notifications",
-          "Notification access was granted, but this device could not be registered with aqqua Connect. Notifications will start once registration succeeds.",
+          "Notification access was granted, but this device could not be registered with Aqqua Connect. Notifications will start once registration succeeds.",
         );
       }
       return;
@@ -273,8 +273,8 @@ function ConfiguredSettingsRouteScreen() {
 
   const promptSignIn = useCallback(() => {
     Alert.alert(
-      "Sign in to aqqua Connect",
-      "Live Activity updates require aqqua Connect so relay can deliver updates to this device.",
+      "Sign in to Aqqua Connect",
+      "Live Activity updates require Aqqua Connect so relay can deliver updates to this device.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -346,7 +346,7 @@ function ConfiguredSettingsRouteScreen() {
     } else {
       Alert.alert(
         "Couldn't finish enabling Live Activities",
-        "This device could not be registered with aqqua Connect, so Live Activities won't appear yet. They'll start once registration succeeds.",
+        "This device could not be registered with Aqqua Connect, so Live Activities won't appear yet. They'll start once registration succeeds.",
       );
     }
   }, [
@@ -464,7 +464,7 @@ function ConfiguredSettingsRouteScreen() {
           <SettingsSection title="Account">
             <SettingsRow
               icon="person.crop.circle"
-              label="aqqua Account"
+              label="Aqqua Account"
               value={accountLabel}
               onPress={openAccount}
             />

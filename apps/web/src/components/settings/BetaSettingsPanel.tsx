@@ -70,7 +70,7 @@ export function BetaSettingsPanel() {
           control={
             <Switch
               checked={worktreeViewEnabled}
-              // Touching the switch pins the choice, so a nightly build that
+              // Touching the switch pins the choice, so future default changes
               onCheckedChange={(checked) =>
                 updateSettings({
                   sidebarV2Enabled: Boolean(checked),

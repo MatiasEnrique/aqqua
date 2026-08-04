@@ -90,7 +90,7 @@ the configured API and tunnel DNS zones as retained Cloudflare resources. Person
 the production-owned zones.
 
 The `prod` Alchemy stage owns the retained PlanetScale database and is the shared hosted relay for
-stable and nightly clients. Every other stage references that database and provisions an isolated
+released clients. Every other stage references that database and provisions an isolated
 PlanetScale branch and runtime role for local development, so deploy `prod` before creating
 developer stages:
 
@@ -115,8 +115,8 @@ the URL manually.
 ### Deployment CI
 
 The relay is versioned separately from client releases. `.github/workflows/deploy-relay.yml` deploys
-the shared Alchemy `prod` stage on every push to `main`. Stable and nightly release builds both
-resolve their static public config from the same
+the shared Alchemy `prod` stage on every push to `main`. Release builds
+resolve their static public config from the
 `production` GitHub environment. Pull requests do not deploy relay stages. Developers can
 deploy personal non-production stages locally with any stage name other than `prod`.
 

@@ -25,7 +25,7 @@ function SidebarUpdateReleaseNotesTooltip({
   readonly state: NonNullable<ReturnType<typeof useDesktopUpdateState>>;
   readonly tooltip: string;
 }) {
-  if (state.channel !== "nightly" || state.releaseNotes.length === 0) {
+  if (state.releaseNotes.length === 0) {
     return <>{tooltip}</>;
   }
 
@@ -196,9 +196,7 @@ export function SidebarUpdatePill() {
             <TooltipPopup
               align="start"
               className={
-                state?.channel === "nightly" && state.releaseNotes.length > 0
-                  ? "max-w-none text-balance"
-                  : undefined
+                state && state.releaseNotes.length > 0 ? "max-w-none text-balance" : undefined
               }
               side="top"
             >

@@ -7,7 +7,7 @@ import Svg, { G, Path } from "react-native-svg";
 export function AqquaMark(props: { readonly height: number; readonly color: ColorValue }) {
   return (
     <Svg
-      accessibilityLabel="aqqua"
+      accessibilityLabel="Aqqua"
       color={props.color}
       height={props.height}
       viewBox="55 915 340 105"

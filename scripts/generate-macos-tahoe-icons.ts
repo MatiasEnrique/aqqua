@@ -21,14 +21,14 @@ const iconSizes = [16, 32, 128, 256, 512] as const;
 
 const variants = [
   {
+    label: "preview",
+    icnsSource: BRAND_ASSET_PATHS.previewMacIconPng,
+    output: BRAND_ASSET_PATHS.previewMacDockIconPng,
+  },
+  {
     label: "development",
     icnsSource: BRAND_ASSET_PATHS.developmentDesktopIconPng,
     output: BRAND_ASSET_PATHS.developmentMacDockIconPng,
-  },
-  {
-    label: "nightly",
-    icnsSource: BRAND_ASSET_PATHS.nightlyMacIconPng,
-    output: BRAND_ASSET_PATHS.nightlyMacDockIconPng,
   },
   {
     label: "production",

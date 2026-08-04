@@ -164,8 +164,8 @@ function HostedClientUnavailable() {
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">Use the local app</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          This client is not available yet. Open aqqua from the desktop app or a locally running
-          aqqua server.
+          This client is not available yet. Open Aqqua from the desktop app or a locally running
+          Aqqua server.
         </p>
       </section>
     </div>

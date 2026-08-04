@@ -89,8 +89,8 @@ export function ConnectCliAuthorizeSurface() {
         title="Connecting your terminal"
         description={
           isSignedIn
-            ? "Redirecting to authorize aqqua Connect for your CLI…"
-            : "Sign in to continue authorizing aqqua Connect for your CLI."
+            ? "Redirecting to authorize Aqqua Connect for your CLI…"
+            : "Sign in to continue authorizing Aqqua Connect for your CLI."
         }
       />
       {isLoaded && !isSignedIn ? (
@@ -185,7 +185,7 @@ export function ConnectCliCallbackSurface() {
 
       <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
         Only enter this code in a terminal session you started yourself. Anyone holding it can link
-        their machine to your aqqua Connect account while it is valid.
+        their machine to your Aqqua Connect account while it is valid.
       </p>
     </AuthSurfaceShell>
   );

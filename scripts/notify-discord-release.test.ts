@@ -12,7 +12,7 @@ import {
 const latestAnnouncement = {
   target: "latest",
   roleId: "222222222222222222",
-  releaseName: "aqqua v1.2.3",
+  releaseName: "Aqqua v1.2.3",
   version: "1.2.3",
   tag: "v1.2.3",
   releaseUrl: new URL("https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.3"),
@@ -21,40 +21,37 @@ const latestAnnouncement = {
 
 const webhookUrl = new URL("https://discord.com/api/webhooks/123456/secret-token");
 
-it("builds a prerelease Discord announcement for nightly subscribers", () => {
+it("builds a prerelease Discord announcement", () => {
   assert.deepStrictEqual(
     buildDiscordReleaseAnnouncement({
       target: "prerelease",
       roleId: "111111111111111111",
-      releaseName: "aqqua Nightly 1.2.4-nightly.20260501.17 (abcdef123456)",
-      version: "1.2.4-nightly.20260501.17",
-      tag: "v1.2.4-nightly.20260501.17",
-      releaseUrl: new URL(
-        "https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.4-nightly.20260501.17",
-      ),
+      releaseName: "Aqqua v1.2.4-rc.1",
+      version: "1.2.4-rc.1",
+      tag: "v1.2.4-rc.1",
+      releaseUrl: new URL("https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.4-rc.1"),
       timestamp: "2026-05-01T01:41:00.000Z",
     }),
     {
-      content:
-        "<@&111111111111111111> Prerelease published: aqqua Nightly 1.2.4-nightly.20260501.17 (abcdef123456)",
+      content: "<@&111111111111111111> Prerelease published: Aqqua v1.2.4-rc.1",
       allowed_mentions: {
         roles: ["111111111111111111"],
       },
       embeds: [
         {
-          title: "aqqua Nightly 1.2.4-nightly.20260501.17 (abcdef123456)",
-          url: "https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.4-nightly.20260501.17",
-          description: "A new aqqua prerelease is available for nightly testers.",
+          title: "Aqqua v1.2.4-rc.1",
+          url: "https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.4-rc.1",
+          description: "A new Aqqua prerelease is available.",
           color: 0x5865f2,
           fields: [
             {
               name: "Version",
-              value: "1.2.4-nightly.20260501.17",
+              value: "1.2.4-rc.1",
               inline: true,
             },
             {
               name: "Tag",
-              value: "v1.2.4-nightly.20260501.17",
+              value: "v1.2.4-rc.1",
               inline: true,
             },
           ],
@@ -67,15 +64,15 @@ it("builds a prerelease Discord announcement for nightly subscribers", () => {
 
 it("builds a latest Discord announcement for stable subscribers", () => {
   assert.deepStrictEqual(buildDiscordReleaseAnnouncement(latestAnnouncement), {
-    content: "<@&222222222222222222> Latest published: aqqua v1.2.3",
+    content: "<@&222222222222222222> Latest published: Aqqua v1.2.3",
     allowed_mentions: {
       roles: ["222222222222222222"],
     },
     embeds: [
       {
-        title: "aqqua v1.2.3",
+        title: "Aqqua v1.2.3",
         url: "https://github.com/aqquadotgg/aqqua/releases/tag/v1.2.3",
-        description: "A new aqqua latest release is available.",
+        description: "A new Aqqua latest release is available.",
         color: 0x2ecc71,
         fields: [
           {

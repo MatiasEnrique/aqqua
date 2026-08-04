@@ -1,17 +1,16 @@
 # Release Checklist
 
-This document covers the unified release workflow for stable and nightly desktop releases.
+This document covers stable Aqqua desktop releases.
 
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
-  - push tag matching `v*.*.*` for stable releases
-  - scheduled nightly check every three hours
-  - manual `workflow_dispatch` for either channel
+  - push tag matching `v*.*.*`
+  - manual `workflow_dispatch` with an explicit version
 - Runs quality gates first: lint, typecheck, test.
 - Reads the shared production aqqua Connect relay URL and Clerk client configuration before packaging clients.
-- Builds four artifacts in parallel for both channels:
+- Builds four artifacts in parallel:
   - macOS `arm64` DMG
   - macOS `x64` DMG
   - Linux `x64` AppImage
@@ -19,22 +18,18 @@ This document covers the unified release workflow for stable and nightly desktop
 - Publishes one GitHub Release with all produced files.
   - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
-  - Nightly runs are always GitHub prereleases and never marked latest.
-  - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
-- Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
+  - Automatically generated release notes are pinned to the previous stable tag. Historical Nightly tags are excluded from this comparison.
+- Includes Electron auto-update metadata (for example `latest*.yml` and `*.blockmap`) in release assets.
 - Publishes the CLI package (`apps/server`, npm package `aqqua`) with OIDC trusted publishing from the same workflow file:
-  - stable releases publish npm dist-tag `latest`
-  - nightly releases publish npm dist-tag `nightly`
+  - releases publish npm dist-tag `latest`
 - Deploys the hosted web app to Vercel only after a release is published:
-  - stable releases are aliased to the `latest` hosted app channel
-  - nightly releases are aliased to the `nightly` hosted app channel
+  - releases are aliased to the `latest` hosted app domain and the router domain
 - Signing is optional and auto-detected per platform from secrets.
 
 ## aqqua Connect relay deployment
 
-The relay is a shared control plane versioned separately from client releases. Stable and nightly
-client builds must point at the same relay so users see the same linked environments when switching
-release channels.
+The relay is a shared control plane versioned separately from client releases. Released clients
+point at the production relay so users see the same linked environments after updating.
 
 `.github/workflows/deploy-relay.yml` deploys Alchemy stage `prod` on every push to `main`. The
 release workflow reads the relay URL and Clerk client configuration from the existing `production`
@@ -106,33 +101,22 @@ Optional GitHub Actions variables:
 - `VERCEL_TEAM_SLUG`: overrides the Vercel CLI scope when the team slug is preferred over the `VERCEL_ORG_ID` secret.
 - `AQQUA_WEB_ROUTER_URL`: defaults to `https://app.aqqua.codes`.
 - `AQQUA_WEB_LATEST_DOMAIN`: defaults to `latest.app.aqqua.codes`.
-- `AQQUA_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.aqqua.codes`.
 
 Required Vercel domains:
 
 - `app.aqqua.codes`: the router domain users open, updated by stable releases.
-- `latest.app.aqqua.codes`: channel alias updated by stable releases.
-- `nightly.app.aqqua.codes`: channel alias updated by nightly releases.
-
-The router domain uses `apps/web/vercel.ts` routes. Users opt into a channel by
-visiting `/__aqqua/channel?channel=latest` or
-`/__aqqua/channel?channel=nightly`; the router stores the
-`aqqua_web_channel` cookie and rewrites future requests on `app.aqqua.codes` to
-the matching channel alias.
+- `latest.app.aqqua.codes`: release alias updated by stable releases.
 
 The release deploy job rewrites release package versions before upload so the
-hosted app's About panel renders the release version. Stable deploys alias the
-same deployment to both the `latest` channel and the router domain so the router
-rules stay current. Nightly deploys only alias the `nightly` channel. The job
-also passes `VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted
-update track selector in the About panel. Changing the selector navigates
-through `/__aqqua/channel` on the router domain so the user's channel cookie is
-updated before redirecting to the hosted app root.
+hosted app's About panel renders the release version. The same deployment is
+aliased to both the `latest` domain and the router domain. The job passes
+`VITE_HOSTED_APP_CHANNEL=latest` so the hosted client identifies itself as the
+published release.
 
 One-time Vercel dashboard setup:
 
 1. Confirm the web project root directory remains `apps/web`.
-2. Add the three domains above to the web project.
+2. Add the two domains above to the web project.
 3. Disable automatic Git deployments in the dashboard if desired; the committed
    `vercel.ts` setting is the source-of-truth, but disconnecting Git in the
    dashboard is also safe.
@@ -140,25 +124,9 @@ One-time Vercel dashboard setup:
    deployment, so `app.aqqua.codes` points at a deployment containing the router
    rules in `apps/web/vercel.ts`. Future stable releases keep this alias current.
 
-## Nightly builds
-
-- Workflow: `.github/workflows/release.yml`
-- Triggers:
-  - scheduled check every three hours
-  - manual `workflow_dispatch` with `channel=nightly`
-- Runs the same desktop quality gates and artifact matrix as the tagged release flow.
-- Publishes a GitHub prerelease only:
-  - tag format: `nightly-vX.Y.Z-nightly.YYYYMMDD.<run_number>`
-  - release name includes the short commit SHA
-  - `make_latest` is always `false`
-- Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
-- Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI package (`apps/server`, npm package `aqqua`) to the `nightly` npm dist-tag using the same nightly version.
-- Does not commit version bumps back to `main`.
-
 ## Sigma builds
 
-Sigma is the self-built channel: a packaged desktop app made from a working copy and installed
+Sigma is the self-built variant: a packaged desktop app made from a working copy and installed
 **beside** a released app rather than over it. It is never published and never auto-updates — you
 update it by pulling and rebuilding.
 
@@ -169,13 +137,13 @@ npm run dist:desktop:sigma     # host platform/target/arch are auto-detected
 The artifact lands in `release/` as `aqqua-<version>-<arch>.<ext>` — for example
 `aqqua-0.0.28-sigma-arm64.dmg`, since the version itself carries the suffix.
 
-`--sigma` is expressed as a `-sigma` suffix on the version, and that suffix is the entire channel
+`--sigma` is expressed as a `-sigma` suffix on the version, and that suffix is the entire build
 signal — `scripts/build-desktop-artifact.ts` reads it when generating the electron-builder config,
 and the running app reads the same suffix through `isSigmaDesktopVersion`. Everything else follows:
 
 |              | Released app        | Sigma build                  |
 | ------------ | ------------------- | ---------------------------- |
-| Product name | `aqqua (Alpha)`     | `aqqua (Sigma)`              |
+| Product name | `Aqqua (Alpha)`     | `Aqqua (Sigma)`              |
 | Bundle id    | `com.aqqua.aqqua`   | `com.aqqua.aqqua.sigma`      |
 | User data    | `aqqua`             | `aqqua-sigma`                |
 | aqqua home   | `~/.aqqua`          | `~/.aqqua-sigma`             |
@@ -200,7 +168,7 @@ Notes:
 
 - Sigma builds are unsigned unless you pass `--signed`. A locally produced artifact is not
   quarantined, so it opens normally; an app copied from another machine needs
-  `xattr -dr com.apple.quarantine "/Applications/aqqua (Sigma).app"`.
+  `xattr -dr com.apple.quarantine "/Applications/Aqqua (Sigma).app"`.
 - A Sigma build carries no `app-update.yml`, and the app reports "This is a Sigma build. Update it
   by pulling and rebuilding." in place of update status.
 - To start over, delete `~/.aqqua-sigma` — the released app's state is untouched.
@@ -213,9 +181,9 @@ npm before users can receive that client.
 
 The workflow enforces this ordering:
 
-1. `publish_cli` publishes the exact stable or nightly version to npm.
+1. `publish_cli` publishes the exact release version to npm.
 2. `release` depends on `publish_cli` before exposing desktop artifacts in GitHub Releases.
-3. `deploy_web` depends on `release` before moving the hosted channel to the new client.
+3. `deploy_web` depends on `release` before moving the hosted release aliases to the new client.
 
 Preserve these dependencies when changing the release graph. Publishing a client first would leave
 the **Update server** action targeting a package version that does not exist yet.
@@ -241,11 +209,11 @@ guidance when those environments are available.
   - the app forwards it as an `Authorization: Bearer <token>` request header for updater HTTP calls.
 - Required release assets for updater:
   - platform installers (`.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads)
-  - channel metadata: `latest*.yml` for stable releases, `nightly*.yml` for nightly releases
+  - release metadata: `latest*.yml`
   - `*.blockmap` files (used for differential downloads)
 - macOS metadata note:
-  - `electron-updater` reads `latest-mac.yml` on stable and `nightly-mac.yml` on nightly, for both Intel and Apple Silicon.
-  - The workflow merges the per-arch mac manifests into one channel-specific mac manifest before publishing the GitHub Release.
+  - `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon.
+  - The workflow merges the per-arch mac manifests into one manifest before publishing the GitHub Release.
 
 ## 0) npm OIDC trusted publishing setup (CLI)
 
@@ -265,7 +233,6 @@ Checklist:
    - set `apps/server/package.json` version to `X.Y.Z`
    - build web + server
    - run `npm publish --access public --tag latest`
-5. Nightly runs from the same workflow file publish with `npm publish --access public --tag nightly`.
 
 ## 1) Dry-run release without signing
 

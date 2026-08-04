@@ -137,8 +137,8 @@ export const buildDiscordReleaseAnnouncement = (
       url: options.releaseUrl.href,
       description:
         options.target === "prerelease"
-          ? "A new aqqua prerelease is available for nightly testers."
-          : "A new aqqua latest release is available.",
+          ? "A new Aqqua prerelease is available."
+          : "A new Aqqua latest release is available.",
       color: targetColors[options.target],
       fields: [
         {

@@ -542,7 +542,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     // the app is foregrounded and the activity token can be registered.
     armAgentAwarenessLiveActivityForLocalWork({
       threadTitle: props.selectedThread.title,
-      projectTitle: props.environmentLabel ?? "aqqua",
+      projectTitle: props.environmentLabel ?? "Aqqua",
     });
     try {
       await onSendMessage();

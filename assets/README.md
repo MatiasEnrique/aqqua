@@ -5,7 +5,7 @@ its transparent raster rendition. The three Icon Composer projects combine
 that artwork with the shared white background for the supported app variants:
 
 - `dev/app-icon.icon`
-- `nightly/app-icon.icon`
+- `preview/app-icon.icon`
 - `prod/app-icon.icon`
 
 Each project contains the canonical artwork as `Assets/logo.png`. Platform-neutral,
@@ -48,7 +48,7 @@ After changing an Icon Composer project, open it in Icon Composer and export the
 Save the three exports to:
 
 - `dev/app-icon.icon` -> `dev/blueprint-macos-1024.png`
-- `nightly/app-icon.icon` -> `nightly/nightly-macos-1024.png`
+- `preview/app-icon.icon` -> `preview/preview-macos-1024.png`
 - `prod/app-icon.icon` -> `prod/black-macos-1024.png`
 
 Then regenerate the direct Dock renditions:
@@ -67,7 +67,7 @@ Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app 
 For each project below, use Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, and Scale: 1×, then save the PNG to the exact destination:
 
 - assets/dev/app-icon.icon -> assets/dev/blueprint-macos-1024.png
-- assets/nightly/app-icon.icon -> assets/nightly/nightly-macos-1024.png
+- assets/preview/app-icon.icon -> assets/preview/preview-macos-1024.png
 - assets/prod/app-icon.icon -> assets/prod/black-macos-1024.png
 
 Do not resize, composite, or otherwise post-process the exported PNGs.

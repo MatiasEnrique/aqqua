@@ -116,7 +116,7 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     kind: "browser",
     label: "Open browser",
     icon: GlobeIcon,
-    unavailableReason: "Browser previews are only available in the aqqua desktop app.",
+    unavailableReason: "Browser previews are only available in the Aqqua desktop app.",
   },
 ] as const satisfies ReadonlyArray<{
   kind: RightPanelSurfaceButtonKind;

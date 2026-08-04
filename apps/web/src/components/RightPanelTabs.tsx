@@ -61,7 +61,7 @@ interface RightPanelTabsProps {
 }
 
 const SURFACE_DISABLED_REASONS = {
-  browser: "Browser previews are only available in the aqqua desktop app.",
+  browser: "Browser previews are only available in the Aqqua desktop app.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for projects in Git repositories.",
   history: "History is only available for projects in Git repositories.",

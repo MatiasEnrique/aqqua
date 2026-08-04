@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  buildHostedChannelSelectionUrl,
   buildHostedPairingUrl,
   hasHostedPairingRequest,
   isHostedStaticApp,
@@ -43,21 +42,6 @@ describe("hostedPairing", () => {
     expect(url.hash).toBe("#token=pairing-token");
   });
 
-  it("builds hosted channel selection URLs through the configured router origin", () => {
-    vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.aqqua.codes");
-
-    const url = new URL(
-      buildHostedChannelSelectionUrl({
-        channel: "nightly",
-      }),
-    );
-
-    expect(url.origin).toBe("https://app.aqqua.codes");
-    expect(url.pathname).toBe("/__aqqua/channel");
-    expect(url.searchParams.get("channel")).toBe("nightly");
-    expect(url.searchParams.has("next")).toBe(false);
-  });
-
   it("ignores incomplete hosted pairing requests", () => {
     expect(
       hasHostedPairingRequest(new URL("https://app.aqqua.codes/pair?host=backend.example.com")),
@@ -80,15 +64,15 @@ describe("hostedPairing", () => {
     expect(isHostedStaticApp(new URL("https://preview.aqqua.codes/"))).toBe(false);
   });
 
-  it("detects hosted channel aliases as static apps", () => {
+  it("detects the latest hosted app build as a static app", () => {
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.aqqua.codes");
-    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "nightly");
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "latest");
     vi.stubEnv("VITE_HTTP_URL", "");
     vi.stubEnv("VITE_WS_URL", "");
 
-    expect(isHostedStaticApp(new URL("https://nightly.app.aqqua.codes/"))).toBe(true);
+    expect(isHostedStaticApp(new URL("https://latest.app.aqqua.codes/"))).toBe(true);
 
     vi.stubEnv("VITE_HTTP_URL", "https://backend.example.com");
-    expect(isHostedStaticApp(new URL("https://nightly.app.aqqua.codes/"))).toBe(false);
+    expect(isHostedStaticApp(new URL("https://latest.app.aqqua.codes/"))).toBe(false);
   });
 });

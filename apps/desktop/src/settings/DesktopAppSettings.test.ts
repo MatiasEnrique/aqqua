@@ -98,7 +98,7 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it("defaults packaged nightly builds to the nightly update channel", () => {
+  it("defaults legacy Nightly version strings to the latest update channel", () => {
     assert.deepEqual(
       DesktopAppSettings.resolveDefaultDesktopSettings("0.0.17-nightly.20260415.1"),
       {
@@ -107,7 +107,7 @@ describe("DesktopSettings", () => {
         serverExposureMode: "local-only",
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
-        updateChannel: "nightly",
+        updateChannel: "latest",
         updateChannelConfiguredByUser: false,
         wslBackendEnabled: false,
         wslOnly: false,
@@ -135,7 +135,7 @@ describe("DesktopSettings", () => {
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
           updateChannel: "latest",
-          updateChannelConfiguredByUser: true,
+          updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -152,10 +152,10 @@ describe("DesktopSettings", () => {
         assert.isTrue(tailscale.changed);
         assert.equal(tailscale.settings.tailscaleServePort, 9443);
 
-        const updateChannel = yield* settings.setUpdateChannel("nightly");
-        assert.isTrue(updateChannel.changed);
-        assert.equal(updateChannel.settings.updateChannel, "nightly");
-        assert.equal(updateChannel.settings.updateChannelConfiguredByUser, true);
+        const updateChannel = yield* settings.setUpdateChannel("latest");
+        assert.isFalse(updateChannel.changed);
+        assert.equal(updateChannel.settings.updateChannel, "latest");
+        assert.equal(updateChannel.settings.updateChannelConfiguredByUser, false);
       }),
     ),
   );
@@ -290,13 +290,14 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("migrates legacy implicit update channels to the runtime default", () =>
+  it.effect("migrates a legacy persisted Nightly channel to latest", () =>
     withSettings(
       Effect.gen(function* () {
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
         yield* writeSettingsPatch({
           serverExposureMode: "local-only",
-          updateChannel: "latest",
+          updateChannel: "nightly",
+          updateChannelConfiguredByUser: false,
         });
 
         assert.deepEqual(yield* settings.load, {
@@ -305,7 +306,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
-          updateChannel: "nightly",
+          updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
           wslOnly: false,
@@ -316,7 +317,7 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("preserves explicit stable update channel on nightly builds", () =>
+  it.effect("clears retired update-channel preferences", () =>
     withSettings(
       Effect.gen(function* () {
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
@@ -333,7 +334,7 @@ describe("DesktopSettings", () => {
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
           updateChannel: "latest",
-          updateChannelConfiguredByUser: true,
+          updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,

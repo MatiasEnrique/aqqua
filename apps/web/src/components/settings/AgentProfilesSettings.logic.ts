@@ -485,7 +485,7 @@ export const AGENT_PROFILE_RUNTIME_LABELS: Readonly<Record<AgentProfileRuntime, 
 
 export const AGENT_PROFILE_RUNTIME_DESCRIPTIONS: Readonly<Record<AgentProfileRuntime, string>> = {
   session:
-    "Runs through a provider adapter, so the sub-agent renders as a normal aqqua transcript.",
+    "Runs through a provider adapter, so the sub-agent renders as a normal Aqqua transcript.",
   terminal: "Runs the provider's CLI in a PTY. Visible and interactive, but terminal output only.",
 };
 

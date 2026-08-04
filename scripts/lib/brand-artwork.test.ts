@@ -106,7 +106,7 @@ describe("aqqua brand artwork", () => {
     const canonical = read(BRAND_ASSET_PATHS.brandLogoPng);
     const copies = [
       "assets/dev/app-icon.icon/Assets/logo.png",
-      "assets/nightly/app-icon.icon/Assets/logo.png",
+      "assets/preview/app-icon.icon/Assets/logo.png",
       "assets/prod/app-icon.icon/Assets/logo.png",
     ];
 
@@ -118,7 +118,7 @@ describe("aqqua brand artwork", () => {
   it("uses the same white plate in every Icon Composer project", () => {
     const production = read("assets/prod/app-icon.icon/icon.json");
     assert.isTrue(production.equals(read("assets/dev/app-icon.icon/icon.json")));
-    assert.isTrue(production.equals(read("assets/nightly/app-icon.icon/icon.json")));
+    assert.isTrue(production.equals(read("assets/preview/app-icon.icon/icon.json")));
   });
 
   it("keeps every mobile variant on the white platform-shaped icon", () => {
@@ -134,7 +134,7 @@ describe("aqqua brand artwork", () => {
     const production = read(BRAND_ASSET_PATHS.productionIosIconPng);
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentIosIconPng,
-      BRAND_ASSET_PATHS.nightlyIosIconPng,
+      BRAND_ASSET_PATHS.previewIosIconPng,
       BRAND_ASSET_PATHS.productionIosIconPng,
     ]) {
       assert.isTrue(production.equals(read(relativePath)), relativePath);
@@ -144,17 +144,15 @@ describe("aqqua brand artwork", () => {
     }
   });
 
-  it("uses the same native white macOS plate in every release channel", () => {
+  it("uses the same native white macOS plate in development and production", () => {
     const production = read(BRAND_ASSET_PATHS.productionMacIconPng);
     assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.developmentDesktopIconPng)));
-    assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.nightlyMacIconPng)));
   });
 
   it("matches the native macOS Tahoe Dock mask in every desktop channel", async () => {
     const production = read(BRAND_ASSET_PATHS.productionMacDockIconPng);
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentMacDockIconPng,
-      BRAND_ASSET_PATHS.nightlyMacDockIconPng,
       BRAND_ASSET_PATHS.productionMacDockIconPng,
       BRAND_ASSET_PATHS.sigmaMacDockIconPng,
     ]) {
@@ -169,7 +167,6 @@ describe("aqqua brand artwork", () => {
     }
 
     assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.developmentMacDockIconPng)));
-    assert.isTrue(production.equals(read(BRAND_ASSET_PATHS.nightlyMacDockIconPng)));
     assert.isFalse(production.equals(read(BRAND_ASSET_PATHS.sigmaMacDockIconPng)));
 
     const expectedDesktopPng = await sharp(production).resize(512, 512).png().toBuffer();
@@ -180,8 +177,6 @@ describe("aqqua brand artwork", () => {
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentUniversalIconPng,
       BRAND_ASSET_PATHS.developmentDesktopIconPng,
-      BRAND_ASSET_PATHS.nightlyLinuxIconPng,
-      BRAND_ASSET_PATHS.nightlyMacIconPng,
       BRAND_ASSET_PATHS.productionLinuxIconPng,
       BRAND_ASSET_PATHS.productionMacIconPng,
       BRAND_ASSET_PATHS.productionMacDockIconPng,
@@ -214,8 +209,6 @@ describe("aqqua brand artwork", () => {
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentWebFaviconIco,
       BRAND_ASSET_PATHS.developmentWindowsIconIco,
-      BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-      BRAND_ASSET_PATHS.nightlyWindowsIconIco,
       BRAND_ASSET_PATHS.productionWebFaviconIco,
       BRAND_ASSET_PATHS.productionWindowsIconIco,
       BRAND_ASSET_PATHS.sigmaWindowsIconIco,
@@ -264,9 +257,6 @@ describe("aqqua brand artwork", () => {
       BRAND_ASSET_PATHS.developmentIosIconPng,
       BRAND_ASSET_PATHS.developmentUniversalIconPng,
       BRAND_ASSET_PATHS.developmentDesktopIconPng,
-      BRAND_ASSET_PATHS.nightlyIosIconPng,
-      BRAND_ASSET_PATHS.nightlyLinuxIconPng,
-      BRAND_ASSET_PATHS.nightlyMacIconPng,
       BRAND_ASSET_PATHS.productionIosIconPng,
       BRAND_ASSET_PATHS.productionLinuxIconPng,
       BRAND_ASSET_PATHS.productionMacIconPng,
@@ -314,8 +304,6 @@ describe("aqqua brand artwork", () => {
     for (const relativePath of [
       BRAND_ASSET_PATHS.developmentWebFaviconIco,
       BRAND_ASSET_PATHS.developmentWindowsIconIco,
-      BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-      BRAND_ASSET_PATHS.nightlyWindowsIconIco,
       BRAND_ASSET_PATHS.productionWebFaviconIco,
       BRAND_ASSET_PATHS.productionWindowsIconIco,
       "apps/desktop/resources/icon.ico",

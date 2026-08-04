@@ -9,7 +9,7 @@ it("renders the branded loopback authorization completion page", () => {
   const html = renderLoopbackAuthorizationCompleteHtml();
 
   expect(resolveLoopbackAuthorizationStage()).toBe("dev");
-  expect(html).toContain("aqqua (Dev)");
+  expect(html).toContain("Aqqua (Dev)");
   expect(html).toContain('class="stage stage-dev"');
   expect(html).not.toContain("Secure terminal handoff");
   expect(html).toContain("You're connected");
@@ -19,13 +19,10 @@ it("renders the branded loopback authorization completion page", () => {
   expect(html).not.toContain('class="status"');
 });
 
-it("renders the matching header treatment for each release channel", () => {
-  const nightly = renderLoopbackAuthorizationCompleteHtml("nightly");
+it("renders the matching header treatment for the release channel", () => {
   const latest = renderLoopbackAuthorizationCompleteHtml("latest");
 
-  expect(nightly).toContain("aqqua (Nightly)");
-  expect(nightly).toContain('class="stage stage-nightly"');
-  expect(latest).toContain('<p class="brand">aqqua</p>');
+  expect(latest).toContain('<p class="brand">Aqqua</p>');
   expect(latest).not.toContain("(Latest)");
   expect(latest).toContain('class="stage stage-latest"');
 });

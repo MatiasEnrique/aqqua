@@ -5,6 +5,17 @@ export const BRAND_ASSET_PATHS = {
   developmentIosIconPng: "assets/dev/blueprint-ios-1024.png",
   developmentUniversalIconPng: "assets/dev/blueprint-universal-1024.png",
 
+  previewIconComposerProject: "assets/preview/app-icon.icon",
+  previewIosIconPng: "assets/preview/preview-ios-1024.png",
+  previewMacIconPng: "assets/preview/preview-macos-1024.png",
+  previewMacDockIconPng: "assets/preview/preview-macos-tahoe-1024.png",
+  previewUniversalIconPng: "assets/preview/preview-universal-1024.png",
+  previewWindowsIconIco: "assets/preview/preview-windows.ico",
+  previewWebFaviconIco: "assets/preview/preview-web-favicon.ico",
+  previewWebFavicon16Png: "assets/preview/preview-web-favicon-16x16.png",
+  previewWebFavicon32Png: "assets/preview/preview-web-favicon-32x32.png",
+  previewWebAppleTouchIconPng: "assets/preview/preview-web-apple-touch-180.png",
+
   productionIconComposerProject: "assets/prod/app-icon.icon",
   productionIosIconPng: "assets/prod/black-ios-1024.png",
   productionMacIconPng: "assets/prod/black-macos-1024.png",
@@ -15,17 +26,6 @@ export const BRAND_ASSET_PATHS = {
   productionWebFavicon16Png: "assets/prod/aqqua-black-web-favicon-16x16.png",
   productionWebFavicon32Png: "assets/prod/aqqua-black-web-favicon-32x32.png",
   productionWebAppleTouchIconPng: "assets/prod/aqqua-black-web-apple-touch-180.png",
-
-  nightlyIconComposerProject: "assets/nightly/app-icon.icon",
-  nightlyIosIconPng: "assets/nightly/nightly-ios-1024.png",
-  nightlyMacIconPng: "assets/nightly/nightly-macos-1024.png",
-  nightlyMacDockIconPng: "assets/nightly/nightly-macos-tahoe-1024.png",
-  nightlyLinuxIconPng: "assets/nightly/nightly-universal-1024.png",
-  nightlyWindowsIconIco: "assets/nightly/nightly-windows.ico",
-  nightlyWebFaviconIco: "assets/nightly/nightly-web-favicon.ico",
-  nightlyWebFavicon16Png: "assets/nightly/nightly-web-favicon-16x16.png",
-  nightlyWebFavicon32Png: "assets/nightly/nightly-web-favicon-32x32.png",
-  nightlyWebAppleTouchIconPng: "assets/nightly/nightly-web-apple-touch-180.png",
 
   // Designed aqqua artwork, committed directly and derived from
   // `assets/sigma/sigma-source.png`. A Sigma build runs beside an installed
@@ -44,18 +44,18 @@ export const BRAND_ASSET_PATHS = {
   developmentWebAppleTouchIconPng: "assets/dev/blueprint-web-apple-touch-180.png",
 } as const;
 
-export type WebAssetBrand = "development" | "nightly" | "production";
+export type WebAssetBrand = "development" | "production";
 
-export const WEB_ASSET_CHANNELS = ["latest", "nightly"] as const;
+export const WEB_ASSET_CHANNELS = ["latest"] as const;
 
 export type WebAssetChannel = (typeof WEB_ASSET_CHANNELS)[number];
 
-export function resolveWebAssetBrandForChannel(channel: WebAssetChannel): WebAssetBrand {
-  return channel === "nightly" ? "nightly" : "production";
+export function resolveWebAssetBrandForChannel(_channel: WebAssetChannel): WebAssetBrand {
+  return "production";
 }
 
-export function resolveWebAssetBrandForPackageVersion(version: string): WebAssetBrand {
-  return version.includes("-nightly.") ? "nightly" : "production";
+export function resolveWebAssetBrandForPackageVersion(_version: string): WebAssetBrand {
+  return "production";
 }
 
 export interface IconOverride {
@@ -76,12 +76,6 @@ const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
     favicon16Png: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
     favicon32Png: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
     appleTouchIconPng: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
-  },
-  nightly: {
-    faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.nightlyWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.nightlyWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
   },
   production: {
     faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,

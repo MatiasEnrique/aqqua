@@ -90,35 +90,34 @@ function iconResizeSpawnerLayer(
 }
 
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
-  it("resolves the dedicated nightly updater channel from nightly versions", () => {
-    assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
+  it("keeps legacy nightly versions on the latest updater channel", () => {
+    assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "latest");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
   });
 
-  it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "aqqua (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "aqqua (Nightly)");
+  it("uses the release product name for legacy nightly versions", () => {
+    assert.equal(resolveDesktopProductName("0.0.17"), "Aqqua (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "Aqqua (Alpha)");
   });
 
-  it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
-    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17"), {
+  it("uses production packaging icons for stable and legacy nightly versions", () => {
+    const productionIcons = {
       macIcnsSourcePng: BRAND_ASSET_PATHS.productionMacIconPng,
       macDockIconPng: BRAND_ASSET_PATHS.productionMacDockIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
-    });
+    };
 
-    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"), {
-      macIcnsSourcePng: BRAND_ASSET_PATHS.nightlyMacIconPng,
-      macDockIconPng: BRAND_ASSET_PATHS.nightlyMacDockIconPng,
-      linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
-      windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
-    });
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17"), productionIcons);
+    assert.deepStrictEqual(
+      resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"),
+      productionIcons,
+    );
   });
 
-  it("switches the bundled splash and favicon branding for nightly versions", () => {
+  it("uses production web branding for stable and legacy nightly versions", () => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
-    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "production");
   });
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
@@ -134,30 +133,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
-      const nightlyConfig = yield* resolveGitHubPublishConfig("nightly").pipe(
-        Effect.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromEnv({
-              env: {
-                GITHUB_REPOSITORY: "pingdotgg/aqqua",
-              },
-            }),
-          ),
-        ),
-      );
-
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
         owner: "pingdotgg",
         repo: "aqqua",
         releaseType: "release",
-      });
-      assert.deepStrictEqual(nightlyConfig, {
-        provider: "github",
-        owner: "pingdotgg",
-        repo: "aqqua",
-        releaseType: "prerelease",
-        channel: "nightly",
       });
     }),
   );
@@ -598,11 +578,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       windowsIconIco: BRAND_ASSET_PATHS.sigmaWindowsIconIco,
     });
     assert.notEqual(sigma.macIcnsSourcePng, BRAND_ASSET_PATHS.productionMacIconPng);
-    assert.notEqual(sigma.macIcnsSourcePng, BRAND_ASSET_PATHS.nightlyMacIconPng);
   });
 
   it("names a Sigma build apart from the release it installs beside", () => {
-    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "aqqua (Sigma)");
+    assert.equal(resolveDesktopProductName("0.0.28-sigma"), "Aqqua (Sigma)");
     assert.equal(resolveDesktopAppId("0.0.28-sigma"), "com.aqqua.aqqua.sigma");
     assert.equal(resolveDesktopAppId("0.0.28"), "com.aqqua.aqqua");
     assert.equal(resolveDesktopAppId("0.0.28-nightly.20260413.42"), "com.aqqua.aqqua");
@@ -631,7 +610,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(config, "publish");
       assert.equal(config.appId, "com.aqqua.aqqua.sigma");
-      assert.equal(config.productName, "aqqua (Sigma)");
+      assert.equal(config.productName, "Aqqua (Sigma)");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
@@ -828,6 +807,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             skipBuild: Option.none(),
             keepStage: Option.none(),
             signed: Option.none(),
+            sigma: Option.none(),
             verbose: Option.none(),
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),

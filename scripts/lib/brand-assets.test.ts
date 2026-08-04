@@ -66,37 +66,29 @@ describe("brand-assets", () => {
     });
   });
 
-  it("maps hosted nightly web assets to nightly icons", () => {
-    expect(resolveWebIconOverrides("nightly", "apps/web/dist")).toContainEqual({
-      sourceRelativePath: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-      targetRelativePath: "apps/web/dist/favicon.ico",
-    });
-  });
-
   it("maps hosted release channels to web asset brands", () => {
     expect(resolveWebAssetBrandForChannel("latest")).toBe("production");
-    expect(resolveWebAssetBrandForChannel("nightly")).toBe("nightly");
   });
 
-  it("maps package versions to web asset brands", () => {
+  it("maps stable and legacy nightly package versions to production web assets", () => {
     expect(resolveWebAssetBrandForPackageVersion("0.0.29")).toBe("production");
-    expect(resolveWebAssetBrandForPackageVersion("0.0.29-nightly.20260723.882")).toBe("nightly");
+    expect(resolveWebAssetBrandForPackageVersion("0.0.29-nightly.20260723.882")).toBe("production");
   });
 
-  it("keeps development, nightly, and production icon families separate", () => {
+  it("keeps development, preview, and production icon families separate", () => {
     expect([
       BRAND_ASSET_PATHS.developmentIconComposerProject,
-      BRAND_ASSET_PATHS.nightlyIconComposerProject,
+      BRAND_ASSET_PATHS.previewIconComposerProject,
       BRAND_ASSET_PATHS.productionIconComposerProject,
     ]).toEqual([
       "assets/dev/app-icon.icon",
-      "assets/nightly/app-icon.icon",
+      "assets/preview/app-icon.icon",
       "assets/prod/app-icon.icon",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
     expect(BRAND_ASSET_PATHS.developmentMacDockIconPng).toMatch(/tahoe-1024\.png$/);
-    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);
-    expect(BRAND_ASSET_PATHS.nightlyMacDockIconPng).toMatch(/tahoe-1024\.png$/);
+    expect(BRAND_ASSET_PATHS.previewMacIconPng).toMatch(/^assets\/preview\/preview-/);
+    expect(BRAND_ASSET_PATHS.previewMacDockIconPng).toMatch(/tahoe-1024\.png$/);
     expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/black-/);
     expect(BRAND_ASSET_PATHS.productionMacDockIconPng).toMatch(/tahoe-1024\.png$/);
   });

@@ -229,7 +229,7 @@ export function resolveEnvironmentIdentificationMode(input: {
 }): EnvironmentIdentificationMode {
   // Avoid briefly rendering an identifier before a persisted choice loads.
   if (!input.settingsHydrated) return "none";
-  // Legacy persisted value: the stage artwork was removed with the nightly channel.
+  // Legacy persisted value: stage-specific artwork was removed.
   return input.mode === "artwork" ? "pill" : input.mode;
 }
 

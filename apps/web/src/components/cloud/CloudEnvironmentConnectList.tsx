@@ -100,7 +100,7 @@ export function CloudEnvironmentConnectRows({
       toastManager.add({
         type: "success",
         title: "Environment added",
-        description: `Connecting to ${environment.label} through aqqua Connect.`,
+        description: `Connecting to ${environment.label} through Aqqua Connect.`,
       });
       return;
     }
@@ -109,7 +109,7 @@ export function CloudEnvironmentConnectRows({
     }
     const cause = squashAtomCommandFailure(result);
     const message =
-      cause instanceof Error ? cause.message : "Could not connect the aqqua Connect environment.";
+      cause instanceof Error ? cause.message : "Could not connect the Aqqua Connect environment.";
     const traceId = findErrorTraceId(cause);
     console.error("[aqqua-connect] Could not connect environment", { message, traceId, cause });
     toastManager.add({
@@ -154,7 +154,7 @@ export function CloudEnvironmentConnectRows({
       return (
         <div className={ITEM_ROW_CLASSNAME}>
           <p className="text-sm font-medium text-destructive">
-            Could not load aqqua Connect environments
+            Could not load Aqqua Connect environments
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{discoveryProblem}</p>
           <Button

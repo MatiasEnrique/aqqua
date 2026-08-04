@@ -93,7 +93,7 @@ export function WorktreeDeleteDialogView(props: {
 
         <p className="text-sm text-destructive">
           {inspection.availability !== "available"
-            ? "Only aqqua conversation metadata will be deleted for this unavailable worktree."
+            ? "Only Aqqua conversation metadata will be deleted for this unavailable worktree."
             : props.deleteBranch
               ? "The worktree and selected local branch are removed permanently."
               : "The worktree is removed permanently. The local branch is kept."}

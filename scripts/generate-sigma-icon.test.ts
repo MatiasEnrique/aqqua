@@ -87,7 +87,7 @@ describe("Sigma build icon assets", () => {
     const sigmaMac = readAsset(BRAND_ASSET_PATHS.sigmaMacIconPng);
 
     assert.isFalse(sigmaMac.equals(readAsset(BRAND_ASSET_PATHS.productionMacIconPng)));
-    assert.isFalse(sigmaMac.equals(readAsset(BRAND_ASSET_PATHS.nightlyMacIconPng)));
+    assert.isFalse(sigmaMac.equals(readAsset(BRAND_ASSET_PATHS.previewMacIconPng)));
     assert.isFalse(sigmaMac.equals(readAsset(BRAND_ASSET_PATHS.developmentDesktopIconPng)));
   });
 });

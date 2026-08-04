@@ -64,7 +64,7 @@ flowchart TD
 
 `server.updateServer` requires the environment's `orchestration:operate` authorization scope. Its
 payload accepts only an exact npm version, including an exact prerelease version; dist-tags such as
-`latest` and `nightly` are rejected.
+`latest` are rejected.
 
 The update service permits one update at a time. It installs `aqqua@<version>` under
 `<baseDir>/runtime/versions/<version>` and writes an install-complete sentinel only after npm exits

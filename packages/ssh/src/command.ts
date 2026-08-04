@@ -15,6 +15,7 @@ import { buildSshChildEnvironment, type SshAuthOptions } from "./auth.ts";
 import { SshCommandError, SshInvalidTargetError } from "./errors.ts";
 
 const PUBLISHABLE_AQQUA_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+const LEGACY_NIGHTLY_VERSION_PATTERN = /-nightly\./u;
 const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;
 const MAX_SSH_ERROR_OUTPUT_LENGTH = 4_000;
 
@@ -370,13 +371,13 @@ export function resolveRemoteAqquaCliPackageSpec(input: {
   readonly isDevelopment?: boolean;
 }): string {
   const appVersion = input.appVersion.trim();
-  if (!input.isDevelopment && PUBLISHABLE_AQQUA_VERSION_PATTERN.test(appVersion)) {
+  if (
+    !input.isDevelopment &&
+    PUBLISHABLE_AQQUA_VERSION_PATTERN.test(appVersion) &&
+    !LEGACY_NIGHTLY_VERSION_PATTERN.test(appVersion)
+  ) {
     return `aqqua@${appVersion}`;
   }
 
-  if (input.isDevelopment) {
-    return "aqqua@nightly";
-  }
-
-  return input.updateChannel === "nightly" ? "aqqua@nightly" : "aqqua@latest";
+  return "aqqua@latest";
 }

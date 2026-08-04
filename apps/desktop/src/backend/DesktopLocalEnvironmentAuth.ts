@@ -71,7 +71,7 @@ export const make = Effect.gen(function* () {
           httpBaseUrl: config.httpBaseUrl.href,
           credential,
           clientMetadata: {
-            label: "aqqua Desktop",
+            label: "Aqqua Desktop",
             deviceType: "desktop",
           },
         }).pipe(

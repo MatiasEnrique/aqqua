@@ -1,8 +1,8 @@
 export function SplashScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="flex size-24 items-center justify-center" aria-label="aqqua splash screen">
-        <img alt="aqqua" className="size-16 object-contain" src="/apple-touch-icon.png" />
+      <div className="flex size-24 items-center justify-center" aria-label="Aqqua splash screen">
+        <img alt="Aqqua" className="size-16 object-contain" src="/apple-touch-icon.png" />
       </div>
     </div>
   );

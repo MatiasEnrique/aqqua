@@ -60,7 +60,7 @@ function ConfiguredAqquaConnectSidebarSignIn() {
             onClick={openAuthPrompt}
           >
             <LogInIcon className="size-4 shrink-0" />
-            <span>Sign in to aqqua Connect</span>
+            <span>Sign in to Aqqua Connect</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

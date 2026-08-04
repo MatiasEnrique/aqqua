@@ -103,8 +103,8 @@ export const relayUrlConfig = makeRelayUrlConfig();
 
 /**
  * Hosted app origin used for out-of-band OAuth on headless
- * machines. Overridable so staging/nightly builds can point their CLIs at a
- * matching hosted deployment.
+ * machines. Overridable so deployments can point their CLIs at a matching
+ * hosted app.
  */
 export const hostedAppUrlConfig = makePublicValueConfig(
   "AQQUA_HOSTED_APP_URL",

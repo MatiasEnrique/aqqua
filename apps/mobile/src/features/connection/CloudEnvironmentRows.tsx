@@ -89,7 +89,7 @@ function CloudEnvironmentRowsContent(props: CloudEnvironmentRowsProps) {
       {showHeader ? (
         <View className="flex-row items-center justify-between px-1">
           <Text className="text-sm font-aqqua-bold uppercase text-foreground-muted">
-            aqqua Connect
+            Aqqua Connect
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -157,7 +157,7 @@ function CloudEnvironmentRowsContent(props: CloudEnvironmentRowsProps) {
       {controller.relayDiscovery.error && !controller.relayDiscovery.isRefreshing ? (
         <View collapsable={false} className="gap-3 rounded-[24px] bg-card p-5">
           <Text className="text-base font-aqqua-bold text-foreground">
-            Could not load aqqua Connect environments
+            Could not load Aqqua Connect environments
           </Text>
           <Text className="text-sm text-foreground-muted">{controller.relayDiscovery.error}</Text>
           {controller.relayDiscovery.errorTraceId ? (

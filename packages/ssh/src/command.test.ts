@@ -99,7 +99,7 @@ describe("ssh command", () => {
     }),
   );
 
-  it.effect("resolves the remote aqqua package spec from the desktop release channel", () =>
+  it.effect("resolves the remote Aqqua package spec from the desktop release", () =>
     Effect.sync(() => {
       assert.equal(
         resolveRemoteAqquaCliPackageSpec({
@@ -111,17 +111,16 @@ describe("ssh command", () => {
       assert.equal(
         resolveRemoteAqquaCliPackageSpec({
           appVersion: "0.0.17-nightly.20260415.44",
-          updateChannel: "nightly",
+          updateChannel: "latest",
         }),
-        "aqqua@0.0.17-nightly.20260415.44",
+        "aqqua@latest",
       );
       assert.equal(
         resolveRemoteAqquaCliPackageSpec({
-          appVersion: "0.0.0-dev",
-          updateChannel: "nightly",
-          isDevelopment: true,
+          appVersion: "0.0.18-rc.1",
+          updateChannel: "latest",
         }),
-        "aqqua@nightly",
+        "aqqua@0.0.18-rc.1",
       );
       assert.equal(
         resolveRemoteAqquaCliPackageSpec({
@@ -129,7 +128,7 @@ describe("ssh command", () => {
           updateChannel: "latest",
           isDevelopment: true,
         }),
-        "aqqua@nightly",
+        "aqqua@latest",
       );
     }),
   );

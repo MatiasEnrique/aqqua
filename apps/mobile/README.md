@@ -1,7 +1,7 @@
-# aqqua Mobile
+# Aqqua Mobile
 
 > [!WARNING]
-> aqqua Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> Aqqua Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
 
 ## Quickstart
 
@@ -10,13 +10,13 @@
 
 This app has three variants:
 
-- `development`: Expo dev client, installable side-by-side as `aqqua Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `aqqua Preview`
-- `production`: store/release build as `aqqua`
+- `development`: Expo dev client, installable side-by-side as `Aqqua Dev`
+- `preview`: persistent internal preview build, installable side-by-side as `Aqqua Preview`
+- `production`: store/release build as `Aqqua`
 
 Run commands from `apps/mobile`.
 
-aqqua Connect is optional and disabled in a fresh clone. Public configuration belongs in the
+Aqqua Connect is optional and disabled in a fresh clone. Public configuration belongs in the
 repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
 

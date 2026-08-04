@@ -223,40 +223,6 @@ try {
     assertPackageVersion(NodePath.resolve(tempRoot, relativePath), "9.9.9-smoke.0");
   }
 
-  const nightlyReleaseMetadata = NodeChildProcess.execFileSync(
-    process.execPath,
-    [
-      NodePath.resolve(repoRoot, "scripts/resolve-nightly-release.ts"),
-      "--date",
-      "20260413",
-      "--run-number",
-      "321",
-      "--sha",
-      "abcdef1234567890",
-      "--root",
-      tempRoot,
-    ],
-    {
-      cwd: repoRoot,
-      encoding: "utf8",
-    },
-  );
-  assertContains(
-    nightlyReleaseMetadata,
-    "version=9.9.10-nightly.20260413.321",
-    "Expected nightly metadata to contain the derived nightly version.",
-  );
-  assertContains(
-    nightlyReleaseMetadata,
-    "tag=v9.9.10-nightly.20260413.321",
-    "Expected nightly metadata to contain the derived nightly tag.",
-  );
-  assertContains(
-    nightlyReleaseMetadata,
-    "name=aqqua Nightly 9.9.10-nightly.20260413.321 (abcdef123456)",
-    "Expected nightly metadata to include the short commit SHA in the release name.",
-  );
-
   const { arm64Path, x64Path } = writeMacManifestFixtures(tempRoot);
   NodeChildProcess.execFileSync(
     process.execPath,
@@ -290,9 +256,6 @@ try {
     "latest",
   );
   const mergedWindowsManifestPath = NodePath.resolve(tempRoot, "release-assets/latest.yml");
-  const { arm64Path: nightlyWinArm64Path, x64Path: nightlyWinX64Path } =
-    writeWindowsManifestFixtures(tempRoot, "nightly");
-  const mergedNightlyWindowsManifestPath = NodePath.resolve(tempRoot, "release-assets/nightly.yml");
   const { arm64Path: previewWinArm64Path, x64Path: previewWinX64Path } =
     writeWindowsManifestFixtures(tempRoot, "preview");
   const mergedPreviewWindowsManifestPath = NodePath.resolve(tempRoot, "release-assets/preview.yml");
@@ -349,20 +312,6 @@ try {
     "Aqqua-9.9.9-smoke.0-x64.exe",
     "Merged Windows manifest is missing the x64 asset.",
   );
-  const mergedNightlyWindowsManifest = NodeFS.readFileSync(
-    mergedNightlyWindowsManifestPath,
-    "utf8",
-  );
-  assertContains(
-    mergedNightlyWindowsManifest,
-    "Aqqua-9.9.9-smoke.0-arm64.exe",
-    "Merged nightly Windows manifest is missing the arm64 asset.",
-  );
-  assertContains(
-    mergedNightlyWindowsManifest,
-    "Aqqua-9.9.9-smoke.0-x64.exe",
-    "Merged nightly Windows manifest is missing the x64 asset.",
-  );
   const mergedPreviewWindowsManifest = NodeFS.readFileSync(
     mergedPreviewWindowsManifestPath,
     "utf8",
@@ -382,14 +331,6 @@ try {
     "Windows release smoke unexpectedly kept the arm64 updater manifest.",
   );
   assertMissing(winX64Path, "Windows release smoke unexpectedly kept the x64 updater manifest.");
-  assertMissing(
-    nightlyWinArm64Path,
-    "Windows release smoke unexpectedly kept the nightly arm64 updater manifest.",
-  );
-  assertMissing(
-    nightlyWinX64Path,
-    "Windows release smoke unexpectedly kept the nightly x64 updater manifest.",
-  );
   assertMissing(
     previewWinArm64Path,
     "Windows release smoke unexpectedly kept the preview arm64 updater manifest.",

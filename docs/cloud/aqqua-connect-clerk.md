@@ -191,7 +191,7 @@ binary from another:
 ```sh
 VITE_DEV_SERVER_URL=http://127.0.0.1:5733 \
 AQQUA_PORT=13773 \
-  "/Applications/aqqua (Alpha).app/Contents/MacOS/aqqua (Alpha)"
+  "/Applications/Aqqua (Alpha).app/Contents/MacOS/Aqqua (Alpha)"
 ```
 
 After changing Associated Domains, bump the build version before rebuilding; macOS may otherwise
@@ -200,8 +200,8 @@ reuse stale Shared Web Credentials metadata for the same app/version pair.
 Verify the installed bundle before testing:
 
 ```sh
-codesign --verify --deep --strict "/Applications/aqqua (Alpha).app"
-codesign -d --entitlements :- "/Applications/aqqua (Alpha).app"
+codesign --verify --deep --strict "/Applications/Aqqua (Alpha).app"
+codesign -d --entitlements :- "/Applications/Aqqua (Alpha).app"
 ```
 
 The current mobile UI uses Clerk's native authentication view. If a future mobile browser OAuth

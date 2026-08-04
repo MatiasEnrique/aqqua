@@ -135,7 +135,7 @@ function categoryLabel(category: ResourceTelemetryProcessCategory): string {
     case "resource-monitor":
       return "Monitor";
     case "unknown-aqqua":
-      return "aqqua process";
+      return "Aqqua process";
   }
 }
 

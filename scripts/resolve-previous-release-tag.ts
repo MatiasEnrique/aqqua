@@ -11,18 +11,14 @@ import * as String from "effect/String";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-const ReleaseChannel = Schema.Literals(["stable", "nightly"]);
-type ReleaseChannel = typeof ReleaseChannel.Type;
-
 export class InvalidReleaseTagError extends Schema.TaggedErrorClass<InvalidReleaseTagError>()(
   "InvalidReleaseTagError",
   {
-    channel: ReleaseChannel,
     currentTag: Schema.String,
   },
 ) {
   override get message(): string {
-    return `Invalid ${this.channel} release tag '${this.currentTag}'.`;
+    return `Invalid release tag '${this.currentTag}'.`;
   }
 }
 
@@ -91,14 +87,6 @@ interface StableVersion {
   readonly prerelease: ReadonlyArray<string>;
 }
 
-interface NightlyVersion {
-  readonly major: number;
-  readonly minor: number;
-  readonly patch: number;
-  readonly date: number;
-  readonly runNumber: number;
-}
-
 const parseNumericIdentifier = (identifier: string): number | undefined =>
   /^\d+$/.test(identifier) ? Number(identifier) : undefined;
 
@@ -164,67 +152,20 @@ const parseStableTag = (tag: string): StableVersion | undefined => {
   };
 };
 
-const compareNightlyVersions = (left: NightlyVersion, right: NightlyVersion): number => {
-  if (left.major !== right.major) return left.major - right.major;
-  if (left.minor !== right.minor) return left.minor - right.minor;
-  if (left.patch !== right.patch) return left.patch - right.patch;
-  if (left.date !== right.date) return left.date - right.date;
-  return left.runNumber - right.runNumber;
-};
-
-const parseNightlyTag = (tag: string): NightlyVersion | undefined => {
-  // Accept both the current `v<semver>` format and the legacy `nightly-v<semver>`
-  // format so release note diffs keep working across the tag-format transition.
-  const match = /^(?:nightly-)?v(\d+)\.(\d+)\.(\d+)-nightly\.(\d{8})\.(\d+)$/.exec(tag);
-  if (!match) return undefined;
-
-  const [, major, minor, patch, date, runNumber] = match;
-  if (!major || !minor || !patch || !date || !runNumber) return undefined;
-
-  return {
-    major: Number(major),
-    minor: Number(minor),
-    patch: Number(patch),
-    date: Number(date),
-    runNumber: Number(runNumber),
-  };
-};
-
-export const resolvePreviousReleaseTag = (
-  channel: ReleaseChannel,
-  currentTag: string,
-  tags: ReadonlyArray<string>,
-) =>
+export const resolvePreviousReleaseTag = (currentTag: string, tags: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    if (channel === "stable") {
-      const current = parseStableTag(currentTag);
-      if (!current) {
-        return yield* new InvalidReleaseTagError({ channel, currentTag });
-      }
-
-      const candidates = tags
-        .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
-        .filter(
-          (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,
-        )
-        .filter((entry) => compareStableVersions(entry.parsed, current) < 0)
-        .toSorted((left, right) => compareStableVersions(right.parsed, left.parsed));
-
-      return candidates[0]?.tag;
-    }
-
-    const current = parseNightlyTag(currentTag);
+    const current = parseStableTag(currentTag);
     if (!current) {
-      return yield* new InvalidReleaseTagError({ channel, currentTag });
+      return yield* new InvalidReleaseTagError({ currentTag });
     }
 
     const candidates = tags
-      .map((tag) => ({ tag, parsed: parseNightlyTag(tag) }))
+      .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
       .filter(
-        (entry): entry is { tag: string; parsed: NightlyVersion } => entry.parsed !== undefined,
+        (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,
       )
-      .filter((entry) => compareNightlyVersions(entry.parsed, current) < 0)
-      .toSorted((left, right) => compareNightlyVersions(right.parsed, left.parsed));
+      .filter((entry) => compareStableVersions(entry.parsed, current) < 0)
+      .toSorted((left, right) => compareStableVersions(right.parsed, left.parsed));
 
     return candidates[0]?.tag;
   });
@@ -339,9 +280,6 @@ export const writePreviousReleaseTagOutput = Effect.fn("writePreviousReleaseTagO
 const command = Command.make(
   "resolve-previous-release-tag",
   {
-    channel: Flag.choice("channel", ReleaseChannel.literals).pipe(
-      Flag.withDescription("Release channel whose previous tag should be resolved."),
-    ),
     currentTag: Flag.string("current-tag").pipe(
       Flag.withDescription("Current release tag to compare against."),
     ),
@@ -350,12 +288,12 @@ const command = Command.make(
       Flag.withDefault(false),
     ),
   },
-  ({ channel, currentTag, githubOutput }) =>
+  ({ currentTag, githubOutput }) =>
     listGitTags().pipe(
-      Effect.flatMap((tags) => resolvePreviousReleaseTag(channel, currentTag, tags)),
+      Effect.flatMap((tags) => resolvePreviousReleaseTag(currentTag, tags)),
       Effect.flatMap((previousTag) => writePreviousReleaseTagOutput(previousTag, githubOutput)),
     ),
-).pipe(Command.withDescription("Resolve the previous release tag for a stable or nightly series."));
+).pipe(Command.withDescription("Resolve the previous stable release tag."));
 
 if (import.meta.main) {
   Command.run(command, { version: "0.0.0" }).pipe(

@@ -1472,7 +1472,7 @@ export function resolveDesktopRuntimeDependencies(
 }
 
 export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
-  updateChannel: "latest" | "nightly",
+  _updateChannel: "latest",
 ) {
   const env = yield* Config.all({
     updateRepository: Config.string("AQQUA_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
@@ -1492,13 +1492,12 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     provider: "github",
     owner,
     repo,
-    releaseType: updateChannel === "nightly" ? "prerelease" : "release",
-    ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+    releaseType: "release",
   };
 });
 
-export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+export function resolveDesktopUpdateChannel(_version: string): "latest" {
+  return "latest";
 }
 
 /**
@@ -1546,15 +1545,6 @@ export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIcon
     };
   }
 
-  if (resolveDesktopUpdateChannel(version) === "nightly") {
-    return {
-      macIcnsSourcePng: BRAND_ASSET_PATHS.nightlyMacIconPng,
-      macDockIconPng: BRAND_ASSET_PATHS.nightlyMacDockIconPng,
-      linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
-      windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
-    };
-  }
-
   return {
     macIcnsSourcePng: BRAND_ASSET_PATHS.productionMacIconPng,
     macDockIconPng: BRAND_ASSET_PATHS.productionMacDockIconPng,
@@ -1582,11 +1572,9 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   if (isDesktopSigmaBuildVersion(version)) {
-    return "aqqua (Sigma)";
+    return "Aqqua (Sigma)";
   }
-  return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "aqqua (Nightly)"
-    : (desktopPackageJson.productName ?? "aqqua");
+  return desktopPackageJson.productName ?? "Aqqua";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (

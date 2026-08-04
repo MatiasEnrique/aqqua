@@ -4,7 +4,7 @@ The left sidebar can show conversations as a flat list or group them by worktree
 
 On web and desktop, the regular sidebar is the flat Sidebar V2 from the original T3 Code repo.
 Enable **Settings → Beta → Worktree view** to use the worktree-aware sidebar described below
-instead. The worktree view is opt-in in every build — nightly and local dev builds start on the
+instead. The worktree view is opt-in in every build — local dev builds start on the
 regular sidebar too, and only your own choice in Settings turns it on. Mobile keeps its separate,
 device-local **Thread List v2** preference and is not changed by the web/desktop sidebar switch.
 
