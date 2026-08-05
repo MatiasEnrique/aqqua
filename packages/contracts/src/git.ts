@@ -317,6 +317,14 @@ export type GitSetChangeRequestThreadResolvedInput =
 export const GitListChangeRequestCommitsInput = GitPullRequestRefInput;
 export type GitListChangeRequestCommitsInput = typeof GitListChangeRequestCommitsInput.Type;
 
+// --- Repository change request list
+
+export const GitListRepositoryChangeRequestsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(50))),
+});
+export type GitListRepositoryChangeRequestsInput = typeof GitListRepositoryChangeRequestsInput.Type;
+
 // --- Delete change request branch (remote + optional local cleanup)
 
 export const GitDeleteChangeRequestBranchInput = Schema.Struct({
@@ -646,6 +654,24 @@ export const GitListChangeRequestCommitsResult = Schema.Struct({
   commitsAvailableLocally: Schema.Boolean,
 });
 export type GitListChangeRequestCommitsResult = typeof GitListChangeRequestCommitsResult.Type;
+
+export const GitRepositoryChangeRequestSummary = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyStringSchema,
+  url: Schema.String,
+  baseRefName: TrimmedNonEmptyStringSchema,
+  headRefName: TrimmedNonEmptyStringSchema,
+  state: Schema.Literals(["open", "closed", "merged"]),
+});
+export type GitRepositoryChangeRequestSummary = typeof GitRepositoryChangeRequestSummary.Type;
+
+export const GitListRepositoryChangeRequestsResult = Schema.Struct({
+  supported: Schema.Boolean,
+  changeRequests: Schema.Array(GitRepositoryChangeRequestSummary),
+  truncated: Schema.Boolean,
+});
+export type GitListRepositoryChangeRequestsResult =
+  typeof GitListRepositoryChangeRequestsResult.Type;
 
 /**
  * Local follow-up state after the remote branch is deleted.

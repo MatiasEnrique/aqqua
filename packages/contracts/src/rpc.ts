@@ -56,6 +56,8 @@ import {
   GitSetChangeRequestThreadResolvedResult,
   GitListChangeRequestCommitsInput,
   GitListChangeRequestCommitsResult,
+  GitListRepositoryChangeRequestsInput,
+  GitListRepositoryChangeRequestsResult,
   GitDeleteChangeRequestBranchInput,
   GitDeleteChangeRequestBranchResult,
   GitGetChangeRequestMergeOptionsInput,
@@ -276,6 +278,7 @@ export const WS_METHODS = {
   gitReplyToChangeRequestThread: "git.replyToChangeRequestThread",
   gitSetChangeRequestThreadResolved: "git.setChangeRequestThreadResolved",
   gitListChangeRequestCommits: "git.listChangeRequestCommits",
+  gitListRepositoryChangeRequests: "git.listRepositoryChangeRequests",
   gitDeleteChangeRequestBranch: "git.deleteChangeRequestBranch",
 
   // Review methods
@@ -710,6 +713,15 @@ export const WsGitListChangeRequestCommitsRpc = Rpc.make(WS_METHODS.gitListChang
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
+export const WsGitListRepositoryChangeRequestsRpc = Rpc.make(
+  WS_METHODS.gitListRepositoryChangeRequests,
+  {
+    payload: GitListRepositoryChangeRequestsInput,
+    success: GitListRepositoryChangeRequestsResult,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
 export const WsGitDeleteChangeRequestBranchRpc = Rpc.make(WS_METHODS.gitDeleteChangeRequestBranch, {
   payload: GitDeleteChangeRequestBranchInput,
   success: GitDeleteChangeRequestBranchResult,
@@ -1106,6 +1118,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitReplyToChangeRequestThreadRpc,
   WsGitSetChangeRequestThreadResolvedRpc,
   WsGitListChangeRequestCommitsRpc,
+  WsGitListRepositoryChangeRequestsRpc,
   WsGitDeleteChangeRequestBranchRpc,
   WsVcsListHistoryRpc,
   WsVcsGetCommitDetailsRpc,

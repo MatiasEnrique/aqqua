@@ -31,6 +31,11 @@ export function createGitEnvironmentAtoms<R, E>(
     tag: WS_METHODS.gitListChangeRequestCommits,
     staleTimeMs: 5 * 60_000,
   });
+  const repositoryChangeRequests = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:git:repository-change-requests",
+    tag: WS_METHODS.gitListRepositoryChangeRequests,
+    staleTimeMs: 60_000,
+  });
   const refreshChangeRequestQueries = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -82,6 +87,7 @@ export function createGitEnvironmentAtoms<R, E>(
     changeRequestMergeOptions,
     changeRequestConversation,
     changeRequestCommits,
+    repositoryChangeRequests,
     mergeChangeRequest: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:git:merge-change-request",
       tag: WS_METHODS.gitMergeChangeRequest,

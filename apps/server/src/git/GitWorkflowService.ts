@@ -36,6 +36,8 @@ import {
   type GitSetChangeRequestThreadResolvedResult,
   type GitListChangeRequestCommitsInput,
   type GitListChangeRequestCommitsResult,
+  type GitListRepositoryChangeRequestsInput,
+  type GitListRepositoryChangeRequestsResult,
   type GitDeleteChangeRequestBranchInput,
   type GitDeleteChangeRequestBranchResult,
   type GitGetChangeRequestMergeOptionsInput,
@@ -107,6 +109,9 @@ export class GitWorkflowService extends Context.Service<
     readonly listChangeRequestCommits: (
       input: GitListChangeRequestCommitsInput,
     ) => Effect.Effect<GitListChangeRequestCommitsResult, GitManagerServiceError>;
+    readonly listRepositoryChangeRequests: (
+      input: GitListRepositoryChangeRequestsInput,
+    ) => Effect.Effect<GitListRepositoryChangeRequestsResult, GitManagerServiceError>;
     readonly deleteChangeRequestBranch: (
       input: GitDeleteChangeRequestBranchInput,
     ) => Effect.Effect<GitDeleteChangeRequestBranchResult, GitManagerServiceError>;
@@ -404,6 +409,10 @@ export const make = Effect.gen(function* () {
     listChangeRequestCommits: routeGitManager(
       "GitWorkflowService.listChangeRequestCommits",
       gitManager.listChangeRequestCommits,
+    ),
+    listRepositoryChangeRequests: routeGitManager(
+      "GitWorkflowService.listRepositoryChangeRequests",
+      gitManager.listRepositoryChangeRequests,
     ),
     deleteChangeRequestBranch: routeGitManager(
       "GitWorkflowService.deleteChangeRequestBranch",

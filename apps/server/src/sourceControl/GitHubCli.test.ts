@@ -689,6 +689,66 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("lists repository pull requests without a head filter", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 42,
+                title: "Repository pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/repository-list",
+                state: "OPEN",
+                mergedAt: null,
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [
+          {
+            number: 42,
+            title: "Repository pull request",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/repository-list",
+            state: "open",
+          },
+        ],
+        truncated: true,
+      });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          "1",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+      expect(mockRun.mock.calls[0]?.[0].args).not.toContain("--head");
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("reads repository clone URLs", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

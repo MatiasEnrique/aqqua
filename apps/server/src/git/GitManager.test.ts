@@ -522,6 +522,39 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
               .filter((entry): entry is GitHubCli.GitHubPullRequestSummary => entry !== null),
           ),
         ),
+      listRepositoryPullRequests: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            String(input.limit),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt",
+          ],
+        }).pipe(
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) => {
+            const changeRequests = raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is GitHubCli.GitHubPullRequestSummary => entry !== null)
+              .map((entry) => ({
+                number: entry.number,
+                title: entry.title,
+                url: entry.url,
+                baseRefName: entry.baseRefName,
+                headRefName: entry.headRefName,
+                state: entry.state ?? "open",
+              }));
+            return {
+              changeRequests,
+              truncated: changeRequests.length >= input.limit,
+            };
+          }),
+        ),
       createPullRequest: (input) =>
         execute({
           cwd: input.cwd,
@@ -718,6 +751,7 @@ function makeManager(input?: {
   checksSupported?: boolean;
   conversationSupported?: boolean;
   commitsSupported?: boolean;
+  changeRequestListSupported?: boolean;
   branchDeleteSupported?: boolean;
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
@@ -757,6 +791,9 @@ function makeManager(input?: {
             ...resolvedProvider.capabilities,
             ...(input?.conversationSupported === false ? { conversation: false as const } : {}),
             ...(input?.commitsSupported === false ? { commits: false as const } : {}),
+            ...(input?.changeRequestListSupported === false
+              ? { changeRequestList: false as const }
+              : {}),
             ...(input?.branchDeleteSupported === false ? { branchDelete: false as const } : {}),
           },
         };
@@ -3329,6 +3366,76 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           ghCalls.some((call) => call.includes("conversation") || call.includes("commits")),
         ).toBe(false);
       }),
+  );
+
+  it.effect(
+    "reports unsupported repository change request lists without calling the provider",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const { manager, ghCalls } = yield* makeManager({
+          changeRequestListSupported: false,
+        });
+
+        expect(yield* manager.listRepositoryChangeRequests({ cwd: repoDir })).toEqual({
+          supported: false,
+          changeRequests: [],
+          truncated: false,
+        });
+        expect(ghCalls.some((call) => call.startsWith("pr list --state open --limit"))).toBe(false);
+      }),
+  );
+
+  it.effect("refetches repository change requests after the PR lookup epoch changes", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const firstPage = [
+        {
+          number: 41,
+          title: "First pull request",
+          url: "https://github.com/acme/repo/pull/41",
+          baseRefName: "main",
+          headRefName: "feature/first",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const secondPage = [
+        {
+          number: 42,
+          title: "Second pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/second",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(firstPage),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(secondPage),
+          ],
+        },
+      });
+
+      const first = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const cached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 5 });
+      yield* manager.invalidateStatus(repoDir);
+      const refreshed = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+
+      expect(first.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(cached).toEqual(first);
+      expect(refreshed.changeRequests.map((item) => item.number)).toEqual([42]);
+      expect(
+        ghCalls.filter((call) => call.startsWith("pr list --state open --limit 30 --json")),
+      ).toHaveLength(2);
+    }),
   );
 
   it.effect("invalidates only the mutated change request conversation cache entry", () =>

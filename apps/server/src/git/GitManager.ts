@@ -30,6 +30,8 @@ import {
   GitSetChangeRequestThreadResolvedResult,
   GitListChangeRequestCommitsInput,
   GitListChangeRequestCommitsResult,
+  GitListRepositoryChangeRequestsInput,
+  GitListRepositoryChangeRequestsResult,
   GitDeleteChangeRequestBranchInput,
   GitDeleteChangeRequestBranchResult,
   GitMergeChangeRequestInput,
@@ -139,6 +141,9 @@ export class GitManager extends Context.Service<
     readonly listChangeRequestCommits: (
       input: GitListChangeRequestCommitsInput,
     ) => Effect.Effect<GitListChangeRequestCommitsResult, GitManagerServiceError>;
+    readonly listRepositoryChangeRequests: (
+      input: GitListRepositoryChangeRequestsInput,
+    ) => Effect.Effect<GitListRepositoryChangeRequestsResult, GitManagerServiceError>;
     readonly deleteChangeRequestBranch: (
       input: GitDeleteChangeRequestBranchInput,
     ) => Effect.Effect<GitDeleteChangeRequestBranchResult, GitManagerServiceError>;
@@ -173,6 +178,8 @@ const PR_LOOKUP_CACHE_CAPACITY = 2_048;
 const MERGE_OPTIONS_CACHE_TTL = Duration.minutes(5);
 const CONVERSATION_CACHE_TTL = Duration.seconds(60);
 const CHANGE_REQUEST_COMMITS_CACHE_TTL = Duration.minutes(2);
+const REPOSITORY_CHANGE_REQUESTS_CACHE_TTL = Duration.seconds(60);
+const DEFAULT_REPOSITORY_CHANGE_REQUESTS_LIMIT = 30;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
@@ -2001,6 +2008,34 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const repositoryChangeRequestsCache = yield* Cache.makeWith(
+    Effect.fn("GitManager.loadRepositoryChangeRequests")(function* (key: string) {
+      const [cwd = ""] = key.split("\u0000");
+      const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+      if (!SourceControlProvider.supportsRepositoryChangeRequestList(provider)) {
+        return {
+          supported: false,
+          changeRequests: [],
+          truncated: false,
+        } as const;
+      }
+      const result = yield* provider.listRepositoryChangeRequests({
+        cwd,
+        limit: DEFAULT_REPOSITORY_CHANGE_REQUESTS_LIMIT,
+        ...(context ? { context } : {}),
+      });
+      return {
+        supported: true,
+        ...result,
+      } as const;
+    }),
+    {
+      capacity: PR_LOOKUP_CACHE_CAPACITY,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? REPOSITORY_CHANGE_REQUESTS_CACHE_TTL : Duration.zero,
+    },
+  );
+
   const getChangeRequestChecks: GitManager["Service"]["getChangeRequestChecks"] = Effect.fn(
     "getChangeRequestChecks",
   )(function* (input) {
@@ -2103,6 +2138,17 @@ export const make = Effect.gen(function* () {
     const reference = normalizeChangeRequestReference(input.reference);
     return yield* Cache.get(changeRequestCommitsCache, changeRequestCacheKey(cwd, reference));
   });
+
+  const listRepositoryChangeRequests: GitManager["Service"]["listRepositoryChangeRequests"] =
+    Effect.fn("listRepositoryChangeRequests")(function* (input) {
+      const cwd = yield* normalizeStatusCacheKey(input.cwd);
+      // The repository selector always uses the default page size, so limit is
+      // deliberately excluded from this epoch-scoped cache key.
+      return yield* Cache.get(
+        repositoryChangeRequestsCache,
+        [cwd, String(prLookupEpoch(cwd))].join("\u0000"),
+      );
+    });
 
   const deleteChangeRequestBranch: GitManager["Service"]["deleteChangeRequestBranch"] = Effect.fn(
     "deleteChangeRequestBranch",
@@ -2713,6 +2759,7 @@ export const make = Effect.gen(function* () {
     replyToChangeRequestThread,
     setChangeRequestThreadResolved,
     listChangeRequestCommits,
+    listRepositoryChangeRequests,
     deleteChangeRequestBranch,
     getChangeRequestMergeOptions,
     mergeChangeRequest,

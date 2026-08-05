@@ -85,6 +85,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.gitReplyToChangeRequestThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitSetChangeRequestThreadResolved]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitListChangeRequestCommits]: AuthOrchestrationReadScope,
+  [WS_METHODS.gitListRepositoryChangeRequests]: AuthOrchestrationReadScope,
   [WS_METHODS.gitDeleteChangeRequestBranch]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitGetChangeRequestMergeOptions]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitMergeChangeRequest]: AuthOrchestrationOperateScope,

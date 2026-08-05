@@ -102,6 +102,7 @@ it.effect(
         changeRequestState: true,
         conversation: true,
         commits: true,
+        changeRequestList: true,
         branchDelete: true,
       });
       assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
@@ -110,6 +111,52 @@ it.effect(
         { name: "unit", status: "failure", detailsUrl: "https://example.test/unit" },
       ]);
     }),
+);
+
+it.effect("lists repository change requests through the GitHub capability", () =>
+  Effect.gen(function* () {
+    let listInput:
+      | Parameters<GitHubCli.GitHubCli["Service"]["listRepositoryPullRequests"]>[0]
+      | null = null;
+    const provider = yield* makeProvider({
+      listRepositoryPullRequests: (input) => {
+        listInput = input;
+        return Effect.succeed({
+          changeRequests: [
+            {
+              number: 42,
+              title: "Repository pull request",
+              url: "https://github.com/acme/repo/pull/42",
+              baseRefName: "main",
+              headRefName: "feature/list",
+              state: "open",
+            },
+          ],
+          truncated: false,
+        });
+      },
+    });
+
+    const result = yield* provider.listRepositoryChangeRequests!({
+      cwd: "/repo",
+      limit: 12,
+    });
+
+    assert.deepStrictEqual(listInput, { cwd: "/repo", limit: 12 });
+    assert.deepStrictEqual(result, {
+      changeRequests: [
+        {
+          number: 42,
+          title: "Repository pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/list",
+          state: "open",
+        },
+      ],
+      truncated: false,
+    });
+  }),
 );
 
 it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
@@ -161,6 +208,7 @@ it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
       changeRequestState: true,
       conversation: true,
       commits: true,
+      changeRequestList: true,
       branchDelete: true,
     });
     assert.deepStrictEqual(options, {

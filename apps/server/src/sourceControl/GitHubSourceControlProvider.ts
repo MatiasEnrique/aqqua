@@ -194,6 +194,7 @@ export const make = Effect.gen(function* () {
       changeRequestState: true,
       conversation: true,
       commits: true,
+      changeRequestList: true,
       branchDelete: true,
     },
     listChecks: (input) =>
@@ -408,6 +409,25 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    listRepositoryChangeRequests: (input) =>
+      github
+        .listRepositoryPullRequests({
+          cwd: input.cwd,
+          limit: input.limit ?? 30,
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "listRepositoryChangeRequests",
+                command: error.command,
+                cwd: input.cwd,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
+        ),
     deleteChangeRequestRemoteBranch: Effect.fn(
       "GitHubSourceControlProvider.deleteChangeRequestRemoteBranch",
     )(function* (input) {

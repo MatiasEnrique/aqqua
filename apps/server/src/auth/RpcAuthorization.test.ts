@@ -47,6 +47,9 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.gitListChangeRequestCommits)).toBe(
       AuthOrchestrationReadScope,
     );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitListRepositoryChangeRequests)).toBe(
+      AuthOrchestrationReadScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.gitAddChangeRequestComment)).toBe(
       AuthOrchestrationOperateScope,
     );

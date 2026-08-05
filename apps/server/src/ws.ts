@@ -2291,6 +2291,12 @@ const makeWsRpcLayer = (
             gitWorkflow.listChangeRequestCommits(input),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitListRepositoryChangeRequests]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitListRepositoryChangeRequests,
+            gitWorkflow.listRepositoryChangeRequests(input),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.gitDeleteChangeRequestBranch]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitDeleteChangeRequestBranch,

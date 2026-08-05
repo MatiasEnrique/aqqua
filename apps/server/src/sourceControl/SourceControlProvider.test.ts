@@ -10,6 +10,7 @@ import {
   supportsChangeRequestStateUpdate,
   supportsChangeRequestConversation,
   supportsChangeRequestCommits,
+  supportsRepositoryChangeRequestList,
   supportsChangeRequestBranchDelete,
   transportSafeSourceControlErrorValue,
   SourceControlProvider,
@@ -54,6 +55,8 @@ it("requires each change-request capability flag and its methods", () => {
   const setChangeRequestThreadResolved = () => Effect.void;
   const listChangeRequestCommits = () =>
     Effect.succeed({ number: 42, headOid: null, commits: [], truncated: false });
+  const listRepositoryChangeRequests = () =>
+    Effect.succeed({ changeRequests: [], truncated: false });
   const deleteChangeRequestRemoteBranch = () =>
     Effect.succeed({ branch: "feature/test", remote: "deleted" as const });
 
@@ -150,6 +153,21 @@ it("requires each change-request capability flag and its methods", () => {
   );
   assert.strictEqual(
     supportsChangeRequestCommits({ ...base, capabilities: { commits: true } }),
+    false,
+  );
+  assert.strictEqual(
+    supportsRepositoryChangeRequestList({
+      ...base,
+      capabilities: { changeRequestList: true },
+      listRepositoryChangeRequests,
+    }),
+    true,
+  );
+  assert.strictEqual(
+    supportsRepositoryChangeRequestList({
+      ...base,
+      capabilities: { changeRequestList: true },
+    }),
     false,
   );
   assert.strictEqual(

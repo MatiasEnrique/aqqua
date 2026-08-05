@@ -9,6 +9,7 @@ import {
   TrimmedNonEmptyString,
   type GitChangeRequestCheck,
   type GitChangeRequestMergeMethod,
+  type GitRepositoryChangeRequestSummary,
   type SourceControlRepositoryVisibility,
   type VcsError,
   VcsProcessExitError,
@@ -310,6 +311,17 @@ export class GitHubCli extends Context.Service<
       readonly headSelector: string;
       readonly limit?: number;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
+
+    readonly listRepositoryPullRequests: (input: {
+      readonly cwd: string;
+      readonly limit: number;
+    }) => Effect.Effect<
+      {
+        readonly changeRequests: ReadonlyArray<GitRepositoryChangeRequestSummary>;
+        readonly truncated: boolean;
+      },
+      GitHubCliError
+    >;
 
     readonly getPullRequest: (input: {
       readonly cwd: string;
@@ -620,6 +632,51 @@ export const make = Effect.gen(function* () {
                   return Effect.succeed(
                     decoded.success.map(({ updatedAt: _updatedAt, ...summary }) => summary),
                   );
+                }),
+              ),
+        ),
+      ),
+    listRepositoryPullRequests: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          String(input.limit),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed({ changeRequests: [], truncated: false })
+            : Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
+                Effect.flatMap((decoded) => {
+                  if (!Result.isSuccess(decoded)) {
+                    return Effect.fail(
+                      new GitHubPullRequestListDecodeError({
+                        command: "gh",
+                        cwd: input.cwd,
+                        cause: decoded.failure,
+                      }),
+                    );
+                  }
+
+                  return Effect.succeed({
+                    changeRequests: decoded.success.map((item) => ({
+                      number: item.number,
+                      title: item.title,
+                      url: item.url,
+                      baseRefName: item.baseRefName,
+                      headRefName: item.headRefName,
+                      state: item.state,
+                    })),
+                    truncated: decoded.success.length >= input.limit,
+                  });
                 }),
               ),
         ),

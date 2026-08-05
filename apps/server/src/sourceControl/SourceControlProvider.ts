@@ -9,6 +9,7 @@ import type {
   GitChangeRequestCommit,
   GitChangeRequestMergeMethod,
   GitChangeRequestCheck,
+  GitRepositoryChangeRequestSummary,
   SourceControlProviderError,
   SourceControlProviderInfo,
   SourceControlProviderKind,
@@ -103,6 +104,23 @@ export interface SourceControlProviderCommitsCapability {
       readonly number: number;
       readonly headOid: string | null;
       readonly commits: ReadonlyArray<GitChangeRequestCommit>;
+      readonly truncated: boolean;
+    },
+    SourceControlProviderError
+  >;
+}
+
+export interface SourceControlProviderChangeRequestListCapability {
+  readonly capabilities: {
+    readonly changeRequestList: true;
+  };
+  readonly listRepositoryChangeRequests: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly limit?: number;
+  }) => Effect.Effect<
+    {
+      readonly changeRequests: ReadonlyArray<GitRepositoryChangeRequestSummary>;
       readonly truncated: boolean;
     },
     SourceControlProviderError
@@ -233,6 +251,7 @@ export class SourceControlProvider extends Context.Service<
       readonly changeRequestState?: boolean;
       readonly conversation?: boolean;
       readonly commits?: boolean;
+      readonly changeRequestList?: boolean;
       readonly branchDelete?: boolean;
     };
     readonly listChecks?: SourceControlProviderChecksCapability["listChecks"];
@@ -246,6 +265,7 @@ export class SourceControlProvider extends Context.Service<
     readonly replyToChangeRequestThread?: SourceControlProviderConversationCapability["replyToChangeRequestThread"];
     readonly setChangeRequestThreadResolved?: SourceControlProviderConversationCapability["setChangeRequestThreadResolved"];
     readonly listChangeRequestCommits?: SourceControlProviderCommitsCapability["listChangeRequestCommits"];
+    readonly listRepositoryChangeRequests?: SourceControlProviderChangeRequestListCapability["listRepositoryChangeRequests"];
     readonly deleteChangeRequestRemoteBranch?: SourceControlProviderBranchDeleteCapability["deleteChangeRequestRemoteBranch"];
     readonly listChangeRequests: (input: {
       readonly cwd: string;
@@ -347,6 +367,15 @@ export function supportsChangeRequestCommits(
   provider: SourceControlProvider["Service"],
 ): provider is SourceControlProvider["Service"] & SourceControlProviderCommitsCapability {
   return provider.capabilities?.commits === true && provider.listChangeRequestCommits !== undefined;
+}
+
+export function supportsRepositoryChangeRequestList(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderChangeRequestListCapability {
+  return (
+    provider.capabilities?.changeRequestList === true &&
+    provider.listRepositoryChangeRequests !== undefined
+  );
 }
 
 export function supportsChangeRequestBranchDelete(
