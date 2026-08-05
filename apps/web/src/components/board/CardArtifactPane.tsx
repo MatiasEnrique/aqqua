@@ -107,6 +107,13 @@ export function artifactContentIsAvailable(
   return hasLoadedArtifact || draft !== null;
 }
 
+export function artifactEditorCanMount(
+  hasLoadedArtifact: boolean,
+  loadError: string | null,
+): boolean {
+  return hasLoadedArtifact && loadError === null;
+}
+
 /**
  * The artifact rendered in the chat surface's own message column — the
  * document, its provenance, and nothing else. Editing is in place: no edit
@@ -135,6 +142,7 @@ export function CardArtifactPane({
   const serverContent = artifact.data?.content ?? "";
   const content = draft ?? serverContent;
   const contentIsAvailable = artifactContentIsAvailable(artifact.data !== null, draft);
+  const editorCanMount = artifactEditorCanMount(artifact.data !== null, artifact.error);
 
   useEffect(() => {
     if (artifact.data === null) return;
@@ -187,6 +195,9 @@ export function CardArtifactPane({
   );
 
   const hint = useMemo(() => {
+    if (!editorCanMount) {
+      return artifact.error === null ? "loading…" : "read-only — content unavailable";
+    }
     if (!editable) return "read-only while the step is running";
     switch (saveState) {
       case "saving":
@@ -198,7 +209,7 @@ export function CardArtifactPane({
       case "idle":
         return "editable — type anywhere";
     }
-  }, [editable, saveState]);
+  }, [artifact.error, editable, editorCanMount, saveState]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -222,7 +233,7 @@ export function CardArtifactPane({
                 ? "Loading…"
                 : "Content unavailable — reload before editing."}
             </p>
-          ) : editable ? (
+          ) : editable && editorCanMount ? (
             <CardArtifactMarkdownEditor
               value={content}
               fileName={fileName}

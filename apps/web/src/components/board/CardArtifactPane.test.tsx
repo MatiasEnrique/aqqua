@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   artifactContentBottomPadding,
   artifactContentIsAvailable,
+  artifactEditorCanMount,
   createArtifactSaveCoordinator,
 } from "./CardArtifactPane";
 import {
@@ -29,6 +30,15 @@ describe("artifactContentIsAvailable", () => {
     expect(artifactContentIsAvailable(false, null)).toBe(false);
     expect(artifactContentIsAvailable(true, null)).toBe(true);
     expect(artifactContentIsAvailable(false, "local draft")).toBe(true);
+  });
+});
+
+describe("artifactEditorCanMount", () => {
+  it("requires a successful, error-free artifact load", () => {
+    expect(artifactEditorCanMount(false, null)).toBe(false);
+    expect(artifactEditorCanMount(false, "load failed")).toBe(false);
+    expect(artifactEditorCanMount(true, "refresh failed")).toBe(false);
+    expect(artifactEditorCanMount(true, null)).toBe(true);
   });
 });
 
