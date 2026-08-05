@@ -16,7 +16,6 @@ import { vcsEnvironment } from "~/state/vcs";
 
 import type { DraftId } from "../composerDraftStore";
 import { GitHubIcon } from "./Icons";
-import { ManagePullRequestDialog } from "./ManagePullRequestDialog";
 import {
   changeRequestStatePresentation,
   pullRequestSectionVisibility,
@@ -24,6 +23,7 @@ import {
 } from "./PullRequestPanel.logic";
 import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
 import { DeleteBranchDialog } from "./pullRequest/DeleteBranchDialog";
+import { PullRequestMergeActionsPopover } from "./pullRequest/PullRequestMergeActionsPopover";
 import { PullRequestChecksSection } from "./pullRequest/PullRequestChecksSection";
 import { PullRequestCommitsSection } from "./pullRequest/PullRequestCommitsSection";
 import { PullRequestConversationSection } from "./pullRequest/PullRequestConversationSection";
@@ -89,7 +89,6 @@ export function PullRequestPanel({
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const previousPrRef = useRef(pr);
   const [refreshPending, setRefreshPending] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedCommit, setSelectedCommit] = useState<GitChangeRequestCommit | null>(null);
   const openPrLink = useOpenPrLink();
@@ -246,19 +245,13 @@ export function PullRequestPanel({
             conversationPending={conversationQuery.isPending}
           />
           <div className="flex gap-2 px-4 pb-4">
-            {visibility.merge ? (
-              <>
-                <Button className="flex-1" variant="outline" onClick={() => setManageOpen(true)}>
-                  Manage
-                </Button>
-                <Button className="flex-1" onClick={() => setManageOpen(true)}>
-                  Merge
-                </Button>
-              </>
-            ) : visibility.manage ? (
-              <Button className="w-full" variant="outline" onClick={() => setManageOpen(true)}>
-                Manage
-              </Button>
+            {visibility.merge || visibility.manage ? (
+              <PullRequestMergeActionsPopover
+                threadRef={threadRef}
+                cwd={cwd}
+                changeRequest={pr}
+                sourceControlProvider={status?.sourceControlProvider}
+              />
             ) : visibility.deleteBranch ? (
               <Button
                 className="w-full"
@@ -302,14 +295,6 @@ export function PullRequestPanel({
         ) : null}
       </div>
 
-      <ManagePullRequestDialog
-        threadRef={threadRef}
-        cwd={cwd}
-        changeRequest={pr}
-        sourceControlProvider={status?.sourceControlProvider}
-        open={manageOpen}
-        onOpenChange={setManageOpen}
-      />
       {visibility.deleteBranch && reference && deleteOpen ? (
         <DeleteBranchDialog
           open={deleteOpen}
