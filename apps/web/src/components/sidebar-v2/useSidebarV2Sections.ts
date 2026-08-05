@@ -49,6 +49,7 @@ import {
   sortThreadsForSidebarV2,
 } from "../Sidebar.logic";
 import {
+  buildSidebarThreadFamilyBands,
   buildSidebarThreadSubAgentStateCounts,
   buildSidebarThreadTree,
   filterVisibleSidebarThreadEntries,
@@ -556,40 +557,51 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
           : resolveSidebarConversationSummaryState(thread),
     });
   }, [activeThreads, settledThreads, snoozedThreads]);
-  const { activeTreeMetaByKey, expandedThreadKeys, reserveSubAgentGutter, visibleActiveThreads } =
-    useMemo(() => {
-      const entryKey = (entry: { thread: EnvironmentThreadShell }) =>
-        scopedThreadKey(scopeThreadRef(entry.thread.environmentId, entry.thread.id));
-      const isEntryExpanded = (entry: { thread: EnvironmentThreadShell }) => {
-        const key = entryKey(entry);
-        // Sub-agents start collapsed here: the inbox is a list of
-        // conversations, and one delegation fan-out shouldn't push everything
-        // else below the fold. The user can keep the branch collapsed even
-        // while its active descendant remains open in chat.
-        return resolveThreadExpanded(threadExpandedById, [key], { fallback: false });
-      };
-      const visible = filterVisibleSidebarThreadEntries({
-        entries: activeThreadEntries,
-        isExpanded: isEntryExpanded,
-      });
-      return {
-        activeTreeMetaByKey: new Map(
-          visible.map((entry) => [
-            entryKey(entry),
-            { childCount: entry.childCount, depth: entry.depth },
-          ]),
-        ),
-        // Chevron direction has to match what actually rendered, not just the
-        // stored preference, or a route-forced branch shows a closed chevron.
-        expandedThreadKeys: new Set(
-          visible.filter((entry) => entry.childCount > 0 && isEntryExpanded(entry)).map(entryKey),
-        ),
-        // Cards carry their own toggle in the card body, so only the nested rows
-        // share a column — and only when one of them actually owns a toggle.
-        reserveSubAgentGutter: shouldReserveThreadExpandGutter(visible, { minDepth: 1 }),
-        visibleActiveThreads: visible.map((entry) => entry.thread),
-      };
-    }, [activeThreadEntries, threadExpandedById]);
+  const {
+    activeFamilyBandByKey,
+    activeTreeMetaByKey,
+    expandedThreadKeys,
+    reserveSubAgentGutter,
+    visibleActiveThreads,
+  } = useMemo(() => {
+    const entryKey = (entry: { thread: EnvironmentThreadShell }) =>
+      scopedThreadKey(scopeThreadRef(entry.thread.environmentId, entry.thread.id));
+    const isEntryExpanded = (entry: { thread: EnvironmentThreadShell }) => {
+      const key = entryKey(entry);
+      // Sub-agents start collapsed here: the inbox is a list of
+      // conversations, and one delegation fan-out shouldn't push everything
+      // else below the fold. The user can keep the branch collapsed even
+      // while its active descendant remains open in chat.
+      return resolveThreadExpanded(threadExpandedById, [key], { fallback: false });
+    };
+    const visible = filterVisibleSidebarThreadEntries({
+      entries: activeThreadEntries,
+      isExpanded: isEntryExpanded,
+    });
+    // Bands come off the same visible list the meta map is built from, so a
+    // conversation and its sub-agents always agree on where the panel closes.
+    const bands = buildSidebarThreadFamilyBands({ entries: visible });
+    return {
+      activeFamilyBandByKey: new Map(
+        visible.map((entry, index) => [entryKey(entry), bands[index] ?? "single"]),
+      ),
+      activeTreeMetaByKey: new Map(
+        visible.map((entry) => [
+          entryKey(entry),
+          { childCount: entry.childCount, depth: entry.depth },
+        ]),
+      ),
+      // Chevron direction has to match what actually rendered, not just the
+      // stored preference, or a route-forced branch shows a closed chevron.
+      expandedThreadKeys: new Set(
+        visible.filter((entry) => entry.childCount > 0 && isEntryExpanded(entry)).map(entryKey),
+      ),
+      // Cards carry their own toggle in the card body, so only the nested rows
+      // share a column — and only when one of them actually owns a toggle.
+      reserveSubAgentGutter: shouldReserveThreadExpandGutter(visible, { minDepth: 1 }),
+      visibleActiveThreads: visible.map((entry) => entry.thread),
+    };
+  }, [activeThreadEntries, threadExpandedById]);
   // New worktree conversations are client-local until the first message
   // creates the server thread, so the shell stream can't show them. They
   // render from the draft store instead, above the inbox, and disappear the
@@ -632,6 +644,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const {
     hiddenSettledCount,
     settledExpandedThreadKeys,
+    settledFamilyBandByKey,
     settledRootCount,
     settledTreeMetaByKey,
     visibleSettledThreads,
@@ -648,9 +661,16 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       pinnedThreadId: routeThreadKey,
       getThreadId: threadKeyOf,
     });
+    const settledBands = buildSidebarThreadFamilyBands({ entries: page.rows });
     return {
       hiddenSettledCount: page.hiddenRootCount,
       settledExpandedThreadKeys: page.expandedThreadIds,
+      settledFamilyBandByKey: new Map(
+        page.rows.map((entry, index) => [
+          threadKeyOf(entry.thread),
+          settledBands[index] ?? "single",
+        ]),
+      ),
       settledRootCount: page.rootCount,
       settledTreeMetaByKey: new Map(
         page.rows.map((entry) => [
@@ -880,7 +900,9 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    activeFamilyBandByKey,
     activeSubAgentStateCountsByKey,
+    settledFamilyBandByKey,
     settledTreeMetaByKey,
     expandedThreadKeys,
     settledExpandedThreadKeys,

@@ -3,6 +3,7 @@ import { ThreadId } from "@aqqua/contracts";
 
 import { getVisibleSidebarThreadIds } from "./Sidebar.logic";
 import {
+  buildSidebarThreadFamilyBands,
   buildSidebarThreadTree,
   buildSidebarThreadSubAgentStateCounts,
   filterVisibleSidebarThreadEntries,
@@ -400,6 +401,57 @@ describe("takeSidebarThreadFamilies", () => {
     const result = takeSidebarThreadFamilies({ entries, rootLimit: 0 });
     expect(result.visible).toEqual([]);
     expect(ids(result.hidden)).toEqual(ids(entries));
+  });
+});
+
+describe("buildSidebarThreadFamilyBands", () => {
+  const bands = (list: ReadonlyArray<SidebarThreadTreeEntry<{ id: string }>>) =>
+    buildSidebarThreadFamilyBands({ entries: list });
+
+  it("gives a childless root its own panel", () => {
+    expect(bands([{ thread: { id: "r1" }, depth: 0, childCount: 0 }])).toEqual(["single"]);
+  });
+
+  it("treats a collapsed orchestrator as a single panel", () => {
+    // Collapsed rows are filtered out before banding, so a root with children
+    // but no visible descendants must still close its own panel.
+    expect(bands([{ thread: { id: "r1" }, depth: 0, childCount: 3 }])).toEqual(["single"]);
+  });
+
+  it("opens at the root and closes at the last visible descendant", () => {
+    expect(
+      bands([
+        { thread: { id: "r1" }, depth: 0, childCount: 2 },
+        { thread: { id: "r1-a" }, depth: 1, childCount: 0 },
+        { thread: { id: "r1-b" }, depth: 1, childCount: 0 },
+      ]),
+    ).toEqual(["head", "middle", "tail"]);
+  });
+
+  it("closes on the deepest trailing row, not the last depth-1 sibling", () => {
+    expect(
+      bands([
+        { thread: { id: "r1" }, depth: 0, childCount: 1 },
+        { thread: { id: "r1-a" }, depth: 1, childCount: 1 },
+        { thread: { id: "r1-a-i" }, depth: 2, childCount: 0 },
+      ]),
+    ).toEqual(["head", "middle", "tail"]);
+  });
+
+  it("keeps adjacent families in separate panels", () => {
+    expect(
+      bands([
+        { thread: { id: "r1" }, depth: 0, childCount: 1 },
+        { thread: { id: "r1-a" }, depth: 1, childCount: 0 },
+        { thread: { id: "r2" }, depth: 0, childCount: 0 },
+        { thread: { id: "r3" }, depth: 0, childCount: 1 },
+        { thread: { id: "r3-a" }, depth: 1, childCount: 0 },
+      ]),
+    ).toEqual(["head", "tail", "single", "head", "tail"]);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(bands([])).toEqual([]);
   });
 });
 

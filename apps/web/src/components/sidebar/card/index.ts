@@ -41,6 +41,7 @@ export {
   SidebarCardLine,
   SidebarCardMeta,
   sidebarCardSurfaceClassName,
+  type SidebarCardBand,
   type SidebarCardSurfaceState,
 } from "./SidebarCardSurface";
 export { SidebarCardUpdatedAt, SidebarCardWakesAt } from "./SidebarCardTimestamp";

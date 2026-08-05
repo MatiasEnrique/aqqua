@@ -204,6 +204,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --color-sidebar-row-active: var(--sidebar-row-active);
   --color-sidebar-row-selected: var(--sidebar-row-selected);
   --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-card-surface: var(--sidebar-card-surface);
+  --color-sidebar-card-surface-hover: var(--sidebar-card-surface-hover);
+  --color-sidebar-card-surface-active: var(--sidebar-card-surface-active);
+  --color-sidebar-card-border: var(--sidebar-card-border);
+  --color-sidebar-card-border-hover: var(--sidebar-card-border-hover);
+  --color-sidebar-card-border-active: var(--sidebar-card-border-active);
+  --color-sidebar-card-border-selected: var(--sidebar-card-border-selected);
+  --color-sidebar-card-guide: var(--sidebar-card-guide);
   --radius-sm: 4px;
   --radius-md: 5px;
   --radius-lg: var(--radius);
@@ -837,6 +845,23 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --sidebar-row-active: var(--color-white);
   --sidebar-row-selected: var(--color-white);
   --sidebar-border: var(--border);
+  /* A conversation card is the composer's shell, reused: same surface, same
+     hairline, same radius. These mirror .chat-composer-glass-shell so the two
+     never drift. Unlike the row tokens above, a card rests *lifted* — so state
+     has to climb from a raised floor, and it climbs on the border as well as
+     the fill or hover and selected land a couple of percent apart. */
+  /* Light has no headroom to lift into: the card already rests at white, one
+     step above the ink-50 sidebar, exactly where the composer rests. So the
+     hairline carries state here and the fill holds still — a tinted hover would
+     read as *less* prominent than a white active row, inverting the ramp. */
+  --sidebar-card-surface: var(--card);
+  --sidebar-card-surface-hover: var(--card);
+  --sidebar-card-surface-active: var(--card);
+  --sidebar-card-border: rgb(0 0 0 / 8%);
+  --sidebar-card-border-hover: rgb(0 0 0 / 14%);
+  --sidebar-card-border-active: rgb(0 0 0 / 22%);
+  --sidebar-card-border-selected: --alpha(var(--ring) / 45%);
+  --sidebar-card-guide: rgb(0 0 0 / 14%);
 
   @variant dark {
     color-scheme: dark;
@@ -880,6 +905,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     --sidebar-row-active: var(--accent);
     --sidebar-row-selected: var(--muted);
     --sidebar-border: var(--border);
+    /* Same surface and outline the composer paints in dark, so a card and the
+       box you type into are literally the same material. */
+    --sidebar-card-surface: color-mix(in srgb, var(--background) 96%, var(--color-white));
+    --sidebar-card-surface-hover: color-mix(in srgb, var(--background) 92%, var(--color-white));
+    --sidebar-card-surface-active: color-mix(in srgb, var(--background) 88%, var(--color-white));
+    --sidebar-card-border: --alpha(var(--color-white) / 5%);
+    --sidebar-card-border-hover: --alpha(var(--color-white) / 9%);
+    --sidebar-card-border-active: --alpha(var(--color-white) / 14%);
+    --sidebar-card-border-selected: --alpha(var(--ring) / 40%);
+    /* The sub-agent rail rides a lifted panel here, not the transparent
+       sidebar, so it needs more than --sidebar-border/70 to stay visible. */
+    --sidebar-card-guide: --alpha(var(--color-white) / 9%);
   }
 }
 

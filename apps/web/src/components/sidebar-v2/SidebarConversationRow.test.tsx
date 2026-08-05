@@ -83,6 +83,8 @@ const baseProps = {
   projectCwd: null,
   projectTitle: null,
   showProjectIdentity: false,
+  showBranch: true,
+  band: "single",
   providerEntryByInstanceId: new Map(),
   onThreadClick: () => {},
   onThreadActivate: () => {},

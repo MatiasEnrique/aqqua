@@ -102,17 +102,18 @@ export function SidebarCardSubThreadCounts(props: {
 
 /**
  * One guide per ancestor level, descending from the orchestrator's left content
- * edge. The top bleeds into the row above to bridge the list gap; the bottom
- * stops flush so the last sub-agent closes the branch instead of pointing at
- * the next root.
+ * edge. It runs the full height of its row: the family panel now holds every
+ * row flush, so there is no list gap left to bridge and nothing to bleed into.
  */
 export function SidebarCardSubThreadGuides(props: { readonly depth: number }) {
   return (
-    <span aria-hidden className="pointer-events-none absolute -top-1 bottom-0 left-2.5 z-10 flex">
+    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-2.5 z-10 flex">
       {Array.from({ length: props.depth }, (_, level) => (
         <span
           key={level}
-          className="border-l border-sidebar-border/70"
+          // Riding a lifted panel rather than the transparent sidebar, the rail
+          // needs its own value — the row border at 70% disappears here.
+          className="border-l border-sidebar-card-guide"
           style={{ width: SUB_AGENT_INDENT_PX }}
         />
       ))}

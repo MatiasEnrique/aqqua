@@ -57,7 +57,7 @@ export function ConversationCompactRow(props: {
       props.leading
     );
   return (
-    <SidebarCardItem size="slim">
+    <SidebarCardItem size="slim" band={conversation.band}>
       <div
         className={cn(row.surfaceClassName, "flex h-9 items-center gap-2.5 pe-2.5")}
         style={{ paddingInlineStart: 10 + conversation.depth * SUB_AGENT_INDENT_PX }}
@@ -70,7 +70,7 @@ export function ConversationCompactRow(props: {
                 tabIndex={0}
                 aria-label={thread.title}
                 data-testid={props.testId}
-                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                className="absolute inset-0 z-0 rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                 onClick={row.handleClick}
                 onDoubleClick={row.handleDoubleClick}
                 onKeyDown={row.handleKeyDown}

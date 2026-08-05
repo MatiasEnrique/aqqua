@@ -101,7 +101,9 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     renderedSettledThreads,
     selectedSettledThreads,
     activeTreeMetaByKey,
+    activeFamilyBandByKey,
     activeSubAgentStateCountsByKey,
+    settledFamilyBandByKey,
     settledTreeMetaByKey,
     expandedThreadKeys,
     settledExpandedThreadKeys,
@@ -398,7 +400,10 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
               closeDelay={0}
               timeout={400}
             >
-              <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-px">
+              {/* Panels need air between them to read as separate objects; the
+                  gap is cancelled again inside a family band so one
+                  conversation and its sub-agents stay a single surface. */}
+              <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1.5">
                 {(() => {
                   const renderThreadRow = (
                     thread: EnvironmentThreadShell,
@@ -421,6 +426,15 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                     // orchestrator — not from the sidebar second-guessing what
                     // still matters.
                     const rowVariant = section !== "active" ? "slim" : depth > 0 ? "sub" : "card";
+                    // Every conversation is a panel, whichever shelf it sits on.
+                    // Active and settled both nest, so both band by family;
+                    // snoozed rows render flat, so each closes its own.
+                    const band =
+                      section === "active"
+                        ? (activeFamilyBandByKey.get(threadKey) ?? "single")
+                        : section === "settled"
+                          ? (settledFamilyBandByKey.get(threadKey) ?? "single")
+                          : "single";
                     return (
                       <SidebarConversationRow
                         // Keyed per variant on purpose: when a thread settles,
@@ -487,6 +501,8 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                         showProjectIdentity={
                           section !== "settled" && sidebarThreadGroupingMode !== "worktree"
                         }
+                        showBranch={sidebarThreadGroupingMode !== "worktree"}
+                        band={band}
                         providerEntryByInstanceId={providerEntryByInstanceId}
                         onThreadClick={handleThreadClick}
                         onThreadActivate={navigateToThread}
