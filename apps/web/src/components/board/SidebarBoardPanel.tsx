@@ -17,17 +17,11 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { SidebarGroup } from "../ui/sidebar";
+import { FlowCardBranch, FlowCardFailureNote, FlowCardStateBadge } from "../sidebar/card";
 import { Spinner } from "../ui/spinner";
 import { cardOperationPresentation, formatElapsed } from "./BoardRunTable.logic";
 import { CardCreateDialog } from "./CardCreateDialog";
-import {
-  BoardSelector,
-  CardFailureNote,
-  CardStateBadge,
-  CardWorktree,
-  InFlightCardRow,
-  SectionLabel,
-} from "./SidebarBoardRows";
+import { BoardSelector, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
 import { useSidebarProjectBoardController } from "./useSidebarProjectBoardController";
 import { useSidebarRelativeTimeTick } from "./useSidebarRelativeTimeTick";
 
@@ -284,7 +278,7 @@ function ProjectBoardSection({
                     >
                       {card.title}
                     </button>
-                    <CardStateBadge card={card} />
+                    <FlowCardStateBadge card={card} />
                     {operation !== null || pendingCardIds.has(card.id) ? (
                       // Release runs server-side (worktree + checkout + setup) after
                       // the RPC returns — the row keeps saying so until the card
@@ -332,9 +326,9 @@ function ProjectBoardSection({
                   </div>
                   {/* A reset card keeps its checkout, so a To-Do row can still
                       name the worktree its next run will pick back up. */}
-                  <CardWorktree card={card} />
+                  <FlowCardBranch card={card} />
                 </div>
-                <CardFailureNote card={card} />
+                <FlowCardFailureNote card={card} />
               </div>
             );
           })}
@@ -366,7 +360,7 @@ function ProjectBoardSection({
                   <span className="shrink-0 font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
                     <RelativeCardAge at={card.completedAt} />
                   </span>
-                  <CardStateBadge card={card} />
+                  <FlowCardStateBadge card={card} />
                   <button
                     type="button"
                     aria-label={`Settle '${card.title}'`}
@@ -390,9 +384,9 @@ function ProjectBoardSection({
                     <Trash2Icon aria-hidden className="size-3" />
                   </button>
                 </div>
-                <CardWorktree card={card} className="pl-5.5" />
+                <FlowCardBranch card={card} className="pl-5.5" />
               </div>
-              <CardFailureNote card={card} />
+              <FlowCardFailureNote card={card} />
             </div>
           ))}
         </section>
@@ -446,7 +440,7 @@ function ProjectBoardSection({
                       <span className="shrink-0 font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
                         <RelativeCardAge at={card.settledAt} />
                       </span>
-                      <CardStateBadge card={card} />
+                      <FlowCardStateBadge card={card} />
                       <button
                         type="button"
                         aria-label={`Un-settle '${card.title}'`}
@@ -475,7 +469,7 @@ function ProjectBoardSection({
                         <Trash2Icon aria-hidden className="size-3" />
                       </button>
                     </div>
-                    <CardFailureNote card={card} />
+                    <FlowCardFailureNote card={card} />
                   </div>
                 ))}
               </div>
@@ -497,7 +491,7 @@ function ProjectBoardSection({
                 <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-muted-foreground line-through">
                   {card.title}
                 </span>
-                <CardStateBadge card={card} />
+                <FlowCardStateBadge card={card} />
                 {card.lastError === null ? null : (
                   <button
                     type="button"
@@ -509,7 +503,7 @@ function ProjectBoardSection({
                   </button>
                 )}
               </div>
-              <CardFailureNote card={card} />
+              <FlowCardFailureNote card={card} />
             </div>
           ))}
         </section>

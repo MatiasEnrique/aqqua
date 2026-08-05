@@ -38,9 +38,7 @@ export function SkillsMenu({
         {skills.skills.map((skill) => (
           <MenuItem key={skill.path} onClick={() => onInsert(skill.name)}>
             <span className="flex min-w-0 flex-col gap-0.5 py-0.5">
-              <span className="truncate font-mono text-violet-600 text-xs dark:text-violet-400">
-                ${skill.name}
-              </span>
+              <span className="truncate font-mono text-foreground text-xs">${skill.name}</span>
               {(skill.shortDescription ?? skill.description) === undefined ? null : (
                 <span className="truncate text-muted-foreground text-xs">
                   {skill.shortDescription ?? skill.description}
@@ -326,7 +324,7 @@ export function PromptEditor({
                 segment.kind === "artifact"
                   ? "bg-success/12 text-success-foreground"
                   : segment.kind === "skill"
-                    ? "bg-violet-500/12 text-violet-600 dark:text-violet-400"
+                    ? "bg-accent text-foreground"
                     : "bg-primary/12 text-primary",
               )}
             >

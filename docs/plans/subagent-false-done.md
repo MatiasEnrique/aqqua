@@ -122,12 +122,13 @@ the integration. D1–D4 made this worse by teaching the orchestrator the lanes 
 
 `ProjectionPipeline.ts:944`. Only move `latest_turn_id` forward:
 
-- if the session is `running` and `activeTurnId` is set, `latest_turn_id` belongs to the active
-  turn — leave it alone;
+- if the session is `running` and `activeTurnId` is set, write that active turn into
+  `latest_turn_id`, repairing a stale or `NULL` pointer instead of preserving it;
 - otherwise write `payload.turnId` as today.
 
-Emit `Effect.logWarning` when a write is suppressed, with `threadId`, `payload.turnId`,
-`activeTurnId`. That log line is the regression detector for the next incident.
+Emit `Effect.logWarning` when the diff payload is suppressed in favor of the active turn, with
+`threadId`, `payload.turnId`, `activeTurnId`. That log line is the regression detector for the
+next incident.
 
 ### Step 2 — a running session means running (D2)
 
@@ -159,11 +160,13 @@ through to the session status, which is the authoritative turn-end signal.
 
 In `agentRunStatusFromThread`'s callers (`AgentControl.awaitTurn`, `listSubAgents`, and the
 `spawn` concurrency check at `AgentControl.ts:494`), treat a thread with a pending turn start as
-`running`. `projectionTurnRepository.getPendingTurnStartByThreadId` already exists and is
-already used by ingestion — reuse it rather than inventing a watermark.
+`running`. Read the thread/session projection and pending-start state through one repository
+operation and one transaction snapshot; separate reads still leave a window where `ready` is
+observed before the pending row becomes visible or after it has just been removed.
 
 Threaded through `agentRunStatusFromThread` as an extra field on the input record keeps the
-function pure and testable.
+function pure and testable. The repository boundary, not the pure status function, owns the
+consistent read.
 
 Once this lands, `AgentAwarenessRelay.ts:437`'s 5s deferral for a first-ever `completed` is
 redundant. Leave it in this change; delete it in a follow-up once the invariant test has run for
@@ -176,18 +179,23 @@ a while.
 - Never end the turn while a lane is in flight. Poll `aqqua agent await` in the foreground.
 - A background watcher is not a wake-up mechanism; if one is used at all it is a supplement to
   a foreground loop, never a replacement.
-- Before integrating a lane that reported `completed`, confirm its session is not still running
-  (`aqqua agent list --json`). Keep this belt-and-braces step until steps 1–4 have shipped and
-  the invariant test has been green for a full orchestration run.
+- Do not use `aqqua agent list --json` as an independent confirmation: it reports the same
+  derived status that is wrong in this incident. Until steps 1–4 ship, foreground
+  `aqqua agent await` is the available mitigation. A future diagnostic may expose raw projected
+  `session.status` or the event stream as a genuinely independent belt-and-braces check.
 
 ## Tests
 
 - `Status.test.ts` — running session + settled `latestTurn` ⇒ `running`; pending turn start +
   `ready` session ⇒ `running`; existing cases unchanged.
 - `ProjectionPipeline.test.ts` — a `thread.turn-diff-completed` for turn A, dispatched while the
-  session is running turn B, leaves `latest_turn_id` on B and leaves A's row unsettled.
-- `projector.test.ts` — same scenario against the in-memory projector, so the two projections
-  cannot drift apart again.
+  session is running turn B, leaves `latest_turn_id` on B and explicitly leaves A with
+  `state='running'` and `completedAt=null`. Cover both an existing A row and the missing-row
+  insert fallback; the fallback must not copy a completion timestamp into a running row. After
+  the session ends, assert the persisted pointer, completed state, and completion timestamp.
+- `projector.test.ts` — the same existing-row and insert-fallback assertions against the
+  in-memory projector, including the final pointer/state/timestamp after session completion, so
+  the two projections cannot drift apart again.
 - `AgentControl.test.ts` — `awaitTurn` does not return `completed` for a thread whose session is
   running but whose latest turn is a stale settled row; and does not settle between spawn and
   first turn.
@@ -196,21 +204,32 @@ a while.
 
 ## Data
 
-No migration. `latest_turn_id` is rewritten by the next `thread.session-set` or diff-completion,
-so poisoned rows heal on their own once the writes are fixed. Confirm on the live DB after the
-fix with the query that found the bug:
+Ship a one-time projection repair rather than waiting for another event. For running sessions
+with an `active_turn_id`, set `latest_turn_id` to that active turn and normalize its projected
+row to `state='running'`, `completed_at=NULL`. Rebuild affected inactive sessions from their
+persisted events as well: they may never emit another event, and replay must preserve the
+intentional `latest_turn_id=NULL` written when a session settles. Confirm the repaired
+invariants with a query that includes `NULL` pointers, missing turn rows, and invalid D3 state
+or timestamp combinations:
 
 ```sql
-select t.thread_id, s.status, s.active_turn_id, t.latest_turn_id, tu.state
+select t.thread_id, s.status, s.active_turn_id, t.latest_turn_id, tu.state, tu.completed_at
 from projection_threads t
 join projection_thread_sessions s on s.thread_id = t.thread_id
 left join projection_turns tu on tu.thread_id = t.thread_id and tu.turn_id = t.latest_turn_id
 where s.status = 'running'
-  and t.latest_turn_id is not null
-  and t.latest_turn_id <> coalesce(s.active_turn_id, '');
+  and s.active_turn_id is not null
+  and (
+    t.latest_turn_id is null
+    or t.latest_turn_id <> s.active_turn_id
+    or tu.turn_id is null
+    or tu.state <> 'running'
+    or tu.completed_at is not null
+  );
 ```
 
-Expected after the fix: no row where the session is running and the latest turn is settled.
+Expected after the fix: no row where a running session points anywhere except its active,
+non-completed running turn.
 
 ## Sequencing
 
