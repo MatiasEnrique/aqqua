@@ -919,7 +919,11 @@ const make = Effect.gen(function* () {
         yield* worker.enqueue(event);
       }
       const allThreads = yield* loadAllThreadShells();
-      const knownThreadIds = new Set(allThreads.map((thread) => String(thread.id)));
+      const knownThreadIds = new Set(
+        allThreads
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => String(thread.id)),
+      );
       for (const event of makeBoardMissingCurrentRootRecoveryEvents(cards, knownThreadIds)) {
         yield* worker.enqueue(event);
       }
