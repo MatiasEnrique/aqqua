@@ -1342,6 +1342,50 @@ describe("BoardReactor", () => {
     ),
   );
 
+  it.effect("step.report waits for the live completion tool turn without interrupting it", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+
+        let model = yield* harness.readModel;
+        let card = model.cards.find((entry) => entry.id === harness.cardId)!;
+        const step0ThreadId = card.stepThreads[0]!.threadId;
+        yield* harness.sessionSet(step0ThreadId, "running", TurnId.make("turn-board-complete"));
+        yield* harness.drain;
+
+        yield* harness.dispatch({
+          type: "card.step.report",
+          commandId: CommandId.make("mcp:board-complete:live-step-report"),
+          cardId: harness.cardId,
+          stepIndex: 0,
+          threadId: step0ThreadId,
+          outcome: "success",
+        });
+        yield* harness.drain;
+
+        model = yield* harness.readModel;
+        card = model.cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.operation?.kind).toBe("advancing");
+        expect(card.position).toEqual({ kind: "step", stepIndex: 0 });
+        expect(
+          (yield* harness.readEvents).some(
+            (event) =>
+              event.type === "thread.turn-interrupt-requested" &&
+              event.aggregateId === step0ThreadId,
+          ),
+        ).toBe(false);
+
+        yield* harness.sessionSet(step0ThreadId, "ready");
+        yield* harness.drain;
+
+        model = yield* harness.readModel;
+        card = model.cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.position).toEqual({ kind: "step", stepIndex: 1 });
+        expect(card.status).toBe("running");
+      }),
+    ),
+  );
+
   it.effect("success on last step reaches Done with null status", () =>
     withBoardReactorHarness({}, (harness) =>
       Effect.gen(function* () {

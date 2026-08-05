@@ -263,20 +263,29 @@ const make = Effect.gen(function* () {
         return;
       }
       const claimedOperationId = card.operation.operationId;
+      const completionToolAdvance = claimedOperationId.startsWith("mcp:board-complete:");
 
-      // Interrupt the whole current-step lineage before entering the next step.
+      // board_complete runs inside the provider turn. Let that turn consume
+      // the tool result and settle naturally; an immediate interrupt leaves
+      // Claude stopped at `tool_use` and surfaces its EDE diagnostic. Manual
+      // Continue still interrupts live lineage as requested by the user.
       const root = currentStepRootThreadId(card);
       if (root !== null) {
-        const interrupt = yield* interruptLiveLineage({
-          card,
-          roots: [root],
-          reasonPrefix: "Advance failed",
-        });
-        if (interrupt.failed) {
-          return;
-        }
-        if (interrupt.staged) {
-          return;
+        if (completionToolAdvance) {
+          const allThreads = yield* loadAllThreadShells();
+          const lineage = collectThreadLineage([root], allThreads);
+          if (lineage.some((member) => isProviderTurnLive(member.session))) {
+            return;
+          }
+        } else {
+          const interrupt = yield* interruptLiveLineage({
+            card,
+            roots: [root],
+            reasonPrefix: "Advance failed",
+          });
+          if (interrupt.failed || interrupt.staged) {
+            return;
+          }
         }
       }
 
