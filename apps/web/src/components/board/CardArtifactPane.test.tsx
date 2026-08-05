@@ -4,7 +4,11 @@ import { $createParagraphNode, $createTextNode, $getRoot, createEditor } from "l
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { artifactContentBottomPadding, createArtifactSaveCoordinator } from "./CardArtifactPane";
+import {
+  artifactContentBottomPadding,
+  artifactContentIsAvailable,
+  createArtifactSaveCoordinator,
+} from "./CardArtifactPane";
 import {
   ARTIFACT_MARKDOWN_NODES,
   ARTIFACT_MARKDOWN_TRANSFORMERS,
@@ -17,6 +21,14 @@ describe("artifactContentBottomPadding", () => {
   it("reserves the measured composer height plus the document end gutter", () => {
     expect(artifactContentBottomPadding(144)).toBe(176);
     expect(artifactContentBottomPadding(280)).toBe(312);
+  });
+});
+
+describe("artifactContentIsAvailable", () => {
+  it("blocks an empty editor until the artifact loads but preserves an existing draft", () => {
+    expect(artifactContentIsAvailable(false, null)).toBe(false);
+    expect(artifactContentIsAvailable(true, null)).toBe(true);
+    expect(artifactContentIsAvailable(false, "local draft")).toBe(true);
   });
 });
 
@@ -71,6 +83,46 @@ describe("artifact save coordination", () => {
     expect(coordinator.finishWrite(latestWrite, "saved")).toBeNull();
     expect(coordinator.finishWrite(firstWrite, "saved")).toBe("saved");
   });
+
+  it("ignores server confirmation while an edit is dirty or in flight", () => {
+    const coordinator = createArtifactSaveCoordinator("persisted");
+    coordinator.markDirty();
+    expect(coordinator.observeConfirmed("stale while dirty")).toBe(false);
+
+    const write = coordinator.startWrite("local edit");
+    expect(coordinator.observeConfirmed("stale while writing")).toBe(false);
+    expect(coordinator.finishWrite(write, "saved")).toBe("saved");
+    expect(coordinator.getConfirmedContent()).toBe("local edit");
+  });
+
+  it("adopts server confirmation when no local work is pending", () => {
+    const coordinator = createArtifactSaveCoordinator("persisted");
+
+    expect(coordinator.observeConfirmed("server edit")).toBe(true);
+    coordinator.markDirty();
+    expect(coordinator.settleNoop("server edit")).toBe("saved");
+  });
+
+  it("requires a reverting write while an optimistic write is still in flight", () => {
+    const coordinator = createArtifactSaveCoordinator("persisted");
+    coordinator.markDirty();
+    const optimisticWrite = coordinator.startWrite("optimistic edit");
+    coordinator.markDirty();
+
+    expect(coordinator.canSettle("persisted")).toBe(false);
+    const revertingWrite = coordinator.startWrite("persisted");
+    expect(coordinator.finishWrite(optimisticWrite, "saved")).toBeNull();
+    expect(coordinator.finishWrite(revertingWrite, "saved")).toBe("saved");
+  });
+
+  it("keeps failed content retryable instead of treating it as persisted", () => {
+    const coordinator = createArtifactSaveCoordinator("persisted");
+    coordinator.markDirty();
+    const write = coordinator.startWrite("failed edit");
+
+    expect(coordinator.finishWrite(write, "error")).toBe("error");
+    expect(coordinator.canSettle("failed edit")).toBe(false);
+  });
 });
 
 describe("CardArtifactMarkdownEditor", () => {
@@ -79,6 +131,7 @@ describe("CardArtifactMarkdownEditor", () => {
       <CardArtifactMarkdownEditor
         value="# Issue brief — DEV-24"
         fileName="Brief.md"
+        isPersistedValue={() => true}
         onDirty={() => undefined}
         onCommit={() => undefined}
         onSettled={() => undefined}
@@ -96,6 +149,7 @@ describe("CardArtifactMarkdownEditor", () => {
       "",
       "**Identifier:** DEV-24",
       "**URL:** https://linear.app/example",
+      "**Docs:** https://example.com/path_(part)",
       "",
       "- [x] preserves checklists",
       "- preserves **bold** list content",
@@ -123,13 +177,31 @@ describe("CardArtifactMarkdownEditor", () => {
         .find((node) => node.getTextContent() === "https://linear.app/example");
       return $isLinkNode(urlText?.getParent());
     });
+    const markdownLink = editor.getEditorState().read(() => {
+      const linkText = $getRoot()
+        .getAllTextNodes()
+        .find((node) => node.getTextContent() === "links");
+      const linkNode = linkText?.getParent();
+      return $isLinkNode(linkNode)
+        ? { text: linkNode.getTextContent(), url: linkNode.getURL() }
+        : null;
+    });
+    const balancedUrlIsRenderedAsLink = editor.getEditorState().read(() => {
+      const urlText = $getRoot()
+        .getAllTextNodes()
+        .find((node) => node.getTextContent() === "https://example.com/path_(part)");
+      return $isLinkNode(urlText?.getParent());
+    });
     expect(output).toContain("# Issue brief — DEV-24");
     expect(output).toContain("**Identifier:** DEV-24");
     expect(output).toContain("**URL:** https://linear.app/example");
+    expect(output).toContain("**Docs:** https://example.com/path_(part)");
     expect(output).toContain("- [x] preserves checklists");
     expect(output).toContain("- preserves **bold** list content");
     expect(output).toContain("[links](https://example.com)");
     expect(bareUrlIsRenderedAsLink).toBe(true);
+    expect(balancedUrlIsRenderedAsLink).toBe(true);
+    expect(markdownLink).toEqual({ text: "links", url: "https://example.com" });
   });
 
   it("serializes rich editor mutations back to Markdown", () => {

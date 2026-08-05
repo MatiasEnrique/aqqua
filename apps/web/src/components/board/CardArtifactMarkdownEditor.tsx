@@ -28,18 +28,19 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { $createTextNode, type EditorState, type EditorThemeClasses } from "lexical";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 export const ARTIFACT_MARKDOWN_WRITE_DEBOUNCE_MS = 600;
 
 const URL_PATTERN = /https?:\/\/[^\s<]+/;
+const GFM_AUTOLINK_IMPORT_PATTERN = /(?<!\]\()https?:\/\/[^\s<]+/;
 const GFM_AUTOLINK: TextMatchTransformer = {
   dependencies: [LinkNode, AutoLinkNode],
-  export: (node, exportChildren) => {
+  export: (node) => {
     if (!$isLinkNode(node) || node.getURL() !== node.getTextContent()) return null;
-    return exportChildren(node);
+    return node.getURL();
   },
-  importRegExp: URL_PATTERN,
+  importRegExp: GFM_AUTOLINK_IMPORT_PATTERN,
   regExp: /https?:\/\/[^\s<]+$/,
   replace: (textNode, match) => {
     if ($isLinkNode(textNode.getParent())) return;
@@ -88,6 +89,7 @@ const ARTIFACT_MARKDOWN_THEME: EditorThemeClasses = {
 export interface CardArtifactMarkdownEditorProps {
   readonly value: string;
   readonly fileName: string;
+  readonly isPersistedValue: (value: string) => boolean;
   readonly onDirty: () => void;
   readonly onCommit: (value: string) => void;
   readonly onSettled: (value: string) => void;
@@ -152,6 +154,7 @@ export function createArtifactMarkdownCommitScheduler({
 export function CardArtifactMarkdownEditor({
   value,
   fileName,
+  isPersistedValue,
   onDirty,
   onCommit,
   onSettled,
@@ -172,7 +175,7 @@ export function CardArtifactMarkdownEditor({
         );
       },
       onError: (error) => {
-        throw error;
+        console.error("[artifact-markdown-editor] Lexical update failed", error);
       },
     }),
     [],
@@ -198,6 +201,7 @@ export function CardArtifactMarkdownEditor({
         />
         <ArtifactMarkdownSyncPlugin
           value={value}
+          isPersistedValue={isPersistedValue}
           onDirty={onDirty}
           onCommit={onCommit}
           onSettled={onSettled}
@@ -215,24 +219,30 @@ export function CardArtifactMarkdownEditor({
 
 function ArtifactMarkdownSyncPlugin({
   value,
+  isPersistedValue,
   onDirty,
   onCommit,
   onSettled,
 }: {
   readonly value: string;
+  readonly isPersistedValue: (value: string) => boolean;
   readonly onDirty: () => void;
   readonly onCommit: (value: string) => void;
   readonly onSettled: (value: string) => void;
 }) {
   const [editor] = useLexicalComposerContext();
-  const currentMarkdownRef = useRef(value);
+  const editorMarkdownRef = useRef(value);
+  const isPersistedValueRef = useRef(isPersistedValue);
   const dirtyRef = useRef(false);
   const onDirtyRef = useRef(onDirty);
   const onCommitRef = useRef(onCommit);
   const onSettledRef = useRef(onSettled);
-  onDirtyRef.current = onDirty;
-  onCommitRef.current = onCommit;
-  onSettledRef.current = onSettled;
+  useLayoutEffect(() => {
+    isPersistedValueRef.current = isPersistedValue;
+    onDirtyRef.current = onDirty;
+    onCommitRef.current = onCommit;
+    onSettledRef.current = onSettled;
+  }, [isPersistedValue, onCommit, onDirty, onSettled]);
   const schedulerRef = useRef<ReturnType<typeof createArtifactMarkdownCommitScheduler> | null>(
     null,
   );
@@ -242,27 +252,28 @@ function ArtifactMarkdownSyncPlugin({
         setTimeout: (callback, delay) => window.setTimeout(callback, delay),
         clearTimeout: (handle) => window.clearTimeout(handle),
       },
-      isCurrent: (nextValue) => nextValue === currentMarkdownRef.current,
+      isCurrent: (nextValue) => isPersistedValueRef.current(nextValue),
       onDirty: () => {
         dirtyRef.current = true;
         onDirtyRef.current();
       },
       onCommit: (nextValue) => {
         dirtyRef.current = false;
-        currentMarkdownRef.current = nextValue;
+        editorMarkdownRef.current = nextValue;
         onCommitRef.current(nextValue);
       },
       onSettled: (nextValue) => {
         dirtyRef.current = false;
+        editorMarkdownRef.current = nextValue;
         onSettledRef.current(nextValue);
       },
     });
   }
 
   useEffect(() => {
-    if (value === currentMarkdownRef.current) return;
+    if (value === editorMarkdownRef.current) return;
     if (dirtyRef.current) return;
-    currentMarkdownRef.current = value;
+    editorMarkdownRef.current = value;
     editor.update(() => {
       $convertFromMarkdownString(value, ARTIFACT_MARKDOWN_TRANSFORMERS, undefined, true);
     });

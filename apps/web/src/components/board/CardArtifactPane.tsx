@@ -26,9 +26,10 @@ export function createArtifactSaveCoordinator(initialContent: string) {
       dirty = true;
     },
     observeConfirmed(content: string) {
-      if (dirty || inFlightRequestIds.size > 0) return;
+      if (dirty || inFlightRequestIds.size > 0) return false;
       confirmedContent = content;
       desiredContent = content;
+      return true;
     },
     startWrite(content: string) {
       dirty = false;
@@ -56,6 +57,23 @@ export function createArtifactSaveCoordinator(initialContent: string) {
       if (inFlightRequestIds.size > 0) return null;
       return desiredContent === confirmedContent ? "saved" : "error";
     },
+    getConfirmedContent() {
+      return confirmedContent;
+    },
+    getDesiredContent() {
+      return desiredContent;
+    },
+    canReleaseDraft(content: string) {
+      return (
+        !dirty &&
+        inFlightRequestIds.size === 0 &&
+        desiredContent === content &&
+        confirmedContent === content
+      );
+    },
+    canSettle(content: string) {
+      return inFlightRequestIds.size === 0 && confirmedContent === content;
+    },
   };
 }
 
@@ -80,6 +98,13 @@ const ARTIFACT_END_GUTTER_PX = 32;
 
 export function artifactContentBottomPadding(contentInsetEndAdjustment: number): number {
   return Math.max(0, contentInsetEndAdjustment) + ARTIFACT_END_GUTTER_PX;
+}
+
+export function artifactContentIsAvailable(
+  hasLoadedArtifact: boolean,
+  draft: string | null,
+): boolean {
+  return hasLoadedArtifact || draft !== null;
 }
 
 /**
@@ -109,11 +134,13 @@ export function CardArtifactPane({
 
   const serverContent = artifact.data?.content ?? "";
   const content = draft ?? serverContent;
+  const contentIsAvailable = artifactContentIsAvailable(artifact.data !== null, draft);
 
   useEffect(() => {
-    if (draft !== null) return;
-    saveCoordinator.observeConfirmed(serverContent);
-  }, [draft, saveCoordinator, serverContent]);
+    if (artifact.data === null) return;
+    if (!saveCoordinator.observeConfirmed(serverContent)) return;
+    setDraft(null);
+  }, [artifact.data, saveCoordinator, serverContent]);
 
   const save = useCallback(
     (next: string) => {
@@ -127,16 +154,30 @@ export function CardArtifactPane({
             result._tag === "Success" ? "saved" : "error",
           );
           if (nextState !== null) setSaveState(nextState);
+          if (nextState !== "saved") return;
+
+          const settledContent = saveCoordinator.getDesiredContent();
+          void artifact.refresh().then(
+            () => {
+              if (!saveCoordinator.canReleaseDraft(settledContent)) return;
+              setDraft((current) => (current === settledContent ? null : current));
+            },
+            () => undefined,
+          );
         },
       );
     },
-    [cardId, environmentId, saveCoordinator, stepName, writeArtifact],
+    [artifact.refresh, cardId, environmentId, saveCoordinator, stepName, writeArtifact],
   );
 
   const markDirty = useCallback(() => {
     saveCoordinator.markDirty();
     setSaveState("saving");
   }, [saveCoordinator]);
+  const isPersistedValue = useCallback(
+    (next: string) => saveCoordinator.canSettle(next),
+    [saveCoordinator],
+  );
   const markSettled = useCallback(
     (next: string) => {
       const nextState = saveCoordinator.settleNoop(next);
@@ -175,12 +216,17 @@ export function CardArtifactPane({
         </div>
 
         <div className="mt-2">
-          {artifact.isPending && draft === null ? (
-            <p className="px-1 text-muted-foreground/60 text-sm">Loading…</p>
+          {!contentIsAvailable ? (
+            <p className="px-1 text-muted-foreground/60 text-sm">
+              {artifact.error === null
+                ? "Loading…"
+                : "Content unavailable — reload before editing."}
+            </p>
           ) : editable ? (
             <CardArtifactMarkdownEditor
               value={content}
               fileName={fileName}
+              isPersistedValue={isPersistedValue}
               onDirty={markDirty}
               onCommit={save}
               onSettled={markSettled}

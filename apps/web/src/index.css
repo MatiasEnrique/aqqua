@@ -1405,6 +1405,8 @@ label:has(> select#reasoning-effort) select {
   border: 1px solid var(--border);
   border-radius: 0.2rem;
   content: "";
+  cursor: pointer;
+  user-select: none;
 }
 
 .artifact-markdown-editor-listitem-checked::before {
