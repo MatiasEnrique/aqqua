@@ -41,6 +41,8 @@ interface ManagePullRequestDialogProps {
   readonly cwd: string;
   readonly changeRequest: NonNullable<VcsStatusResult["pr"]>;
   readonly sourceControlProvider: VcsStatusResult["sourceControlProvider"];
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
 }
 
 export function ManagePullRequestDialog({
@@ -48,8 +50,18 @@ export function ManagePullRequestDialog({
   cwd,
   changeRequest,
   sourceControlProvider,
+  open,
+  onOpenChange,
 }: ManagePullRequestDialogProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const setIsOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (open === undefined) setInternalOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange, open],
+  );
   const [selectedMergeMethod, setSelectedMergeMethod] =
     useState<GitChangeRequestMergeMethod>("merge");
   const [autoMergeEnabled, setAutoMergeEnabled] = useState<boolean | null>(null);
@@ -227,17 +239,19 @@ export function ManagePullRequestDialog({
         if (!open) setError(null);
       }}
     >
-      <Button
-        variant="ghost"
-        size="xs"
-        disabled={mutation !== null}
-        onClick={() => {
-          setError(null);
-          setIsOpen(true);
-        }}
-      >
-        Manage
-      </Button>
+      {open === undefined ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={mutation !== null}
+          onClick={() => {
+            setError(null);
+            setIsOpen(true);
+          }}
+        >
+          Manage
+        </Button>
+      ) : null}
       <DialogPopup className="max-w-lg">
         <DialogHeader>
           <DialogTitle>

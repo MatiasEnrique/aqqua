@@ -6129,6 +6129,8 @@ function ChatViewContent(props: ChatViewProps) {
         <PullRequestPanel
           environmentId={activeThreadRef.environmentId}
           threadRef={activeThreadRef}
+          composerDraftTarget={composerDraftTarget}
+          workspaceRef={activeWorkspacePanelRef}
           cwd={gitStatusCwd}
           status={gitStatusQuery.data}
           statusError={gitStatusQuery.error}

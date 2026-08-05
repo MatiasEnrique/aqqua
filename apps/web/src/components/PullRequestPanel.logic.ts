@@ -1,4 +1,9 @@
-import type { GitChangeRequestCheck, VcsStatusResult } from "@aqqua/contracts";
+import type {
+  GitChangeRequestCheck,
+  GitDeleteChangeRequestBranchLocalState,
+  GitGetChangeRequestConversationResult,
+  VcsStatusResult,
+} from "@aqqua/contracts";
 
 export type PullRequestStatus = NonNullable<VcsStatusResult["pr"]>;
 
@@ -6,6 +11,21 @@ export interface StatusPresentation {
   readonly label: string;
   readonly tone: "neutral" | "pending" | "success" | "failure" | "info";
   readonly icon: "clock" | "check" | "x";
+}
+
+export function statusToneClassName(tone: StatusPresentation["tone"]): string {
+  switch (tone) {
+    case "neutral":
+      return "text-muted-foreground";
+    case "pending":
+      return "text-warning-foreground";
+    case "success":
+      return "text-success-foreground";
+    case "failure":
+      return "text-destructive-foreground";
+    case "info":
+      return "text-info-foreground";
+  }
 }
 
 export function pullRequestFingerprint(pr: VcsStatusResult["pr"]): string {
@@ -46,6 +66,84 @@ export function aggregateChecksPresentation(
     case null:
     case undefined:
       return { label: "Not reported", tone: "neutral", icon: "clock" };
+  }
+}
+
+export function changeRequestCommentCount(
+  conversation: GitGetChangeRequestConversationResult | null,
+): number {
+  if (!conversation?.supported) return 0;
+  return (
+    conversation.comments.length +
+    conversation.reviewThreads.reduce((count, thread) => count + thread.comments.length, 0)
+  );
+}
+
+export function pullRequestMetadata(input: {
+  readonly pr: PullRequestStatus;
+  readonly conversation: GitGetChangeRequestConversationResult | null;
+}) {
+  const { conversation, pr } = input;
+  const commentCount = changeRequestCommentCount(conversation);
+  return {
+    branchLabel: `${pr.headRef} → ${pr.baseRef}`,
+    additions: conversation?.supported ? conversation.additions : null,
+    deletions: conversation?.supported ? conversation.deletions : null,
+    reviewersLabel: !conversation?.supported
+      ? "—"
+      : conversation.reviewers.length > 0
+        ? conversation.reviewers.join(", ")
+        : "None",
+    commentsLabel: !conversation?.supported
+      ? "—"
+      : commentCount === 0
+        ? "No comments"
+        : `${commentCount} comments`,
+    checksLabel: pr.checksStatus == null ? "—" : aggregateChecksPresentation(pr.checksStatus).label,
+  };
+}
+
+export function pullRequestSectionVisibility(
+  providerKind: string | null | undefined,
+  state: PullRequestStatus["state"],
+) {
+  const github = providerKind === "github";
+  return {
+    description: github,
+    commits: github,
+    comments: github,
+    manage: state === "open" || state === "closed",
+    merge: state === "open",
+    deleteBranch: github && state === "merged",
+    checks: true,
+  } as const;
+}
+
+export function composerSubmitEnabled(body: string, pending: boolean): boolean {
+  return !pending && body.trim().length > 0;
+}
+
+export type DeleteBranchDialogStep =
+  | { readonly kind: "confirm-remote" }
+  | { readonly kind: "confirm-local"; readonly refName: string }
+  | { readonly kind: "worktree"; readonly refName: string; readonly worktreePath: string }
+  | { readonly kind: "checked-out"; readonly refName: string }
+  | { readonly kind: "complete" };
+
+export function reduceDeleteBranchDialogStep(
+  local: GitDeleteChangeRequestBranchLocalState,
+): DeleteBranchDialogStep {
+  switch (local._tag) {
+    case "none":
+      return { kind: "complete" };
+    case "branch":
+      return local.removal === "not_requested"
+        ? { kind: "confirm-local", refName: local.refName }
+        : { kind: "complete" };
+    case "worktree":
+      return { kind: "worktree", refName: local.refName, worktreePath: local.worktreePath };
+    case "checked_out":
+      return { kind: "checked-out", refName: local.refName };
   }
 }
 

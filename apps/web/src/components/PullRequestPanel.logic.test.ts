@@ -3,11 +3,17 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   aggregateChecksPresentation,
+  changeRequestCommentCount,
   changeRequestStatePresentation,
   checkPresentation,
+  composerSubmitEnabled,
   keyChangeRequestChecks,
+  pullRequestMetadata,
   pullRequestFingerprint,
+  pullRequestSectionVisibility,
+  reduceDeleteBranchDialogStep,
   shouldRefetchChecks,
+  statusToneClassName,
 } from "./PullRequestPanel.logic";
 
 const pr = (overrides: Partial<NonNullable<VcsStatusResult["pr"]>> = {}) => ({
@@ -58,6 +64,14 @@ describe("pullRequestFingerprint", () => {
 });
 
 describe("pull request status presentation", () => {
+  it("maps status tones to semantic text colors", () => {
+    expect(statusToneClassName("success")).toBe("text-success-foreground");
+    expect(statusToneClassName("failure")).toBe("text-destructive-foreground");
+    expect(statusToneClassName("pending")).toBe("text-warning-foreground");
+    expect(statusToneClassName("neutral")).toBe("text-muted-foreground");
+    expect(statusToneClassName("info")).toBe("text-info-foreground");
+  });
+
   it.each([
     ["pending", "Pending", "clock"],
     ["success", "Passing", "check"],
@@ -87,6 +101,109 @@ describe("pull request status presentation", () => {
       tone: "neutral",
     });
     expect(changeRequestStatePresentation("merged")).toEqual({ label: "Merged", tone: "info" });
+  });
+});
+
+describe("pull request detail presentation", () => {
+  const conversation = {
+    supported: true,
+    description: null,
+    additions: 12,
+    deletions: 3,
+    reviewers: ["octocat", "hubot"],
+    comments: [{ id: "issue", author: null, body: "Hi", createdAt: null, url: "" }],
+    commentsTruncated: false,
+    reviewThreads: [
+      {
+        id: "thread",
+        isResolved: false,
+        isOutdated: false,
+        path: "src/a.ts",
+        line: 4,
+        startLine: null,
+        comments: [
+          { id: "review-1", author: null, body: "One", createdAt: null, url: "" },
+          { id: "review-2", author: null, body: "Two", createdAt: null, url: "" },
+        ],
+        commentsTruncated: false,
+      },
+    ],
+    reviewThreadsTruncated: false,
+  } as const;
+
+  it("counts issue and review-thread comments and derives compact metadata", () => {
+    expect(changeRequestCommentCount(conversation)).toBe(3);
+    expect(pullRequestMetadata({ pr: pr(), conversation })).toEqual({
+      branchLabel: "feature/pull-request-panel → main",
+      additions: 12,
+      deletions: 3,
+      reviewersLabel: "octocat, hubot",
+      commentsLabel: "3 comments",
+      checksLabel: "Pending",
+    });
+  });
+
+  it("uses quiet empty labels when conversation data is unavailable", () => {
+    expect(
+      pullRequestMetadata({ pr: pr({ checksStatus: null }), conversation: null }),
+    ).toMatchObject({ reviewersLabel: "—", commentsLabel: "—", checksLabel: "—" });
+  });
+
+  it("gates GitHub-only sections and branch deletion", () => {
+    expect(pullRequestSectionVisibility("github", "merged")).toMatchObject({
+      description: true,
+      commits: true,
+      comments: true,
+      deleteBranch: true,
+      manage: false,
+      merge: false,
+      checks: true,
+    });
+    expect(pullRequestSectionVisibility("gitlab", "open")).toMatchObject({
+      description: false,
+      commits: false,
+      comments: false,
+      deleteBranch: false,
+      manage: true,
+      merge: true,
+      checks: true,
+    });
+  });
+
+  it("enables composers only for non-empty idle drafts", () => {
+    expect(composerSubmitEnabled(" reply ", false)).toBe(true);
+    expect(composerSubmitEnabled("   ", false)).toBe(false);
+    expect(composerSubmitEnabled("reply", true)).toBe(false);
+  });
+});
+
+describe("delete branch steps", () => {
+  it("offers local cleanup only for a remaining plain branch", () => {
+    expect(
+      reduceDeleteBranchDialogStep({
+        _tag: "branch",
+        refName: "feature/pr",
+        removal: "not_requested",
+      }),
+    ).toEqual({ kind: "confirm-local", refName: "feature/pr" });
+    expect(
+      reduceDeleteBranchDialogStep({ _tag: "branch", refName: "feature/pr", removal: "removed" }),
+    ).toEqual({ kind: "complete" });
+  });
+
+  it("routes worktrees, checked-out branches, and empty local state", () => {
+    expect(
+      reduceDeleteBranchDialogStep({
+        _tag: "worktree",
+        refName: "feature/pr",
+        worktreePath: "/repo/pr",
+      }),
+    ).toEqual({ kind: "worktree", refName: "feature/pr", worktreePath: "/repo/pr" });
+    expect(reduceDeleteBranchDialogStep({ _tag: "checked_out", refName: "feature/pr" })).toEqual({
+      kind: "checked-out",
+      refName: "feature/pr",
+    });
+    expect(reduceDeleteBranchDialogStep({ _tag: "none" })).toEqual({ kind: "complete" });
   });
 });
 
