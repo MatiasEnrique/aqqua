@@ -77,7 +77,7 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "azure-devops",
-    capabilities: { checks: true, merge: true, autoMerge: true, changeRequestState: true },
+    capabilities: { checks: true, changeRequestState: true },
     listChecks: (input) =>
       azure.listChecks(input).pipe(
         Effect.mapError(
@@ -89,59 +89,6 @@ export const make = Effect.gen(function* () {
               cwd: input.cwd,
               reference: String(input.changeRequestNumber),
               detail: error.detail,
-              cause: error,
-            }),
-        ),
-      ),
-    getChangeRequestMergeOptions: (input) =>
-      azure.getMergeOptions(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "azure-devops",
-              operation: "getChangeRequestMergeOptions",
-              command: error.command,
-              cwd: input.cwd,
-              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                input.reference,
-              ),
-              detail: error.detail,
-              cause: error,
-            }),
-        ),
-      ),
-    mergeChangeRequest: (input) =>
-      azure.mergePullRequest(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "azure-devops",
-              operation: "mergeChangeRequest",
-              command: error.command,
-              cwd: input.cwd,
-              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                input.reference,
-              ),
-              detail:
-                "Azure DevOps could not complete this pull request. Check conflicts, policies, approvals, and permissions.",
-              cause: error,
-            }),
-        ),
-      ),
-    setAutoMerge: (input) =>
-      azure.setAutoMerge(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "azure-devops",
-              operation: "setAutoMerge",
-              command: error.command,
-              cwd: input.cwd,
-              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                input.reference,
-              ),
-              detail:
-                "Azure DevOps could not update auto-complete. Check branch policies and your permissions.",
               cause: error,
             }),
         ),

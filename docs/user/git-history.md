@@ -23,10 +23,15 @@ base and head refs, aggregate CI status, and each check reported by the remote h
 arrive through the workspace's live Git status stream; the check list refreshes when that remote
 state changes. Use the panel's refresh button to request both a fresh repository status and fresh
 per-check details, or **Manage** to merge, configure auto-merge, close, or reopen the change request.
+The Git actions toolbar also shows the aggregate checks status whenever the branch has a change
+request.
 
 If the current branch has no pull request or merge request, create one from the Git actions control
 in the workspace toolbar. Some source-control hosts provide only an aggregate checks status; the
 panel keeps showing that status and explains when individual check details are unavailable.
+Management capabilities also vary by provider. Azure DevOps currently supports closing and
+reopening change requests in aqqua, but merge and auto-merge remain available on the provider until
+aqqua can honor Azure's effective merge-strategy policy.
 
 ## Auto-settle after a merge
 

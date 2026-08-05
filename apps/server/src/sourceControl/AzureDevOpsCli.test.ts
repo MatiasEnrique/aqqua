@@ -134,64 +134,15 @@ describe("AzureDevOpsCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("maps completion, auto-complete, and state updates to Azure CLI", () =>
+  it.effect("maps state updates to Azure CLI", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValue(Effect.succeed(processOutput("{}")));
       const az = yield* AzureDevOpsCli.AzureDevOpsCli;
 
-      assert.deepStrictEqual(yield* az.getMergeOptions({ cwd: "/repo", reference: "42" }), {
-        methods: ["merge"],
-        defaultMethod: "merge",
-      });
-      yield* az.mergePullRequest({ cwd: "/repo", reference: "#42", method: "merge" });
-      yield* az.setAutoMerge({
-        cwd: "/repo",
-        reference: "42",
-        enabled: true,
-        method: "merge",
-      });
-      yield* az.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
       yield* az.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
 
       const calls = mockRun.mock.calls.map(([input]) => input.args);
       assert.deepStrictEqual(calls[0], [
-        "repos",
-        "pr",
-        "update",
-        "--detect",
-        "true",
-        "--id",
-        "42",
-        "--status",
-        "completed",
-        "--squash",
-        "false",
-      ]);
-      assert.deepStrictEqual(calls[1], [
-        "repos",
-        "pr",
-        "update",
-        "--detect",
-        "true",
-        "--id",
-        "42",
-        "--auto-complete",
-        "true",
-        "--squash",
-        "false",
-      ]);
-      assert.deepStrictEqual(calls[2], [
-        "repos",
-        "pr",
-        "update",
-        "--detect",
-        "true",
-        "--id",
-        "42",
-        "--auto-complete",
-        "false",
-      ]);
-      assert.deepStrictEqual(calls[3], [
         "repos",
         "pr",
         "update",

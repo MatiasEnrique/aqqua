@@ -68,53 +68,34 @@ it.effect("advertises checks and maps Azure policies through the provider surfac
 
     assert.deepStrictEqual(provider.capabilities, {
       checks: true,
-      merge: true,
-      autoMerge: true,
       changeRequestState: true,
     });
     assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
     assert.strictEqual(status, "success");
     assert.isUndefined(provider.listCheckDetails);
+    assert.isUndefined(provider.getChangeRequestMergeOptions);
+    assert.isUndefined(provider.mergeChangeRequest);
+    assert.isUndefined(provider.setAutoMerge);
   }),
 );
 
-it.effect("delegates Azure DevOps change-request mutations", () =>
+it.effect("delegates supported Azure DevOps change-request mutations", () =>
   Effect.gen(function* () {
     const calls: Array<string> = [];
     const provider = yield* makeProvider({
-      getMergeOptions: () => Effect.succeed({ methods: ["merge"], defaultMethod: "merge" }),
-      mergePullRequest: (input) => {
-        calls.push(`merge:${input.method}`);
-        return Effect.void;
-      },
-      setAutoMerge: (input) => {
-        calls.push(`auto:${input.enabled}`);
-        return Effect.void;
-      },
       updatePullRequestState: (input) => {
         calls.push(`state:${input.state}`);
         return Effect.void;
       },
     });
 
-    yield* provider.mergeChangeRequest!({
-      cwd: "/repo",
-      reference: "42",
-      method: "merge",
-    });
-    yield* provider.setAutoMerge!({
-      cwd: "/repo",
-      reference: "42",
-      enabled: true,
-      method: "merge",
-    });
     yield* provider.updateChangeRequestState!({
       cwd: "/repo",
       reference: "42",
       state: "closed",
     });
 
-    assert.deepStrictEqual(calls, ["merge:merge", "auto:true", "state:closed"]);
+    assert.deepStrictEqual(calls, ["state:closed"]);
   }),
 );
 

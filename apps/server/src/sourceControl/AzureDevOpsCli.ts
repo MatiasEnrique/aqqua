@@ -7,7 +7,6 @@ import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
   TrimmedNonEmptyString,
-  type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@aqqua/contracts";
@@ -240,35 +239,6 @@ export class AzureDevOpsCli extends Context.Service<
       readonly cwd: string;
       readonly changeRequestNumber: number;
     }) => Effect.Effect<AzureDevOpsChecksStatus, AzureDevOpsCliError>;
-    readonly getMergeOptions: (input: {
-      readonly cwd: string;
-      readonly reference: string;
-    }) => Effect.Effect<
-      {
-        readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
-        readonly defaultMethod: GitChangeRequestMergeMethod;
-      },
-      AzureDevOpsCliError
-    >;
-    readonly mergePullRequest: (input: {
-      readonly cwd: string;
-      readonly reference: string;
-      readonly method: GitChangeRequestMergeMethod;
-    }) => Effect.Effect<void, AzureDevOpsCliError>;
-    readonly setAutoMerge: (
-      input:
-        | {
-            readonly cwd: string;
-            readonly reference: string;
-            readonly enabled: true;
-            readonly method: GitChangeRequestMergeMethod;
-          }
-        | {
-            readonly cwd: string;
-            readonly reference: string;
-            readonly enabled: false;
-          },
-    ) => Effect.Effect<void, AzureDevOpsCliError>;
     readonly updatePullRequestState: (input: {
       readonly cwd: string;
       readonly reference: string;
@@ -536,47 +506,6 @@ export const make = Effect.gen(function* () {
               ),
         ),
       ),
-    // Azure branch policies can restrict completion strategies, while the CLI
-    // does not expose an effective-options query. Do not guess at additional
-    // methods: advertise the conservative basic completion fallback.
-    getMergeOptions: () =>
-      Effect.succeed({
-        methods: ["merge"],
-        defaultMethod: "merge",
-      }),
-    mergePullRequest: (input) =>
-      execute({
-        cwd: input.cwd,
-        args: [
-          "repos",
-          "pr",
-          "update",
-          "--detect",
-          "true",
-          "--id",
-          normalizeChangeRequestId(input.reference),
-          "--status",
-          "completed",
-          "--squash",
-          input.method === "squash" ? "true" : "false",
-        ],
-      }).pipe(Effect.asVoid),
-    setAutoMerge: (input) =>
-      execute({
-        cwd: input.cwd,
-        args: [
-          "repos",
-          "pr",
-          "update",
-          "--detect",
-          "true",
-          "--id",
-          normalizeChangeRequestId(input.reference),
-          "--auto-complete",
-          input.enabled ? "true" : "false",
-          ...(input.enabled ? ["--squash", input.method === "squash" ? "true" : "false"] : []),
-        ],
-      }).pipe(Effect.asVoid),
     updatePullRequestState: (input) =>
       execute({
         cwd: input.cwd,

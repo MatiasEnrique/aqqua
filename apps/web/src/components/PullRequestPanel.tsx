@@ -5,7 +5,6 @@ import {
   Clock3Icon,
   ExternalLinkIcon,
   GitPullRequestIcon,
-  LoaderIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -18,12 +17,12 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 
 import {
-  aggregateChecksPresentation,
   changeRequestStatePresentation,
   checkPresentation,
   shouldRefetchChecks,
   type StatusPresentation,
 } from "./PullRequestPanel.logic";
+import { ChangeRequestChecksBadge } from "./ChangeRequestChecksBadge";
 import { ManagePullRequestDialog } from "./ManagePullRequestDialog";
 import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
 import { Badge } from "./ui/badge";
@@ -47,14 +46,6 @@ const toneClasses = {
 } as const;
 
 function StatusIcon({ presentation }: { presentation: StatusPresentation }) {
-  if (presentation.tone === "pending") {
-    return (
-      <LoaderIcon
-        aria-hidden
-        className={cn("size-4 shrink-0 animate-spin", toneClasses[presentation.tone])}
-      />
-    );
-  }
   const Icon =
     presentation.icon === "check"
       ? CircleCheckIcon
@@ -62,28 +53,6 @@ function StatusIcon({ presentation }: { presentation: StatusPresentation }) {
         ? CircleXIcon
         : Clock3Icon;
   return <Icon aria-hidden className={cn("size-4 shrink-0", toneClasses[presentation.tone])} />;
-}
-
-function AggregateChecksChip({
-  status,
-}: {
-  status: NonNullable<VcsStatusResult["pr"]>["checksStatus"];
-}) {
-  const presentation = aggregateChecksPresentation(status);
-  const variant =
-    presentation.tone === "success"
-      ? "success"
-      : presentation.tone === "failure"
-        ? "error"
-        : presentation.tone === "pending"
-          ? "warning"
-          : "outline";
-  return (
-    <Badge size="sm" variant={variant} className="gap-1">
-      <StatusIcon presentation={presentation} />
-      {presentation.label}
-    </Badge>
-  );
 }
 
 export function PullRequestPanel({
@@ -148,7 +117,7 @@ export function PullRequestPanel({
             disabled={refreshPending}
             onClick={() => void handleRefresh()}
           >
-            <RefreshCwIcon aria-hidden className={refreshPending ? "animate-spin" : undefined} />
+            <RefreshCwIcon aria-hidden />
           </Button>
         </>
       }
@@ -160,7 +129,7 @@ export function PullRequestPanel({
       <div className="flex min-h-0 flex-1 flex-col">
         {panelHeader}
         <div className="flex flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-          <LoaderIcon className="size-4 animate-spin" aria-hidden />
+          <Clock3Icon className="size-4" aria-hidden />
           Loading pull request status…
         </div>
       </div>
@@ -216,7 +185,7 @@ export function PullRequestPanel({
           <Badge size="sm" variant={stateVariant}>
             {statePresentation.label}
           </Badge>
-          <AggregateChecksChip status={pr.checksStatus} />
+          <ChangeRequestChecksBadge status={pr.checksStatus} />
           <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
             {pr.baseRef} ← {pr.headRef}
           </span>
@@ -239,7 +208,7 @@ export function PullRequestPanel({
           </div>
         ) : checksQuery.isPending && checksQuery.data === null ? (
           <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <LoaderIcon className="size-4 animate-spin" aria-hidden />
+            <Clock3Icon className="size-4" aria-hidden />
             Loading checks…
           </div>
         ) : checks.length === 0 ? (
