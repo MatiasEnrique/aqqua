@@ -63,7 +63,9 @@ export class AccountRateLimits extends Context.Service<
               ...incoming,
               planLabel: incoming.planLabel ?? previous.planLabel,
               credits: incoming.credits ?? previous.credits,
-              status: incoming.status ?? previous.status,
+              // Status must track the newest report: Codex clears a reached
+              // limit by sending null, which a fallback would mask forever.
+              status: incoming.status,
               windows: [
                 ...previous.windows.filter((window) => !incomingKinds.has(window.kind)),
                 ...incoming.windows,
@@ -103,10 +105,7 @@ export class AccountRateLimits extends Context.Service<
         return yield* mutex.withPermits(1)(
           Effect.gen(function* () {
             const current = yield* Ref.get(state);
-            const hasLiveOrSeededSnapshot = Array.from(current.values()).some(
-              (candidate) => candidate.provider === snapshot.provider,
-            );
-            if (hasLiveOrSeededSnapshot) {
+            if (current.has(snapshot.providerInstanceId)) {
               return false;
             }
 

@@ -4,11 +4,21 @@ import { ChartNoAxesCombinedIcon, RefreshCwIcon, Trash2Icon } from "lucide-react
 import { useMemo, useState } from "react";
 
 import { AccountUsageMeter } from "~/components/chat/AccountUsageMeter";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { isElectron } from "~/env";
+import { ACCOUNT_USAGE_SUPPORT_BY_PROVIDER } from "@aqqua/contracts";
 import { isAccountUsageSupported } from "~/lib/accountUsage.logic";
-import { buildUsageOverviewModel } from "~/lib/usageOverviewModel";
+import { buildUsageOverviewModel, PROVIDER_LABELS } from "~/lib/usageOverviewModel";
 import { useUsageOverview } from "~/lib/usagePageState";
 import { cn } from "~/lib/utils";
 import { primaryServerProvidersAtom } from "~/state/server";
@@ -17,6 +27,10 @@ import { ProviderUsageRow } from "./ProviderUsageRow";
 import { TokenMixBar } from "./TokenMixBar";
 import { UsageBreakdownTable } from "./UsageBreakdownTable";
 import { UsageHeatmap } from "./UsageHeatmap";
+
+const UNSUPPORTED_PROVIDER_LABELS = Object.entries(ACCOUNT_USAGE_SUPPORT_BY_PROVIDER)
+  .filter(([, support]) => support === "unsupported")
+  .map(([provider]) => PROVIDER_LABELS[provider as keyof typeof PROVIDER_LABELS] ?? provider);
 
 const RANGES: ReadonlyArray<{ readonly value: UsageRange; readonly label: string }> = [
   { value: "7d", label: "7d" },
@@ -88,10 +102,12 @@ function UsageRateLimitGauges() {
           No configured provider currently exposes rate-limit data.
         </p>
       )}
-      <p className="mt-3 text-[11px] leading-4 text-muted-foreground/55">
-        Cursor, Grok, and OpenCode usage is not supported; the page never reports missing data as
-        zero.
-      </p>
+      {UNSUPPORTED_PROVIDER_LABELS.length > 0 ? (
+        <p className="mt-3 text-[11px] leading-4 text-muted-foreground/55">
+          {UNSUPPORTED_PROVIDER_LABELS.join(", ")} usage is not supported; the page never reports
+          missing data as zero.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -128,6 +144,7 @@ function ScanDisabledState({
 
 export function UsagePane() {
   const [range, setRange] = useState<UsageRange>("30d");
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [activeAction, setActiveAction] = useState<"enable" | "refresh" | "clear" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [breakdownRefreshSignal, setBreakdownRefreshSignal] = useState(0);
@@ -163,13 +180,6 @@ export function UsagePane() {
     }
   };
   const runClear = async () => {
-    if (
-      !window.confirm(
-        "Clear this environment's scanned usage ledger? The source logs are not deleted and can be scanned again.",
-      )
-    ) {
-      return;
-    }
     setActiveAction("clear");
     setActionError(null);
     try {
@@ -268,11 +278,41 @@ export function UsagePane() {
                     size="xs"
                     variant="destructive-outline"
                     disabled={activeAction !== null || model.scan.scanning}
-                    onClick={() => void runClear()}
+                    onClick={() => setConfirmingClear(true)}
                   >
                     <Trash2Icon />
                     {activeAction === "clear" ? "Clearing…" : "Clear ledger"}
                   </Button>
+                  <AlertDialog
+                    open={confirmingClear}
+                    onOpenChange={(open) => {
+                      if (!open) setConfirmingClear(false);
+                    }}
+                  >
+                    <AlertDialogPopup>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Clear the usage ledger?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This deletes the scanned usage history for this environment. The source
+                          logs are not deleted and can be scanned again.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogClose render={<Button variant="outline" />}>
+                          Cancel
+                        </AlertDialogClose>
+                        <Button
+                          variant="destructive"
+                          onClick={() => {
+                            setConfirmingClear(false);
+                            void runClear();
+                          }}
+                        >
+                          Clear ledger
+                        </Button>
+                      </AlertDialogFooter>
+                    </AlertDialogPopup>
+                  </AlertDialog>
                 </div>
                 {actionError ? (
                   <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive-foreground">

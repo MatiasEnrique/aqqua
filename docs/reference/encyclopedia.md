@@ -210,7 +210,7 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [25]: ../packages/contracts/src/board.ts
 [26]: ../apps/server/src/orchestration/Layers/BoardReactor.ts
 [27]: ../apps/server/src/boardArtifacts.ts
-[28]: ../../apps/server/src/persistence/Services/UsageLedger.ts
+[28]: ../../apps/server/src/persistence/Layers/UsageLedger.ts
 [29]: ../../apps/server/src/persistence/Migrations/039_UsageLedger.ts
 [30]: ../../apps/server/src/usage/UsageScanner.ts
 [31]: ../../packages/contracts/src/usage.ts

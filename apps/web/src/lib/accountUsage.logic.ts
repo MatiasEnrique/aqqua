@@ -99,11 +99,18 @@ export function selectMostConstrainedWindow(
 
   // No window reported a percentage (Claude omits utilization on plain
   // "allowed" events); fall back to the window that resets soonest so reset
-  // times still surface.
+  // times still surface. Non-finite reset times sort last, not first.
   let soonest: AccountRateLimitWindow | null = null;
   for (const window of windows) {
-    const resetsAt = window.resetsAt ?? Number.POSITIVE_INFINITY;
-    if (soonest === null || resetsAt < (soonest.resetsAt ?? Number.POSITIVE_INFINITY)) {
+    const resetsAt =
+      window.resetsAt !== null && Number.isFinite(window.resetsAt)
+        ? window.resetsAt
+        : Number.POSITIVE_INFINITY;
+    const soonestResetsAt =
+      soonest !== null && soonest.resetsAt !== null && Number.isFinite(soonest.resetsAt)
+        ? soonest.resetsAt
+        : Number.POSITIVE_INFINITY;
+    if (soonest === null || resetsAt < soonestResetsAt) {
       soonest = window;
     }
   }
@@ -125,9 +132,14 @@ export function resolveAccountUsagePresentation(input: {
 }): AccountUsagePresentation {
   if (!isAccountUsageSupported(input.provider)) return { state: "unsupported" };
 
-  const snapshot = input.snapshots.find(
-    (candidate) => candidate.providerInstanceId === input.providerInstanceId,
-  );
+  // Prefer the exact instance; fall back to any snapshot for the same driver.
+  // Cold seeds and the OAuth fetcher publish under the default instance id,
+  // and rate limits are account-scoped, so a custom-named instance still
+  // benefits from that data.
+  const snapshot =
+    input.snapshots.find(
+      (candidate) => candidate.providerInstanceId === input.providerInstanceId,
+    ) ?? input.snapshots.find((candidate) => candidate.provider === input.provider);
   if (!snapshot) return { state: "pending" };
 
   const headline = selectMostConstrainedWindow(snapshot.windows);

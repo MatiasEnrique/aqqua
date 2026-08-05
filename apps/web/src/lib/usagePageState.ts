@@ -30,13 +30,13 @@ export function useUsageOverview(range: UsageRange) {
     if (result._tag === "Failure") throw Cause.squash(result.cause);
     await query.refresh();
     return result.value;
-  }, [environmentId, query, refreshScanCommand]);
+  }, [environmentId, query.refresh, refreshScanCommand]);
   const clearLedger = useCallback(async () => {
     if (environmentId === null) throw new Error("No environment is selected.");
     const result = await clearLedgerCommand({ environmentId, input: {} });
     if (result._tag === "Failure") throw Cause.squash(result.cause);
     await query.refresh();
-  }, [clearLedgerCommand, environmentId, query]);
+  }, [clearLedgerCommand, environmentId, query.refresh]);
   const enableScanning = useCallback(async () => {
     if (environmentId === null) throw new Error("No environment is selected.");
     const result = await updateSettingsCommand({
@@ -45,7 +45,7 @@ export function useUsageOverview(range: UsageRange) {
     });
     if (result._tag === "Failure") throw Cause.squash(result.cause);
     await query.refresh();
-  }, [environmentId, query, updateSettingsCommand]);
+  }, [environmentId, query.refresh, updateSettingsCommand]);
 
   return {
     ...query,

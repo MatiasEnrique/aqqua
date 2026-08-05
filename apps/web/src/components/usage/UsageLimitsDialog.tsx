@@ -11,9 +11,9 @@ import {
   isAccountUsageSupported,
   normalizeUsagePercent,
   resolveAccountUsagePresentation,
-  type AccountUsageTone,
 } from "~/lib/accountUsage.logic";
 import { useAccountUsage } from "~/lib/accountUsageState";
+import { TONE_COLORS } from "../chat/AccountUsageMeter";
 import { primaryServerProvidersAtom } from "~/state/server";
 import {
   Dialog,
@@ -23,12 +23,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-
-const TONE_COLORS: Readonly<Record<AccountUsageTone, string>> = {
-  ok: "color-mix(in oklab, var(--color-muted-foreground) 72%, transparent)",
-  warn: "var(--color-amber-500)",
-  critical: "var(--color-red-500)",
-};
 
 /** Windows that govern Fable 5: its dedicated weekly quota when the account
  * has one, plus the shared five-hour and weekly limits it also draws from. */

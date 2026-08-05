@@ -55,12 +55,15 @@ export function attributeUsagePath(
       };
 }
 
+/**
+ * Persisted attribution key. Deliberately excludes the project title: the key
+ * lands in the `usage_daily_rollup` primary key, and a mutable title would
+ * split one project across rows after a rename. Titles resolve at read time.
+ */
 export function usageProjectAttributionKey(
   cwd: string | null,
   roots: ReadonlyArray<UsageAttributionRoot>,
 ): string {
   const attribution = attributeUsagePath(cwd, roots);
-  return attribution.kind === "aqqua"
-    ? `aqqua:${attribution.projectId}:${attribution.projectTitle}`
-    : "external";
+  return attribution.kind === "aqqua" ? `aqqua:${attribution.projectId}` : "external";
 }

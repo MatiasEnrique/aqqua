@@ -60,12 +60,7 @@ export function ComposerUsageMeter(props: {
       : null;
   const headlineTone = headline ? getUsageTone(headline.usedPercent) : "ok";
 
-  const contextPercentLabel =
-    contextPercent === null
-      ? null
-      : contextPercent < 10
-        ? `${contextPercent.toFixed(1).replace(/\.0$/, "")}%`
-        : `${Math.round(contextPercent)}%`;
+  const contextPercentLabel = formatUsagePercent(contextPercent);
 
   return (
     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
@@ -81,12 +76,14 @@ export function ComposerUsageMeter(props: {
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
-            aria-label={[
-              contextPercentLabel ? `Context window ${contextPercentLabel} used` : null,
-              headlineLabel ? `${headlineLabel} rate limit used` : null,
-            ]
-              .filter(Boolean)
-              .join(", ")}
+            aria-label={
+              [
+                contextPercentLabel ? `Context window ${contextPercentLabel} used` : null,
+                headlineLabel ? `${headlineLabel} rate limit used` : null,
+              ]
+                .filter(Boolean)
+                .join(", ") || "Usage data pending"
+            }
           >
             <span className="relative flex size-5 items-center justify-center">
               <svg

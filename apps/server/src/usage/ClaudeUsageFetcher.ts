@@ -136,8 +136,10 @@ export function normalizeClaudeOauthUsage(
         ? ("five-hour" as const)
         : limit.kind === "weekly_all" || limit.kind === "weekly"
           ? ("weekly" as const)
-          : limit.kind === "weekly_scoped" && modelName !== null
-            ? (MODEL_SCOPED_WINDOW_KINDS[modelName] ?? null)
+          : limit.kind === "weekly_scoped" &&
+              modelName !== null &&
+              Object.hasOwn(MODEL_SCOPED_WINDOW_KINDS, modelName)
+            ? MODEL_SCOPED_WINDOW_KINDS[modelName]!
             : null;
     if (kind === null) continue;
     pushWindow({
@@ -152,6 +154,7 @@ export function normalizeClaudeOauthUsage(
   for (const definition of WINDOW_KINDS) {
     const window = decoded[definition.key];
     if (!window) continue;
+    if ((window.utilization ?? null) === null && (window.resets_at ?? null) === null) continue;
     pushWindow({
       kind: definition.kind,
       // The endpoint reports utilization on a 0–100 scale (verified live).

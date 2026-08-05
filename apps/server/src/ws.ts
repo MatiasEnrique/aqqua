@@ -2515,17 +2515,11 @@ const makeWsRpcLayer = (
                     return {
                       range: input.range,
                       totals,
-                      providers: overview.providers.map(({ hasNullCost, ...provider }) => ({
-                        ...provider,
-                        hasPartialCost: hasNullCost,
-                      })),
-                      daily: overview.daily.map(({ hasNullCost, ...day }) => ({
-                        ...day,
-                        hasPartialCost: hasNullCost,
-                      })),
+                      providers: overview.providers,
+                      daily: overview.daily,
                       tokenMix: overview.tokenMix,
                       costUsd: overview.costUsd,
-                      hasPartialCost: overview.hasNullCost,
+                      hasPartialCost: overview.hasPartialCost,
                       scan,
                     };
                   }),
@@ -2550,10 +2544,7 @@ const makeWsRpcLayer = (
                   Effect.map((rows) => ({
                     by: input.by,
                     range: input.range,
-                    rows: rows.map(({ hasNullCost, ...row }) => ({
-                      ...row,
-                      hasPartialCost: hasNullCost,
-                    })),
+                    rows,
                   })),
                   Effect.mapError(
                     (cause) =>

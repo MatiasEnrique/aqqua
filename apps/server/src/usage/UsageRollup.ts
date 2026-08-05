@@ -123,7 +123,7 @@ export function rollupUsageTurns(turns: ReadonlyArray<UsageTurnRecord>): UsageRo
     aggregate.turns += 1;
     aggregate.sessions.add(turn.sessionId);
 
-    const cost = computeCostUsd(turn.model, turn);
+    const cost = computeCostUsd(turn.model, turn, day);
     if (cost === null) {
       aggregate.hasPartialCost = true;
     } else {

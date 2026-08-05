@@ -96,7 +96,7 @@ function overviewFixture(): UsageOverview {
 
 describe("buildUsageOverviewModel", () => {
   it("turns a sparse overview into an honest 42-day presentation", () => {
-    const model = buildUsageOverviewModel(overviewFixture(), new Date("2026-08-04T12:00:00.000Z"));
+    const model = buildUsageOverviewModel(overviewFixture(), new Date(2026, 7, 4, 12, 0, 0));
 
     expect(model.daily).toHaveLength(42);
     expect(model.daily.at(0)?.day).toBe("2026-06-24");
@@ -115,7 +115,7 @@ describe("buildUsageOverviewModel", () => {
   });
 
   it("keeps unsupported providers distinct from supported providers with no rows", () => {
-    const model = buildUsageOverviewModel(overviewFixture(), new Date("2026-08-04T12:00:00.000Z"));
+    const model = buildUsageOverviewModel(overviewFixture(), new Date(2026, 7, 4, 12, 0, 0));
 
     expect(
       model.providers.map(({ provider, support, totals }) => ({ provider, support, totals })),

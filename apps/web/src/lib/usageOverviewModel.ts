@@ -8,9 +8,13 @@ import {
 } from "@aqqua/contracts";
 
 const HEATMAP_DAY_COUNT = 42;
-const PROVIDERS = ["claudeAgent", "codex", "cursor", "grok", "opencode"] as const;
+// Derived from the contract so a new or reclassified driver cannot silently
+// desynchronize this list; only the display labels stay local.
+const PROVIDERS = Object.keys(ACCOUNT_USAGE_SUPPORT_BY_PROVIDER) as ReadonlyArray<
+  keyof typeof ACCOUNT_USAGE_SUPPORT_BY_PROVIDER
+>;
 
-const PROVIDER_LABELS: Readonly<Record<(typeof PROVIDERS)[number], string>> = {
+export const PROVIDER_LABELS: Readonly<Record<(typeof PROVIDERS)[number], string>> = {
   claudeAgent: "Claude",
   codex: "Codex",
   cursor: "Cursor",

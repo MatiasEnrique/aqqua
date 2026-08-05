@@ -90,6 +90,26 @@ export const MODEL_PRICING = {
   "gpt-5-nano": openAiPricing(0.05, 0.4, 0.005),
 } as const satisfies Readonly<Record<string, ModelPricing>>;
 
+/**
+ * Scheduled price changes keyed by the usage day (local YYYY-MM-DD). The most
+ * recent entry whose `from` is on or before the usage day wins over the base
+ * table. Sonnet 5's introductory rate ends 2026-08-31.
+ */
+const DATED_MODEL_PRICING: Readonly<
+  Record<string, ReadonlyArray<{ readonly from: string; readonly pricing: ModelPricing }>>
+> = {
+  "claude-sonnet-5": [{ from: "2026-09-01", pricing: anthropicPricing(3, 15) }],
+};
+
+function datedOverride(model: string, day: string | null): ModelPricing | null {
+  if (day === null || !Object.hasOwn(DATED_MODEL_PRICING, model)) return null;
+  let selected: ModelPricing | null = null;
+  for (const entry of DATED_MODEL_PRICING[model]!) {
+    if (entry.from <= day) selected = entry.pricing;
+  }
+  return selected;
+}
+
 function normalizeModelForLookup(model: string): string {
   return model
     .trim()
@@ -97,12 +117,15 @@ function normalizeModelForLookup(model: string): string {
     .replace(/\[.*\]$/, "");
 }
 
-export function lookupModelPricing(model: string | null): ModelPricing | null {
+export function lookupModelPricing(
+  model: string | null,
+  usageDay: string | null = null,
+): ModelPricing | null {
   if (model === null) return null;
 
   const normalized = normalizeModelForLookup(model);
   const exact = MODEL_PRICING[normalized as keyof typeof MODEL_PRICING];
-  if (exact !== undefined) return exact;
+  if (exact !== undefined) return datedOverride(normalized, usageDay) ?? exact;
 
   for (const [pricedModel, pricing] of Object.entries(MODEL_PRICING)) {
     const snapshotSuffix = normalized.slice(pricedModel.length + 1);
@@ -110,15 +133,19 @@ export function lookupModelPricing(model: string | null): ModelPricing | null {
       normalized.startsWith(`${pricedModel}-`) &&
       (/^\d{8}$/.test(snapshotSuffix) || /^\d{4}-\d{2}-\d{2}$/.test(snapshotSuffix))
     ) {
-      return pricing;
+      return datedOverride(pricedModel, usageDay) ?? pricing;
     }
   }
 
   return null;
 }
 
-export function computeCostUsd(model: string | null, tokens: PriceableTokenUsage): number | null {
-  const pricing = lookupModelPricing(model);
+export function computeCostUsd(
+  model: string | null,
+  tokens: PriceableTokenUsage,
+  usageDay: string | null = null,
+): number | null {
+  const pricing = lookupModelPricing(model, usageDay);
   if (pricing === null) return null;
 
   return (

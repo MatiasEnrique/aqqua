@@ -177,4 +177,4 @@ limits without having a stable log format, or have scannable logs without emitti
 - rollup and pricing: [`UsageRollup.ts`](../../apps/server/src/usage/UsageRollup.ts) and
   [`Pricing.ts`](../../apps/server/src/usage/Pricing.ts)
 - persistence: [`039_UsageLedger.ts`](../../apps/server/src/persistence/Migrations/039_UsageLedger.ts)
-  and [`UsageLedger.ts`](../../apps/server/src/persistence/Services/UsageLedger.ts)
+  and [`UsageLedger.ts`](../../apps/server/src/persistence/Layers/UsageLedger.ts)

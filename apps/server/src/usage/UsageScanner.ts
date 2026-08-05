@@ -336,24 +336,31 @@ export class UsageScanner extends Context.Service<
         const snapshotFiles = Effect.fn("UsageScanner.snapshotFiles")(function* (
           files: ReadonlyArray<{ readonly path: string; readonly provider: "claude" | "codex" }>,
         ) {
-          return yield* Effect.forEach(
+          const snapshots = yield* Effect.forEach(
             files,
             Effect.fn("UsageScanner.snapshotFile")(function* (file) {
-              const [info, previous] = yield* Effect.all([
-                fileSystem.stat(file.path),
-                ledger.getScanFile(file.path),
-              ]);
+              // A file deleted between discovery and stat (or unreadable) is
+              // skipped rather than failing the whole scan.
+              const info = yield* fileSystem.stat(file.path).pipe(Effect.option);
+              if (Option.isNone(info)) {
+                yield* Effect.logDebug("Skipping unstattable usage log file", {
+                  path: file.path,
+                });
+                return null;
+              }
+              const previous = yield* ledger.getScanFile(file.path);
               return {
                 ...file,
-                size: Number(info.size),
-                mtimeMs: mtimeMs(info),
-                inode: inode(info),
-                birthtimeMs: birthtimeMs(info),
+                size: Number(info.value.size),
+                mtimeMs: mtimeMs(info.value),
+                inode: inode(info.value),
+                birthtimeMs: birthtimeMs(info.value),
                 previous: Option.getOrNull(previous),
               } satisfies FileSnapshot;
             }),
             { concurrency: 8 },
           );
+          return snapshots.filter((snapshot) => snapshot !== null);
         });
 
         const readAttributionRoots = Effect.fn("UsageScanner.readAttributionRoots")(function* () {
@@ -426,6 +433,20 @@ export class UsageScanner extends Context.Service<
           };
         });
 
+        // Claude dedupes on requestId: resumed sessions append rewritten lines
+        // with ids already counted before the offset. After a restart the seen
+        // set is gone, so re-read the head (only for files with new bytes) to
+        // rebuild it before parsing the tail.
+        const recoverClaudeState = Effect.fn("UsageScanner.recoverClaudeState")(function* (
+          file: FileSnapshot,
+          offset: number,
+        ) {
+          const head = yield* readTail(file.path, 0, offset).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+          );
+          return parseClaudeLog(new TextDecoder().decode(head));
+        });
+
         const recoverCodexState = Effect.fn("UsageScanner.recoverCodexState")(function* (
           file: FileSnapshot,
           offset: number,
@@ -471,14 +492,32 @@ export class UsageScanner extends Context.Service<
           let recoveredRateLimits: CodexInlineRateLimits | null = null;
           for (const file of snapshots) {
             if (
-              file.provider !== "codex" ||
               file.previous === null ||
               file.previous.byteOffset === 0 ||
               knownParserStates.has(file.path)
             ) {
               continue;
             }
-            const recovered = yield* recoverCodexState(file, file.previous.byteOffset);
+            if (file.provider === "claude") {
+              // Only files that actually grew need their dedupe state back.
+              if (file.size <= file.previous.byteOffset) continue;
+              const recovered = yield* recoverClaudeState(file, file.previous.byteOffset).pipe(
+                Effect.option,
+              );
+              if (Option.isNone(recovered)) continue;
+              yield* Ref.update(parserStates, (current) =>
+                new Map(current).set(file.path, {
+                  provider: "claude" as const,
+                  state: recovered.value.state,
+                }),
+              );
+              continue;
+            }
+            const recoveredCodex = yield* recoverCodexState(file, file.previous.byteOffset).pipe(
+              Effect.option,
+            );
+            if (Option.isNone(recoveredCodex)) continue;
+            const recovered = recoveredCodex.value;
             const parserState = {
               provider: "codex" as const,
               state: recovered.state,
@@ -489,7 +528,7 @@ export class UsageScanner extends Context.Service<
             recoveredRateLimits = newerRateLimits(recoveredRateLimits, recovered.rateLimits);
           }
           knownParserStates = yield* Ref.get(parserStates);
-          const needsRebuild = snapshots.some((file) => {
+          const fileNeedsRebuild = (file: FileSnapshot): boolean => {
             if (file.previous === null) return false;
             if (file.size < file.previous.byteOffset) return true;
             if (knownInodes.has(file.path) && knownInodes.get(file.path) !== file.inode)
@@ -504,13 +543,30 @@ export class UsageScanner extends Context.Service<
               return true;
             }
             return file.provider === "codex" && !knownParserStates.has(file.path);
-          });
-          if (needsRebuild) {
-            yield* ledger.clear();
-            yield* Ref.set(parserStates, new Map());
-            yield* Ref.set(inodeByPath, new Map());
-            yield* Ref.set(rollupKeysByPath, new Map());
-            snapshots = snapshots.map((file) => ({ ...file, previous: null }));
+          };
+          // Rebuilds are scoped to the affected provider: clearing the whole
+          // ledger would also discard the other provider's history, including
+          // usage from rotated-away log files that cannot be rescanned.
+          const providersToRebuild = new Set(
+            snapshots.filter(fileNeedsRebuild).map((file) => file.provider),
+          );
+          for (const provider of providersToRebuild) {
+            const rootPrefix =
+              provider === "claude" ? roots.claudeProjectsDirectory : roots.codexSessionsDirectory;
+            yield* ledger.clearProvider(provider, rootPrefix);
+            const dropForProvider = <Value>(current: ReadonlyMap<string, Value>) => {
+              const next = new Map(current);
+              for (const file of snapshots) {
+                if (file.provider === provider) next.delete(file.path);
+              }
+              return next;
+            };
+            yield* Ref.update(parserStates, dropForProvider);
+            yield* Ref.update(inodeByPath, dropForProvider);
+            yield* Ref.update(rollupKeysByPath, dropForProvider);
+            snapshots = snapshots.map((file) =>
+              file.provider === provider ? { ...file, previous: null } : file,
+            );
           }
 
           const attributionRoots = yield* readAttributionRoots();
@@ -527,10 +583,26 @@ export class UsageScanner extends Context.Service<
               );
               continue;
             }
-            const result = yield* scanFile(file, offset);
+            // One unreadable or torn file must not stop ingestion of the rest,
+            // nor poison every future scheduled scan.
+            const result = yield* scanFile(file, offset).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Skipping unreadable usage log file", {
+                  path: file.path,
+                  detail: Cause.pretty(cause),
+                }).pipe(Effect.as(null)),
+              ),
+            );
+            if (result === null) continue;
             const attributedTurns = attributeTurns(result.turns, attributionRoots);
             const rollups = rollupUsageTurns(attributedTurns);
-            const knownRollupKeys = (yield* Ref.get(rollupKeysByPath)).get(file.path) ?? new Set();
+            // Session counts are additive in the ledger, so a rollup identity
+            // this file already contributed sessions to must not re-add them.
+            // The identity set persists with the scan-file row to survive
+            // restarts.
+            const knownRollupKeys =
+              (yield* Ref.get(rollupKeysByPath)).get(file.path) ??
+              new Set(file.previous?.rollupKeys ?? []);
             const nextRollupKeys = new Set(knownRollupKeys);
             const ledgerRows = toLedgerRows(
               rollups.rows.map((row) => {
@@ -547,6 +619,7 @@ export class UsageScanner extends Context.Service<
               size: file.size,
               byteOffset: result.nextOffset,
               scannedAt,
+              rollupKeys: Array.from(nextRollupKeys),
             });
             yield* Ref.update(parserStates, (current) =>
               new Map(current).set(file.path, result.parserState),

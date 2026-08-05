@@ -72,7 +72,7 @@ layer("UsageLedgerRepository", (it) => {
           turns: 1,
           sessions: 1,
           costUsd: 0,
-          hasNullCost: true,
+          hasPartialCost: true,
         },
         {
           provider: "codex",
@@ -84,7 +84,7 @@ layer("UsageLedgerRepository", (it) => {
           turns: 2,
           sessions: 2,
           costUsd: 1.5,
-          hasNullCost: false,
+          hasPartialCost: false,
         },
       ]);
       assert.deepStrictEqual(overview.daily, [
@@ -98,7 +98,7 @@ layer("UsageLedgerRepository", (it) => {
           turns: 3,
           sessions: 3,
           costUsd: 1.5,
-          hasNullCost: true,
+          hasPartialCost: true,
         },
       ]);
       assert.deepStrictEqual(overview.tokenMix, {
@@ -109,28 +109,19 @@ layer("UsageLedgerRepository", (it) => {
         reasoningTokens: 4,
       });
       assert.equal(overview.costUsd, 1.5);
-      assert.equal(overview.hasNullCost, true);
+      assert.equal(overview.hasPartialCost, true);
 
       const byModel = yield* repository.getBreakdown("model", "7d");
       assert.deepStrictEqual(
-        byModel.map(({ key, turns, costUsd, hasNullCost }) => ({
+        byModel.map(({ key, turns, costUsd, hasPartialCost }) => ({
           key,
           turns,
           costUsd,
-          hasNullCost,
+          hasPartialCost,
         })),
         [
-          { key: "gpt-5.4", turns: 2, costUsd: 1.5, hasNullCost: false },
-          { key: "unknown-model", turns: 1, costUsd: 0, hasNullCost: true },
-        ],
-      );
-
-      const bySession = yield* repository.getBreakdown("session", "7d");
-      assert.deepStrictEqual(
-        bySession.map(({ key, sessions }) => ({ key, sessions })),
-        [
-          { key: "/workspace/aqqua · usage", sessions: 2 },
-          { key: "/workspace/external", sessions: 1 },
+          { key: "gpt-5.4", turns: 2, costUsd: 1.5, hasPartialCost: false },
+          { key: "unknown-model", turns: 1, costUsd: 0, hasPartialCost: true },
         ],
       );
     }),
@@ -147,6 +138,7 @@ layer("UsageLedgerRepository", (it) => {
         size: 200,
         byteOffset: 150,
         scannedAt,
+        rollupKeys: [],
       });
       yield* repository.upsertScanFile({
         path: "/tmp/rollout.jsonl",
@@ -154,6 +146,7 @@ layer("UsageLedgerRepository", (it) => {
         size: 250,
         byteOffset: 250,
         scannedAt,
+        rollupKeys: ["key-a"],
       });
 
       const scanFile = yield* repository.getScanFile("/tmp/rollout.jsonl");
@@ -163,6 +156,7 @@ layer("UsageLedgerRepository", (it) => {
         size: 250,
         byteOffset: 250,
         scannedAt,
+        rollupKeys: ["key-a"],
       });
 
       yield* repository.upsertRollups([
@@ -198,7 +192,7 @@ layer("UsageLedgerRepository", (it) => {
           reasoningTokens: 0,
         },
         costUsd: 0,
-        hasNullCost: false,
+        hasPartialCost: false,
       });
     }),
   );

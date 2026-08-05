@@ -283,4 +283,33 @@ describe("AccountRateLimits", () => {
       expect(latest.rateLimits[0]?.status).toBe("allowed");
     }).pipe(Effect.provide(AccountRateLimits.layer)),
   );
+
+  it.effect("clears a reached status when the provider reports healthy (null)", () =>
+    Effect.gen(function* () {
+      const service = yield* AccountRateLimits;
+      const instanceId = ProviderInstanceId.make("codex");
+      const reached = normalizeCodexRateLimits(
+        {
+          rateLimits: {
+            primary: { usedPercent: 100, windowDurationMins: 300 },
+            rateLimitReachedType: "rate_limit_reached",
+          },
+        },
+        { providerInstanceId: instanceId, capturedAt: CAPTURED_AT },
+      );
+      yield* service.ingest(
+        rateLimitsEvent(reached, { eventId: "reached", providerInstanceId: instanceId }),
+      );
+      expect((yield* service.latest).rateLimits[0]?.status).toBe("rate_limit_reached");
+
+      const healthy = normalizeCodexRateLimits(
+        { rateLimits: { primary: { usedPercent: 20, windowDurationMins: 300 } } },
+        { providerInstanceId: instanceId, capturedAt: "2026-08-04T12:10:00.000Z" },
+      );
+      yield* service.ingest(
+        rateLimitsEvent(healthy, { eventId: "healthy", providerInstanceId: instanceId }),
+      );
+      expect((yield* service.latest).rateLimits[0]?.status).toBeNull();
+    }).pipe(Effect.provide(AccountRateLimits.layer)),
+  );
 });

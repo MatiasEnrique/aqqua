@@ -24,20 +24,24 @@ const RangeRequest = Schema.Struct({ daysBeforeToday: Schema.NullOr(Schema.Int) 
 
 const UsageProviderTotalDb = Schema.Struct({
   ...UsageProviderTotal.fields,
-  hasNullCost: Schema.Int,
+  hasPartialCost: Schema.Int,
 });
 const UsageDailyTotalDb = Schema.Struct({
   ...UsageDailyTotal.fields,
-  hasNullCost: Schema.Int,
+  hasPartialCost: Schema.Int,
 });
 const UsageTokenMixDb = Schema.Struct({
   ...UsageTokenMix.fields,
   costUsd: Schema.Number,
-  hasNullCost: Schema.Int,
+  hasPartialCost: Schema.Int,
 });
 const UsageBreakdownRowDb = Schema.Struct({
   ...UsageBreakdownRow.fields,
-  hasNullCost: Schema.Int,
+  hasPartialCost: Schema.Int,
+});
+const UsageScanFileDb = Schema.Struct({
+  ...UsageScanFile.fields,
+  rollupKeys: Schema.fromJsonString(Schema.Array(Schema.String)),
 });
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
@@ -60,10 +64,10 @@ function daysBeforeToday(range: UsageRangeType): number | null {
   }
 }
 
-function withBooleanFlag<const Row extends { readonly hasNullCost: number }>(
+function withBooleanFlag<const Row extends { readonly hasPartialCost: number }>(
   row: Row,
-): Omit<Row, "hasNullCost"> & { readonly hasNullCost: boolean } {
-  return { ...row, hasNullCost: row.hasNullCost > 0 };
+): Omit<Row, "hasPartialCost"> & { readonly hasPartialCost: boolean } {
+  return { ...row, hasPartialCost: row.hasPartialCost > 0 };
 }
 
 const makeUsageLedgerRepository = Effect.gen(function* () {
@@ -116,7 +120,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
 
   const findScanFile = SqlSchema.findOneOption({
     Request: PathRequest,
-    Result: UsageScanFile,
+    Result: UsageScanFileDb,
     execute: ({ path }) =>
       sql`
         SELECT
@@ -124,7 +128,8 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           mtime_ms AS "mtimeMs",
           size,
           byte_offset AS "byteOffset",
-          scanned_at AS "scannedAt"
+          scanned_at AS "scannedAt",
+          rollup_keys AS "rollupKeys"
         FROM usage_scan_files
         WHERE path = ${path}
         LIMIT 1
@@ -140,20 +145,23 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           mtime_ms,
           size,
           byte_offset,
-          scanned_at
+          scanned_at,
+          rollup_keys
         ) VALUES (
           ${row.path},
           ${row.mtimeMs},
           ${row.size},
           ${row.byteOffset},
-          ${row.scannedAt}
+          ${row.scannedAt},
+          ${JSON.stringify(row.rollupKeys)}
         )
         ON CONFLICT (path)
         DO UPDATE SET
           mtime_ms = excluded.mtime_ms,
           size = excluded.size,
           byte_offset = excluded.byte_offset,
-          scanned_at = excluded.scanned_at
+          scanned_at = excluded.scanned_at,
+          rollup_keys = excluded.rollup_keys
       `,
   });
 
@@ -172,7 +180,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           COALESCE(SUM(turns), 0) AS turns,
           COALESCE(SUM(sessions), 0) AS sessions,
           COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasNullCost"
+          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasPartialCost"
         FROM usage_daily_rollup
         WHERE (
           ${daysBeforeToday} IS NULL
@@ -198,7 +206,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           COALESCE(SUM(turns), 0) AS turns,
           COALESCE(SUM(sessions), 0) AS sessions,
           COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasNullCost"
+          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasPartialCost"
         FROM usage_daily_rollup
         WHERE (
           ${daysBeforeToday} IS NULL
@@ -221,7 +229,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           COALESCE(SUM(output_tokens), 0) AS "outputTokens",
           COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens",
           COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          COALESCE(MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS "hasNullCost"
+          COALESCE(MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS "hasPartialCost"
         FROM usage_daily_rollup
         WHERE (
           ${daysBeforeToday} IS NULL
@@ -245,7 +253,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
           COALESCE(SUM(turns), 0) AS turns,
           COALESCE(SUM(sessions), 0) AS sessions,
           COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasNullCost"
+          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasPartialCost"
         FROM usage_daily_rollup
         WHERE (
           ${daysBeforeToday} IS NULL
@@ -265,59 +273,34 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
     execute: ({ daysBeforeToday }) =>
       sql`
         SELECT
-          project_path AS key,
-          COALESCE(SUM(input_tokens), 0) AS "inputTokens",
-          COALESCE(SUM(cached_input_tokens), 0) AS "cachedInputTokens",
-          COALESCE(SUM(cache_write_tokens), 0) AS "cacheWriteTokens",
-          COALESCE(SUM(output_tokens), 0) AS "outputTokens",
-          COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens",
-          COALESCE(SUM(turns), 0) AS turns,
-          COALESCE(SUM(sessions), 0) AS sessions,
-          COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasNullCost"
-        FROM usage_daily_rollup
-        WHERE (
-          ${daysBeforeToday} IS NULL
-          OR day >= date('now', 'localtime', '-' || ${daysBeforeToday} || ' days')
-        )
-        GROUP BY project_path
-        ORDER BY (
-          SUM(input_tokens) + SUM(cached_input_tokens) + SUM(cache_write_tokens)
-          + SUM(output_tokens) + SUM(reasoning_tokens)
-        ) DESC, project_path ASC
-      `,
-  });
-
-  const listSessionBreakdown = SqlSchema.findAll({
-    Request: RangeRequest,
-    Result: UsageBreakdownRowDb,
-    execute: ({ daysBeforeToday }) =>
-      sql`
-        SELECT
+          -- Rollups store the stable "aqqua:<projectId>" key (titles are
+          -- mutable); resolve the display title at read time.
           CASE
-            WHEN project_path = '' THEN git_branch
-            WHEN git_branch = '' THEN project_path
-            ELSE project_path || ' · ' || git_branch
+            WHEN project.title IS NOT NULL AND project.title != '' THEN project.title
+            ELSE rollup.project_path
           END AS key,
-          COALESCE(SUM(input_tokens), 0) AS "inputTokens",
-          COALESCE(SUM(cached_input_tokens), 0) AS "cachedInputTokens",
-          COALESCE(SUM(cache_write_tokens), 0) AS "cacheWriteTokens",
-          COALESCE(SUM(output_tokens), 0) AS "outputTokens",
-          COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens",
-          COALESCE(SUM(turns), 0) AS turns,
-          COALESCE(SUM(sessions), 0) AS sessions,
-          COALESCE(SUM(cost_usd), 0) AS "costUsd",
-          MAX(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasNullCost"
-        FROM usage_daily_rollup
+          COALESCE(SUM(rollup.input_tokens), 0) AS "inputTokens",
+          COALESCE(SUM(rollup.cached_input_tokens), 0) AS "cachedInputTokens",
+          COALESCE(SUM(rollup.cache_write_tokens), 0) AS "cacheWriteTokens",
+          COALESCE(SUM(rollup.output_tokens), 0) AS "outputTokens",
+          COALESCE(SUM(rollup.reasoning_tokens), 0) AS "reasoningTokens",
+          COALESCE(SUM(rollup.turns), 0) AS turns,
+          COALESCE(SUM(rollup.sessions), 0) AS sessions,
+          COALESCE(SUM(rollup.cost_usd), 0) AS "costUsd",
+          MAX(CASE WHEN rollup.cost_usd IS NULL THEN 1 ELSE 0 END) AS "hasPartialCost"
+        FROM usage_daily_rollup rollup
+        LEFT JOIN projection_projects project
+          ON rollup.project_path = 'aqqua:' || project.project_id
         WHERE (
           ${daysBeforeToday} IS NULL
-          OR day >= date('now', 'localtime', '-' || ${daysBeforeToday} || ' days')
+          OR rollup.day >= date('now', 'localtime', '-' || ${daysBeforeToday} || ' days')
         )
-        GROUP BY project_path, git_branch
+        GROUP BY rollup.project_path
         ORDER BY (
-          SUM(input_tokens) + SUM(cached_input_tokens) + SUM(cache_write_tokens)
-          + SUM(output_tokens) + SUM(reasoning_tokens)
-        ) DESC, project_path ASC, git_branch ASC
+          SUM(rollup.input_tokens) + SUM(rollup.cached_input_tokens)
+          + SUM(rollup.cache_write_tokens) + SUM(rollup.output_tokens)
+          + SUM(rollup.reasoning_tokens)
+        ) DESC, rollup.project_path ASC
       `,
   });
 
@@ -401,13 +384,13 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
         ),
       ),
     );
-    const { costUsd, hasNullCost, ...tokenMix } = mix;
+    const { costUsd, hasPartialCost, ...tokenMix } = mix;
     return UsageOverview.make({
       providers: providers.map(withBooleanFlag),
       daily: daily.map(withBooleanFlag),
       tokenMix,
       costUsd,
-      hasNullCost: hasNullCost > 0,
+      hasPartialCost: hasPartialCost > 0,
     });
   });
 
@@ -415,12 +398,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
     "UsageLedgerRepository.getBreakdown",
   )(function* (by, range) {
     const request = { daysBeforeToday: daysBeforeToday(range) };
-    const query =
-      by === "model"
-        ? listModelBreakdown
-        : by === "project"
-          ? listProjectBreakdown
-          : listSessionBreakdown;
+    const query = by === "model" ? listModelBreakdown : listProjectBreakdown;
     const rows = yield* query(request).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
@@ -430,6 +408,27 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
       ),
     );
     return rows.map(withBooleanFlag);
+  });
+
+  const clearProvider: UsageLedgerRepositoryShape["clearProvider"] = Effect.fn(
+    "UsageLedgerRepository.clearProvider",
+  )(function* (provider, pathPrefix) {
+    yield* sql
+      .withTransaction(
+        sql`DELETE FROM usage_daily_rollup WHERE provider = ${provider}`.pipe(
+          Effect.flatMap(
+            () => sql`DELETE FROM usage_scan_files WHERE path LIKE ${`${pathPrefix}%`}`,
+          ),
+        ),
+      )
+      .pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "UsageLedgerRepository.clearProvider:query",
+            "UsageLedgerRepository.clearProvider:encodeRequest",
+          ),
+        ),
+      );
   });
 
   const clear: UsageLedgerRepositoryShape["clear"] = Effect.fn("UsageLedgerRepository.clear")(
@@ -456,6 +455,7 @@ const makeUsageLedgerRepository = Effect.gen(function* () {
     commitScanFile,
     getOverview,
     getBreakdown,
+    clearProvider,
     clear,
   } satisfies UsageLedgerRepositoryShape;
 });

@@ -102,6 +102,36 @@ describe("account usage presentation", () => {
     ).toEqual({ state: "ready", snapshot: current, headline: current.windows[0] });
   });
 
+  it("falls back to the soonest-resetting window when no percentages exist", () => {
+    const selected = selectMostConstrainedWindow([
+      { kind: "weekly", usedPercent: null, resetsAt: 1_800_600_000, windowMinutes: 10_080 },
+      { kind: "five-hour", usedPercent: null, resetsAt: 1_800_000_000, windowMinutes: 300 },
+      { kind: "overage", usedPercent: null, resetsAt: Number.NaN, windowMinutes: null },
+    ]);
+    expect(selected?.kind).toBe("five-hour");
+
+    const nanFirst = selectMostConstrainedWindow([
+      { kind: "overage", usedPercent: null, resetsAt: Number.NaN, windowMinutes: null },
+      { kind: "weekly", usedPercent: null, resetsAt: 1_800_600_000, windowMinutes: 10_080 },
+    ]);
+    expect(nanFirst?.kind).toBe("weekly");
+  });
+
+  it("falls back to a same-provider snapshot when the instance id differs", () => {
+    const seeded = snapshot({
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      windows: [
+        { kind: "weekly", usedPercent: 28, resetsAt: 1_800_000_000, windowMinutes: 10_080 },
+      ],
+    });
+    const presentation = resolveAccountUsagePresentation({
+      provider: ProviderDriverKind.make("codex"),
+      providerInstanceId: ProviderInstanceId.make("codex-custom"),
+      snapshots: [seeded],
+    });
+    expect(presentation.state).toBe("ready");
+  });
+
   it("treats unknown drivers as unsupported", () => {
     expect(
       resolveAccountUsagePresentation({

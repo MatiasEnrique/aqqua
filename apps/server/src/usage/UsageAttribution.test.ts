@@ -44,9 +44,7 @@ describe("UsageAttribution", () => {
   });
 
   it("emits a stable aqqua project key and handles missing cwd as external", () => {
-    expect(usageProjectAttributionKey("/workspace/site/src", roots)).toBe(
-      "aqqua:project-b:Website",
-    );
+    expect(usageProjectAttributionKey("/workspace/site/src", roots)).toBe("aqqua:project-b");
     expect(usageProjectAttributionKey(null, roots)).toBe("external");
   });
 });

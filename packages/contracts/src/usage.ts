@@ -57,6 +57,8 @@ export const ACCOUNT_USAGE_SUPPORT_BY_PROVIDER = {
   cursor: "unsupported",
   grok: "unsupported",
   opencode: "unsupported",
+  // ProviderDriverKind is an open branded slug (see providerInstance.ts), so
+  // this map cannot be exhaustiveness-checked; lookups treat absence as unsupported.
 } as const satisfies Readonly<Record<string, AccountUsageSupport>>;
 
 export const AccountUsageSnapshot = Schema.Struct({

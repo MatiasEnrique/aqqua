@@ -4,9 +4,22 @@
  * This is deliberately not a projection repository: its source of truth is
  * external provider logs rather than aqqua's orchestration event log.
  *
+ * Row and range shapes are the wire contracts from `@aqqua/contracts` — the
+ * repository aggregates in SQL straight into what clients receive.
+ *
  * @module UsageLedgerRepository
  */
-import { IsoDateTime, NonNegativeInt } from "@aqqua/contracts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  UsageBreakdownBy,
+  UsageBreakdownRow,
+  UsageDailyTotal,
+  UsageProviderTotal,
+  UsageRange,
+  UsageTokenMix,
+  UsageTokenTotals,
+} from "@aqqua/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -14,15 +27,15 @@ import * as Schema from "effect/Schema";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
-export const UsageRange = Schema.Literals(["7d", "30d", "90d", "all"]);
-export type UsageRange = typeof UsageRange.Type;
-
-/**
- * `session` is the ledger's session-ish bucket: project path plus git branch.
- * Individual session identities are intentionally not retained in daily rollups.
- */
-export const UsageBreakdownBy = Schema.Literals(["model", "project", "session"]);
-export type UsageBreakdownBy = typeof UsageBreakdownBy.Type;
+export {
+  UsageBreakdownBy,
+  UsageBreakdownRow,
+  UsageDailyTotal,
+  UsageProviderTotal,
+  UsageRange,
+  UsageTokenMix,
+  UsageTokenTotals,
+};
 
 export const UsageRollup = Schema.Struct({
   day: Schema.String,
@@ -48,61 +61,23 @@ export const UsageScanFile = Schema.Struct({
   size: NonNegativeInt,
   byteOffset: NonNegativeInt,
   scannedAt: IsoDateTime,
+  /**
+   * Rollup identities this file has already contributed `sessions` counts to.
+   * Persisted so incremental tail scans after a restart do not re-add a
+   * session that was counted before the restart.
+   */
+  rollupKeys: Schema.Array(Schema.String),
 });
 export type UsageScanFile = typeof UsageScanFile.Type;
-
-export const UsageTokenTotals = Schema.Struct({
-  inputTokens: NonNegativeInt,
-  cachedInputTokens: NonNegativeInt,
-  cacheWriteTokens: NonNegativeInt,
-  outputTokens: NonNegativeInt,
-  reasoningTokens: NonNegativeInt,
-  turns: NonNegativeInt,
-  sessions: NonNegativeInt,
-});
-export type UsageTokenTotals = typeof UsageTokenTotals.Type;
-
-export const UsageProviderTotal = Schema.Struct({
-  provider: Schema.String,
-  ...UsageTokenTotals.fields,
-  costUsd: Schema.Number,
-  hasNullCost: Schema.Boolean,
-});
-export type UsageProviderTotal = typeof UsageProviderTotal.Type;
-
-export const UsageDailyTotal = Schema.Struct({
-  day: Schema.String,
-  ...UsageTokenTotals.fields,
-  costUsd: Schema.Number,
-  hasNullCost: Schema.Boolean,
-});
-export type UsageDailyTotal = typeof UsageDailyTotal.Type;
-
-export const UsageTokenMix = Schema.Struct({
-  inputTokens: NonNegativeInt,
-  cachedInputTokens: NonNegativeInt,
-  cacheWriteTokens: NonNegativeInt,
-  outputTokens: NonNegativeInt,
-  reasoningTokens: NonNegativeInt,
-});
-export type UsageTokenMix = typeof UsageTokenMix.Type;
 
 export const UsageOverview = Schema.Struct({
   providers: Schema.Array(UsageProviderTotal),
   daily: Schema.Array(UsageDailyTotal),
   tokenMix: UsageTokenMix,
   costUsd: Schema.Number,
-  hasNullCost: Schema.Boolean,
+  hasPartialCost: Schema.Boolean,
 });
 export type UsageOverview = typeof UsageOverview.Type;
-
-export const UsageBreakdownRow = Schema.Struct({
-  key: Schema.String,
-  ...UsageTokenTotals.fields,
-  costUsd: Schema.Number,
-  hasNullCost: Schema.Boolean,
-});
-export type UsageBreakdownRow = typeof UsageBreakdownRow.Type;
 
 export interface UsageLedgerRepositoryShape {
   readonly upsertRollups: (
@@ -123,6 +98,11 @@ export interface UsageLedgerRepositoryShape {
     by: UsageBreakdownBy,
     range: UsageRange,
   ) => Effect.Effect<ReadonlyArray<UsageBreakdownRow>, ProjectionRepositoryError>;
+  /** Deletes one provider's rollups and scan bookkeeping (paths under `pathPrefix`). */
+  readonly clearProvider: (
+    provider: string,
+    pathPrefix: string,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly clear: () => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
