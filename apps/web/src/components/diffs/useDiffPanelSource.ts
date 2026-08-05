@@ -31,6 +31,7 @@ import { resolveDiffPanelCwd } from "./diffPanelGitTarget";
 import { EMPTY_COLLAPSED_DIFF_FILE_KEYS } from "./diffPanelViewConfig";
 
 export const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
+export const CURRENT_BRANCH_HEAD_REF = "__current_branch_head_ref__";
 
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;
@@ -52,6 +53,7 @@ interface UseDiffPanelSourceInput {
   readonly fallbackCwd: string | null;
   readonly ignoreWhitespace: boolean;
   readonly baseRefQuery: string;
+  readonly headRefQuery: string;
   readonly collapsedDiffFiles: CollapsedDiffFilesState;
   readonly resolvedTheme: "light" | "dark";
 }
@@ -152,9 +154,11 @@ function useGitDiffSourceController(input: {
   readonly activeCwd: string | undefined;
   readonly environmentCwd: string | undefined;
   readonly selectedBaseRef: string | null;
+  readonly selectedHeadRef: string | null;
   readonly selectedGitScope: "branch" | "unstaged";
   readonly ignoreWhitespace: boolean;
   readonly baseRefQuery: string;
+  readonly headRefQuery: string;
 }) {
   const primaryPreview = useEnvironmentQuery(
     input.enabled && input.environmentId !== null && input.activeCwd
@@ -163,6 +167,7 @@ function useGitDiffSourceController(input: {
           input: {
             cwd: input.activeCwd,
             ...(input.selectedBaseRef ? { baseRef: input.selectedBaseRef } : {}),
+            ...(input.selectedHeadRef ? { headRef: input.selectedHeadRef } : {}),
             ignoreWhitespace: input.ignoreWhitespace,
           },
         })
@@ -180,6 +185,7 @@ function useGitDiffSourceController(input: {
           input: {
             cwd: input.environmentCwd,
             ...(input.selectedBaseRef ? { baseRef: input.selectedBaseRef } : {}),
+            ...(input.selectedHeadRef ? { headRef: input.selectedHeadRef } : {}),
             ignoreWhitespace: input.ignoreWhitespace,
           },
         })
@@ -198,7 +204,7 @@ function useGitDiffSourceController(input: {
       ? {
           environmentId: input.environmentId,
           cwd: query.data.cwd,
-          query: input.baseRefQuery.trim(),
+          query: input.headRefQuery.trim() || input.baseRefQuery.trim(),
         }
       : null;
   const localBranchRefs = useEnvironmentQuery(
@@ -315,6 +321,7 @@ function useWorkspaceDiffSourceController({
   fallbackCwd,
   ignoreWhitespace: diffIgnoreWhitespace,
   baseRefQuery,
+  headRefQuery,
   collapsedDiffFiles,
   resolvedTheme,
   enabled,
@@ -413,6 +420,7 @@ function useWorkspaceDiffSourceController({
   const selectedGitScope: "branch" | "unstaged" =
     diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
+  const selectedHeadRef = diffSelection.kind === "branch" ? diffSelection.headRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
     diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
@@ -433,7 +441,11 @@ function useWorkspaceDiffSourceController({
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
-  const reviewSectionId = selectedTurn ? `turn:${selectedTurn.turnId}` : selectedGitScope;
+  const reviewSectionId = selectedTurn
+    ? `turn:${selectedTurn.turnId}`
+    : selectedGitScope === "branch" && selectedHeadRef
+      ? `branch@${selectedHeadRef}`
+      : selectedGitScope;
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
@@ -468,9 +480,11 @@ function useWorkspaceDiffSourceController({
     activeCwd,
     environmentCwd: serverConfig?.cwd,
     selectedBaseRef,
+    selectedHeadRef,
     selectedGitScope,
     ignoreWhitespace: diffIgnoreWhitespace,
     baseRefQuery,
+    headRefQuery,
   });
   const branchDiffPreview = gitController.query;
   const selectedGitSource = gitController.selectedSource;
@@ -506,9 +520,15 @@ function useWorkspaceDiffSourceController({
     remoteBranchRefs,
     selectedTurn,
   ]);
+  const currentBranchRef = gitStatusQuery.data?.refName ?? null;
+  const effectiveHeadRef =
+    selectedHeadRef ?? currentBranchRef ?? selectedGitSource?.headRef ?? null;
+  const localRefs = localBranchRefs.data?.refs ?? [];
+  const remoteRefs = remoteBranchRefs.data?.refs ?? [];
+  const headRefChoices = buildBaseRefChoices(localRefs, remoteRefs);
   const baseRefChoices = buildBaseRefChoices(
-    localBranchRefs.data?.refs.filter((ref) => ref.name !== selectedGitSource?.headRef) ?? [],
-    remoteBranchRefs.data?.refs ?? [],
+    localRefs.filter((ref) => ref.name !== effectiveHeadRef),
+    remoteRefs.filter((ref) => ref.name !== effectiveHeadRef),
   );
   const matchingBaseRefChoices = filterBaseRefChoices(baseRefChoices, baseRefQuery);
   const valueForBaseRefChoice = (choice: (typeof baseRefChoices)[number]) =>
@@ -519,6 +539,16 @@ function useWorkspaceDiffSourceController({
   const filteredBaseRefItems = [
     ...(baseRefQuery.trim().length === 0 ? [AUTOMATIC_BASE_REF] : []),
     ...matchingBaseRefChoices.map(valueForBaseRefChoice),
+  ];
+  const matchingHeadRefChoices = filterBaseRefChoices(headRefChoices, headRefQuery);
+  const valueForHeadRefChoice = (choice: (typeof headRefChoices)[number]) =>
+    selectedHeadRef && selectedHeadRef === choice.remote?.name
+      ? selectedHeadRef
+      : (choice.local?.name ?? choice.remote?.name ?? choice.id);
+  const headRefItems = [CURRENT_BRANCH_HEAD_REF, ...headRefChoices.map(valueForHeadRefChoice)];
+  const filteredHeadRefItems = [
+    CURRENT_BRANCH_HEAD_REF,
+    ...matchingHeadRefChoices.map(valueForHeadRefChoice),
   ];
   const source = selectedTurn !== undefined ? checkpointController.source : gitController.source;
   const rendered = useRenderableDiffSource({
@@ -540,6 +570,7 @@ function useWorkspaceDiffSourceController({
     collapseScopeKey,
     environmentId,
     filteredBaseRefItems,
+    filteredHeadRefItems,
     gitStatusQuery,
     inferredCheckpointTurnCountByTurnId,
     isGitRepo,
@@ -549,6 +580,7 @@ function useWorkspaceDiffSourceController({
     latestTurn,
     localBranchRefs,
     matchingBaseRefChoices,
+    matchingHeadRefChoices,
     openInPreferredEditor,
     orderedTurnDiffSummaries,
     remoteBranchRefs,
@@ -557,10 +589,13 @@ function useWorkspaceDiffSourceController({
     refreshDiff,
     routeThreadRef,
     selectedBaseRef,
+    selectedHeadRef,
     selectedFilePath,
     selectedFileRevealRequestId,
     selectedGitScope,
     selectedGitSource,
+    currentBranchRef,
+    effectiveHeadRef,
     gitActionCwd,
     loadingLabel: selectedTurn
       ? "Loading checkpoint diff..."
@@ -575,6 +610,9 @@ function useWorkspaceDiffSourceController({
     showWhitespaceControl: true,
     supportsPull: true,
     valueForBaseRefChoice,
+    valueForHeadRefChoice,
+    headRefChoices,
+    headRefItems,
     workspaceOwner,
   };
 }
@@ -589,6 +627,7 @@ export function useDiffPanelSource(input: UseDiffPanelSourceInput) {
     fallbackCwd: input.fallbackCwd,
     ignoreWhitespace: input.ignoreWhitespace,
     baseRefQuery: input.baseRefQuery,
+    headRefQuery: input.headRefQuery,
     collapsedDiffFiles: input.collapsedDiffFiles,
     resolvedTheme: input.resolvedTheme,
     enabled: input.commitTarget === null,

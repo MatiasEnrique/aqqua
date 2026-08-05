@@ -2422,10 +2422,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
 
     const branch = details.branch;
+    const effectiveHead = input.headRef ?? null;
+    const headForBaseResolution = effectiveHead ?? branch;
     const baseRef =
       input.baseRef ??
-      (branch
-        ? yield* resolveBaseBranchForNoUpstream(input.cwd, branch).pipe(
+      (headForBaseResolution
+        ? yield* resolveBaseBranchForNoUpstream(input.cwd, headForBaseResolution).pipe(
             Effect.orElseSucceed(() => null),
           )
         : null);
@@ -2465,7 +2467,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       .join("\n");
 
     const baseResult =
-      baseRef && branch
+      baseRef && (branch || effectiveHead)
         ? yield* executeGit(
             "GitVcsDriver.getReviewDiffPreview.base",
             input.cwd,
@@ -2477,7 +2479,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               "--no-textconv",
               "--minimal",
               ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
-              `${baseRef}...HEAD`,
+              `${baseRef}...${effectiveHead ?? "HEAD"}`,
             ],
             {
               maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
@@ -2529,7 +2531,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         kind: "branch-range",
         title: baseRef ? `Against ${baseRef}` : "Against base branch",
         baseRef,
-        headRef: branch ?? "HEAD",
+        headRef: effectiveHead ?? branch ?? "HEAD",
         diff: baseDiff,
         diffHash: baseDiffHash,
         truncated: baseResult?.stdoutTruncated ?? false,

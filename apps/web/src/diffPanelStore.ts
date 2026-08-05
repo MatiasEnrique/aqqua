@@ -12,22 +12,24 @@ import {
 } from "./panelOwner";
 
 export type DiffPanelSelection =
-  | { kind: "branch"; baseRef: string | null }
+  | { kind: "branch"; baseRef: string | null; headRef: string | null }
   | { kind: "unstaged" }
   | { kind: "turn"; turnId: TurnId; filePath: string | null; revealRequestId: number };
 
 /** Diff selection is keyed by the shared panel owner model. */
 export type DiffPanelOwner = PanelStoreOwner;
 
-const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
+const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null, headRef: null };
 const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  branchHeadRefByThreadKey: Record<string, string | null>;
   visibleTurnThreadKey: string | null;
   selectGitScope: (owner: DiffPanelOwner, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (owner: DiffPanelOwner, baseRef: string | null) => void;
+  selectBranchHeadRef: (owner: DiffPanelOwner, headRef: string | null) => void;
   selectTurn: (owner: DiffPanelOwner, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (owner: DiffPanelOwner, availableTurnIds: ReadonlyArray<TurnId>) => void;
   migrateLegacyWorkspaceSelection: (
@@ -37,25 +39,36 @@ interface DiffPanelStoreState {
   removeThread: (owner: DiffPanelOwner) => void;
 }
 
-function normalizeBaseRef(baseRef: string | null): string | null {
-  const normalized = baseRef?.trim();
+function normalizeRef(ref: string | null): string | null {
+  const normalized = ref?.trim();
   return normalized ? normalized : null;
 }
 
 export function migratePersistedDiffPanelState(persistedState: unknown): {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  branchHeadRefByThreadKey: Record<string, string | null>;
 } {
   if (!persistedState || typeof persistedState !== "object") {
-    return { byThreadKey: {}, branchBaseRefByThreadKey: {} };
+    return { byThreadKey: {}, branchBaseRefByThreadKey: {}, branchHeadRefByThreadKey: {} };
   }
   const state = persistedState as {
     byThreadKey?: Record<string, DiffPanelSelection>;
     branchBaseRefByThreadKey?: Record<string, string | null>;
+    branchHeadRefByThreadKey?: Record<string, string | null>;
   };
+  const migratedSelections = migratePanelOwnerKeyRecord(state.byThreadKey);
   return {
-    byThreadKey: migratePanelOwnerKeyRecord(state.byThreadKey),
+    byThreadKey: Object.fromEntries(
+      Object.entries(migratedSelections).map(([key, selection]) => [
+        key,
+        selection.kind === "branch"
+          ? { ...selection, headRef: selection.headRef ?? null }
+          : selection,
+      ]),
+    ),
     branchBaseRefByThreadKey: migratePanelOwnerKeyRecord(state.branchBaseRefByThreadKey),
+    branchHeadRefByThreadKey: migratePanelOwnerKeyRecord(state.branchHeadRefByThreadKey),
   };
 }
 
@@ -64,6 +77,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      branchHeadRefByThreadKey: {},
       visibleTurnThreadKey: null,
       selectGitScope: (owner, scope) =>
         set((state) => {
@@ -73,34 +87,74 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             previous?.kind === "branch"
               ? previous.baseRef
               : (state.branchBaseRefByThreadKey[threadKey] ?? null);
+          const previousHeadRef =
+            previous?.kind === "branch"
+              ? previous.headRef
+              : (state.branchHeadRefByThreadKey[threadKey] ?? null);
           return {
             byThreadKey: {
               ...state.byThreadKey,
               [threadKey]:
                 scope === "branch"
-                  ? { kind: "branch", baseRef: previousBaseRef }
+                  ? { kind: "branch", baseRef: previousBaseRef, headRef: previousHeadRef }
                   : { kind: "unstaged" },
             },
             branchBaseRefByThreadKey:
               previous?.kind === "branch"
                 ? { ...state.branchBaseRefByThreadKey, [threadKey]: previous.baseRef }
                 : state.branchBaseRefByThreadKey,
+            branchHeadRefByThreadKey:
+              previous?.kind === "branch"
+                ? { ...state.branchHeadRefByThreadKey, [threadKey]: previous.headRef }
+                : state.branchHeadRefByThreadKey,
             visibleTurnThreadKey: null,
           };
         }),
       selectBranchBaseRef: (owner, baseRef) =>
         set((state) => {
           const threadKey = panelOwnerKey(owner);
-          const normalizedBaseRef = normalizeBaseRef(baseRef);
+          const requestedBaseRef = normalizeRef(baseRef);
+          const previous = state.byThreadKey[threadKey];
+          const headRef =
+            previous?.kind === "branch"
+              ? previous.headRef
+              : (state.branchHeadRefByThreadKey[threadKey] ?? null);
+          const normalizedBaseRef = requestedBaseRef === headRef ? null : requestedBaseRef;
           return {
             byThreadKey: {
               ...state.byThreadKey,
-              [threadKey]: { kind: "branch", baseRef: normalizedBaseRef },
+              [threadKey]: { kind: "branch", baseRef: normalizedBaseRef, headRef },
             },
             branchBaseRefByThreadKey: {
               ...state.branchBaseRefByThreadKey,
               [threadKey]: normalizedBaseRef,
             },
+            visibleTurnThreadKey: null,
+          };
+        }),
+      selectBranchHeadRef: (owner, headRef) =>
+        set((state) => {
+          const threadKey = panelOwnerKey(owner);
+          const normalizedHeadRef = normalizeRef(headRef);
+          const previous = state.byThreadKey[threadKey];
+          const previousBaseRef =
+            previous?.kind === "branch"
+              ? previous.baseRef
+              : (state.branchBaseRefByThreadKey[threadKey] ?? null);
+          const baseRef = previousBaseRef === normalizedHeadRef ? null : previousBaseRef;
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: { kind: "branch", baseRef, headRef: normalizedHeadRef },
+            },
+            branchHeadRefByThreadKey: {
+              ...state.branchHeadRefByThreadKey,
+              [threadKey]: normalizedHeadRef,
+            },
+            branchBaseRefByThreadKey:
+              baseRef === previousBaseRef
+                ? state.branchBaseRefByThreadKey
+                : { ...state.branchBaseRefByThreadKey, [threadKey]: baseRef },
             visibleTurnThreadKey: null,
           };
         }),
@@ -161,20 +215,34 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
                     [workspaceKey]: legacy.baseRef,
                   }
                 : state.branchBaseRefByThreadKey,
+            branchHeadRefByThreadKey:
+              legacy.kind === "branch"
+                ? {
+                    ...state.branchHeadRefByThreadKey,
+                    [workspaceKey]: legacy.headRef,
+                  }
+                : state.branchHeadRefByThreadKey,
           };
         }),
       removeThread: (owner) =>
         set((state) => {
           const threadKey = panelOwnerKey(owner);
-          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
+          if (
+            !(threadKey in state.byThreadKey) &&
+            !(threadKey in state.branchBaseRefByThreadKey) &&
+            !(threadKey in state.branchHeadRefByThreadKey)
+          ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
+          const { [threadKey]: _removedHeadRef, ...branchHeadRefByThreadKey } =
+            state.branchHeadRefByThreadKey;
           return {
             byThreadKey,
             branchBaseRefByThreadKey,
+            branchHeadRefByThreadKey,
             visibleTurnThreadKey:
               state.visibleTurnThreadKey === threadKey ? null : state.visibleTurnThreadKey,
           };
@@ -182,13 +250,14 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     }),
     {
       name: "aqqua:diff-panel-state:v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        branchHeadRefByThreadKey: state.branchHeadRefByThreadKey,
       }),
       migrate: migratePersistedDiffPanelState,
     },

@@ -25,6 +25,7 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      branchHeadRefByThreadKey: {},
       visibleTurnThreadKey: null,
     }),
   );
@@ -32,7 +33,7 @@ describe("diffPanelStore", () => {
   it("defaults each thread to branch changes when the working tree is clean", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: null });
+    ).toEqual({ kind: "branch", baseRef: null, headRef: null });
   });
 
   it("defaults each thread to working changes when the working tree is dirty", () => {
@@ -46,7 +47,7 @@ describe("diffPanelStore", () => {
 
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF, true),
-    ).toEqual({ kind: "branch", baseRef: null });
+    ).toEqual({ kind: "branch", baseRef: null, headRef: null });
   });
 
   it("clears incompatible selection fields when changing scopes", () => {
@@ -61,7 +62,7 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, " origin/main ");
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/main" });
+    ).toEqual({ kind: "branch", baseRef: "origin/main", headRef: null });
   });
 
   it("increments the reveal request when opening the same turn file again", () => {
@@ -81,7 +82,47 @@ describe("diffPanelStore", () => {
 
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/main" });
+    ).toEqual({ kind: "branch", baseRef: "origin/main", headRef: null });
+  });
+
+  it("normalizes and remembers the selected branch head across scope changes", () => {
+    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
+    useDiffPanelStore.getState().selectBranchHeadRef(THREAD_REF, " feature/search ");
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({
+      kind: "branch",
+      baseRef: "origin/main",
+      headRef: "feature/search",
+    });
+
+    useDiffPanelStore.getState().selectBranchHeadRef(THREAD_REF, null);
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "branch", baseRef: "origin/main", headRef: null });
+  });
+
+  it("resets a matching base when it becomes the selected head", () => {
+    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "feature/search");
+    useDiffPanelStore.getState().selectBranchHeadRef(THREAD_REF, "feature/search");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "branch", baseRef: null, headRef: "feature/search" });
+
+    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "feature/search");
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "branch", baseRef: null, headRef: "feature/search" });
+
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "branch", baseRef: null, headRef: "feature/search" });
   });
 
   it("reconciles a missing turn selection to the latest available turn", () => {
@@ -108,7 +149,7 @@ describe("diffPanelStore", () => {
 
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, WORKSPACE_OWNER),
-    ).toEqual({ kind: "branch", baseRef: "origin/main" });
+    ).toEqual({ kind: "branch", baseRef: "origin/main", headRef: null });
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toMatchObject({ kind: "turn", turnId });
@@ -129,7 +170,11 @@ describe("diffPanelStore", () => {
     expect(workspaceKey).toBe(scopedWorkspaceKey(WORKSPACE_REF));
     expect(threadKey).not.toBe(workspaceKey);
     expect(Object.keys(byThreadKey).sort()).toEqual([threadKey, workspaceKey].sort());
-    expect(byThreadKey[threadKey]).toEqual({ kind: "branch", baseRef: "origin/main" });
+    expect(byThreadKey[threadKey]).toEqual({
+      kind: "branch",
+      baseRef: "origin/main",
+      headRef: null,
+    });
     expect(byThreadKey[workspaceKey]).toEqual({ kind: "unstaged" });
     // Workspace ownership never fabricates a ThreadId / ScopedThreadRef.
     expect(WORKSPACE_OWNER).toEqual({ type: "workspace", workspaceRef: WORKSPACE_REF });
@@ -161,8 +206,29 @@ describe("diffPanelStore", () => {
     expect(migrated.byThreadKey[expectedWorkspaceKey]).toEqual({
       kind: "branch",
       baseRef: "origin/main",
+      headRef: null,
     });
     expect(migrated.branchBaseRefByThreadKey[expectedWorkspaceKey]).toBe("origin/main");
+    expect(migrated.branchHeadRefByThreadKey).toEqual({});
     expect(migrated.byThreadKey[scopedThreadKey(THREAD_REF)]).toMatchObject({ kind: "turn" });
+  });
+
+  it("migrates v3 branch selections with a null head ref", () => {
+    const threadKey = scopedThreadKey(THREAD_REF);
+    const migrated = migratePersistedDiffPanelState({
+      byThreadKey: {
+        [threadKey]: { kind: "branch", baseRef: "origin/main" },
+      },
+      branchBaseRefByThreadKey: {
+        [threadKey]: "origin/main",
+      },
+    });
+
+    expect(migrated.byThreadKey[threadKey]).toEqual({
+      kind: "branch",
+      baseRef: "origin/main",
+      headRef: null,
+    });
+    expect(migrated.branchHeadRefByThreadKey).toEqual({});
   });
 });

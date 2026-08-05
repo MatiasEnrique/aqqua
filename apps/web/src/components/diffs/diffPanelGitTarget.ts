@@ -25,15 +25,19 @@ export function resolveDiffPanelCwd(input: DiffPanelCwdInput): string | null {
 /**
  * Pull updates the checked-out branch of whichever repository the diff is
  * showing, so it stays available while the working tree is clean — pulling into
- * a clean tree is the main reason to reach for it. It is hidden only for turn
- * diffs, which are historical snapshots a pull cannot change.
+ * a clean tree is the main reason to reach for it. It is hidden for historical
+ * turn diffs and foreign-head comparisons, neither of which a pull should
+ * change.
  */
 export function shouldShowDiffPullControl(input: {
   readonly isGitRepo: boolean;
   readonly selectedTurnId: string | null;
   readonly hasCwd: boolean;
+  readonly isViewingForeignHead: boolean;
 }): boolean {
-  return input.isGitRepo && input.selectedTurnId === null && input.hasCwd;
+  return (
+    input.isGitRepo && input.selectedTurnId === null && input.hasCwd && !input.isViewingForeignHead
+  );
 }
 
 export function formatVcsPullOutcome(result: {

@@ -50,23 +50,54 @@ describe("resolveDiffPanelCwd", () => {
 
 describe("shouldShowDiffPullControl", () => {
   it("shows for the working-tree and branch scopes of a git repository", () => {
-    expect(shouldShowDiffPullControl({ isGitRepo: true, selectedTurnId: null, hasCwd: true })).toBe(
-      true,
-    );
+    expect(
+      shouldShowDiffPullControl({
+        isGitRepo: true,
+        selectedTurnId: null,
+        hasCwd: true,
+        isViewingForeignHead: false,
+      }),
+    ).toBe(true);
   });
 
   it("hides for turn diffs", () => {
     expect(
-      shouldShowDiffPullControl({ isGitRepo: true, selectedTurnId: "turn_1", hasCwd: true }),
+      shouldShowDiffPullControl({
+        isGitRepo: true,
+        selectedTurnId: "turn_1",
+        hasCwd: true,
+        isViewingForeignHead: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides while viewing a foreign branch", () => {
+    expect(
+      shouldShowDiffPullControl({
+        isGitRepo: true,
+        selectedTurnId: null,
+        hasCwd: true,
+        isViewingForeignHead: true,
+      }),
     ).toBe(false);
   });
 
   it("hides without a repository or a cwd", () => {
     expect(
-      shouldShowDiffPullControl({ isGitRepo: false, selectedTurnId: null, hasCwd: true }),
+      shouldShowDiffPullControl({
+        isGitRepo: false,
+        selectedTurnId: null,
+        hasCwd: true,
+        isViewingForeignHead: false,
+      }),
     ).toBe(false);
     expect(
-      shouldShowDiffPullControl({ isGitRepo: true, selectedTurnId: null, hasCwd: false }),
+      shouldShowDiffPullControl({
+        isGitRepo: true,
+        selectedTurnId: null,
+        hasCwd: false,
+        isViewingForeignHead: false,
+      }),
     ).toBe(false);
   });
 });
