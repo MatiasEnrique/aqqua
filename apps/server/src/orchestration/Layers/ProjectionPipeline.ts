@@ -948,9 +948,31 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+          const session = yield* projectionThreadSessionRepository.getByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const activeTurnOwnsLatest =
+            Option.isSome(session) &&
+            session.value.status === "running" &&
+            session.value.activeTurnId !== null;
+          // Only a diff-completion naming a *different* turn is a regression
+          // attempt; one naming the active turn suppresses to a no-op and is not
+          // worth a warning.
+          if (activeTurnOwnsLatest && session.value.activeTurnId !== event.payload.turnId) {
+            yield* Effect.logWarning(
+              "suppressed stale thread.turn-diff-completed latest-turn update",
+              {
+                threadId: event.payload.threadId,
+                turnId: event.payload.turnId,
+                activeTurnId: session.value.activeTurnId,
+              },
+            );
+          }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            latestTurnId: event.payload.turnId,
+            latestTurnId: activeTurnOwnsLatest
+              ? existingRow.value.latestTurnId
+              : event.payload.turnId,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
@@ -1454,10 +1476,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           const session = yield* projectionThreadSessionRepository.getByThreadId({
             threadId: event.payload.threadId,
           });
-          const turnStillRunning =
-            Option.isSome(session) &&
-            session.value.status === "running" &&
-            session.value.activeTurnId === event.payload.turnId;
+          const turnStillRunning = Option.isSome(session) && session.value.status === "running";
           const existingTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
@@ -1480,7 +1499,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               checkpointFiles: event.payload.files,
               startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
-              completedAt: event.payload.completedAt,
+              completedAt: turnStillRunning
+                ? existingTurn.value.completedAt
+                : event.payload.completedAt,
             });
             return;
           }
@@ -1492,9 +1513,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             sourceProposedPlanId: null,
             assistantMessageId: event.payload.assistantMessageId,
             state: turnStillRunning ? "running" : nextState,
-            requestedAt: event.payload.completedAt,
-            startedAt: event.payload.completedAt,
-            completedAt: event.payload.completedAt,
+            requestedAt: turnStillRunning ? session.value.updatedAt : event.payload.completedAt,
+            startedAt: turnStillRunning ? null : event.payload.completedAt,
+            completedAt: turnStillRunning ? null : event.payload.completedAt,
             checkpointTurnCount: event.payload.checkpointTurnCount,
             checkpointRef: event.payload.checkpointRef,
             checkpointStatus: event.payload.status,

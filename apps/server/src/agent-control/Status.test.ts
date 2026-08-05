@@ -57,15 +57,27 @@ it("reports a finished sub-agent as settled even before its turn row is re-linke
   // `latestTurn` alone in that window reports a finished sub-agent as `running`,
   // and an orchestrator would wait for a turn that already ended.
   assert.equal(
-    agentRunStatusFromThread({ latestTurn: null, session: { status: "idle" } }),
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: null,
+      session: { status: "idle" },
+    }),
     "completed",
   );
   assert.equal(
-    agentRunStatusFromThread({ latestTurn: null, session: { status: "error" } }),
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: null,
+      session: { status: "error" },
+    }),
     "failed",
   );
   assert.equal(
-    agentRunStatusFromThread({ latestTurn: null, session: { status: "stopped" } }),
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: null,
+      session: { status: "stopped" },
+    }),
     "interrupted",
   );
 });
@@ -75,6 +87,7 @@ it("prefers a settled turn row over the session status", () => {
   // once it exists.
   assert.equal(
     agentRunStatusFromThread({
+      hasPendingTurnStart: false,
       latestTurn: { state: "interrupted" },
       session: { status: "idle" },
     }),
@@ -82,17 +95,61 @@ it("prefers a settled turn row over the session status", () => {
   );
 });
 
+it("reports a running session as running when the latest turn is settled", () => {
+  assert.equal(
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: { state: "completed" },
+      session: { status: "running" },
+    }),
+    "running",
+  );
+});
+
+it("reports a starting session as running when the latest turn is settled", () => {
+  assert.equal(
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: { state: "completed" },
+      session: { status: "starting" },
+    }),
+    "running",
+  );
+});
+
+it("reports a pending turn start as running when the session is ready", () => {
+  assert.equal(
+    agentRunStatusFromThread({
+      hasPendingTurnStart: true,
+      latestTurn: null,
+      session: { status: "ready" },
+    }),
+    "running",
+  );
+});
+
 it("reports a sub-agent that has not started a session yet as running", () => {
-  assert.equal(agentRunStatusFromThread({ latestTurn: null, session: null }), "running");
+  assert.equal(
+    agentRunStatusFromThread({ hasPendingTurnStart: false, latestTurn: null, session: null }),
+    "running",
+  );
 });
 
 it("reports a live session as running", () => {
   assert.equal(
-    agentRunStatusFromThread({ latestTurn: { state: "running" }, session: { status: "running" } }),
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: { state: "running" },
+      session: { status: "running" },
+    }),
     "running",
   );
   assert.equal(
-    agentRunStatusFromThread({ latestTurn: null, session: { status: "starting" } }),
+    agentRunStatusFromThread({
+      hasPendingTurnStart: false,
+      latestTurn: null,
+      session: { status: "starting" },
+    }),
     "running",
   );
 });

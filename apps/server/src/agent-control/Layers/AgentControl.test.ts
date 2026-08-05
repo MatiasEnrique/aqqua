@@ -23,6 +23,7 @@ import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -466,6 +467,64 @@ agentControlLayer("AgentControl", (it) => {
       assert.equal(result.finalMessage, null);
       const child = yield* readThread(handle.threadId);
       assert.equal(child.session?.status, "running");
+    }),
+  );
+
+  it.effect("does not settle a running session whose latest turn is a stale settled row", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const threads = yield* ProjectionThreadRepository;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        profile: implementer,
+        task: "Keep working after an older turn settles",
+      });
+      const settledTurnId = TurnId.make(unique("turn-settled"));
+      yield* finishTurn({ threadId: handle.threadId, turnId: settledTurnId });
+      yield* startTurn(handle.threadId, TurnId.make(unique("turn-running")));
+
+      const projectedThread = yield* threads.getById({ threadId: handle.threadId });
+      assert.ok(Option.isSome(projectedThread));
+      yield* threads.upsert({ ...projectedThread.value, latestTurnId: settledTurnId });
+
+      const result = yield* agents.awaitTurn({
+        parentThreadId,
+        childThreadId: handle.threadId,
+        timeout: Duration.millis(50),
+      });
+
+      assert.equal(result.status, "running");
+    }),
+  );
+
+  it.effect("does not settle between spawn and the first turn", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        profile: implementer,
+        task: "Wait through provider startup",
+      });
+      const waiting = yield* Effect.forkChild(
+        agents.awaitTurn({
+          parentThreadId,
+          childThreadId: handle.threadId,
+          timeout: Duration.millis(50),
+        }),
+        { startImmediately: true },
+      );
+      yield* setSession({
+        threadId: handle.threadId,
+        status: "ready",
+        activeTurnId: null,
+        updatedAt: "2026-04-06T00:00:03.000Z",
+      });
+
+      const result = yield* Fiber.join(waiting);
+
+      assert.equal(result.status, "running");
     }),
   );
 

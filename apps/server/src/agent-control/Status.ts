@@ -83,15 +83,25 @@ export function isSettledAgentRunStatus(
  * finished sub-agent as still working: a caller would wait for a turn that had
  * already ended.
  *
- * So: prefer a settled `latestTurn` (most precise, it reflects checkpoint state),
- * otherwise fall back to the session status, which is the authoritative turn-end
- * signal. A sub-agent with no session yet has been created but not started, and
- * is reported as `running`.
+ * A pending turn start or a `running`/`starting` session wins first, even over a
+ * stale settled turn pointer. The session precedence agrees with the web's
+ * `classifyThreadPresentation`, which also checks for a running session before
+ * classifying the latest turn. Otherwise a settled `latestTurn` wins (preserving
+ * the re-link window above), followed by the session-derived status and finally
+ * `running` when neither signal settles.
  */
 export function agentRunStatusFromThread(thread: {
+  readonly hasPendingTurnStart: boolean;
   readonly latestTurn: Pick<OrchestrationLatestTurn, "state"> | null;
   readonly session: { readonly status: OrchestrationSessionStatus } | null;
 }): AgentRunStatus {
+  if (
+    thread.hasPendingTurnStart ||
+    thread.session?.status === "running" ||
+    thread.session?.status === "starting"
+  ) {
+    return "running";
+  }
   const fromTurn = agentRunStatusFromLatestTurn(thread.latestTurn);
   if (isSettledAgentRunStatus(fromTurn)) {
     return fromTurn;

@@ -30,6 +30,7 @@ import * as Stream from "effect/Stream";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
@@ -117,6 +118,7 @@ const isThreadSessionEvent = (
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const projection = yield* ProjectionSnapshotQuery;
+  const projectionTurnRepository = yield* ProjectionTurnRepository;
   const registry = yield* ProviderAdapterRegistry;
   const settings = yield* ServerSettingsService;
   const terminals = yield* TerminalManager.TerminalManager;
@@ -212,6 +214,20 @@ const make = Effect.gen(function* () {
       ),
       Effect.catchCause(dispatchFailure(operation)),
     );
+
+  const readAgentRunStatus = Effect.fn("AgentControl.readAgentRunStatus")(function* (
+    operation: string,
+    thread: Pick<OrchestrationThread, "id" | "latestTurn" | "session">,
+  ) {
+    const pendingTurnStart = yield* projectionTurnRepository
+      .getPendingTurnStartByThreadId({ threadId: thread.id })
+      .pipe(Effect.catchCause(dispatchFailure(operation)));
+    return agentRunStatusFromThread({
+      hasPendingTurnStart: Option.isSome(pendingTurnStart),
+      latestTurn: thread.latestTurn,
+      session: thread.session,
+    });
+  });
 
   const appendActivity = (input: {
     readonly operation: string;
@@ -491,7 +507,10 @@ const make = Effect.gen(function* () {
     const parent = yield* requireOrchestrator(input.parentThreadId);
 
     const existing = yield* listSubAgentShells("spawn", input.parentThreadId);
-    const live = existing.filter((thread) => agentRunStatusFromThread(thread) === "running");
+    const statuses = yield* Effect.forEach(existing, (thread) =>
+      readAgentRunStatus("spawn", thread),
+    );
+    const live = existing.filter((_, index) => statuses[index] === "running");
     if (live.length >= MAX_LIVE_SUB_AGENTS_PER_PARENT) {
       return yield* new AgentConcurrencyLimitError({
         parentThreadId: input.parentThreadId,
@@ -606,7 +625,7 @@ const make = Effect.gen(function* () {
 
     // Starting a second turn while one is in flight races the provider; make the
     // caller wait instead of silently interleaving two tasks.
-    if (agentRunStatusFromThread(child) === "running") {
+    if ((yield* readAgentRunStatus("send", child)) === "running") {
       return yield* new AgentBusyError({ childThreadId: input.childThreadId });
     }
 
@@ -707,7 +726,7 @@ const make = Effect.gen(function* () {
             parentThreadId: input.parentThreadId,
             childThreadId: input.childThreadId,
           });
-          const currentStatus = agentRunStatusFromThread(current);
+          const currentStatus = yield* readAgentRunStatus("await", current);
           if (isSettledAgentRunStatus(currentStatus)) {
             return settledResult({
               thread: current,
@@ -725,10 +744,14 @@ const make = Effect.gen(function* () {
             // Re-read the projection rather than trusting the event alone: the
             // assistant message id and final turn state are projector-derived.
             const settled = yield* readThread("await", input.childThreadId);
-            // The event's status is authoritative for *whether* the turn ended.
-            // The projection refines *how* it ended once its turn row settles, so
-            // prefer the projection only when it has actually settled.
-            const projected = settled === null ? null : agentRunStatusFromThread(settled);
+            // A terminal session event normally says the turn ended, but a
+            // pending start makes `ready` a transient startup state instead. The
+            // refreshed projection decides whether to keep waiting; once it has
+            // settled, it also refines how the turn ended.
+            const projected = settled === null ? null : yield* readAgentRunStatus("await", settled);
+            if (projected === "running") {
+              continue;
+            }
             return settledResult({
               thread: settled ?? current,
               status: projected !== null && isSettledAgentRunStatus(projected) ? projected : status,
@@ -777,17 +800,20 @@ const make = Effect.gen(function* () {
 
   const list: AgentControlShape["list"] = Effect.fn("AgentControl.list")(function* (input) {
     const shells = yield* listSubAgentShells("list", input.parentThreadId);
-    return shells.map(
-      (thread): AgentSummary => ({
-        threadId: thread.id,
-        // The role name lives in the sub-agent's `agent.parent.linked` activity,
-        // which the shell snapshot does not carry. Callers that need it read the
-        // sub-agent's thread; the title prefix is the cheap approximation.
-        profile: null,
-        title: thread.title,
-        status: agentRunStatusFromThread(thread),
-        updatedAt: thread.updatedAt,
-      }),
+    return yield* Effect.forEach(shells, (thread) =>
+      Effect.map(
+        readAgentRunStatus("list", thread),
+        (status): AgentSummary => ({
+          threadId: thread.id,
+          // The role name lives in the sub-agent's `agent.parent.linked` activity,
+          // which the shell snapshot does not carry. Callers that need it read the
+          // sub-agent's thread; the title prefix is the cheap approximation.
+          profile: null,
+          title: thread.title,
+          status,
+          updatedAt: thread.updatedAt,
+        }),
+      ),
     );
   });
 

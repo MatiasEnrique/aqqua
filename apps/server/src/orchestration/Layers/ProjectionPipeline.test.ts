@@ -1750,6 +1750,214 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("does not settle an older turn while a newer turn is running", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-stale-diff");
+      const oldTurnId = TurnId.make("turn-stale-a");
+      const activeTurnId = TurnId.make("turn-active-b");
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-stale-diff-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:00.000Z",
+        commandId: CommandId.make("cmd-stale-diff-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-stale-diff-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-stale-diff"),
+          title: "Stale turn diff",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.make("evt-stale-diff-2"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:02.000Z",
+        commandId: CommandId.make("cmd-stale-diff-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-stale-diff-2"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:02.000Z",
+          },
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.make("evt-stale-diff-3"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:01.000Z",
+        commandId: CommandId.make("cmd-stale-diff-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-stale-diff-3"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId: MessageId.make("message-stale-a"),
+          role: "assistant",
+          text: "older turn output",
+          turnId: oldTurnId,
+          streaming: true,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:01.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.make("evt-stale-diff-4"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:03.000Z",
+        commandId: CommandId.make("cmd-stale-diff-4"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-stale-diff-4"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId: oldTurnId,
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("refs/aqqua/checkpoints/stale/turn/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: MessageId.make("message-stale-a"),
+          completedAt: "2026-01-01T00:00:03.000Z",
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
+        SELECT latest_turn_id AS "latestTurnId"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(threadRows, [{ latestTurnId: activeTurnId }]);
+
+      const oldTurnRows = yield* sql<{
+        readonly state: string;
+        readonly completedAt: string | null;
+      }>`
+        SELECT state, completed_at AS "completedAt"
+        FROM projection_turns
+        WHERE thread_id = ${threadId} AND turn_id = ${oldTurnId}
+      `;
+      assert.deepEqual(oldTurnRows, [{ state: "running", completedAt: null }]);
+    }),
+  );
+
+  it.effect("settles a diff-completed turn when the session is not running", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-settled-diff");
+      const turnId = TurnId.make("turn-settled-diff");
+      const completedAt = "2026-01-01T00:01:00.000Z";
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-settled-diff-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:00.000Z",
+        commandId: CommandId.make("cmd-settled-diff-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-settled-diff-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-settled-diff"),
+          title: "Settled turn diff",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.make("evt-settled-diff-2"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: completedAt,
+        commandId: CommandId.make("cmd-settled-diff-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-settled-diff-2"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId,
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("refs/aqqua/checkpoints/settled/turn/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: MessageId.make("message-settled-diff"),
+          completedAt,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly latestTurnId: string | null;
+        readonly state: string;
+        readonly requestedAt: string;
+        readonly startedAt: string | null;
+        readonly completedAt: string | null;
+      }>`
+        SELECT
+          threads.latest_turn_id AS "latestTurnId",
+          turns.state,
+          turns.requested_at AS "requestedAt",
+          turns.started_at AS "startedAt",
+          turns.completed_at AS "completedAt"
+        FROM projection_threads AS threads
+        JOIN projection_turns AS turns ON turns.thread_id = threads.thread_id
+        WHERE threads.thread_id = ${threadId} AND turns.turn_id = ${turnId}
+      `;
+      assert.deepEqual(rows, [
+        {
+          latestTurnId: turnId,
+          state: "completed",
+          requestedAt: completedAt,
+          startedAt: completedAt,
+          completedAt,
+        },
+      ]);
+    }),
+  );
+
   it.effect("keeps accumulated assistant text when completion payload text is empty", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
