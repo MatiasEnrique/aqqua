@@ -1377,16 +1377,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
       Effect.orElseSucceed(() => null),
     );
-    const remotePrefix =
-      primaryRemoteName && primaryRemoteName !== "origin" ? `${primaryRemoteName}/` : null;
-    const stripRemotePrefix = (ref: string) =>
-      ref.startsWith("origin/")
-        ? ref.slice("origin/".length)
-        : remotePrefix && ref.startsWith(remotePrefix)
-          ? ref.slice(remotePrefix.length)
-          : ref;
+    const remoteNames = yield* listRemoteNames(cwd).pipe(Effect.orElseSucceed(() => []));
+    // Longest-first so a remote named "a/b" wins over "a"; "origin" stays
+    // recognized even when unconfigured because candidates conventionally use it.
+    const prefixRemoteNames = [...new Set([...remoteNames, "origin"])].toSorted(
+      (a, b) => b.length - a.length,
+    );
     // A remote head like origin/feature shares base config and identity with
     // its local branch, so resolution works on the stripped name.
+    const stripRemotePrefix = (ref: string) =>
+      parseRemoteRefWithRemoteNames(ref, prefixRemoteNames)?.branchName ?? ref;
     const normalizedRefName = stripRemotePrefix(refName);
 
     const configuredBaseBranch = yield* runGitStdout(
