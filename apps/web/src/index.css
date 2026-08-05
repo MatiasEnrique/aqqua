@@ -1361,6 +1361,69 @@ label:has(> select#reasoning-effort) select {
   background: color-mix(in srgb, var(--border) 78%, transparent);
 }
 
+/* Flow artifacts use Lexical as a rich surface while persisting Markdown. */
+.artifact-markdown-editor {
+  caret-color: var(--foreground);
+}
+
+.artifact-markdown-editor-code {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  padding: 0.8rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre;
+}
+
+.artifact-markdown-editor-link {
+  color: var(--info-foreground);
+}
+
+.artifact-markdown-editor-checklist {
+  padding-left: 0;
+  list-style: none;
+}
+
+.artifact-markdown-editor-listitem-checked,
+.artifact-markdown-editor-listitem-unchecked {
+  position: relative;
+  padding-left: 1.55rem;
+  list-style: none;
+}
+
+.artifact-markdown-editor-listitem-checked::before,
+.artifact-markdown-editor-listitem-unchecked::before {
+  position: absolute;
+  top: 0.22rem;
+  left: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.2rem;
+  content: "";
+}
+
+.artifact-markdown-editor-listitem-checked::before {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.artifact-markdown-editor-listitem-checked::after {
+  position: absolute;
+  top: 0.31rem;
+  left: 0.28rem;
+  width: 0.35rem;
+  height: 0.55rem;
+  border-right: 2px solid var(--primary-foreground);
+  border-bottom: 2px solid var(--primary-foreground);
+  content: "";
+  transform: rotate(45deg);
+}
+
 .markdown-file-link-tooltip-scroll {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--border) 78%, transparent) transparent;

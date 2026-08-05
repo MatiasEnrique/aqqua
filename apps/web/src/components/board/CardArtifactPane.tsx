@@ -1,16 +1,63 @@
 import type { CardArtifactProvenance } from "@aqqua/client-runtime/state/boards";
 import type { CardId, EnvironmentId } from "@aqqua/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import ChatMarkdown from "../ChatMarkdown";
 import { boardArtifacts, boardEnvironment } from "../../state/boards";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-
-const WRITE_DEBOUNCE_MS = 600;
+import { CardArtifactMarkdownEditor } from "./CardArtifactMarkdownEditor";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+type SettledSaveState = Exclude<SaveState, "idle" | "saving">;
+
+export function createArtifactSaveCoordinator(initialContent: string) {
+  let confirmedContent = initialContent;
+  let desiredContent = initialContent;
+  let dirty = false;
+  let nextRequestId = 0;
+  let latestSuccessfulRequestId = 0;
+  const inFlightRequestIds = new Set<number>();
+
+  return {
+    markDirty() {
+      dirty = true;
+    },
+    observeConfirmed(content: string) {
+      if (dirty || inFlightRequestIds.size > 0) return;
+      confirmedContent = content;
+      desiredContent = content;
+    },
+    startWrite(content: string) {
+      dirty = false;
+      desiredContent = content;
+      nextRequestId += 1;
+      const request = { id: nextRequestId, content } as const;
+      inFlightRequestIds.add(request.id);
+      return request;
+    },
+    finishWrite(
+      request: { readonly id: number; readonly content: string },
+      outcome: SettledSaveState,
+    ): SettledSaveState | null {
+      inFlightRequestIds.delete(request.id);
+      if (outcome === "saved" && request.id >= latestSuccessfulRequestId) {
+        latestSuccessfulRequestId = request.id;
+        confirmedContent = request.content;
+      }
+      if (dirty || inFlightRequestIds.size > 0) return null;
+      return desiredContent === confirmedContent ? "saved" : "error";
+    },
+    settleNoop(content: string): SettledSaveState | null {
+      dirty = false;
+      desiredContent = content;
+      if (inFlightRequestIds.size > 0) return null;
+      return desiredContent === confirmedContent ? "saved" : "error";
+    },
+  };
+}
 
 export interface CardArtifactPaneProps {
   readonly environmentId: EnvironmentId;
@@ -38,7 +85,7 @@ export function artifactContentBottomPadding(contentInsetEndAdjustment: number):
 /**
  * The artifact rendered in the chat surface's own message column — the
  * document, its provenance, and nothing else. Editing is in place: no edit
- * mode, no save button, just a debounced write behind the caret.
+ * mode, no save button, just a debounced Markdown write behind the caret.
  */
 export function CardArtifactPane({
   environmentId,
@@ -57,72 +104,46 @@ export function CardArtifactPane({
   const writeArtifact = useAtomCommand(boardEnvironment.writeArtifact);
 
   const [draft, setDraft] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingWrite = useRef<number | null>(null);
-  const unsaved = useRef<string | null>(null);
+  const [saveCoordinator] = useState(() => createArtifactSaveCoordinator(""));
 
   const serverContent = artifact.data?.content ?? "";
   const content = draft ?? serverContent;
 
-  const flush = useCallback(
+  useEffect(() => {
+    if (draft !== null) return;
+    saveCoordinator.observeConfirmed(serverContent);
+  }, [draft, saveCoordinator, serverContent]);
+
+  const save = useCallback(
     (next: string) => {
+      const request = saveCoordinator.startWrite(next);
+      setDraft(next);
       setSaveState("saving");
       void writeArtifact({ environmentId, input: { cardId, stepName, content: next } }).then(
         (result) => {
-          setSaveState(result._tag === "Success" ? "saved" : "error");
+          const nextState = saveCoordinator.finishWrite(
+            request,
+            result._tag === "Success" ? "saved" : "error",
+          );
+          if (nextState !== null) setSaveState(nextState);
         },
       );
     },
-    [cardId, environmentId, stepName, writeArtifact],
+    [cardId, environmentId, saveCoordinator, stepName, writeArtifact],
   );
 
-  const onChange = useCallback(
+  const markDirty = useCallback(() => {
+    saveCoordinator.markDirty();
+    setSaveState("saving");
+  }, [saveCoordinator]);
+  const markSettled = useCallback(
     (next: string) => {
-      setDraft(next);
-      setSaveState("saving");
-      unsaved.current = next;
-      if (pendingWrite.current !== null) {
-        window.clearTimeout(pendingWrite.current);
-      }
-      pendingWrite.current = window.setTimeout(() => {
-        pendingWrite.current = null;
-        unsaved.current = null;
-        flush(next);
-      }, WRITE_DEBOUNCE_MS);
+      const nextState = saveCoordinator.settleNoop(next);
+      if (nextState !== null) setSaveState(nextState);
     },
-    [flush],
+    [saveCoordinator],
   );
-
-  // Leaving the document (another selection, or the route) must not lose the
-  // last keystrokes: whatever the debounce still owed gets written on the way
-  // out. The pane is keyed per artifact, so unmount is the artifact changing.
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
-  useEffect(
-    () => () => {
-      if (pendingWrite.current !== null) {
-        window.clearTimeout(pendingWrite.current);
-      }
-      if (unsaved.current !== null) {
-        flushRef.current(unsaved.current);
-        unsaved.current = null;
-      }
-    },
-    [],
-  );
-
-  const startEditing = useCallback(() => {
-    if (!editable) return;
-    setIsEditing(true);
-    window.requestAnimationFrame(() => {
-      const element = textareaRef.current;
-      if (element === null) return;
-      element.focus();
-      element.setSelectionRange(element.value.length, element.value.length);
-    });
-  }, [editable]);
 
   const hint = useMemo(() => {
     if (!editable) return "read-only while the step is running";
@@ -134,7 +155,7 @@ export function CardArtifactPane({
       case "error":
         return "save failed — retry by typing again";
       case "idle":
-        return "editable — click to type";
+        return "editable — type anywhere";
     }
   }, [editable, saveState]);
 
@@ -154,34 +175,22 @@ export function CardArtifactPane({
         </div>
 
         <div className="mt-2">
-          {isEditing ? (
-            <textarea
-              ref={textareaRef}
+          {artifact.isPending && draft === null ? (
+            <p className="px-1 text-muted-foreground/60 text-sm">Loading…</p>
+          ) : editable ? (
+            <CardArtifactMarkdownEditor
               value={content}
-              onChange={(event) => onChange(event.target.value)}
-              onBlur={() => setIsEditing(false)}
-              spellCheck={false}
-              className="min-h-96 w-full resize-none bg-transparent px-1 text-[14px] text-foreground/80 leading-[23px] outline-none"
-              aria-label={`${fileName} contents`}
+              fileName={fileName}
+              onDirty={markDirty}
+              onCommit={save}
+              onSettled={markSettled}
             />
+          ) : content.trim() === "" ? (
+            <p className="px-1 text-muted-foreground/60 text-sm">Nothing written yet.</p>
           ) : (
-            <button
-              type="button"
-              onClick={startEditing}
-              disabled={!editable}
-              className={cn("w-full px-1 text-left", editable ? "cursor-text" : "cursor-default")}
-              aria-label={editable ? `Edit ${fileName}` : `${fileName}, read-only`}
-            >
-              {content.trim() === "" ? (
-                <p className="text-muted-foreground/60 text-sm">
-                  {artifact.isPending
-                    ? "Loading…"
-                    : "Nothing written yet — the step writes this file, or you can start it here."}
-                </p>
-              ) : (
-                <ChatMarkdown text={content} cwd={cwd ?? undefined} />
-              )}
-            </button>
+            <div className="px-1" aria-label={`${fileName}, read-only`}>
+              <ChatMarkdown text={content} cwd={cwd ?? undefined} />
+            </div>
           )}
         </div>
 
