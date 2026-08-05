@@ -21,6 +21,16 @@ export function createGitEnvironmentAtoms<R, E>(
     tag: WS_METHODS.gitGetChangeRequestMergeOptions,
     staleTimeMs: 5 * 60_000,
   });
+  const changeRequestConversation = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:git:change-request-conversation",
+    tag: WS_METHODS.gitGetChangeRequestConversation,
+    staleTimeMs: 60_000,
+  });
+  const changeRequestCommits = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:git:change-request-commits",
+    tag: WS_METHODS.gitListChangeRequestCommits,
+    staleTimeMs: 5 * 60_000,
+  });
   const refreshChangeRequestQueries = (
     target: {
       readonly environmentId: EnvironmentId;
@@ -44,6 +54,24 @@ export function createGitEnvironmentAtoms<R, E>(
         }),
       ),
     );
+  const refreshConversationQuery = (
+    target: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly cwd: string; readonly reference: string };
+    },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() => {
+      registry.refresh(
+        changeRequestConversation({
+          environmentId: target.environmentId,
+          input: {
+            cwd: target.input.cwd,
+            reference: normalizeChangeRequestReference(target.input.reference),
+          },
+        }),
+      );
+    });
 
   return {
     pullRequestResolution: createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -52,6 +80,8 @@ export function createGitEnvironmentAtoms<R, E>(
     }),
     changeRequestChecks,
     changeRequestMergeOptions,
+    changeRequestConversation,
+    changeRequestCommits,
     mergeChangeRequest: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:git:merge-change-request",
       tag: WS_METHODS.gitMergeChangeRequest,
@@ -69,6 +99,34 @@ export function createGitEnvironmentAtoms<R, E>(
     updateChangeRequestState: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:git:update-change-request-state",
       tag: WS_METHODS.gitUpdateChangeRequestState,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSuccess: refreshChangeRequestQueries,
+    }),
+    addChangeRequestComment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:git:add-change-request-comment",
+      tag: WS_METHODS.gitAddChangeRequestComment,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSuccess: refreshConversationQuery,
+    }),
+    replyToChangeRequestThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:git:reply-to-change-request-thread",
+      tag: WS_METHODS.gitReplyToChangeRequestThread,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSuccess: refreshConversationQuery,
+    }),
+    setChangeRequestThreadResolved: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:git:set-change-request-thread-resolved",
+      tag: WS_METHODS.gitSetChangeRequestThreadResolved,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSuccess: refreshConversationQuery,
+    }),
+    deleteChangeRequestBranch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:git:delete-change-request-branch",
+      tag: WS_METHODS.gitDeleteChangeRequestBranch,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
       onSuccess: refreshChangeRequestQueries,
