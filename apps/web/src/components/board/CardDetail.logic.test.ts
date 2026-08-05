@@ -15,7 +15,7 @@ import {
 import type { CardOperationKind } from "@aqqua/client-runtime/state/boards";
 
 import {
-  artifactCompletionRevision,
+  artifactVisibilityRevision,
   buildCardTree,
   cardComposerOperation,
   defaultCardSelection,
@@ -264,6 +264,27 @@ describe("buildCardTree", () => {
     });
   });
 
+  it("shows a written artifact when the current step stops for input", () => {
+    const needsInput = tree({
+      card: card({ status: "needs-input" }),
+      artifactByStepIndex: new Map([
+        [0, { exists: true, sizeBytes: 3482 }],
+        [1, { exists: true, sizeBytes: 2048 }],
+      ]),
+    });
+
+    expect(needsInput.steps[1]?.leaves.find((leaf) => leaf.kind === "artifact")).toMatchObject({
+      fileName: "Implement.md",
+      trailing: "2.0 KB",
+    });
+  });
+
+  it("does not invent an artifact when a step stops for input without writing one", () => {
+    const needsInput = tree({ card: card({ status: "needs-input" }) });
+
+    expect(needsInput.steps[1]?.leaves.find((leaf) => leaf.kind === "artifact")).toBeUndefined();
+  });
+
   it("times a finished step to its last update and a running one to now", () => {
     const rows = tree().steps;
     expect(rows[0]?.trailing).toBe("25m");
@@ -296,17 +317,23 @@ describe("tree labels", () => {
   });
 });
 
-describe("artifactCompletionRevision", () => {
-  it("changes from absent to the card revision only when a step finishes", () => {
-    expect(artifactCompletionRevision(card(), 1)).toBeNull();
+describe("artifactVisibilityRevision", () => {
+  it("changes from absent to the card revision when a step becomes reviewable", () => {
+    expect(artifactVisibilityRevision(card(), 1)).toBeNull();
     expect(
-      artifactCompletionRevision(
+      artifactVisibilityRevision(
         card({ status: "paused", updatedAt: "2026-04-01T02:00:00.000Z" }),
         1,
       ),
     ).toBe("2026-04-01T02:00:00.000Z");
     expect(
-      artifactCompletionRevision(
+      artifactVisibilityRevision(
+        card({ status: "needs-input", updatedAt: "2026-04-01T02:30:00.000Z" }),
+        1,
+      ),
+    ).toBe("2026-04-01T02:30:00.000Z");
+    expect(
+      artifactVisibilityRevision(
         card({ position: { kind: "step", stepIndex: 2 }, updatedAt: "2026-04-01T03:00:00.000Z" }),
         1,
       ),
