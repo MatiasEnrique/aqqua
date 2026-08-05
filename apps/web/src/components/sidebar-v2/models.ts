@@ -1,6 +1,7 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import type { SidebarConversationStateCounts } from "../Sidebar.summaryState";
+import type { SidebarThreadFamilyBand } from "../Sidebar.threadTree";
 import type {
   EnvironmentId,
   ProjectId,
@@ -77,7 +78,11 @@ export type SidebarThreadsSection = {
   readonly renderedSettledThreads: readonly EnvironmentThreadShell[];
   readonly selectedSettledThreads: readonly EnvironmentThreadShell[];
   readonly activeTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
+  /** Where each active row sits in its family's panel. */
+  readonly activeFamilyBandByKey: ReadonlyMap<string, SidebarThreadFamilyBand>;
   readonly activeSubAgentStateCountsByKey: ReadonlyMap<string, SidebarConversationStateCounts>;
+  /** The same banding for the settled tail, which pages by family too. */
+  readonly settledFamilyBandByKey: ReadonlyMap<string, SidebarThreadFamilyBand>;
   readonly settledTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
   readonly expandedThreadKeys: ReadonlySet<string>;
   readonly settledExpandedThreadKeys: ReadonlySet<string>;

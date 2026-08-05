@@ -35,12 +35,12 @@ export const ConversationSubRow = memo(function ConversationSubRow(props: Conver
   const { thread } = props;
 
   return (
-    <SidebarCardItem size="none" className="relative">
-      <SidebarCardSubThreadGuides depth={props.depth} />
+    <SidebarCardItem size="sub" band={props.band}>
       <div
         className={cn(row.surfaceClassName, "flex h-8 min-w-0 items-center gap-2 pe-2.5")}
         style={{ paddingInlineStart: 10 + props.depth * SUB_AGENT_INDENT_PX }}
       >
+        <SidebarCardSubThreadGuides depth={props.depth} />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -49,7 +49,7 @@ export const ConversationSubRow = memo(function ConversationSubRow(props: Conver
                 tabIndex={0}
                 aria-label={thread.title}
                 data-testid="sidebar-v2-row-sub"
-                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                className="absolute inset-0 z-0 rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                 onClick={row.handleClick}
                 onDoubleClick={row.handleDoubleClick}
                 onKeyDown={row.handleKeyDown}

@@ -26,7 +26,11 @@ import {
 } from "../../Sidebar.logic";
 import type { SnoozePreset } from "../../Sidebar.snooze";
 import { getTriggerDisplayModelLabel } from "../../chat/providerIconUtils";
-import { sidebarCardSurfaceClassName, type SidebarCardBranchLabel } from "../../sidebar/card";
+import {
+  sidebarCardSurfaceClassName,
+  type SidebarCardBand,
+  type SidebarCardBranchLabel,
+} from "../../sidebar/card";
 import {
   prStatusIndicator,
   resolveThreadPr,
@@ -58,6 +62,16 @@ export interface ConversationRowProps {
   readonly projectCwd: string | null;
   readonly projectTitle: string | null;
   readonly showProjectIdentity: boolean;
+  /**
+   * False in worktree grouping, where the group header above already names the
+   * branch every card under it shares.
+   */
+  readonly showBranch: boolean;
+  /**
+   * Where this row sits in its family's panel. Only the active section bands;
+   * the settled and snoozed tails stay flat.
+   */
+  readonly band: SidebarCardBand;
   readonly providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   readonly onToggleExpanded: (threadRef: ScopedThreadRef, expanded: boolean) => void;
   readonly onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -353,6 +367,7 @@ export function useConversationRow(props: ConversationRowProps) {
       isSelected,
       recede: shouldRecede,
       inFlight: isInFlight,
+      band: props.band,
     }),
     handleClick,
     handleContextMenu,

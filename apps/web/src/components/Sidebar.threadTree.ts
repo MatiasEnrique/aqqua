@@ -319,6 +319,50 @@ export function takeSidebarThreadFamilies<T>(input: {
 }
 
 /**
+ * Where each row sits in its family's panel, so a flat list can paint one
+ * continuous surface around a conversation and its sub-agents.
+ *
+ * Rows render as siblings in a single list, not nested, so the panel cannot be a
+ * wrapper element — it is assembled from partial borders on each row. A family
+ * is a root plus the descendants that follow it, the same shape
+ * `takeSidebarThreadFamilies` walks.
+ */
+export type SidebarThreadFamilyBand = "single" | "head" | "middle" | "tail";
+
+/**
+ * Band every entry in a flattened, depth-first list.
+ *
+ * Returns one band per entry, positionally aligned with `entries`. A root with
+ * no visible descendants is its own panel (`single`); otherwise the root opens
+ * the band and its last visible descendant closes it.
+ */
+export function buildSidebarThreadFamilyBands<T>(input: {
+  entries: readonly SidebarThreadTreeEntry<T>[];
+}): SidebarThreadFamilyBand[] {
+  const { entries } = input;
+  const bands: SidebarThreadFamilyBand[] = entries.map((entry) =>
+    entry.depth === 0 ? "single" : "middle",
+  );
+
+  // Walk backwards: the row before each root closes the previous family, which
+  // is the only position a forward pass would have to look ahead to find.
+  let lastIndex: number | null = null;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]!.depth !== 0) {
+      lastIndex ??= index;
+      continue;
+    }
+    if (lastIndex !== null) {
+      bands[index] = "head";
+      bands[lastIndex] = "tail";
+    }
+    lastIndex = null;
+  }
+
+  return bands;
+}
+
+/**
  * The ancestor chain of one row, outermost first.
  *
  * Reads the flattened tree backwards: in depth-first display order the nearest

@@ -45,7 +45,7 @@ export const ConversationCardRow = memo(function ConversationCardRow(
   const { thread } = props;
 
   return (
-    <SidebarCardItem size="card">
+    <SidebarCardItem size="card" band={props.band}>
       <div className={row.surfaceClassName}>
         <Tooltip>
           <TooltipTrigger
@@ -55,7 +55,7 @@ export const ConversationCardRow = memo(function ConversationCardRow(
                 tabIndex={0}
                 aria-label={thread.title}
                 data-testid="sidebar-v2-row-card"
-                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                className="absolute inset-0 z-0 rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                 onClick={row.handleClick}
                 onDoubleClick={row.handleDoubleClick}
                 onKeyDown={row.handleKeyDown}
@@ -153,11 +153,15 @@ export const ConversationCardRow = memo(function ConversationCardRow(
                 />
               </span>
               <SidebarCardSubThreadCounts counts={props.subAgentStateCounts} />
-              <SidebarCardBranch
-                branch={row.branch}
-                mismatched={row.branchMismatch !== null}
-                className="shrink"
-              />
+              {/* In worktree grouping the header above already names the branch,
+                  so repeating it on every card under it is noise, not detail. */}
+              {props.showBranch ? (
+                <SidebarCardBranch
+                  branch={row.branch}
+                  mismatched={row.branchMismatch !== null}
+                  className="shrink"
+                />
+              ) : null}
               <SidebarCardMeta className="h-4">
                 <SidebarCardProvider
                   driverKind={row.provider.driverKind}
