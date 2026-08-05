@@ -12,6 +12,7 @@ import {
 } from "../../sidebar/card";
 import { Tooltip, TooltipTrigger } from "../../ui/tooltip";
 import { JumpHintBadge } from "../rowChrome";
+import { SidebarSummaryStateLabel } from "../SidebarStatusPresentations";
 import { ConversationDescription, ConversationDetailsTooltip } from "./ConversationParts";
 import { useConversationRow, type ConversationRowProps } from "./useConversationRow";
 
@@ -25,10 +26,9 @@ export interface ConversationSubRowProps extends ConversationRowProps {
 }
 
 /**
- * A sub-agent, under the orchestrator that spawned it: its description and who
- * is driving it, and nothing else. Its status is already tallied on the card
- * above, and that card owns the branch, project and timing the whole family
- * shares — repeating them here would be noise, not detail.
+ * A sub-agent, under the orchestrator that spawned it: its description, current
+ * status, and who is driving it. The card above tallies the whole family while
+ * this row identifies which expanded sub-agent owns each state.
  */
 export const ConversationSubRow = memo(function ConversationSubRow(props: ConversationSubRowProps) {
   const row = useConversationRow(props);
@@ -80,6 +80,7 @@ export const ConversationSubRow = memo(function ConversationSubRow(props: Conver
               tone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "quiet"}
             />
           </span>
+          <SidebarSummaryStateLabel state={row.summaryState} className="text-[8px]" />
           <SidebarCardProvider
             driverKind={row.provider.driverKind}
             displayName={row.provider.displayName}

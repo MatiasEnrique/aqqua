@@ -108,6 +108,24 @@ function activationTarget(markup: string): string | null {
 }
 
 describe("SidebarConversationRow", () => {
+  it("shows a sub-thread's status when its parent is expanded", () => {
+    const markup = renderToStaticMarkup(
+      <SidebarConversationRow
+        {...baseProps}
+        thread={{
+          ...thread,
+          parentThreadId: ThreadId.make("thread-orchestrator"),
+          session: thread.session === null ? null : { ...thread.session, status: "running" },
+        }}
+        variant="sub"
+        depth={1}
+      />,
+    );
+
+    expect(markup).toContain('data-testid="sidebar-v2-row-sub"');
+    expect(markup).toContain("Working");
+  });
+
   it("keeps collapsed sub-agent states visible beside the parent's own state", () => {
     const markup = renderToStaticMarkup(
       <SidebarConversationRow
