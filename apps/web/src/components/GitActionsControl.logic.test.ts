@@ -85,6 +85,36 @@ describe("change request management", () => {
       { mergeDisabledReason: "Permission denied while reading repository settings." },
     );
   });
+
+  it("disables management actions while options load or a mutation runs", () => {
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: null,
+        optionsPending: true,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: "Loading repository merge settings.",
+        autoMergeDisabledReason: "Loading repository merge settings.",
+      },
+    );
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: true,
+      }),
+      {
+        mergeDisabledReason: "A change request action is in progress.",
+        autoMergeDisabledReason: "A change request action is in progress.",
+        stateActionDisabledReason: "A change request action is in progress.",
+      },
+    );
+  });
 });
 
 function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {

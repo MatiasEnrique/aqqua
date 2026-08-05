@@ -21,6 +21,12 @@ export const DEFAULT_CHANGE_REQUEST_TERMINOLOGY: ChangeRequestTerminology = {
   singular: "pull request",
 };
 
+export function normalizeChangeRequestReference(reference: string): string {
+  const trimmed = reference.trim();
+  const hashNumber = /^#(\d+)$/.exec(trimmed);
+  return hashNumber?.[1] ?? trimmed;
+}
+
 const GITHUB_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   icon: "github",
   providerName: "GitHub",

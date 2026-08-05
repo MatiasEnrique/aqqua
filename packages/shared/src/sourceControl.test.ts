@@ -3,8 +3,19 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   detectSourceControlProviderFromRemoteUrl,
   getChangeRequestTerminologyForKind,
+  normalizeChangeRequestReference,
   resolveChangeRequestPresentation,
 } from "./sourceControl.ts";
+
+describe("normalizeChangeRequestReference", () => {
+  it("normalizes numeric hash references without changing branch names or URLs", () => {
+    expect(normalizeChangeRequestReference(" #42 ")).toBe("42");
+    expect(normalizeChangeRequestReference("feature/#42")).toBe("feature/#42");
+    expect(normalizeChangeRequestReference("https://example.com/pull/42")).toBe(
+      "https://example.com/pull/42",
+    );
+  });
+});
 
 describe("source control presentation", () => {
   it("uses merge request terminology for GitLab", () => {

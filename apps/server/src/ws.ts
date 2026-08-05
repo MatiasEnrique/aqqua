@@ -109,7 +109,6 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
-import * as GitManager from "./git/GitManager.ts";
 import { deleteWorktreeOwned } from "./orchestration/Services/WorktreeDeletion.ts";
 import { WorktreePathCoordination } from "./orchestration/Services/WorktreePathCoordination.ts";
 import { listActiveThreadsForWorktreePath } from "./orchestration/threadDeletion.ts";
@@ -412,7 +411,6 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
-      const gitManager = yield* GitManager.GitManager;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -2260,7 +2258,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.gitGetChangeRequestChecks]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitGetChangeRequestChecks,
-            gitManager.getChangeRequestChecks(input),
+            gitWorkflow.getChangeRequestChecks(input),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitGetChangeRequestMergeOptions]: (input) =>

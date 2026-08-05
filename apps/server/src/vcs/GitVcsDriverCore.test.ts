@@ -154,6 +154,30 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("rejects truncated conflict status instead of returning a partial list", () => {
+  const spawner = ChildProcessSpawner.make(() =>
+    Effect.succeed(
+      makeSuccessfulHandle("u UU N... 100644 100644 100644 a b c path.txt\0".repeat(8_000)),
+    ),
+  );
+  const nodeServicesLayer = Layer.merge(
+    NodeServices.layer,
+    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+  );
+  const layer = GitVcsDriver.layer.pipe(
+    Layer.provide(ServerConfigLayer),
+    Layer.provideMerge(nodeServicesLayer),
+  );
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const error = yield* driver.listConflicts("/repo").pipe(Effect.flip);
+
+    assert.equal(error._tag, "GitCommandError");
+    assert.include(error.detail, "Git output exceeded 262144 bytes and was truncated");
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -1924,6 +1948,20 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           status: "rebased",
         });
         assert.equal(yield* git(cwd, ["merge-base", "HEAD", "main"]), mainHead);
+      }),
+    );
+
+    it.effect("preserves git diagnostics when a rebase fails before conflicts", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* initRepoWithCommit(cwd);
+
+        const error = yield* driver
+          .rebaseFromBase({ cwd, baseRef: "refs/heads/missing-base" })
+          .pipe(Effect.flip);
+
+        assert.include(error.detail, "invalid upstream");
       }),
     );
 

@@ -51,6 +51,7 @@ import {
 } from "@aqqua/shared/git";
 import {
   getChangeRequestTerminologyForKind,
+  normalizeChangeRequestReference,
   type ChangeRequestTerminology,
 } from "@aqqua/shared/sourceControl";
 
@@ -559,12 +560,6 @@ function toStatusPr(
     state: pr.state,
     checksStatus,
   };
-}
-
-function normalizePullRequestReference(reference: string): string {
-  const trimmed = reference.trim();
-  const hashNumber = /^#(\d+)$/.exec(trimmed);
-  return hashNumber?.[1] ?? trimmed;
 }
 
 function toResolvedPullRequest(pr: {
@@ -1783,7 +1778,7 @@ export const make = Effect.gen(function* () {
     const pullRequest = yield* (yield* sourceControlProvider(input.cwd))
       .getChangeRequest({
         cwd: input.cwd,
-        reference: normalizePullRequestReference(input.reference),
+        reference: normalizeChangeRequestReference(input.reference),
       })
       .pipe(Effect.map((resolved) => toResolvedPullRequest(resolved)));
 
@@ -1835,7 +1830,7 @@ export const make = Effect.gen(function* () {
     "getChangeRequestChecks",
   )(function* (input) {
     const cwd = yield* normalizeStatusCacheKey(input.cwd);
-    const reference = normalizePullRequestReference(input.reference);
+    const reference = normalizeChangeRequestReference(input.reference);
     return yield* Cache.get(
       changeRequestChecksCache,
       [cwd, reference, String(prLookupEpoch(cwd))].join("\u0000"),
@@ -1846,7 +1841,7 @@ export const make = Effect.gen(function* () {
     Effect.fn("getChangeRequestMergeOptions")(function* (input) {
       const cwd = yield* normalizeStatusCacheKey(input.cwd);
       const provider = yield* sourceControlProvider(cwd);
-      const normalizedReference = normalizePullRequestReference(input.reference);
+      const normalizedReference = normalizeChangeRequestReference(input.reference);
       return yield* Cache.get(
         mergeOptionsCache,
         `${cwd}\u0000${provider.kind === "github" ? "" : normalizedReference}`,
@@ -1878,7 +1873,7 @@ export const make = Effect.gen(function* () {
     }
     yield* provider.mergeChangeRequest({
       ...input,
-      reference: normalizePullRequestReference(input.reference),
+      reference: normalizeChangeRequestReference(input.reference),
     });
     yield* bumpPrLookupEpoch(input.cwd);
     return { merged: true };
@@ -1910,7 +1905,7 @@ export const make = Effect.gen(function* () {
       }
       yield* provider.setAutoMerge({
         ...input,
-        reference: normalizePullRequestReference(input.reference),
+        reference: normalizeChangeRequestReference(input.reference),
       });
       yield* bumpPrLookupEpoch(input.cwd);
       return { enabled: input.enabled };
@@ -1933,7 +1928,7 @@ export const make = Effect.gen(function* () {
     }
     yield* provider.updateChangeRequestState({
       ...input,
-      reference: normalizePullRequestReference(input.reference),
+      reference: normalizeChangeRequestReference(input.reference),
     });
     yield* bumpPrLookupEpoch(input.cwd);
     return { state: input.state };
@@ -1963,7 +1958,7 @@ export const make = Effect.gen(function* () {
         );
     };
     return yield* Effect.gen(function* () {
-      const normalizedReference = normalizePullRequestReference(input.reference);
+      const normalizedReference = normalizeChangeRequestReference(input.reference);
       const rootWorktreePath = yield* canonicalizeExistingPath(input.cwd);
       const pullRequestSummary = yield* (yield* sourceControlProvider(input.cwd)).getChangeRequest({
         cwd: input.cwd,

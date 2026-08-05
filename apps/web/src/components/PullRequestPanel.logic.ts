@@ -64,6 +64,18 @@ export function checkPresentation(status: GitChangeRequestCheck["status"]): Stat
   }
 }
 
+export function keyChangeRequestChecks(
+  checks: ReadonlyArray<GitChangeRequestCheck>,
+): ReadonlyArray<{ readonly check: GitChangeRequestCheck; readonly key: string }> {
+  const occurrences = new Map<string, number>();
+  return checks.map((check) => {
+    const identity = JSON.stringify([check.name, check.detailsUrl ?? null]);
+    const occurrence = (occurrences.get(identity) ?? 0) + 1;
+    occurrences.set(identity, occurrence);
+    return { check, key: `${identity}:${occurrence}` };
+  });
+}
+
 export function changeRequestStatePresentation(
   state: PullRequestStatus["state"],
 ): Pick<StatusPresentation, "label" | "tone"> {

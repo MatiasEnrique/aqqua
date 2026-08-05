@@ -249,15 +249,15 @@ layer("GitLabCli.layer", (it) => {
 
       const glab = yield* GitLabCli.GitLabCli;
       const options = yield* glab.getMergeOptions({ cwd: "/repo", reference: "#42" });
-      yield* glab.mergeMergeRequest({ cwd: "/repo", reference: "42", method: "squash" });
+      yield* glab.mergeMergeRequest({ cwd: "/repo", reference: "#42", method: "squash" });
       yield* glab.setAutoMerge({
         cwd: "/repo",
-        reference: "42",
+        reference: "#42",
         enabled: true,
         method: "merge",
       });
-      yield* glab.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
-      yield* glab.updateMergeRequestState({ cwd: "/repo", reference: "42", state: "open" });
+      yield* glab.setAutoMerge({ cwd: "/repo", reference: "#42", enabled: false });
+      yield* glab.updateMergeRequestState({ cwd: "/repo", reference: "#42", state: "open" });
 
       assert.deepStrictEqual(options, {
         methods: ["merge", "squash"],
@@ -279,6 +279,22 @@ layer("GitLabCli.layer", (it) => {
           ["mr", "reopen", "42"],
         ],
       );
+    }),
+  );
+
+  it.effect("rejects option-like references before state mutations", () =>
+    Effect.gen(function* () {
+      const glab = yield* GitLabCli.GitLabCli;
+      const error = yield* glab
+        .updateMergeRequestState({
+          cwd: "/repo",
+          reference: "--repo=other/project",
+          state: "closed",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitLabMergeRequestReferenceError");
+      assert.strictEqual(mockedRun.mock.calls.length, 0);
     }),
   );
 

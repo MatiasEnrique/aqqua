@@ -616,9 +616,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // so duplicate settles neither rewind nor churn ordering. A fresh
           // settle stamps the command time.
           updatedAt: alreadySettled ? thread.updatedAt : occurredAt,
-          ...(command.trigger !== undefined
-            ? { settledChangeRequestNumber: command.trigger.number }
-            : {}),
+          ...(alreadySettled
+            ? thread.settledChangeRequestNumber !== undefined
+              ? { settledChangeRequestNumber: thread.settledChangeRequestNumber }
+              : {}
+            : command.trigger !== undefined
+              ? { settledChangeRequestNumber: command.trigger.number }
+              : {}),
         },
       };
     }

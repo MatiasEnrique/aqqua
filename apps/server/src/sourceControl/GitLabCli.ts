@@ -765,29 +765,40 @@ export const make = Effect.gen(function* () {
           squashDefault && methods.includes("squash") ? "squash" : (methods[0] ?? "merge"),
       };
     }),
-    mergeMergeRequest: (input) =>
-      executeMergeRequest({
+    mergeMergeRequest: Effect.fn("GitLabCli.mergeMergeRequest")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
         cwd: input.cwd,
         reference: input.reference,
+      });
+      yield* executeMergeRequest({
+        cwd: input.cwd,
+        reference,
         args: [
           "mr",
           "merge",
-          input.reference,
+          reference,
           "--yes",
           "--auto-merge=false",
           ...(input.method === "squash" ? ["--squash"] : []),
           ...(input.method === "rebase" ? ["--rebase"] : []),
         ],
-      }).pipe(Effect.asVoid),
+      });
+    }),
     setAutoMerge: Effect.fn("GitLabCli.setAutoMerge")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
       if (input.enabled) {
         yield* executeMergeRequest({
           cwd: input.cwd,
-          reference: input.reference,
+          reference,
           args: [
             "mr",
             "merge",
-            input.reference,
+            reference,
             "--yes",
             "--auto-merge",
             ...(input.method === "squash" ? ["--squash"] : []),
@@ -796,14 +807,9 @@ export const make = Effect.gen(function* () {
         });
         return;
       }
-      const reference = yield* normalizeChangeRequestId({
-        command: "glab",
-        cwd: input.cwd,
-        reference: input.reference,
-      });
       yield* executeMergeRequest({
         cwd: input.cwd,
-        reference: input.reference,
+        reference,
         args: [
           "api",
           "-X",
@@ -812,12 +818,18 @@ export const make = Effect.gen(function* () {
         ],
       });
     }),
-    updateMergeRequestState: (input) =>
-      executeMergeRequest({
+    updateMergeRequestState: Effect.fn("GitLabCli.updateMergeRequestState")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
         cwd: input.cwd,
         reference: input.reference,
-        args: ["mr", input.state === "open" ? "reopen" : "close", input.reference],
-      }).pipe(Effect.asVoid),
+      });
+      yield* executeMergeRequest({
+        cwd: input.cwd,
+        reference,
+        args: ["mr", input.state === "open" ? "reopen" : "close", reference],
+      });
+    }),
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,

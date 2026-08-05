@@ -152,7 +152,6 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   GitBranchIcon,
-  GitPullRequestIcon,
   HistoryIcon,
   TriangleAlertIcon,
   WifiOffIcon,
@@ -160,7 +159,6 @@ import {
 import { cn, randomHex } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { Toggle } from "./ui/toggle";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
@@ -2653,13 +2651,6 @@ function ChatViewContent(props: ChatViewProps) {
       useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "diff");
     }
   }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceOwner]);
-  const onTogglePullRequest = useCallback(() => {
-    if (!diffSurfaceAvailable || !rightPanelWorkspaceOwner) {
-      return;
-    }
-    useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "pullRequest");
-  }, [diffSurfaceAvailable, rightPanelWorkspaceOwner]);
-
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -3550,6 +3541,9 @@ function ChatViewContent(props: ChatViewProps) {
         case "history":
           addHistorySurface();
           return;
+        case "pullRequest":
+          addPullRequestSurface();
+          return;
         case "terminal":
           addTerminalSurface();
           return;
@@ -3563,6 +3557,7 @@ function ChatViewContent(props: ChatViewProps) {
       addDiffSurface,
       addFilesSurface,
       addHistorySurface,
+      addPullRequestSurface,
       addTerminalSurface,
       createBrowserSurface,
       rightPanelState.surfaces,
@@ -6050,34 +6045,13 @@ function ChatViewContent(props: ChatViewProps) {
           files: activeProject !== null,
           diff: diffSurfaceAvailable,
           history: diffSurfaceAvailable,
+          pullRequest: diffSurfaceAvailable,
           terminal: activeProject !== null,
           browser: isPreviewSupportedInRuntime(),
         }}
         onOpenSurface={openRightPanelSurface}
         onCloseSurface={closePreviewPanel}
       />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Toggle
-              className="shrink-0 [-webkit-app-region:no-drag]"
-              pressed={rightPanelOpen && activeRightPanelSurface?.kind === "pullRequest"}
-              onPressedChange={onTogglePullRequest}
-              aria-label="Pull request"
-              variant="ghost"
-              size="sm"
-              disabled={!diffSurfaceAvailable}
-            >
-              <GitPullRequestIcon className="size-3.5" />
-            </Toggle>
-          }
-        />
-        <TooltipPopup side="bottom">
-          {diffSurfaceAvailable
-            ? "Pull request"
-            : "Pull requests are only available for projects in Git repositories."}
-        </TooltipPopup>
-      </Tooltip>
     </div>
   );
   const panelLayoutControls = (

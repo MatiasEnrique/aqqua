@@ -5,6 +5,7 @@ import {
   aggregateChecksPresentation,
   changeRequestStatePresentation,
   checkPresentation,
+  keyChangeRequestChecks,
   pullRequestFingerprint,
   shouldRefetchChecks,
 } from "./PullRequestPanel.logic";
@@ -86,5 +87,19 @@ describe("pull request status presentation", () => {
       tone: "neutral",
     });
     expect(changeRequestStatePresentation("merged")).toEqual({ label: "Merged", tone: "info" });
+  });
+});
+
+describe("keyChangeRequestChecks", () => {
+  it("assigns unique data-derived keys when providers repeat a check name", () => {
+    const checks = [
+      { name: "test", status: "success" as const, detailsUrl: "https://example.test/jobs/1" },
+      { name: "test", status: "failure" as const, detailsUrl: "https://example.test/jobs/2" },
+      { name: "test", status: "pending" as const, detailsUrl: "https://example.test/jobs/2" },
+    ];
+
+    const keyed = keyChangeRequestChecks(checks);
+    expect(new Set(keyed.map(({ key }) => key)).size).toBe(checks.length);
+    expect(keyed[1]?.key).not.toBe(keyed[2]?.key);
   });
 });

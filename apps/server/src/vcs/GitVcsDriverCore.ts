@@ -2277,7 +2277,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       "GitVcsDriver.rebaseFromBase",
       input.cwd,
       ["rebase", "--", input.baseRef],
-      "git rebase failed.",
+      result.stderr.trim() || "git rebase failed.",
       result.exitCode,
     );
   });

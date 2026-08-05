@@ -1,4 +1,5 @@
 import { type EnvironmentId, WS_METHODS } from "@aqqua/contracts";
+import { normalizeChangeRequestReference } from "@aqqua/shared/sourceControl";
 import * as Effect from "effect/Effect";
 import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
@@ -35,7 +36,7 @@ export function createGitEnvironmentAtoms<R, E>(
             environmentId: target.environmentId,
             input: {
               cwd: target.input.cwd,
-              reference: target.input.reference,
+              reference: normalizeChangeRequestReference(target.input.reference),
             },
           };
           registry.refresh(changeRequestChecks(queryTarget));

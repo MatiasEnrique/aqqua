@@ -24,6 +24,7 @@ function makeReadModel(
   session: OrchestrationSession | null = null,
   activities: OrchestrationThread["activities"] = [],
   messages: OrchestrationThread["messages"] = [],
+  settledChangeRequestNumber?: number,
 ): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -44,6 +45,7 @@ function makeReadModel(
         archivedAt,
         settledOverride,
         settledAt: settledOverride === "settled" ? SETTLED_AT : null,
+        ...(settledChangeRequestNumber !== undefined ? { settledChangeRequestNumber } : {}),
         deletedAt: null,
         messages,
         proposedPlans: [],
@@ -168,9 +170,9 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           type: "thread.settle",
           commandId: CommandId.make("cmd-settle-again"),
           threadId: ThreadId.make("thread-1"),
-          trigger: { kind: "merged-change-request", number: 42 },
+          trigger: { kind: "merged-change-request", number: 99 },
         },
-        readModel: makeReadModel("settled"),
+        readModel: makeReadModel("settled", null, null, [], [], 42),
       });
       const reEmitEvents = Array.isArray(reEmit) ? reEmit : [reEmit];
       expect(reEmitEvents).toHaveLength(1);

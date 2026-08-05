@@ -2,6 +2,7 @@ import {
   FileDiffIcon,
   FolderTreeIcon,
   GitGraphIcon,
+  GitPullRequestIcon,
   GlobeIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -58,11 +59,17 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 });
 
 /**
- * The five right-panel surfaces reachable straight from the chat header. These
+ * The right-panel surfaces reachable straight from the chat header. These
  * replaced the generic "toggle right panel" button: users pick the surface they
  * want instead of opening the panel and then hunting for it.
  */
-export type RightPanelSurfaceButtonKind = "files" | "diff" | "history" | "terminal" | "browser";
+export type RightPanelSurfaceButtonKind =
+  | "files"
+  | "diff"
+  | "history"
+  | "pullRequest"
+  | "terminal"
+  | "browser";
 
 /**
  * Maps a right-panel surface kind onto the header button that represents it.
@@ -78,6 +85,8 @@ export function rightPanelSurfaceButtonKindOf(
       return "diff";
     case "history":
       return "history";
+    case "pullRequest":
+      return "pullRequest";
     case "terminal":
       return "terminal";
     case "preview":
@@ -105,6 +114,12 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     label: "Open Git history",
     icon: GitGraphIcon,
     unavailableReason: "History is only available for projects in Git repositories.",
+  },
+  {
+    kind: "pullRequest",
+    label: "Open pull request",
+    icon: GitPullRequestIcon,
+    unavailableReason: "Pull requests are only available for projects in Git repositories.",
   },
   {
     kind: "terminal",

@@ -24,6 +24,8 @@ import {
   type VcsInspectWorktreeRemovalInput,
   type VcsInspectWorktreeRemovalResult,
   type GitManagerServiceError,
+  type GitGetChangeRequestChecksInput,
+  type GitGetChangeRequestChecksResult,
   type GitGetChangeRequestMergeOptionsInput,
   type GitGetChangeRequestMergeOptionsResult,
   type GitMergeChangeRequestInput,
@@ -75,6 +77,9 @@ export class GitWorkflowService extends Context.Service<
     readonly resolvePullRequest: (
       input: GitPullRequestRefInput,
     ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
+    readonly getChangeRequestChecks: (
+      input: GitGetChangeRequestChecksInput,
+    ) => Effect.Effect<GitGetChangeRequestChecksResult, GitManagerServiceError>;
     readonly getChangeRequestMergeOptions: (
       input: GitGetChangeRequestMergeOptionsInput,
     ) => Effect.Effect<GitGetChangeRequestMergeOptionsResult, GitManagerServiceError>;
@@ -345,6 +350,10 @@ export const make = Effect.gen(function* () {
     resolvePullRequest: routeGitManager(
       "GitWorkflowService.resolvePullRequest",
       gitManager.resolvePullRequest,
+    ),
+    getChangeRequestChecks: routeGitManager(
+      "GitWorkflowService.getChangeRequestChecks",
+      gitManager.getChangeRequestChecks,
     ),
     getChangeRequestMergeOptions: routeGitManager(
       "GitWorkflowService.getChangeRequestMergeOptions",

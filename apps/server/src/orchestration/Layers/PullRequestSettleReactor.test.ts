@@ -1,8 +1,12 @@
 import {
+  CommandId,
+  EventId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationCommand,
+  type OrchestrationEvent,
+  type OrchestrationSessionStatus,
   type VcsStatusRemoteResult,
 } from "@aqqua/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -77,7 +81,8 @@ const makeThread = (): ProjectionThread => ({
 
 interface HarnessOptions {
   readonly settingEnabled?: boolean;
-  readonly rejectFirstDispatch?: boolean;
+  readonly rejectDispatchCount?: number;
+  readonly initialThread?: Partial<ProjectionThread>;
 }
 
 const withHarness = <A, E>(
@@ -88,6 +93,7 @@ const withHarness = <A, E>(
     readonly dispatched: ReadonlyArray<OrchestrationCommand>;
     readonly logs: ReadonlyArray<ReadonlyArray<unknown>>;
     readonly publishAndDrain: (remote: VcsStatusRemoteResult | null) => Effect.Effect<void>;
+    readonly publishSessionAndDrain: (status: OrchestrationSessionStatus) => Effect.Effect<void>;
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.scoped(
@@ -96,10 +102,11 @@ const withHarness = <A, E>(
         readonly cwd: string;
         readonly remote: VcsStatusRemoteResult | null;
       }>();
-      let thread = makeThread();
+      const domainEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+      let thread = { ...makeThread(), ...options.initialThread };
       const dispatched: Array<OrchestrationCommand> = [];
       const logs: Array<ReadonlyArray<unknown>> = [];
-      let rejectNextDispatch = options.rejectFirstDispatch ?? false;
+      let remainingRejectedDispatches = options.rejectDispatchCount ?? 0;
 
       const logger = Logger.make<unknown, void>(({ message }) => {
         logs.push(message as ReadonlyArray<unknown>);
@@ -142,8 +149,8 @@ const withHarness = <A, E>(
               dispatch: (command) =>
                 Effect.suspend(() => {
                   dispatched.push(command);
-                  if (rejectNextDispatch) {
-                    rejectNextDispatch = false;
+                  if (remainingRejectedDispatches > 0) {
+                    remainingRejectedDispatches -= 1;
                     return Effect.fail("thread has a queued turn start" as never);
                   }
                   if (command.type === "thread.settle" && command.trigger !== undefined) {
@@ -155,7 +162,7 @@ const withHarness = <A, E>(
                   }
                   return Effect.succeed({ sequence: dispatched.length });
                 }),
-              streamDomainEvents: Stream.empty,
+              streamDomainEvents: Stream.fromPubSub(domainEvents),
               latestSequence: Effect.succeed(0),
             }),
           ),
@@ -182,6 +189,35 @@ const withHarness = <A, E>(
           publishAndDrain: (remote) =>
             Effect.gen(function* () {
               yield* PubSub.publish(remoteChanges, { cwd: "/repo", remote });
+              yield* Effect.forEach(Array.from({ length: 10 }), () => Effect.yieldNow, {
+                discard: true,
+              });
+              yield* reactor.drain;
+            }),
+          publishSessionAndDrain: (status) =>
+            Effect.gen(function* () {
+              const session = {
+                threadId: thread.threadId,
+                status,
+                providerName: "Codex",
+                runtimeMode: "full-access" as const,
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: "2026-08-04T00:00:01.000Z",
+              };
+              yield* PubSub.publish(domainEvents, {
+                sequence: 1,
+                eventId: EventId.make(`event-session-${status}`),
+                aggregateKind: "thread",
+                aggregateId: thread.threadId,
+                occurredAt: session.updatedAt,
+                commandId: CommandId.make(`command-session-${status}`),
+                causationEventId: null,
+                correlationId: null,
+                metadata: {},
+                type: "thread.session-set",
+                payload: { threadId: thread.threadId, session },
+              });
               yield* Effect.forEach(Array.from({ length: 10 }), () => Effect.yieldNow, {
                 discard: true,
               });
@@ -227,8 +263,8 @@ it.effect("retains the merge memo when a thread is manually un-settled", () =>
   ),
 );
 
-it.effect("logs a queued-turn rejection and keeps processing later merged events", () =>
-  withHarness({ rejectFirstDispatch: true }, (harness) =>
+it.effect("retries a queued-turn rejection when that turn settles", () =>
+  withHarness({ rejectDispatchCount: 1 }, (harness) =>
     Effect.gen(function* () {
       yield* harness.publishAndDrain(MERGED_REMOTE);
       expect(harness.dispatched).toHaveLength(1);
@@ -238,10 +274,41 @@ it.effect("logs a queued-turn rejection and keeps processing later merged events
         ),
       ).toBe(true);
 
-      yield* harness.publishAndDrain(MERGED_REMOTE);
+      yield* harness.publishSessionAndDrain("ready");
       expect(harness.dispatched).toHaveLength(2);
       expect((yield* harness.getThread).settledChangeRequestNumber).toBe(42);
     }),
+  ),
+);
+
+it.effect("bounds settlement retries across later terminal session events", () =>
+  withHarness({ rejectDispatchCount: 4 }, (harness) =>
+    Effect.gen(function* () {
+      yield* harness.publishAndDrain(MERGED_REMOTE);
+      yield* harness.publishSessionAndDrain("ready");
+      yield* harness.publishSessionAndDrain("stopped");
+      expect(harness.dispatched).toHaveLength(3);
+
+      yield* harness.publishSessionAndDrain("idle");
+      expect(harness.dispatched).toHaveLength(3);
+    }),
+  ),
+);
+
+it.effect("does not re-settle an explicitly settled thread for a different merge memo", () =>
+  withHarness(
+    {
+      initialThread: {
+        settledOverride: "settled",
+        settledAt: "2026-08-03T00:00:00.000Z",
+        settledChangeRequestNumber: 41,
+      },
+    },
+    (harness) =>
+      Effect.gen(function* () {
+        yield* harness.publishAndDrain(MERGED_REMOTE);
+        expect(harness.dispatched).toHaveLength(0);
+      }),
   ),
 );
 
