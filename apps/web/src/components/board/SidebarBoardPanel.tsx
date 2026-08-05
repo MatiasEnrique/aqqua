@@ -17,11 +17,16 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { SidebarGroup } from "../ui/sidebar";
-import { FlowCardBranch, FlowCardFailureNote, FlowCardStateBadge } from "../sidebar/card";
+import {
+  FlowCardBranch,
+  FlowCardStateBadge,
+  SidebarCardActionButton,
+  SidebarCardHoverActionSlot,
+} from "../sidebar/card";
 import { Spinner } from "../ui/spinner";
 import { cardOperationPresentation, formatElapsed } from "./BoardRunTable.logic";
 import { CardCreateDialog } from "./CardCreateDialog";
-import { BoardSelector, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
+import { BoardSelector, FlowSlimRow, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
 import { useSidebarProjectBoardController } from "./useSidebarProjectBoardController";
 import { useSidebarRelativeTimeTick } from "./useSidebarRelativeTimeTick";
 
@@ -47,6 +52,32 @@ function _cardCommandFailureDescription(error: unknown): string {
 function cardAge(at: string | null, nowMs: number): string | null {
   const elapsed = formatElapsed(at, nowMs);
   return elapsed?.split(" ")[0] ?? null;
+}
+
+/**
+ * A row action that stays out of the way: pruning and starting are not what a
+ * row is for, so the button only surfaces on hover, focus, or coarse pointers.
+ */
+function FlowRowHoverAction(props: {
+  readonly icon: Parameters<typeof SidebarCardActionButton>[0]["icon"];
+  readonly label: string;
+  readonly title: string;
+  readonly onClick: () => void;
+  readonly tone?: "default" | "destructive";
+  readonly disabled?: boolean;
+}) {
+  return (
+    <SidebarCardActionButton
+      icon={props.icon}
+      label={props.label}
+      title={props.title}
+      {...(props.tone === undefined ? {} : { tone: props.tone })}
+      {...(props.disabled === undefined ? {} : { disabled: props.disabled })}
+      shape="inline"
+      className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/v2-row:opacity-100 pointer-coarse:opacity-100"
+      onClick={props.onClick}
+    />
+  );
 }
 
 function RelativeCardAge({ at }: { readonly at: string | null }) {
@@ -203,192 +234,195 @@ function ProjectBoardSection({
       ) : null}
 
       {needsYouCards.length > 0 ? (
-        <section ref={attachAnimatedList} className="flex flex-col gap-0.5">
+        <section className="flex flex-col">
           <SectionLabel className="text-warning-foreground">
             Needs you · {needsYouCards.length}
           </SectionLabel>
-          {needsYouCards.map((card) => (
-            <InFlightCardRow
-              key={card.id}
-              card={card}
-              stepNames={stepNamesFor(card)}
-              boardName={boardNameFor(card)}
-              selected={card.id === selectedCardId}
-              onOpen={() => openCard(card.id)}
-              onDelete={
-                canDeleteCard(card)
-                  ? () => setPendingDelete({ id: card.id, title: card.title })
-                  : null
-              }
-              pending={pendingCardIds.has(card.id)}
-            />
-          ))}
+          {/* Panels need air between them to read as separate objects — the
+              same gap the conversation list keeps. */}
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+            {needsYouCards.map((card) => (
+              <InFlightCardRow
+                key={card.id}
+                card={card}
+                stepNames={stepNamesFor(card)}
+                boardName={boardNameFor(card)}
+                selected={card.id === selectedCardId}
+                onOpen={() => openCard(card.id)}
+                onDelete={
+                  canDeleteCard(card)
+                    ? () => setPendingDelete({ id: card.id, title: card.title })
+                    : null
+                }
+                pending={pendingCardIds.has(card.id)}
+              />
+            ))}
+          </ul>
         </section>
       ) : null}
 
       {activeCards.length > 0 ? (
-        <section ref={attachAnimatedList} className="flex flex-col gap-0.5">
+        <section className="flex flex-col">
           <SectionLabel className="text-info-foreground">
             Active · {activeCards.length}
           </SectionLabel>
-          {activeCards.map((card) => (
-            <InFlightCardRow
-              key={card.id}
-              card={card}
-              stepNames={stepNamesFor(card)}
-              boardName={boardNameFor(card)}
-              selected={card.id === selectedCardId}
-              onOpen={() => openCard(card.id)}
-              onDelete={
-                canDeleteCard(card)
-                  ? () => setPendingDelete({ id: card.id, title: card.title })
-                  : null
-              }
-              pending={pendingCardIds.has(card.id)}
-            />
-          ))}
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+            {activeCards.map((card) => (
+              <InFlightCardRow
+                key={card.id}
+                card={card}
+                stepNames={stepNamesFor(card)}
+                boardName={boardNameFor(card)}
+                selected={card.id === selectedCardId}
+                onOpen={() => openCard(card.id)}
+                onDelete={
+                  canDeleteCard(card)
+                    ? () => setPendingDelete({ id: card.id, title: card.title })
+                    : null
+                }
+                pending={pendingCardIds.has(card.id)}
+              />
+            ))}
+          </ul>
         </section>
       ) : null}
 
       {sections.todo.length > 0 ? (
-        <section ref={attachAnimatedList} className="flex flex-col gap-0.5">
+        <section className="flex flex-col">
           <SectionLabel
             className="text-sidebar-muted-foreground"
             trailing={<span className="text-sidebar-muted-foreground/60">backlog</span>}
           >
             To-Do · {sections.todo.length}
           </SectionLabel>
-          {sections.todo.map((card) => {
-            // Release is claimed before the snapshot lands, so the operation —
-            // not the snapshot — is what says this card is already on its way.
-            const operation = cardOperation(card);
-            return (
-              <div key={card.id}>
-                <div
-                  className={cn(
-                    "group/todo flex flex-col gap-0.5 rounded-lg py-1.5 pr-1.5 pl-2 transition-colors hover:bg-sidebar-row-hover",
-                    card.id === selectedCardId && "bg-sidebar-row-selected",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left text-[13px] text-sidebar-foreground/90 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => openCard(card.id)}
-                    >
-                      {card.title}
-                    </button>
-                    <FlowCardStateBadge card={card} />
-                    {operation !== null || pendingCardIds.has(card.id) ? (
-                      // Release runs server-side (worktree + checkout + setup) after
-                      // the RPC returns — the row keeps saying so until the card
-                      // enters its first step and leaves To-Do.
-                      <span className="flex shrink-0 items-center gap-1 px-1 text-sidebar-muted-foreground text-xs">
-                        <Spinner className="size-3" />
-                        {operation === null
-                          ? "Starting…"
-                          : `${cardOperationPresentation(operation).label}…`}
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-sm px-1 font-medium text-primary text-xs outline-none transition-[color,scale] duration-150 ease-out hover:text-primary/80 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:transform-none disabled:opacity-50"
-                          onClick={() => {
-                            void withPendingCard(card.id, () =>
-                              releaseCard({
-                                environmentId,
-                                input: { cardId: card.id },
-                              }),
-                            );
-                          }}
-                        >
-                          Start
-                        </button>
-                        {canDeleteCard(card) ? (
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+            {sections.todo.map((card) => {
+              // Release is claimed before the snapshot lands, so the operation —
+              // not the snapshot — is what says this card is already on its way.
+              const operation = cardOperation(card);
+              const starting = operation !== null || pendingCardIds.has(card.id);
+              return (
+                <FlowSlimRow
+                  key={card.id}
+                  card={card}
+                  selected={card.id === selectedCardId}
+                  onOpen={() => openCard(card.id)}
+                  recede
+                  titleClassName="text-sidebar-foreground/90"
+                  trailing={
+                    <>
+                      {/* A reset card keeps its checkout, so a To-Do row can
+                          still name the worktree its next run picks back up. */}
+                      <FlowCardBranch card={card} className="shrink" />
+                      <FlowCardStateBadge card={card} />
+                      {starting ? (
+                        // Release runs server-side (worktree + checkout + setup)
+                        // after the RPC returns — the row keeps saying so until
+                        // the card enters its first step and leaves To-Do.
+                        <span className="flex shrink-0 items-center gap-1 px-1 text-sidebar-muted-foreground text-xs">
+                          <Spinner className="size-3" />
+                          {operation === null
+                            ? "Starting…"
+                            : `${cardOperationPresentation(operation).label}…`}
+                        </span>
+                      ) : (
+                        <>
                           <button
                             type="button"
-                            aria-label={`Delete '${card.title}'`}
-                            title={`Delete ${card.title}`}
-                            className="flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/todo:opacity-100 pointer-coarse:opacity-100 hover:bg-destructive/10 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:text-sidebar-muted-foreground hover:[&_svg]:text-destructive-foreground"
-                            onClick={() =>
-                              setPendingDelete({
-                                id: card.id,
-                                title: card.title,
-                              })
-                            }
+                            className="shrink-0 rounded-sm px-1 font-medium text-primary text-xs outline-none transition-[color,scale] duration-150 ease-out hover:text-primary/80 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:transform-none disabled:opacity-50"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void withPendingCard(card.id, () =>
+                                releaseCard({
+                                  environmentId,
+                                  input: { cardId: card.id },
+                                }),
+                              );
+                            }}
                           >
-                            <Trash2Icon aria-hidden className="size-3" />
+                            Start
                           </button>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
-                  {/* A reset card keeps its checkout, so a To-Do row can still
-                      name the worktree its next run will pick back up. */}
-                  <FlowCardBranch card={card} />
-                </div>
-                <FlowCardFailureNote card={card} />
-              </div>
-            );
-          })}
+                          {canDeleteCard(card) ? (
+                            <FlowRowHoverAction
+                              icon={Trash2Icon}
+                              label={`Delete '${card.title}'`}
+                              title={`Delete ${card.title}`}
+                              tone="destructive"
+                              onClick={() => setPendingDelete({ id: card.id, title: card.title })}
+                            />
+                          ) : null}
+                        </>
+                      )}
+                    </>
+                  }
+                />
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 
       {sections.done.length > 0 ? (
-        <section ref={attachAnimatedList} className="flex flex-col gap-0.5">
+        <section className="flex flex-col">
           <SectionLabel className="text-success-foreground">
             Done · {sections.done.length}
           </SectionLabel>
-          {sections.done.map((card) => (
-            <div key={card.id}>
-              <div
-                className={cn(
-                  "group/done flex flex-col gap-0.5 rounded-lg py-1.5 pr-1.5 pl-2 transition-colors hover:bg-sidebar-row-hover",
-                  card.id === selectedCardId && "bg-sidebar-row-selected",
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <CheckCircle2Icon aria-hidden className="size-3.5 shrink-0 text-success" />
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left text-[13px] text-sidebar-foreground/90 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => openCard(card.id)}
-                  >
-                    {card.title}
-                  </button>
-                  <span className="shrink-0 font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
-                    <RelativeCardAge at={card.completedAt} />
-                  </span>
-                  <FlowCardStateBadge card={card} />
-                  <button
-                    type="button"
-                    aria-label={`Settle '${card.title}'`}
-                    title={`Settle ${card.title}`}
-                    disabled={pendingCardIds.has(card.id) || cardOperation(card) !== null}
-                    className="flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/done:opacity-100 pointer-coarse:opacity-100 hover:bg-sidebar-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 [&_svg]:text-sidebar-muted-foreground hover:[&_svg]:text-sidebar-foreground"
-                    onClick={() => {
-                      void settleDoneCard(card);
-                    }}
-                  >
-                    <CheckIcon aria-hidden className="size-3" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete '${card.title}'`}
-                    title={`Delete ${card.title}`}
-                    disabled={pendingCardIds.has(card.id) || cardOperation(card) !== null}
-                    className="flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/done:opacity-100 pointer-coarse:opacity-100 hover:bg-destructive/10 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 [&_svg]:text-sidebar-muted-foreground hover:[&_svg]:text-destructive-foreground"
-                    onClick={() => setPendingDelete({ id: card.id, title: card.title })}
-                  >
-                    <Trash2Icon aria-hidden className="size-3" />
-                  </button>
-                </div>
-                <FlowCardBranch card={card} className="pl-5.5" />
-              </div>
-              <FlowCardFailureNote card={card} />
-            </div>
-          ))}
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+            {sections.done.map((card) => {
+              const busy = pendingCardIds.has(card.id) || cardOperation(card) !== null;
+              return (
+                <FlowSlimRow
+                  key={card.id}
+                  card={card}
+                  selected={card.id === selectedCardId}
+                  onOpen={() => openCard(card.id)}
+                  titleClassName="text-sidebar-foreground/90"
+                  leading={
+                    <CheckCircle2Icon aria-hidden className="size-3.5 shrink-0 text-success" />
+                  }
+                  trailing={
+                    <>
+                      <FlowCardBranch card={card} className="shrink" />
+                      <SidebarCardHoverActionSlot
+                        reserveWidth
+                        resting={
+                          <span className="inline-flex items-center gap-2">
+                            <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                              <RelativeCardAge at={card.completedAt} />
+                            </span>
+                            <FlowCardStateBadge card={card} />
+                          </span>
+                        }
+                        actions={
+                          <>
+                            <SidebarCardActionButton
+                              icon={CheckIcon}
+                              label={`Settle '${card.title}'`}
+                              title={`Settle ${card.title}`}
+                              disabled={busy}
+                              shape="inline"
+                              onClick={() => {
+                                void settleDoneCard(card);
+                              }}
+                            />
+                            <SidebarCardActionButton
+                              icon={Trash2Icon}
+                              label={`Delete '${card.title}'`}
+                              title={`Delete ${card.title}`}
+                              disabled={busy}
+                              tone="destructive"
+                              shape="inline"
+                              onClick={() => setPendingDelete({ id: card.id, title: card.title })}
+                            />
+                          </>
+                        }
+                      />
+                    </>
+                  }
+                />
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 
@@ -420,59 +454,67 @@ function ProjectBoardSection({
             )}
           >
             <div className="overflow-hidden">
-              <div ref={attachAnimatedList} className="flex flex-col gap-0.5">
-                {sections.settled.map((card) => (
-                  <div key={card.id}>
-                    <div
-                      className={cn(
-                        "group/settled flex items-center gap-2 rounded-lg py-1.5 pr-1.5 pl-2 transition-colors hover:bg-sidebar-row-hover",
-                        card.id === selectedCardId && "bg-sidebar-row-selected",
-                      )}
-                    >
-                      <CheckCircle2Icon aria-hidden className="size-3.5 shrink-0 text-success" />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 truncate text-left text-[13px] text-sidebar-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => openCard(card.id)}
-                      >
-                        {card.title}
-                      </button>
-                      <span className="shrink-0 font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
-                        <RelativeCardAge at={card.settledAt} />
-                      </span>
-                      <FlowCardStateBadge card={card} />
-                      <button
-                        type="button"
-                        aria-label={`Un-settle '${card.title}'`}
-                        title={`Move ${card.title} back to Done`}
-                        disabled={pendingCardIds.has(card.id) || cardOperation(card) !== null}
-                        className="flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/settled:opacity-100 pointer-coarse:opacity-100 hover:bg-sidebar-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 [&_svg]:text-sidebar-muted-foreground hover:[&_svg]:text-sidebar-foreground"
-                        onClick={() => {
-                          void withPendingCard(card.id, () =>
-                            unsettleCard({
-                              environmentId,
-                              input: { cardId: card.id },
-                            }),
-                          );
-                        }}
-                      >
-                        <Undo2Icon aria-hidden className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete '${card.title}'`}
-                        title={`Delete ${card.title}`}
-                        disabled={pendingCardIds.has(card.id) || cardOperation(card) !== null}
-                        className="flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 outline-none transition-[opacity,background-color] group-hover/settled:opacity-100 pointer-coarse:opacity-100 hover:bg-destructive/10 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 [&_svg]:text-sidebar-muted-foreground hover:[&_svg]:text-destructive-foreground"
-                        onClick={() => setPendingDelete({ id: card.id, title: card.title })}
-                      >
-                        <Trash2Icon aria-hidden className="size-3" />
-                      </button>
-                    </div>
-                    <FlowCardFailureNote card={card} />
-                  </div>
-                ))}
-              </div>
+              <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+                {sections.settled.map((card) => {
+                  const busy = pendingCardIds.has(card.id) || cardOperation(card) !== null;
+                  return (
+                    <FlowSlimRow
+                      key={card.id}
+                      card={card}
+                      selected={card.id === selectedCardId}
+                      onOpen={() => openCard(card.id)}
+                      recede
+                      titleClassName="text-sidebar-muted-foreground"
+                      leading={
+                        <CheckCircle2Icon aria-hidden className="size-3.5 shrink-0 text-success" />
+                      }
+                      trailing={
+                        <SidebarCardHoverActionSlot
+                          reserveWidth
+                          resting={
+                            <span className="inline-flex items-center gap-2">
+                              <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                                <RelativeCardAge at={card.settledAt} />
+                              </span>
+                              <FlowCardStateBadge card={card} />
+                            </span>
+                          }
+                          actions={
+                            <>
+                              <SidebarCardActionButton
+                                icon={Undo2Icon}
+                                label={`Un-settle '${card.title}'`}
+                                title={`Move ${card.title} back to Done`}
+                                disabled={busy}
+                                shape="inline"
+                                onClick={() => {
+                                  void withPendingCard(card.id, () =>
+                                    unsettleCard({
+                                      environmentId,
+                                      input: { cardId: card.id },
+                                    }),
+                                  );
+                                }}
+                              />
+                              <SidebarCardActionButton
+                                icon={Trash2Icon}
+                                label={`Delete '${card.title}'`}
+                                title={`Delete ${card.title}`}
+                                disabled={busy}
+                                tone="destructive"
+                                shape="inline"
+                                onClick={() =>
+                                  setPendingDelete({ id: card.id, title: card.title })
+                                }
+                              />
+                            </>
+                          }
+                        />
+                      }
+                    />
+                  );
+                })}
+              </ul>
             </div>
           </div>
         </section>
@@ -481,31 +523,38 @@ function ProjectBoardSection({
       {/* Cards the server has taken for deletion. They are off the working
           board already — this is a receipt, not a place to act. */}
       {sections.deleting.length > 0 ? (
-        <section ref={attachAnimatedList} className="flex flex-col gap-0.5">
+        <section className="flex flex-col">
           <SectionLabel className="text-sidebar-muted-foreground">
             Deleting · {sections.deleting.length}
           </SectionLabel>
-          {sections.deleting.map((card) => (
-            <div key={card.id}>
-              <div className="flex items-center gap-2 rounded-lg py-1.5 pr-1.5 pl-2 opacity-70">
-                <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-muted-foreground line-through">
-                  {card.title}
-                </span>
-                <FlowCardStateBadge card={card} />
-                {card.lastError === null ? null : (
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-sm px-1 font-medium text-primary text-xs outline-none hover:text-primary/80 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                    disabled={pendingCardIds.has(card.id)}
-                    onClick={() => void retryDeleteCleanup(card.id)}
-                  >
-                    {pendingCardIds.has(card.id) ? "Retrying…" : "Retry"}
-                  </button>
-                )}
-              </div>
-              <FlowCardFailureNote card={card} />
-            </div>
-          ))}
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+            {sections.deleting.map((card) => (
+              <FlowSlimRow
+                key={card.id}
+                card={card}
+                selected={false}
+                onOpen={() => undefined}
+                interactive={false}
+                recede
+                titleClassName="text-sidebar-muted-foreground line-through"
+                trailing={
+                  <>
+                    <FlowCardStateBadge card={card} />
+                    {card.lastError === null ? null : (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-sm px-1 font-medium text-primary text-xs outline-none hover:text-primary/80 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                        disabled={pendingCardIds.has(card.id)}
+                        onClick={() => void retryDeleteCleanup(card.id)}
+                      >
+                        {pendingCardIds.has(card.id) ? "Retrying…" : "Retry"}
+                      </button>
+                    )}
+                  </>
+                }
+              />
+            ))}
+          </ul>
         </section>
       ) : null}
 
