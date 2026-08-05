@@ -8,6 +8,9 @@ import {
   supportsChangeRequestAutoMerge,
   supportsChangeRequestMerge,
   supportsChangeRequestStateUpdate,
+  supportsChangeRequestConversation,
+  supportsChangeRequestCommits,
+  supportsChangeRequestBranchDelete,
   transportSafeSourceControlErrorValue,
   SourceControlProvider,
 } from "./SourceControlProvider.ts";
@@ -31,6 +34,28 @@ it("requires each change-request capability flag and its methods", () => {
   const setAutoMerge = () => Effect.void;
   const updateChangeRequestState = () => Effect.void;
   const listCheckDetails = () => Effect.succeed([]);
+  const getChangeRequestConversation = () =>
+    Effect.succeed({
+      number: 42,
+      state: "open" as const,
+      headRefName: "feature/test",
+      isCrossRepository: false,
+      additions: 1,
+      deletions: 0,
+      reviewers: [],
+      description: { author: null, body: "", createdAt: null, url: "" },
+      comments: [],
+      commentsTruncated: false,
+      reviewThreads: [],
+      reviewThreadsTruncated: false,
+    });
+  const addChangeRequestComment = () => Effect.void;
+  const replyToChangeRequestThread = () => Effect.void;
+  const setChangeRequestThreadResolved = () => Effect.void;
+  const listChangeRequestCommits = () =>
+    Effect.succeed({ number: 42, headOid: null, commits: [], truncated: false });
+  const deleteChangeRequestRemoteBranch = () =>
+    Effect.succeed({ branch: "feature/test", remote: "deleted" as const });
 
   assert.strictEqual(
     supportsChangeRequestMerge({
@@ -92,6 +117,51 @@ it("requires each change-request capability flag and its methods", () => {
       ...base,
       capabilities: { checkDetails: true },
     }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestConversation({
+      ...base,
+      capabilities: { conversation: true },
+      getChangeRequestConversation,
+      addChangeRequestComment,
+      replyToChangeRequestThread,
+      setChangeRequestThreadResolved,
+    }),
+    true,
+  );
+  assert.strictEqual(
+    supportsChangeRequestConversation({
+      ...base,
+      capabilities: { conversation: true },
+      getChangeRequestConversation,
+      addChangeRequestComment,
+      replyToChangeRequestThread,
+    }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestCommits({
+      ...base,
+      capabilities: { commits: true },
+      listChangeRequestCommits,
+    }),
+    true,
+  );
+  assert.strictEqual(
+    supportsChangeRequestCommits({ ...base, capabilities: { commits: true } }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestBranchDelete({
+      ...base,
+      capabilities: { branchDelete: true },
+      deleteChangeRequestRemoteBranch,
+    }),
+    true,
+  );
+  assert.strictEqual(
+    supportsChangeRequestBranchDelete({ ...base, capabilities: { branchDelete: true } }),
     false,
   );
 });

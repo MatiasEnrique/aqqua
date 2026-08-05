@@ -26,6 +26,18 @@ import {
   type GitManagerServiceError,
   type GitGetChangeRequestChecksInput,
   type GitGetChangeRequestChecksResult,
+  type GitGetChangeRequestConversationInput,
+  type GitGetChangeRequestConversationResult,
+  type GitAddChangeRequestCommentInput,
+  type GitAddChangeRequestCommentResult,
+  type GitReplyToChangeRequestThreadInput,
+  type GitReplyToChangeRequestThreadResult,
+  type GitSetChangeRequestThreadResolvedInput,
+  type GitSetChangeRequestThreadResolvedResult,
+  type GitListChangeRequestCommitsInput,
+  type GitListChangeRequestCommitsResult,
+  type GitDeleteChangeRequestBranchInput,
+  type GitDeleteChangeRequestBranchResult,
   type GitGetChangeRequestMergeOptionsInput,
   type GitGetChangeRequestMergeOptionsResult,
   type GitMergeChangeRequestInput,
@@ -80,6 +92,24 @@ export class GitWorkflowService extends Context.Service<
     readonly getChangeRequestChecks: (
       input: GitGetChangeRequestChecksInput,
     ) => Effect.Effect<GitGetChangeRequestChecksResult, GitManagerServiceError>;
+    readonly getChangeRequestConversation: (
+      input: GitGetChangeRequestConversationInput,
+    ) => Effect.Effect<GitGetChangeRequestConversationResult, GitManagerServiceError>;
+    readonly addChangeRequestComment: (
+      input: GitAddChangeRequestCommentInput,
+    ) => Effect.Effect<GitAddChangeRequestCommentResult, GitManagerServiceError>;
+    readonly replyToChangeRequestThread: (
+      input: GitReplyToChangeRequestThreadInput,
+    ) => Effect.Effect<GitReplyToChangeRequestThreadResult, GitManagerServiceError>;
+    readonly setChangeRequestThreadResolved: (
+      input: GitSetChangeRequestThreadResolvedInput,
+    ) => Effect.Effect<GitSetChangeRequestThreadResolvedResult, GitManagerServiceError>;
+    readonly listChangeRequestCommits: (
+      input: GitListChangeRequestCommitsInput,
+    ) => Effect.Effect<GitListChangeRequestCommitsResult, GitManagerServiceError>;
+    readonly deleteChangeRequestBranch: (
+      input: GitDeleteChangeRequestBranchInput,
+    ) => Effect.Effect<GitDeleteChangeRequestBranchResult, GitManagerServiceError>;
     readonly getChangeRequestMergeOptions: (
       input: GitGetChangeRequestMergeOptionsInput,
     ) => Effect.Effect<GitGetChangeRequestMergeOptionsResult, GitManagerServiceError>;
@@ -354,6 +384,30 @@ export const make = Effect.gen(function* () {
     getChangeRequestChecks: routeGitManager(
       "GitWorkflowService.getChangeRequestChecks",
       gitManager.getChangeRequestChecks,
+    ),
+    getChangeRequestConversation: routeGitManager(
+      "GitWorkflowService.getChangeRequestConversation",
+      gitManager.getChangeRequestConversation,
+    ),
+    addChangeRequestComment: routeGitManager(
+      "GitWorkflowService.addChangeRequestComment",
+      gitManager.addChangeRequestComment,
+    ),
+    replyToChangeRequestThread: routeGitManager(
+      "GitWorkflowService.replyToChangeRequestThread",
+      gitManager.replyToChangeRequestThread,
+    ),
+    setChangeRequestThreadResolved: routeGitManager(
+      "GitWorkflowService.setChangeRequestThreadResolved",
+      gitManager.setChangeRequestThreadResolved,
+    ),
+    listChangeRequestCommits: routeGitManager(
+      "GitWorkflowService.listChangeRequestCommits",
+      gitManager.listChangeRequestCommits,
+    ),
+    deleteChangeRequestBranch: routeGitManager(
+      "GitWorkflowService.deleteChangeRequestBranch",
+      gitManager.deleteChangeRequestBranch,
     ),
     getChangeRequestMergeOptions: routeGitManager(
       "GitWorkflowService.getChangeRequestMergeOptions",

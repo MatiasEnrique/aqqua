@@ -2261,6 +2261,44 @@ const makeWsRpcLayer = (
             gitWorkflow.getChangeRequestChecks(input),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitGetChangeRequestConversation]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetChangeRequestConversation,
+            gitWorkflow.getChangeRequestConversation(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitAddChangeRequestComment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitAddChangeRequestComment,
+            gitWorkflow.addChangeRequestComment(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitReplyToChangeRequestThread]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitReplyToChangeRequestThread,
+            gitWorkflow.replyToChangeRequestThread(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitSetChangeRequestThreadResolved]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitSetChangeRequestThreadResolved,
+            gitWorkflow.setChangeRequestThreadResolved(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitListChangeRequestCommits]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitListChangeRequestCommits,
+            gitWorkflow.listChangeRequestCommits(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitDeleteChangeRequestBranch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDeleteChangeRequestBranch,
+            gitWorkflow
+              .deleteChangeRequestBranch(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.gitGetChangeRequestMergeOptions]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitGetChangeRequestMergeOptions,

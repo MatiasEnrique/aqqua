@@ -20,6 +20,18 @@ import {
   GitGetChangeRequestMergeOptionsResult,
   GitGetChangeRequestChecksInput,
   GitGetChangeRequestChecksResult,
+  GitGetChangeRequestConversationInput,
+  GitGetChangeRequestConversationResult,
+  GitAddChangeRequestCommentInput,
+  GitAddChangeRequestCommentResult,
+  GitReplyToChangeRequestThreadInput,
+  GitReplyToChangeRequestThreadResult,
+  GitSetChangeRequestThreadResolvedInput,
+  GitSetChangeRequestThreadResolvedResult,
+  GitListChangeRequestCommitsInput,
+  GitListChangeRequestCommitsResult,
+  GitDeleteChangeRequestBranchInput,
+  GitDeleteChangeRequestBranchResult,
   GitMergeChangeRequestInput,
   GitMergeChangeRequestResult,
   GitPreparePullRequestThreadInput,
@@ -112,6 +124,24 @@ export class GitManager extends Context.Service<
     readonly getChangeRequestChecks: (
       input: GitGetChangeRequestChecksInput,
     ) => Effect.Effect<GitGetChangeRequestChecksResult, GitManagerServiceError>;
+    readonly getChangeRequestConversation: (
+      input: GitGetChangeRequestConversationInput,
+    ) => Effect.Effect<GitGetChangeRequestConversationResult, GitManagerServiceError>;
+    readonly addChangeRequestComment: (
+      input: GitAddChangeRequestCommentInput,
+    ) => Effect.Effect<GitAddChangeRequestCommentResult, GitManagerServiceError>;
+    readonly replyToChangeRequestThread: (
+      input: GitReplyToChangeRequestThreadInput,
+    ) => Effect.Effect<GitReplyToChangeRequestThreadResult, GitManagerServiceError>;
+    readonly setChangeRequestThreadResolved: (
+      input: GitSetChangeRequestThreadResolvedInput,
+    ) => Effect.Effect<GitSetChangeRequestThreadResolvedResult, GitManagerServiceError>;
+    readonly listChangeRequestCommits: (
+      input: GitListChangeRequestCommitsInput,
+    ) => Effect.Effect<GitListChangeRequestCommitsResult, GitManagerServiceError>;
+    readonly deleteChangeRequestBranch: (
+      input: GitDeleteChangeRequestBranchInput,
+    ) => Effect.Effect<GitDeleteChangeRequestBranchResult, GitManagerServiceError>;
     readonly mergeChangeRequest: (
       input: GitMergeChangeRequestInput,
     ) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
@@ -141,6 +171,8 @@ const PR_LOOKUP_CACHE_TTL = Duration.minutes(2);
 const PR_LOOKUP_FAILURE_TTL = Duration.seconds(20);
 const PR_LOOKUP_CACHE_CAPACITY = 2_048;
 const MERGE_OPTIONS_CACHE_TTL = Duration.minutes(5);
+const CONVERSATION_CACHE_TTL = Duration.seconds(60);
+const CHANGE_REQUEST_COMMITS_CACHE_TTL = Duration.minutes(2);
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
@@ -611,6 +643,15 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
+  const sourceControlCapabilityProvider = Effect.fn("sourceControlCapabilityProvider")(function* (
+    cwd: string,
+  ) {
+    const handle = yield* sourceControlProviders.resolveHandle({ cwd });
+    const provider = yield* sourceControlProviders.get(
+      handle.context?.provider.kind ?? handle.provider.kind,
+    );
+    return { provider, context: handle.context ?? undefined };
+  });
   const serverSettingsService = yield* ServerSettings.ServerSettingsService;
 
   const readRecentCommitSubjects = (cwd: string) =>
@@ -1826,6 +1867,140 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const changeRequestCacheKey = (cwd: string, reference: string) =>
+    [cwd, reference, String(prLookupEpoch(cwd))].join("\u0000");
+
+  const conversationCache = yield* Cache.makeWith(
+    Effect.fn("GitManager.loadChangeRequestConversation")(function* (key: string) {
+      const [cwd = "", reference = ""] = key.split("\u0000");
+      const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+      if (!SourceControlProvider.supportsChangeRequestConversation(provider)) {
+        return {
+          supported: false,
+          description: null,
+          additions: null,
+          deletions: null,
+          reviewers: [],
+          comments: [],
+          commentsTruncated: false,
+          reviewThreads: [],
+          reviewThreadsTruncated: false,
+        } as const;
+      }
+      const {
+        description,
+        additions,
+        deletions,
+        reviewers,
+        comments,
+        commentsTruncated,
+        reviewThreads,
+        reviewThreadsTruncated,
+      } = yield* provider.getChangeRequestConversation({
+        cwd,
+        reference,
+        ...(context ? { context } : {}),
+      });
+      return {
+        supported: true,
+        description,
+        additions,
+        deletions,
+        reviewers,
+        comments,
+        commentsTruncated,
+        reviewThreads,
+        reviewThreadsTruncated,
+      } as const;
+    }),
+    {
+      capacity: PR_LOOKUP_CACHE_CAPACITY,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? CONVERSATION_CACHE_TTL : Duration.zero),
+    },
+  );
+
+  const commitExistsLocally = (cwd: string, oid: string) =>
+    gitCore
+      .execute({
+        operation: "GitManager.listChangeRequestCommits.catFile",
+        cwd,
+        args: ["cat-file", "-e", `${oid}^{commit}`],
+        allowNonZeroExit: true,
+      })
+      .pipe(
+        Effect.map((result) => Number(result.exitCode) === 0),
+        Effect.orElseSucceed(() => false),
+      );
+
+  const ensureChangeRequestHeadAvailable = Effect.fn("GitManager.ensureChangeRequestHeadAvailable")(
+    function* (cwd: string, number: number, headOid: string | null) {
+      if (headOid === null) return false;
+      if (yield* commitExistsLocally(cwd, headOid)) return true;
+
+      yield* Effect.gen(function* () {
+        const remoteName = yield* gitCore.resolvePrimaryRemoteName(cwd);
+        yield* gitCore.execute({
+          operation: "GitManager.listChangeRequestCommits.fetchHead",
+          cwd,
+          args: ["fetch", "--quiet", "--no-tags", remoteName, `refs/pull/${number}/head`],
+        });
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning(
+            "Pull request head fetch failed; commits remain unavailable locally.",
+          ).pipe(
+            Effect.annotateLogs({
+              operation: "listChangeRequestCommits",
+              changeRequestNumber: number,
+              errorTag:
+                typeof error === "object" && error !== null && "_tag" in error
+                  ? String(error._tag)
+                  : typeof error,
+            }),
+          ),
+        ),
+      );
+
+      return yield* commitExistsLocally(cwd, headOid);
+    },
+  );
+
+  const changeRequestCommitsCache = yield* Cache.makeWith(
+    Effect.fn("GitManager.loadChangeRequestCommits")(function* (key: string) {
+      const [cwd = "", reference = ""] = key.split("\u0000");
+      const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+      if (!SourceControlProvider.supportsChangeRequestCommits(provider)) {
+        return {
+          supported: false,
+          commits: [],
+          truncated: false,
+          commitsAvailableLocally: false,
+        } as const;
+      }
+      const result = yield* provider.listChangeRequestCommits({
+        cwd,
+        reference,
+        ...(context ? { context } : {}),
+      });
+      const commitsAvailableLocally = yield* ensureChangeRequestHeadAvailable(
+        cwd,
+        result.number,
+        result.headOid,
+      );
+      return {
+        supported: true,
+        commits: result.commits,
+        truncated: result.truncated,
+        commitsAvailableLocally,
+      } as const;
+    }),
+    {
+      capacity: PR_LOOKUP_CACHE_CAPACITY,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? CHANGE_REQUEST_COMMITS_CACHE_TTL : Duration.zero,
+    },
+  );
+
   const getChangeRequestChecks: GitManager["Service"]["getChangeRequestChecks"] = Effect.fn(
     "getChangeRequestChecks",
   )(function* (input) {
@@ -1835,6 +2010,181 @@ export const make = Effect.gen(function* () {
       changeRequestChecksCache,
       [cwd, reference, String(prLookupEpoch(cwd))].join("\u0000"),
     );
+  });
+
+  const getChangeRequestConversation: GitManager["Service"]["getChangeRequestConversation"] =
+    Effect.fn("getChangeRequestConversation")(function* (input) {
+      const cwd = yield* normalizeStatusCacheKey(input.cwd);
+      const reference = normalizeChangeRequestReference(input.reference);
+      return yield* Cache.get(conversationCache, changeRequestCacheKey(cwd, reference));
+    });
+
+  const invalidateChangeRequestConversation = (cwd: string, reference: string) =>
+    Cache.invalidate(conversationCache, changeRequestCacheKey(cwd, reference));
+
+  const addChangeRequestComment: GitManager["Service"]["addChangeRequestComment"] = Effect.fn(
+    "addChangeRequestComment",
+  )(function* (input) {
+    const cwd = yield* normalizeStatusCacheKey(input.cwd);
+    const reference = normalizeChangeRequestReference(input.reference);
+    const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+    if (!SourceControlProvider.supportsChangeRequestConversation(provider)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "addChangeRequestComment",
+        cwd,
+        reference,
+        detail: "This source control provider does not support change request comments.",
+      });
+    }
+    yield* provider.addChangeRequestComment({
+      ...input,
+      cwd,
+      reference,
+      ...(context ? { context } : {}),
+    });
+    yield* invalidateChangeRequestConversation(cwd, reference);
+    return { added: true };
+  });
+
+  const replyToChangeRequestThread: GitManager["Service"]["replyToChangeRequestThread"] = Effect.fn(
+    "replyToChangeRequestThread",
+  )(function* (input) {
+    const cwd = yield* normalizeStatusCacheKey(input.cwd);
+    const reference = normalizeChangeRequestReference(input.reference);
+    const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+    if (!SourceControlProvider.supportsChangeRequestConversation(provider)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "replyToChangeRequestThread",
+        cwd,
+        reference,
+        detail: "This source control provider does not support change request thread replies.",
+      });
+    }
+    yield* provider.replyToChangeRequestThread({
+      ...input,
+      cwd,
+      reference,
+      ...(context ? { context } : {}),
+    });
+    yield* invalidateChangeRequestConversation(cwd, reference);
+    return { replied: true };
+  });
+
+  const setChangeRequestThreadResolved: GitManager["Service"]["setChangeRequestThreadResolved"] =
+    Effect.fn("setChangeRequestThreadResolved")(function* (input) {
+      const cwd = yield* normalizeStatusCacheKey(input.cwd);
+      const reference = normalizeChangeRequestReference(input.reference);
+      const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+      if (!SourceControlProvider.supportsChangeRequestConversation(provider)) {
+        return yield* new SourceControlProviderError({
+          provider: provider.kind,
+          operation: "setChangeRequestThreadResolved",
+          cwd,
+          reference,
+          detail: "This source control provider does not support resolving change request threads.",
+        });
+      }
+      yield* provider.setChangeRequestThreadResolved({
+        ...input,
+        cwd,
+        reference,
+        ...(context ? { context } : {}),
+      });
+      yield* invalidateChangeRequestConversation(cwd, reference);
+      return { resolved: input.resolved };
+    });
+
+  const listChangeRequestCommits: GitManager["Service"]["listChangeRequestCommits"] = Effect.fn(
+    "listChangeRequestCommits",
+  )(function* (input) {
+    const cwd = yield* normalizeStatusCacheKey(input.cwd);
+    const reference = normalizeChangeRequestReference(input.reference);
+    return yield* Cache.get(changeRequestCommitsCache, changeRequestCacheKey(cwd, reference));
+  });
+
+  const deleteChangeRequestBranch: GitManager["Service"]["deleteChangeRequestBranch"] = Effect.fn(
+    "deleteChangeRequestBranch",
+  )(function* (input) {
+    const cwd = yield* normalizeStatusCacheKey(input.cwd);
+    const reference = normalizeChangeRequestReference(input.reference);
+    const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
+    if (!SourceControlProvider.supportsChangeRequestBranchDelete(provider)) {
+      return yield* new SourceControlProviderError({
+        provider: provider.kind,
+        operation: "deleteChangeRequestBranch",
+        cwd,
+        reference,
+        detail: "This source control provider does not support deleting change request branches.",
+      });
+    }
+
+    const remote = yield* provider.deleteChangeRequestRemoteBranch({
+      cwd,
+      reference,
+      ...(context ? { context } : {}),
+    });
+    const localBranch = yield* Effect.gen(function* () {
+      let cursor: number | undefined;
+      while (true) {
+        const page = yield* gitCore.listRefs({
+          cwd,
+          query: remote.branch,
+          refKind: "local",
+          limit: 200,
+          refresh: cursor === undefined,
+          ...(cursor !== undefined ? { cursor } : {}),
+        });
+        const match = page.refs.find((ref) => ref.name === remote.branch);
+        if (match || page.nextCursor === null) return match;
+        cursor = page.nextCursor;
+      }
+    });
+    let local: GitDeleteChangeRequestBranchResult["local"];
+
+    if (!localBranch) {
+      local = { _tag: "none" };
+    } else {
+      const worktreePath = localBranch.worktreePath
+        ? yield* canonicalizeExistingPath(localBranch.worktreePath)
+        : null;
+      if (worktreePath !== null && worktreePath !== cwd) {
+        local = {
+          _tag: "worktree",
+          refName: remote.branch,
+          worktreePath,
+        };
+      } else if (localBranch.current || worktreePath === cwd) {
+        local = { _tag: "checked_out", refName: remote.branch };
+      } else if (input.deleteLocalBranch !== true) {
+        local = { _tag: "branch", refName: remote.branch, removal: "not_requested" };
+      } else {
+        const removal = yield* gitCore
+          .execute({
+            operation: "GitManager.deleteChangeRequestBranch.resolveLocalHead",
+            cwd,
+            args: ["rev-parse", "--verify", `refs/heads/${remote.branch}^{commit}`],
+          })
+          .pipe(
+            Effect.flatMap((result) =>
+              gitCore.deleteLocalBranch({
+                cwd,
+                refName: remote.branch,
+                expectedHeadCommit: result.stdout.trim(),
+              }),
+            ),
+            Effect.match({
+              onFailure: () => "failed" as const,
+              onSuccess: () => "removed" as const,
+            }),
+          );
+        local = { _tag: "branch", refName: remote.branch, removal };
+      }
+    }
+
+    yield* bumpPrLookupEpoch(cwd);
+    return { ...remote, local };
   });
 
   const getChangeRequestMergeOptions: GitManager["Service"]["getChangeRequestMergeOptions"] =
@@ -2358,6 +2708,12 @@ export const make = Effect.gen(function* () {
     invalidateStatus,
     resolvePullRequest,
     getChangeRequestChecks,
+    getChangeRequestConversation,
+    addChangeRequestComment,
+    replyToChangeRequestThread,
+    setChangeRequestThreadResolved,
+    listChangeRequestCommits,
+    deleteChangeRequestBranch,
     getChangeRequestMergeOptions,
     mergeChangeRequest,
     setAutoMerge,

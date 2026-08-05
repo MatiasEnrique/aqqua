@@ -41,6 +41,24 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.gitGetChangeRequestChecks)).toBe(
       AuthOrchestrationReadScope,
     );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitGetChangeRequestConversation)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitListChangeRequestCommits)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitAddChangeRequestComment)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitReplyToChangeRequestThread)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitSetChangeRequestThreadResolved)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.gitDeleteChangeRequestBranch)).toBe(
+      AuthOrchestrationOperateScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.gitGetChangeRequestMergeOptions)).toBe(
       AuthOrchestrationOperateScope,
     );

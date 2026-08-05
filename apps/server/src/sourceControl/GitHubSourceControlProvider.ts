@@ -192,6 +192,9 @@ export const make = Effect.gen(function* () {
       merge: true,
       autoMerge: true,
       changeRequestState: true,
+      conversation: true,
+      commits: true,
+      branchDelete: true,
     },
     listChecks: (input) =>
       github.listChecks(input).pipe(
@@ -296,6 +299,171 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    getChangeRequestConversation: (input) =>
+      github.getPullRequestConversation(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "getChangeRequestConversation",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    addChangeRequestComment: Effect.fn("GitHubSourceControlProvider.addChangeRequestComment")(
+      function* (input) {
+        const reference = SourceControlProvider.transportSafeSourceControlErrorValue(
+          input.reference,
+        );
+        const pullRequest = yield* github.getPullRequest(input).pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "addChangeRequestComment",
+                command: error.command,
+                cwd: input.cwd,
+                reference,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
+        );
+        yield* github
+          .addPullRequestComment({
+            cwd: input.cwd,
+            changeRequestNumber: pullRequest.number,
+            body: input.body,
+          })
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new SourceControlProviderError({
+                  provider: "github",
+                  operation: "addChangeRequestComment",
+                  command: error.command,
+                  cwd: input.cwd,
+                  reference,
+                  detail: error.detail,
+                  cause: error,
+                }),
+            ),
+          );
+      },
+    ),
+    replyToChangeRequestThread: (input) =>
+      github.replyToPullRequestThread(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "replyToChangeRequestThread",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    setChangeRequestThreadResolved: (input) =>
+      github.setPullRequestThreadResolved(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "setChangeRequestThreadResolved",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    listChangeRequestCommits: (input) =>
+      github.listPullRequestCommits(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "listChangeRequestCommits",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    deleteChangeRequestRemoteBranch: Effect.fn(
+      "GitHubSourceControlProvider.deleteChangeRequestRemoteBranch",
+    )(function* (input) {
+      const reference = SourceControlProvider.transportSafeSourceControlErrorValue(input.reference);
+      const pullRequest = yield* github.getPullRequest(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "deleteChangeRequestBranch",
+              command: error.command,
+              cwd: input.cwd,
+              reference,
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      );
+      if ((pullRequest.state ?? "open") === "open") {
+        return yield* new SourceControlProviderError({
+          provider: "github",
+          operation: "deleteChangeRequestBranch",
+          command: "gh",
+          cwd: input.cwd,
+          reference,
+          detail: "Only merged or closed pull requests can have their head branch deleted.",
+        });
+      }
+      if (pullRequest.isCrossRepository === true) {
+        return yield* new SourceControlProviderError({
+          provider: "github",
+          operation: "deleteChangeRequestBranch",
+          command: "gh",
+          cwd: input.cwd,
+          reference,
+          detail: "The head branch lives on a fork and cannot be deleted from this repository.",
+        });
+      }
+      const remote = yield* github
+        .deleteRemoteBranch({ cwd: input.cwd, branch: pullRequest.headRefName })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "deleteChangeRequestBranch",
+                command: error.command,
+                cwd: input.cwd,
+                reference,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
+        );
+      return { branch: pullRequest.headRefName, remote };
+    }),
     listChangeRequests,
     getChangeRequest: (input) =>
       github.getPullRequest(input).pipe(

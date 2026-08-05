@@ -608,6 +608,53 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           ? Effect.fail(scenario.failWith)
           : Effect.void;
       },
+      getPullRequestConversation: (input) => {
+        ghCalls.push(`pr conversation ${input.reference}`);
+        return Effect.succeed({
+          number: scenario.pullRequest?.number ?? 42,
+          state: scenario.pullRequest?.state ?? "open",
+          headRefName: scenario.pullRequest?.headRefName ?? "feature/pull-request",
+          isCrossRepository: scenario.pullRequest?.isCrossRepository ?? false,
+          additions: 12,
+          deletions: 3,
+          reviewers: ["reviewer"],
+          description: {
+            author: { login: "author" },
+            body: "Pull request description",
+            createdAt: null,
+            url: "https://github.com/acme/repo/pull/42",
+          },
+          comments: [],
+          commentsTruncated: false,
+          reviewThreads: [],
+          reviewThreadsTruncated: false,
+        });
+      },
+      listPullRequestCommits: (input) => {
+        ghCalls.push(`pr commits ${input.reference}`);
+        return Effect.succeed({
+          number: scenario.pullRequest?.number ?? 42,
+          headOid: null,
+          commits: [],
+          truncated: false,
+        });
+      },
+      addPullRequestComment: (input) => {
+        ghCalls.push(`pr comment ${input.changeRequestNumber} ${input.body}`);
+        return Effect.void;
+      },
+      replyToPullRequestThread: (input) => {
+        ghCalls.push(`pr thread reply ${input.threadId} ${input.body}`);
+        return Effect.void;
+      },
+      setPullRequestThreadResolved: (input) => {
+        ghCalls.push(`pr thread resolve ${input.threadId} ${input.resolved}`);
+        return Effect.void;
+      },
+      deleteRemoteBranch: (input) => {
+        ghCalls.push(`git push --delete ${input.branch}`);
+        return Effect.succeed("deleted");
+      },
       getRepositoryCloneUrls: (input) =>
         execute({
           cwd: input.cwd,
@@ -669,6 +716,9 @@ function preparePullRequestThread(
 function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   checksSupported?: boolean;
+  conversationSupported?: boolean;
+  commitsSupported?: boolean;
+  branchDeleteSupported?: boolean;
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
@@ -701,10 +751,20 @@ function makeManager(input?: {
                 },
               }
             : provider;
+        const capabilityAdjustedProvider = {
+          ...resolvedProvider,
+          capabilities: {
+            ...resolvedProvider.capabilities,
+            ...(input?.conversationSupported === false ? { conversation: false as const } : {}),
+            ...(input?.commitsSupported === false ? { commits: false as const } : {}),
+            ...(input?.branchDeleteSupported === false ? { branchDelete: false as const } : {}),
+          },
+        };
         return SourceControlProviderRegistry.SourceControlProviderRegistry.of({
-          get: () => Effect.succeed(resolvedProvider),
-          resolveHandle: () => Effect.succeed({ provider: resolvedProvider, context: null }),
-          resolve: () => Effect.succeed(resolvedProvider),
+          get: () => Effect.succeed(capabilityAdjustedProvider),
+          resolveHandle: () =>
+            Effect.succeed({ provider: capabilityAdjustedProvider, context: null }),
+          resolve: () => Effect.succeed(capabilityAdjustedProvider),
           discover: Effect.succeed([]),
         });
       }),
@@ -3231,6 +3291,181 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
       expect(ghCalls.some((call) => call.includes("statusCheckRollup"))).toBe(false);
     }),
+  );
+
+  it.effect(
+    "reports unsupported conversation and commit details without calling the provider",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const { manager, ghCalls } = yield* makeManager({
+          conversationSupported: false,
+          commitsSupported: false,
+        });
+
+        expect(
+          yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" }),
+        ).toEqual({
+          supported: false,
+          description: null,
+          additions: null,
+          deletions: null,
+          reviewers: [],
+          comments: [],
+          commentsTruncated: false,
+          reviewThreads: [],
+          reviewThreadsTruncated: false,
+        });
+        expect(yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" })).toEqual(
+          {
+            supported: false,
+            commits: [],
+            truncated: false,
+            commitsAvailableLocally: false,
+          },
+        );
+        expect(
+          ghCalls.some((call) => call.includes("conversation") || call.includes("commits")),
+        ).toBe(false);
+      }),
+  );
+
+  it.effect("invalidates only the mutated change request conversation cache entry", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 42,
+            title: "Pull request",
+            url: "https://github.com/acme/repo/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/pull-request",
+            state: "open",
+          },
+        },
+      });
+
+      const first = yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" });
+      const cached = yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "42" });
+      expect(cached).toEqual(first);
+      expect(ghCalls.filter((call) => call === "pr conversation 42")).toHaveLength(1);
+
+      expect(
+        yield* manager.addChangeRequestComment({ cwd: repoDir, reference: "#42", body: "Hello" }),
+      ).toEqual({ added: true });
+      yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" });
+
+      expect(ghCalls).toContain("pr comment 42 Hello");
+      expect(ghCalls.filter((call) => call === "pr conversation 42")).toHaveLength(2);
+    }),
+  );
+
+  it.effect(
+    "reports local branch state after deleting a change request branch",
+    () =>
+      Effect.gen(function* () {
+        const makeDeleteManager = () =>
+          makeManager({
+            ghScenario: {
+              pullRequest: {
+                number: 42,
+                title: "Merged pull request",
+                url: "https://github.com/acme/repo/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/delete-me",
+                state: "merged",
+                isCrossRepository: false,
+              },
+            },
+          });
+
+        const noneRepo = yield* makeTempDir("aqqua-git-manager-delete-none-");
+        yield* initRepo(noneRepo);
+        const { manager: noneManager } = yield* makeDeleteManager();
+        expect(
+          yield* noneManager.deleteChangeRequestBranch({ cwd: noneRepo, reference: "#42" }),
+        ).toEqual({ branch: "feature/delete-me", remote: "deleted", local: { _tag: "none" } });
+
+        const plainRepo = yield* makeTempDir("aqqua-git-manager-delete-plain-");
+        yield* initRepo(plainRepo);
+        yield* runGit(plainRepo, ["branch", "feature/delete-me"]);
+        const { manager: plainManager } = yield* makeDeleteManager();
+        expect(
+          yield* plainManager.deleteChangeRequestBranch({ cwd: plainRepo, reference: "#42" }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "branch", refName: "feature/delete-me", removal: "not_requested" },
+        });
+
+        const removedRepo = yield* makeTempDir("aqqua-git-manager-delete-removed-");
+        yield* initRepo(removedRepo);
+        yield* runGit(removedRepo, ["branch", "feature/delete-me"]);
+        const { manager: removedManager } = yield* makeDeleteManager();
+        expect(
+          yield* removedManager.deleteChangeRequestBranch({
+            cwd: removedRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "branch", refName: "feature/delete-me", removal: "removed" },
+        });
+        expect(
+          Number(
+            (yield* runGit(
+              removedRepo,
+              ["show-ref", "--verify", "refs/heads/feature/delete-me"],
+              true,
+            )).exitCode,
+          ),
+        ).not.toBe(0);
+
+        const worktreeRepo = yield* makeTempDir("aqqua-git-manager-delete-worktree-");
+        yield* initRepo(worktreeRepo);
+        yield* runGit(worktreeRepo, ["branch", "feature/delete-me"]);
+        const worktreePath = yield* makeTempDir("aqqua-git-manager-linked-worktree-");
+        yield* removePath(worktreePath);
+        yield* runGit(worktreeRepo, ["worktree", "add", worktreePath, "feature/delete-me"]);
+        const { manager: worktreeManager } = yield* makeDeleteManager();
+        expect(
+          yield* worktreeManager.deleteChangeRequestBranch({
+            cwd: worktreeRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: {
+            _tag: "worktree",
+            refName: "feature/delete-me",
+            worktreePath: NodeFS.realpathSync.native(worktreePath),
+          },
+        });
+
+        const checkedOutRepo = yield* makeTempDir("aqqua-git-manager-delete-checked-out-");
+        yield* initRepo(checkedOutRepo);
+        yield* runGit(checkedOutRepo, ["checkout", "-b", "feature/delete-me"]);
+        const { manager: checkedOutManager } = yield* makeDeleteManager();
+        expect(
+          yield* checkedOutManager.deleteChangeRequestBranch({
+            cwd: checkedOutRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "checked_out", refName: "feature/delete-me" },
+        });
+      }),
+    30_000,
   );
 
   it.effect("validates merge methods before mutating and normalizes PR references", () =>
