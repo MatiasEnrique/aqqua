@@ -1384,10 +1384,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       (a, b) => b.length - a.length,
     );
     // A remote head like origin/feature shares base config and identity with
-    // its local branch, so resolution works on the stripped name.
+    // its local branch, so resolution works on the stripped name. A local
+    // branch that literally shadows a remote name keeps its own identity,
+    // matching git's local-first revision resolution.
     const stripRemotePrefix = (ref: string) =>
       parseRemoteRefWithRemoteNames(ref, prefixRemoteNames)?.branchName ?? ref;
-    const normalizedRefName = stripRemotePrefix(refName);
+    const parsedRefName = parseRemoteRefWithRemoteNames(refName, prefixRemoteNames);
+    const normalizedRefName =
+      parsedRefName === null || (yield* branchExists(cwd, refName))
+        ? refName
+        : parsedRefName.branchName;
 
     const configuredBaseBranch = yield* runGitStdout(
       "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
