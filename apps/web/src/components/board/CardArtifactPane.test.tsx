@@ -7,8 +7,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   artifactContentBottomPadding,
   artifactContentIsAvailable,
-  artifactEditorCanMount,
+  artifactHasLoaded,
   createArtifactSaveCoordinator,
+  refreshedArtifactMatchesSettledContent,
 } from "./CardArtifactPane";
 import {
   ARTIFACT_MARKDOWN_NODES,
@@ -33,12 +34,21 @@ describe("artifactContentIsAvailable", () => {
   });
 });
 
-describe("artifactEditorCanMount", () => {
-  it("requires a successful, error-free artifact load", () => {
-    expect(artifactEditorCanMount(false, null)).toBe(false);
-    expect(artifactEditorCanMount(false, "load failed")).toBe(false);
-    expect(artifactEditorCanMount(true, "refresh failed")).toBe(false);
-    expect(artifactEditorCanMount(true, null)).toBe(true);
+describe("artifactHasLoaded", () => {
+  it("requires artifact data without a load or refresh error", () => {
+    expect(artifactHasLoaded(false, null)).toBe(false);
+    expect(artifactHasLoaded(false, "load failed")).toBe(false);
+    expect(artifactHasLoaded(true, "refresh failed")).toBe(false);
+    expect(artifactHasLoaded(true, null)).toBe(true);
+  });
+});
+
+describe("refreshedArtifactMatchesSettledContent", () => {
+  it("releases a draft only when the refreshed content confirms the settled write", () => {
+    expect(refreshedArtifactMatchesSettledContent("saved edit", "saved edit")).toBe(true);
+    expect(refreshedArtifactMatchesSettledContent("external edit", "saved edit")).toBe(false);
+    expect(refreshedArtifactMatchesSettledContent(null, "saved edit")).toBe(false);
+    expect(refreshedArtifactMatchesSettledContent(undefined, "saved edit")).toBe(false);
   });
 });
 

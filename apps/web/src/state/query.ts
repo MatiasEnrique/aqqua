@@ -16,6 +16,7 @@ export interface EnvironmentQueryView<A> {
   readonly error: string | null;
   readonly isPending: boolean;
   readonly refresh: () => Promise<void>;
+  readonly refreshData: () => Promise<A | null>;
 }
 
 function formatError(cause: Cause.Cause<unknown>): string {
@@ -31,8 +32,8 @@ export function useEnvironmentQuery<A, E>(
   const selectedAtom = atom ?? EMPTY_ASYNC_RESULT_ATOM;
   const result = useAtomValue(selectedAtom);
   const refreshAtom = useAtomRefresh(selectedAtom);
-  const refresh = useCallback(async () => {
-    if (atom === null) return;
+  const refreshData = useCallback(async () => {
+    if (atom === null) return null;
     refreshAtom();
     const refreshed = await executeAtomQuery(appAtomRegistry, atom, {
       reportDefect: false,
@@ -41,11 +42,16 @@ export function useEnvironmentQuery<A, E>(
     if (refreshed._tag === "Failure") {
       throw Cause.squash(refreshed.cause);
     }
+    return refreshed.value;
   }, [atom, refreshAtom]);
+  const refresh = useCallback(async () => {
+    await refreshData();
+  }, [refreshData]);
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: result._tag === "Failure" ? formatError(result.cause) : null,
     isPending: atom !== null && result.waiting,
     refresh,
+    refreshData,
   };
 }

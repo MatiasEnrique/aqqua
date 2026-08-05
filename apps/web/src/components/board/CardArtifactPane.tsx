@@ -107,11 +107,15 @@ export function artifactContentIsAvailable(
   return hasLoadedArtifact || draft !== null;
 }
 
-export function artifactEditorCanMount(
-  hasLoadedArtifact: boolean,
-  loadError: string | null,
+export function artifactHasLoaded(hasArtifactData: boolean, loadError: string | null): boolean {
+  return hasArtifactData && loadError === null;
+}
+
+export function refreshedArtifactMatchesSettledContent(
+  refreshedContent: string | null | undefined,
+  settledContent: string,
 ): boolean {
-  return hasLoadedArtifact && loadError === null;
+  return refreshedContent === settledContent;
 }
 
 /**
@@ -141,14 +145,15 @@ export function CardArtifactPane({
 
   const serverContent = artifact.data?.content ?? "";
   const content = draft ?? serverContent;
-  const contentIsAvailable = artifactContentIsAvailable(artifact.data !== null, draft);
-  const editorCanMount = artifactEditorCanMount(artifact.data !== null, artifact.error);
+  const hasLoadedArtifact = artifactHasLoaded(artifact.data !== null, artifact.error);
+  const contentIsAvailable = artifactContentIsAvailable(hasLoadedArtifact, draft);
+  const editorCanMount = hasLoadedArtifact;
 
   useEffect(() => {
-    if (artifact.data === null) return;
+    if (!hasLoadedArtifact) return;
     if (!saveCoordinator.observeConfirmed(serverContent)) return;
     setDraft(null);
-  }, [artifact.data, saveCoordinator, serverContent]);
+  }, [hasLoadedArtifact, saveCoordinator, serverContent]);
 
   const save = useCallback(
     (next: string) => {
@@ -165,8 +170,13 @@ export function CardArtifactPane({
           if (nextState !== "saved") return;
 
           const settledContent = saveCoordinator.getDesiredContent();
-          void artifact.refresh().then(
-            () => {
+          void artifact.refreshData().then(
+            (refreshedArtifact) => {
+              if (
+                !refreshedArtifactMatchesSettledContent(refreshedArtifact?.content, settledContent)
+              ) {
+                return;
+              }
               if (!saveCoordinator.canReleaseDraft(settledContent)) return;
               setDraft((current) => (current === settledContent ? null : current));
             },
@@ -175,7 +185,7 @@ export function CardArtifactPane({
         },
       );
     },
-    [artifact.refresh, cardId, environmentId, saveCoordinator, stepName, writeArtifact],
+    [artifact.refreshData, cardId, environmentId, saveCoordinator, stepName, writeArtifact],
   );
 
   const markDirty = useCallback(() => {
