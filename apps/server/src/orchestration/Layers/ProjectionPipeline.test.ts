@@ -14,6 +14,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerConfig } from "../../config.ts";
@@ -27,6 +28,7 @@ import { OrchestrationEventStore } from "../../persistence/Services/Orchestratio
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
   ORCHESTRATION_PROJECTOR_NAMES,
@@ -1883,6 +1885,31 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE thread_id = ${threadId} AND turn_id = ${oldTurnId}
       `;
       assert.deepEqual(oldTurnRows, [{ state: "running", completedAt: null }]);
+
+      const threadDetail = yield* Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        return yield* snapshotQuery.getThreadDetailById(threadId);
+      }).pipe(
+        Effect.provide(
+          OrchestrationProjectionSnapshotQueryLive.pipe(
+            Layer.provide(RepositoryIdentityResolver.layer),
+          ),
+        ),
+      );
+      assert.isTrue(Option.isSome(threadDetail));
+      if (Option.isSome(threadDetail)) {
+        assert.deepEqual(threadDetail.value.checkpoints, [
+          {
+            turnId: oldTurnId,
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("refs/aqqua/checkpoints/stale/turn/1"),
+            status: "ready",
+            files: [],
+            assistantMessageId: MessageId.make("message-stale-a"),
+            completedAt: "2026-01-01T00:00:03.000Z",
+          },
+        ]);
+      }
     }),
   );
 

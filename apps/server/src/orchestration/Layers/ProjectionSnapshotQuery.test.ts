@@ -215,6 +215,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           checkpoint_turn_count,
           checkpoint_ref,
           checkpoint_status,
+          checkpoint_completed_at,
           checkpoint_files_json
         )
         VALUES (
@@ -231,6 +232,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           1,
           'checkpoint-1',
           'ready',
+          '2026-02-24T00:00:08.000Z',
           '[{"path":"README.md","kind":"modified","additions":2,"deletions":1}]'
         )
       `;
@@ -1074,6 +1076,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           checkpoint_turn_count,
           checkpoint_ref,
           checkpoint_status,
+          checkpoint_completed_at,
           checkpoint_files_json
         )
         VALUES
@@ -1091,6 +1094,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             1,
             'checkpoint-a',
             'ready',
+            '2026-03-02T00:00:04.000Z',
             '[]'
           ),
           (
@@ -1107,6 +1111,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             2,
             'checkpoint-b',
             'ready',
+            '2026-03-02T00:00:05.000Z',
             '[]'
           )
       `;
@@ -1396,6 +1401,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           checkpoint_turn_count,
           checkpoint_ref,
           checkpoint_status,
+          checkpoint_completed_at,
           checkpoint_files_json
         )
         VALUES
@@ -1413,6 +1419,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             5,
             'checkpoint-5',
             'ready',
+            '2026-04-02T00:00:20.000Z',
             '[]'
           ),
           (
@@ -1425,6 +1432,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'running',
             '2026-04-02T00:00:30.000Z',
             '2026-04-02T00:00:30.000Z',
+            NULL,
             NULL,
             NULL,
             NULL,
