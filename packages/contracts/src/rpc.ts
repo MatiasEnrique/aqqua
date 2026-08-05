@@ -46,6 +46,18 @@ import {
   GitManagerServiceError,
   GitGetChangeRequestChecksInput,
   GitGetChangeRequestChecksResult,
+  GitGetChangeRequestConversationInput,
+  GitGetChangeRequestConversationResult,
+  GitAddChangeRequestCommentInput,
+  GitAddChangeRequestCommentResult,
+  GitReplyToChangeRequestThreadInput,
+  GitReplyToChangeRequestThreadResult,
+  GitSetChangeRequestThreadResolvedInput,
+  GitSetChangeRequestThreadResolvedResult,
+  GitListChangeRequestCommitsInput,
+  GitListChangeRequestCommitsResult,
+  GitDeleteChangeRequestBranchInput,
+  GitDeleteChangeRequestBranchResult,
   GitGetChangeRequestMergeOptionsInput,
   GitGetChangeRequestMergeOptionsResult,
   GitMergeChangeRequestInput,
@@ -259,6 +271,12 @@ export const WS_METHODS = {
   gitSetAutoMerge: "git.setAutoMerge",
   gitUpdateChangeRequestState: "git.updateChangeRequestState",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetChangeRequestConversation: "git.getChangeRequestConversation",
+  gitAddChangeRequestComment: "git.addChangeRequestComment",
+  gitReplyToChangeRequestThread: "git.replyToChangeRequestThread",
+  gitSetChangeRequestThreadResolved: "git.setChangeRequestThreadResolved",
+  gitListChangeRequestCommits: "git.listChangeRequestCommits",
+  gitDeleteChangeRequestBranch: "git.deleteChangeRequestBranch",
 
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
@@ -653,6 +671,51 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
+export const WsGitGetChangeRequestConversationRpc = Rpc.make(
+  WS_METHODS.gitGetChangeRequestConversation,
+  {
+    payload: GitGetChangeRequestConversationInput,
+    success: GitGetChangeRequestConversationResult,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsGitAddChangeRequestCommentRpc = Rpc.make(WS_METHODS.gitAddChangeRequestComment, {
+  payload: GitAddChangeRequestCommentInput,
+  success: GitAddChangeRequestCommentResult,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitReplyToChangeRequestThreadRpc = Rpc.make(
+  WS_METHODS.gitReplyToChangeRequestThread,
+  {
+    payload: GitReplyToChangeRequestThreadInput,
+    success: GitReplyToChangeRequestThreadResult,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsGitSetChangeRequestThreadResolvedRpc = Rpc.make(
+  WS_METHODS.gitSetChangeRequestThreadResolved,
+  {
+    payload: GitSetChangeRequestThreadResolvedInput,
+    success: GitSetChangeRequestThreadResolvedResult,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsGitListChangeRequestCommitsRpc = Rpc.make(WS_METHODS.gitListChangeRequestCommits, {
+  payload: GitListChangeRequestCommitsInput,
+  success: GitListChangeRequestCommitsResult,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitDeleteChangeRequestBranchRpc = Rpc.make(WS_METHODS.gitDeleteChangeRequestBranch, {
+  payload: GitDeleteChangeRequestBranchInput,
+  success: GitDeleteChangeRequestBranchResult,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
   payload: VcsListRefsInput,
   success: VcsListRefsResult,
@@ -1038,6 +1101,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitSetAutoMergeRpc,
   WsGitUpdateChangeRequestStateRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitGetChangeRequestConversationRpc,
+  WsGitAddChangeRequestCommentRpc,
+  WsGitReplyToChangeRequestThreadRpc,
+  WsGitSetChangeRequestThreadResolvedRpc,
+  WsGitListChangeRequestCommitsRpc,
+  WsGitDeleteChangeRequestBranchRpc,
   WsVcsListHistoryRpc,
   WsVcsGetCommitDetailsRpc,
   WsVcsGetCommitDiffRpc,

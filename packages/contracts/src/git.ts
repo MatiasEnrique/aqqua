@@ -246,6 +246,86 @@ export type GitGetChangeRequestMergeOptionsInput = typeof GitGetChangeRequestMer
 export const GitGetChangeRequestChecksInput = GitPullRequestRefInput;
 export type GitGetChangeRequestChecksInput = typeof GitGetChangeRequestChecksInput.Type;
 
+// --- Change request conversation (GitHub-only capability; other providers report supported: false)
+
+export const ChangeRequestActor = Schema.Struct({
+  login: TrimmedNonEmptyStringSchema,
+});
+export type ChangeRequestActor = typeof ChangeRequestActor.Type;
+
+export const ChangeRequestComment = Schema.Struct({
+  /** Provider node id — reply/resolve anchors. Opaque to clients. */
+  id: TrimmedNonEmptyStringSchema,
+  /** null = deleted or ghost user */
+  author: Schema.NullOr(ChangeRequestActor),
+  body: Schema.String,
+  createdAt: Schema.NullOr(IsoDateTime),
+  url: Schema.String,
+});
+export type ChangeRequestComment = typeof ChangeRequestComment.Type;
+
+export const ChangeRequestReviewThread = Schema.Struct({
+  /** Provider thread node id — target for reply and resolve/unresolve. */
+  id: TrimmedNonEmptyStringSchema,
+  isResolved: Schema.Boolean,
+  isOutdated: Schema.Boolean,
+  path: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  line: Schema.NullOr(PositiveInt),
+  startLine: Schema.NullOr(PositiveInt),
+  diffSide: Schema.optional(Schema.Literals(["LEFT", "RIGHT"])),
+  comments: Schema.Array(ChangeRequestComment),
+  commentsTruncated: Schema.Boolean,
+});
+export type ChangeRequestReviewThread = typeof ChangeRequestReviewThread.Type;
+
+export const ChangeRequestDescription = Schema.Struct({
+  author: Schema.NullOr(ChangeRequestActor),
+  body: Schema.String,
+  createdAt: Schema.NullOr(IsoDateTime),
+  url: Schema.String,
+});
+export type ChangeRequestDescription = typeof ChangeRequestDescription.Type;
+
+export const GitGetChangeRequestConversationInput = GitPullRequestRefInput;
+export type GitGetChangeRequestConversationInput = typeof GitGetChangeRequestConversationInput.Type;
+
+const GitChangeRequestCommentBody = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(65_536));
+
+export const GitAddChangeRequestCommentInput = Schema.Struct({
+  ...GitPullRequestRefInput.fields,
+  body: GitChangeRequestCommentBody,
+});
+export type GitAddChangeRequestCommentInput = typeof GitAddChangeRequestCommentInput.Type;
+
+export const GitReplyToChangeRequestThreadInput = Schema.Struct({
+  ...GitPullRequestRefInput.fields,
+  threadId: TrimmedNonEmptyStringSchema,
+  body: GitChangeRequestCommentBody,
+});
+export type GitReplyToChangeRequestThreadInput = typeof GitReplyToChangeRequestThreadInput.Type;
+
+export const GitSetChangeRequestThreadResolvedInput = Schema.Struct({
+  ...GitPullRequestRefInput.fields,
+  threadId: TrimmedNonEmptyStringSchema,
+  resolved: Schema.Boolean,
+});
+export type GitSetChangeRequestThreadResolvedInput =
+  typeof GitSetChangeRequestThreadResolvedInput.Type;
+
+// --- Change request commits
+
+export const GitListChangeRequestCommitsInput = GitPullRequestRefInput;
+export type GitListChangeRequestCommitsInput = typeof GitListChangeRequestCommitsInput.Type;
+
+// --- Delete change request branch (remote + optional local cleanup)
+
+export const GitDeleteChangeRequestBranchInput = Schema.Struct({
+  ...GitPullRequestRefInput.fields,
+  /** Also delete the plain local branch (no worktree) tracking the PR head. */
+  deleteLocalBranch: Schema.optional(Schema.Boolean),
+});
+export type GitDeleteChangeRequestBranchInput = typeof GitDeleteChangeRequestBranchInput.Type;
+
 export const GitMergeChangeRequestInput = Schema.Struct({
   ...GitPullRequestRefInput.fields,
   method: GitChangeRequestMergeMethod,
@@ -515,6 +595,90 @@ export const GitGetChangeRequestChecksResult = Schema.Struct({
   supported: Schema.Boolean,
 });
 export type GitGetChangeRequestChecksResult = typeof GitGetChangeRequestChecksResult.Type;
+
+export const GitGetChangeRequestConversationResult = Schema.Struct({
+  supported: Schema.Boolean,
+  /** null when unsupported */
+  description: Schema.NullOr(ChangeRequestDescription),
+  additions: Schema.NullOr(NonNegativeInt),
+  deletions: Schema.NullOr(NonNegativeInt),
+  /** Requested reviewer logins/team slugs. Display-only. */
+  reviewers: Schema.Array(TrimmedNonEmptyStringSchema),
+  comments: Schema.Array(ChangeRequestComment),
+  commentsTruncated: Schema.Boolean,
+  reviewThreads: Schema.Array(ChangeRequestReviewThread),
+  reviewThreadsTruncated: Schema.Boolean,
+});
+export type GitGetChangeRequestConversationResult =
+  typeof GitGetChangeRequestConversationResult.Type;
+
+export const GitAddChangeRequestCommentResult = Schema.Struct({
+  added: Schema.Literal(true),
+});
+export type GitAddChangeRequestCommentResult = typeof GitAddChangeRequestCommentResult.Type;
+
+export const GitReplyToChangeRequestThreadResult = Schema.Struct({
+  replied: Schema.Literal(true),
+});
+export type GitReplyToChangeRequestThreadResult = typeof GitReplyToChangeRequestThreadResult.Type;
+
+export const GitSetChangeRequestThreadResolvedResult = Schema.Struct({
+  resolved: Schema.Boolean,
+});
+export type GitSetChangeRequestThreadResolvedResult =
+  typeof GitSetChangeRequestThreadResolvedResult.Type;
+
+export const GitChangeRequestCommit = Schema.Struct({
+  oid: GitObjectId,
+  messageHeadline: Schema.String,
+  authorName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  authorLogin: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  authoredAt: Schema.NullOr(IsoDateTime),
+  committedAt: Schema.NullOr(IsoDateTime),
+});
+export type GitChangeRequestCommit = typeof GitChangeRequestCommit.Type;
+
+export const GitListChangeRequestCommitsResult = Schema.Struct({
+  supported: Schema.Boolean,
+  commits: Schema.Array(GitChangeRequestCommit),
+  truncated: Schema.Boolean,
+  /** Whether the PR head commit is resolvable in the local object database (after a guarded fetch attempt), i.e. whether the local commit viewer can open these commits. */
+  commitsAvailableLocally: Schema.Boolean,
+});
+export type GitListChangeRequestCommitsResult = typeof GitListChangeRequestCommitsResult.Type;
+
+/**
+ * Local follow-up state after the remote branch is deleted.
+ * - none: nothing local tracks the PR head
+ * - branch: a plain local branch exists; `removal` reports what happened to it
+ * - worktree: a worktree checks the branch out; client should offer the existing
+ *   vcs.deleteWorktree flow (which owns the thread cascade) instead
+ * - checked_out: the branch is the current branch of the main checkout; left untouched
+ */
+export const GitDeleteChangeRequestBranchLocalState = Schema.Union([
+  Schema.TaggedStruct("none", {}),
+  Schema.TaggedStruct("branch", {
+    refName: TrimmedNonEmptyStringSchema,
+    removal: Schema.Literals(["not_requested", "removed", "failed"]),
+  }),
+  Schema.TaggedStruct("worktree", {
+    refName: TrimmedNonEmptyStringSchema,
+    worktreePath: TrimmedNonEmptyStringSchema,
+  }),
+  Schema.TaggedStruct("checked_out", {
+    refName: TrimmedNonEmptyStringSchema,
+  }),
+]);
+export type GitDeleteChangeRequestBranchLocalState =
+  typeof GitDeleteChangeRequestBranchLocalState.Type;
+
+export const GitDeleteChangeRequestBranchResult = Schema.Struct({
+  /** The PR head branch name, resolved server-side (never client-supplied). */
+  branch: TrimmedNonEmptyStringSchema,
+  remote: Schema.Literals(["deleted", "already_missing"]),
+  local: GitDeleteChangeRequestBranchLocalState,
+});
+export type GitDeleteChangeRequestBranchResult = typeof GitDeleteChangeRequestBranchResult.Type;
 
 export const GitGetChangeRequestMergeOptionsResult = Schema.Struct({
   methods: Schema.Array(GitChangeRequestMergeMethod).check(Schema.isMinLength(1)),
