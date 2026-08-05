@@ -175,6 +175,16 @@ import {
   ResourceTelemetryRetryResult,
   ResourceTelemetrySnapshot,
 } from "./resourceTelemetry.ts";
+import {
+  AccountUsageSnapshot,
+  UsageBreakdown,
+  UsageClearLedgerResult,
+  UsageGetBreakdownInput,
+  UsageGetOverviewInput,
+  UsageOverview,
+  UsageRefreshScanResult,
+  UsageRpcError,
+} from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
   SourceControlCloneRepositoryInput,
@@ -298,6 +308,11 @@ export const WS_METHODS = {
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeBackgroundPolicy: "subscribeBackgroundPolicy",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
+  subscribeAccountUsage: "subscribeAccountUsage",
+  usageGetOverview: "usage.getOverview",
+  usageGetBreakdown: "usage.getBreakdown",
+  usageRefreshScan: "usage.refreshScan",
+  usageClearLedger: "usage.clearLedger",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -875,6 +890,37 @@ export const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeReso
   stream: true,
 });
 
+export const WsSubscribeAccountUsageRpc = Rpc.make(WS_METHODS.subscribeAccountUsage, {
+  payload: Schema.Struct({}),
+  success: AccountUsageSnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+export const WsUsageGetOverviewRpc = Rpc.make(WS_METHODS.usageGetOverview, {
+  payload: UsageGetOverviewInput,
+  success: UsageOverview,
+  error: Schema.Union([UsageRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageGetBreakdownRpc = Rpc.make(WS_METHODS.usageGetBreakdown, {
+  payload: UsageGetBreakdownInput,
+  success: UsageBreakdown,
+  error: Schema.Union([UsageRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageRefreshScanRpc = Rpc.make(WS_METHODS.usageRefreshScan, {
+  payload: Schema.Struct({}),
+  success: UsageRefreshScanResult,
+  error: Schema.Union([UsageRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsUsageClearLedgerRpc = Rpc.make(WS_METHODS.usageClearLedger, {
+  payload: Schema.Struct({}),
+  success: UsageClearLedgerResult,
+  error: Schema.Union([UsageRpcError, EnvironmentAuthorizationError]),
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
@@ -957,6 +1003,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeAuthAccessRpc,
   WsSubscribeBackgroundPolicyRpc,
   WsSubscribeResourceTelemetryRpc,
+  WsSubscribeAccountUsageRpc,
+  WsUsageGetOverviewRpc,
+  WsUsageGetBreakdownRpc,
+  WsUsageRefreshScanRpc,
+  WsUsageClearLedgerRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

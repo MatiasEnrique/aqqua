@@ -29,9 +29,11 @@ import {
   ArrowDownIcon,
   ArrowLeftIcon,
   ArrowUpIcon,
+  ChartNoAxesCombinedIcon,
   CornerLeftUpIcon,
   FolderIcon,
   FolderPlusIcon,
+  GaugeIcon,
   GitBranchPlusIcon,
   LayoutGridIcon,
   LinkIcon,
@@ -111,6 +113,7 @@ import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sideb
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { NewWorktreeThreadDialog } from "./NewWorktreeThreadDialog";
+import { UsageLimitsDialog } from "./usage/UsageLimitsDialog";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
@@ -435,12 +438,20 @@ function useNewWorktreeThreadDialog() {
   return { element, open };
 }
 
+function useUsageLimitsDialog() {
+  const [open, setOpen] = useState(false);
+  const openDialog = useCallback(() => setOpen(true), []);
+  const element = <UsageLimitsDialog open={open} onOpenChange={setOpen} />;
+  return { element, open: openDialog };
+}
+
 export function CommandPalette({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
     openIntent: null,
   });
   const newWorktreeDialog = useNewWorktreeThreadDialog();
+  const usageLimitsDialog = useUsageLimitsDialog();
   const setOpen = useCallback((open: boolean) => dispatch({ _tag: "SetOpen", open }), []);
   const toggleOpen = useCallback(() => dispatch({ _tag: "Toggle" }), []);
   const openAddProject = useCallback(() => dispatch({ _tag: "OpenAddProject" }), []);
@@ -505,9 +516,11 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           setOpen={setOpen}
           clearOpenIntent={clearOpenIntent}
           openNewWorktreeDialog={newWorktreeDialog.open}
+          openUsageLimitsDialog={usageLimitsDialog.open}
         />
       </CommandDialog>
       {newWorktreeDialog.element}
+      {usageLimitsDialog.element}
     </ComposerHandleContext>
   );
 }
@@ -518,6 +531,7 @@ function CommandPaletteDialog(props: {
   readonly setOpen: (open: boolean) => void;
   readonly clearOpenIntent: () => void;
   readonly openNewWorktreeDialog: (projectRef: ScopedProjectRef | null) => void;
+  readonly openUsageLimitsDialog: () => void;
 }) {
   if (!props.open) {
     return null;
@@ -529,6 +543,7 @@ function CommandPaletteDialog(props: {
       setOpen={props.setOpen}
       clearOpenIntent={props.clearOpenIntent}
       openNewWorktreeDialog={props.openNewWorktreeDialog}
+      openUsageLimitsDialog={props.openUsageLimitsDialog}
     />
   );
 }
@@ -538,9 +553,11 @@ function OpenCommandPaletteDialog(props: {
   readonly setOpen: (open: boolean) => void;
   readonly clearOpenIntent: () => void;
   readonly openNewWorktreeDialog: (projectRef: ScopedProjectRef | null) => void;
+  readonly openUsageLimitsDialog: () => void;
 }) {
   const navigate = useNavigate();
-  const { clearOpenIntent, openIntent, openNewWorktreeDialog, setOpen } = props;
+  const { clearOpenIntent, openIntent, openNewWorktreeDialog, openUsageLimitsDialog, setOpen } =
+    props;
   const composerHandleRef = useComposerHandleContext();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -1387,6 +1404,28 @@ function OpenCommandPaletteDialog(props: {
       ],
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:usage",
+    searchTerms: ["usage", "tokens", "cost", "rate limits", "spend"],
+    title: "Open usage",
+    icon: <ChartNoAxesCombinedIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:usage-limits",
+    searchTerms: ["limits", "rate limits", "fable", "weekly", "5h", "five hour", "quota"],
+    title: "Show rate limits",
+    icon: <GaugeIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openUsageLimitsDialog();
+    },
+  });
 
   actionItems.push({
     kind: "action",

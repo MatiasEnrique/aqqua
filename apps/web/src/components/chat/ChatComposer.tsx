@@ -106,7 +106,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
-import { ContextWindowMeter } from "./ContextWindowMeter";
+import { ComposerUsageMeter } from "./ComposerUsageMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -425,6 +425,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   renderIdlePrimaryAction?: ((state: ComposerIdlePrimaryActionState) => ReactNode) | undefined;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
   activeThreadProviderDisplayName: string | null;
+  activeProvider: ProviderDriverKind;
+  activeProviderInstanceId: ProviderInstanceId;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -448,12 +450,12 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
-      {props.activeContextWindow ? (
-        <ContextWindowMeter
-          usage={props.activeContextWindow}
-          providerDisplayName={props.activeThreadProviderDisplayName}
-        />
-      ) : null}
+      <ComposerUsageMeter
+        usage={props.activeContextWindow ?? null}
+        providerDisplayName={props.activeThreadProviderDisplayName}
+        provider={props.activeProvider}
+        providerInstanceId={props.activeProviderInstanceId}
+      />
       {props.isPreparingWorktree ? (
         <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
       ) : null}
@@ -2679,6 +2681,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         renderIdlePrimaryAction={renderIdlePrimaryActionWithFocus}
         activeContextWindow={activeContextWindow}
         activeThreadProviderDisplayName={activeThreadProviderDisplayName}
+        activeProvider={selectedProvider}
+        activeProviderInstanceId={selectedInstanceId}
         pendingAction={pendingPrimaryAction}
         isRunning={phase === "running"}
         showPlanFollowUpPrompt={pendingUserInputs.length === 0 && showPlanFollowUpPrompt}

@@ -8,6 +8,7 @@ This is a living glossary for aqqua. It explains what common terms mean in this 
 - [Thread timeline](#thread-timeline)
 - [Orchestration](#orchestration)
 - [Provider runtime](#provider-runtime)
+- [Usage tracking](#usage-tracking)
 - [Checkpointing](#checkpointing)
 
 ## Concepts
@@ -115,6 +116,16 @@ Controls how assistant text reaches the thread timeline. In [the contracts][1], 
 
 A point-in-time view of state. The word is used in multiple layers, including orchestration, provider, and checkpointing. See [ProjectionSnapshotQuery.ts][10], [ProviderAdapter.ts][15], and [CheckpointStore.ts][19].
 
+### Usage tracking
+
+#### Usage ledger
+
+The host-local SQLite read model built from Claude and Codex log files. Unlike an orchestration projection, its source of truth is external provider logs, so it has its own [repository][28], [migration][29], and rebuild lifecycle in [UsageScanner.ts][30]. It stores daily aggregates and per-file byte offsets; clearing it leaves the source logs untouched.
+
+#### Rate-limit window
+
+One provider-reported account quota period, such as five-hour or weekly, with a percentage used and optional reset time and duration. The normalized shape is defined in [the usage contracts][31]. [AccountRateLimits.ts][32] keeps the latest windows per provider instance in memory and streams semantic changes without adding them to thread activities.
+
 ### Checkpointing
 
 Checkpointing captures workspace state over time so the app can diff turns and restore earlier points. The main pieces are [CheckpointStore.ts][19], [CheckpointDiffQuery.ts][20], and [CheckpointReactor.ts][6].
@@ -199,3 +210,8 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [25]: ../packages/contracts/src/board.ts
 [26]: ../apps/server/src/orchestration/Layers/BoardReactor.ts
 [27]: ../apps/server/src/boardArtifacts.ts
+[28]: ../../apps/server/src/persistence/Layers/UsageLedger.ts
+[29]: ../../apps/server/src/persistence/Migrations/039_UsageLedger.ts
+[30]: ../../apps/server/src/usage/UsageScanner.ts
+[31]: ../../packages/contracts/src/usage.ts
+[32]: ../../apps/server/src/usage/AccountRateLimits.ts
