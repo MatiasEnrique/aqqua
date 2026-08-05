@@ -24,10 +24,7 @@ import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSn
 import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import {
-  clearPersistedServerRuntimeState,
-  readPersistedServerRuntimeState,
-} from "../serverRuntimeState.ts";
+import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
@@ -152,21 +149,19 @@ export const tryResolveLiveEnvironment = Effect.fn("tryResolveLiveEnvironment")(
     return Option.some(attempted.success);
   }
 
-  // Auth, declared HTTP, and protocol failures must not clear runtime state or
-  // silently drop into offline mode — only unreachable-server cases do.
-  if (!isLiveServerTransportFailure(attempted.failure)) {
-    return yield* Effect.fail(options.mapLiveServerError(attempted.failure));
+  if (isLiveServerTransportFailure(attempted.failure)) {
+    yield* Effect.logDebug(
+      options.connectionFailureLogMessage ?? "Failed to connect to the persisted CLI server.",
+      {
+        origin: runtimeState.value.origin,
+        cause: attempted.failure,
+      },
+    );
   }
-
-  yield* Effect.logDebug(
-    options.connectionFailureLogMessage ?? "Failed to connect to the persisted CLI server.",
-    {
-      origin: runtimeState.value.origin,
-      cause: attempted.failure,
-    },
-  );
-  yield* clearPersistedServerRuntimeState(config.serverRuntimeStatePath);
-  return Option.none<{ readonly origin: string }>();
+  // Once a server has registered itself, no CLI command may open a second
+  // orchestration runtime against the same database. A transport failure does
+  // not prove that server is gone, so preserve the marker and fail safely.
+  return yield* Effect.fail(options.mapLiveServerError(attempted.failure));
 });
 
 export const runWithEnvironmentAccess = Effect.fn("runWithEnvironmentAccess")(function* <

@@ -34,6 +34,11 @@ aqqua flow create --file flow.json
 aqqua flow update "Ship a feature" --file flow.json
 aqqua flow delete "Ship a feature"
 aqqua flow schema
+aqqua flow card create "Ship a feature" --file card.json
+aqqua flow card list
+aqqua flow card start <card-id>
+aqqua flow card reset <card-id>
+aqqua flow card schema
 ```
 
 `show`, `update`, and `delete` accept either a flow id or an exact, unique flow
@@ -74,6 +79,11 @@ on the flow will require. Add `--json` to any subcommand for machine-readable
 output; `show --json` includes step ids and can be used as the starting point
 for an update file.
 
+Flow mutations use the running environment when one is registered. If that
+server cannot be reached, the command fails instead of writing around it and
+leaving the open clients stale. When no server is registered, flow definitions
+and To-Do cards can still be authored against the environment's local state.
+
 ## Cards
 
 Creating a card is cheap — the creation form is generated from the union of
@@ -85,6 +95,34 @@ placeholder title.
 Pressing **Start** releases the card: it gets its own worktree and branch, and
 step 1 begins in a fresh top-level conversation you can open from the sidebar
 like any other. Each step runs in a fresh conversation to keep context clean.
+
+You can create and start cards from the CLI too. The card definition names the
+flow's required parameters exactly:
+
+```json
+{
+  "title": "Ship card commands",
+  "parameters": {
+    "request": "Add CLI support for creating and starting cards"
+  }
+}
+```
+
+```sh
+aqqua flow card schema
+aqqua flow card create "Ship a feature" --file card.json --json
+aqqua flow card list --json
+aqqua flow card start <card-id>
+aqqua flow card reset <card-id>
+```
+
+`create` returns the card id and leaves it in To-Do without creating a worktree.
+`start` requires a running aqqua server. It records a start request, then the
+normal card operation lifecycle creates the worktree and launches the first
+step. Follow the card in Flows for startup progress or failure.
+`list` shows the active cards and their current position and status. `reset`
+uses the same durable cleanup operation as the UI and returns a started card to
+To-Do; it also requires the running server.
 
 ## Position and status
 

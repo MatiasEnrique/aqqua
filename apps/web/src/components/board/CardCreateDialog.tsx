@@ -34,7 +34,7 @@ export function CardCreateDialog({
   readonly open: boolean;
   readonly board: OrchestrationBoard | null;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onSubmit: (input: CardCreateSubmit) => Promise<void> | void;
+  readonly onSubmit: (input: CardCreateSubmit) => Promise<boolean> | boolean;
 }) {
   const parameterNames = useMemo(() => boardParameterNames(board), [board]);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -55,15 +55,16 @@ export function CardCreateDialog({
     setHasAttemptedSubmit(true);
     if (!canSubmit) return;
     setIsCreating(true);
+    let succeeded = false;
     try {
-      await onSubmit({
+      succeeded = await onSubmit({
         title: buildPlaceholderCardTitle(parameterNames, values),
         parameters: toCardParameters(parameterNames, values),
       });
     } finally {
       setIsCreating(false);
     }
-    onOpenChange(false);
+    if (succeeded) onOpenChange(false);
   };
 
   return (

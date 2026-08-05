@@ -19,6 +19,7 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import type { BoardEditorSubmit } from "./BoardEditorDialog";
+import { reportBoardCommandResult } from "./boardCommandFeedback";
 import { cardNeedsYou } from "./BoardRunTable.logic";
 import { CardCreateDialog, type CardCreateSubmit } from "./CardCreateDialog";
 
@@ -81,7 +82,7 @@ export function BoardView({
 
   const handleBoardSubmit = async (input: BoardEditorSubmit) => {
     if (board === null) {
-      await createBoard({
+      const result = await createBoard({
         environmentId,
         input: {
           boardId: BoardId.make(randomUUID()),
@@ -90,17 +91,18 @@ export function BoardView({
           steps: input.steps,
         },
       });
-      return;
+      return reportBoardCommandResult(result, "Could not create flow");
     }
-    await updateBoard({
+    const result = await updateBoard({
       environmentId,
       input: { boardId: board.id, name: input.name, steps: input.steps },
     });
+    return reportBoardCommandResult(result, "Could not update flow");
   };
 
   const handleCardSubmit = async (input: CardCreateSubmit) => {
-    if (board === null) return;
-    await createCard({
+    if (board === null) return false;
+    const result = await createCard({
       environmentId,
       input: {
         cardId: CardId.make(randomUUID()),
@@ -109,6 +111,7 @@ export function BoardView({
         parameters: input.parameters,
       },
     });
+    return reportBoardCommandResult(result, "Could not create card");
   };
 
   return (
