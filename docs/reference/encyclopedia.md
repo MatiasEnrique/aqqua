@@ -119,6 +119,10 @@ The safety/access mode for a thread or session. In [the contracts][1], the main 
 
 The agent interaction style for a thread. In [the contracts][1], the main values are `default` and `plan`. See [runtime-modes.md][18].
 
+#### Agent profile
+
+A machine-local named definition of the provider target, model, runtime, runtime mode, interaction mode, and provider options used to start an agent. Flows reference agent profiles by name. They can be managed in Settings or with [`aqqua profile`][34].
+
 #### Assistant delivery mode
 
 Controls how assistant text reaches the thread timeline. In [the contracts][1], `streaming` updates incrementally and `buffered` delivers a completed result. See [ProviderService.ts][14].
@@ -165,7 +169,7 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 
 #### Flow
 
-A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Flows are represented internally by [the board contracts][25] and executed by [BoardReactor.ts][26].
+A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Flows are represented internally by [the board contracts][25], executed by [BoardReactor.ts][26], and managed in the app or with [`aqqua flow`][35].
 
 #### Card
 
@@ -227,3 +231,5 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [31]: ../../packages/contracts/src/usage.ts
 [32]: ../../apps/server/src/usage/AccountRateLimits.ts
 [33]: ../../apps/server/src/orchestration/Layers/PullRequestSettleReactor.ts
+[34]: ../user/agent-profiles.md
+[35]: ../user/agentic-board.md#managing-flows-from-the-cli

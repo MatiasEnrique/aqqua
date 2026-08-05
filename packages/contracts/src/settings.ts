@@ -650,6 +650,27 @@ export type AgentProfileMap = typeof AgentProfileMap.Type;
 /** Role every build ships so delegation works before any settings are written. */
 export const DEFAULT_AGENT_PROFILE_NAME = AgentProfileName.make("implementer");
 
+export const EnvironmentAgentProfilesSettingsResponse = Schema.Struct({
+  profiles: AgentProfileMap,
+  implicitDefaultName: AgentProfileName,
+});
+export type EnvironmentAgentProfilesSettingsResponse =
+  typeof EnvironmentAgentProfilesSettingsResponse.Type;
+
+export const EnvironmentAgentProfilePathParams = Schema.Struct({
+  name: Schema.String,
+});
+export type EnvironmentAgentProfilePathParams = typeof EnvironmentAgentProfilePathParams.Type;
+
+export const EnvironmentAgentProfileUpsertRequest = AgentProfile;
+export type EnvironmentAgentProfileUpsertRequest = typeof EnvironmentAgentProfileUpsertRequest.Type;
+
+export const EnvironmentAgentProfileEntryResponse = Schema.Struct({
+  name: AgentProfileName,
+  profile: AgentProfile,
+});
+export type EnvironmentAgentProfileEntryResponse = typeof EnvironmentAgentProfileEntryResponse.Type;
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),

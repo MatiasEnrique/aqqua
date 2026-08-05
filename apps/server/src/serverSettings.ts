@@ -61,7 +61,7 @@ const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-const normalizeServerSettings = (
+export const normalizeServerSettings = (
   settings: ServerSettings,
 ): Effect.Effect<ServerSettings, ServerSettingsError> =>
   encodeServerSettings(settings).pipe(
@@ -129,6 +129,16 @@ export class ServerSettingsService extends Context.Service<
       patch: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    /** Compute a patch from the current settings while holding the write lock. */
+    readonly modifySettings: <A, E>(
+      modify: (
+        current: ServerSettings,
+      ) => Effect.Effect<{ readonly patch: ServerSettingsPatch; readonly value: A }, E>,
+    ) => Effect.Effect<
+      { readonly settings: ServerSettings; readonly value: A },
+      ServerSettingsError | E
+    >;
+
     /** Stream of settings change events. */
     readonly streamChanges: Stream.Stream<ServerSettings>;
 
@@ -159,18 +169,34 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
         : {}),
     });
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
+    const writeSemaphore = yield* Semaphore.make(1);
+
+    const modifySettings = <A, E>(
+      modify: (
+        current: ServerSettings,
+      ) => Effect.Effect<{ readonly patch: ServerSettingsPatch; readonly value: A }, E>,
+    ) =>
+      writeSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const currentSettings = yield* Ref.get(currentSettingsRef);
+          const { patch, value } = yield* modify(currentSettings);
+          const nextSettings = yield* normalizeServerSettings(
+            applyServerSettingsPatch(currentSettings, patch),
+          );
+          yield* Ref.set(currentSettingsRef, nextSettings);
+          return { settings: resolveTextGenerationProvider(nextSettings), value };
+        }),
+      );
 
     return {
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider)),
       updateSettings: (patch) =>
-        Ref.get(currentSettingsRef).pipe(
-          Effect.map((currentSettings) => applyServerSettingsPatch(currentSettings, patch)),
-          Effect.flatMap(normalizeServerSettings),
-          Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
-          Effect.map(resolveTextGenerationProvider),
+        modifySettings(() => Effect.succeed({ patch, value: undefined })).pipe(
+          Effect.map(({ settings }) => settings),
         ),
+      modifySettings,
       streamChanges: Stream.empty,
       subscribeChanges: Effect.succeed(Stream.empty),
     } satisfies ServerSettingsService["Service"];
@@ -181,6 +207,47 @@ export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
+const decodeServerSettingsJson = Schema.decodeUnknownEffect(ServerSettingsJson);
+
+export const loadServerSettingsFromFileStrict = Effect.fn(
+  "ServerSettings.loadServerSettingsFromFileStrict",
+)(function* (settingsPath: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const exists = yield* fs.exists(settingsPath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath,
+          operation: "check-exists",
+          cause,
+        }),
+    ),
+  );
+  if (!exists) {
+    return DEFAULT_SERVER_SETTINGS;
+  }
+
+  const raw = yield* fs.readFileString(settingsPath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath,
+          operation: "read-file",
+          cause,
+        }),
+    ),
+  );
+  return yield* decodeServerSettingsJson(raw).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath,
+          operation: "read-file",
+          cause,
+        }),
+    ),
+  );
+});
 
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   return isModelSelectionProviderEnabled(settings, settings.textGenerationModelSelection)
@@ -249,6 +316,51 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
 
   return Object.is(current, defaults) ? undefined : current;
 }
+
+export const writeServerSettingsToFile = Effect.fn("ServerSettings.writeServerSettingsToFile")(
+  function* (settingsPath: string, settings: ServerSettings) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const normalized = yield* normalizeServerSettings(settings);
+    const sparseSettingsJson = yield* encodeServerSettingsJson(
+      stripDefaultServerSettings(normalized, DEFAULT_SERVER_SETTINGS) ?? {},
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath,
+            operation: "normalize",
+            cause,
+          }),
+      ),
+    );
+
+    yield* fs.makeDirectory(path.dirname(settingsPath), { recursive: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath,
+            operation: "prepare-directory",
+            cause,
+          }),
+      ),
+    );
+    yield* writeFileStringAtomically({
+      filePath: settingsPath,
+      contents: `${sparseSettingsJson}\n`,
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath,
+            operation: "write-file",
+            cause,
+          }),
+      ),
+    );
+    return normalized;
+  },
+);
 
 const make = Effect.gen(function* () {
   const { settingsPath } = yield* ServerConfig.ServerConfig;
@@ -476,29 +588,12 @@ const make = Effect.gen(function* () {
       };
     });
 
-  const writeSettingsAtomically = Effect.fnUntraced(
-    function* (settings: ServerSettings) {
-      const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
-      );
-
-      return yield* writeFileStringAtomically({
-        filePath: settingsPath,
-        contents: `${sparseSettingsJson}\n`,
-      }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, pathService),
-      );
-    },
-    Effect.mapError(
-      (cause) =>
-        new ServerSettingsError({
-          settingsPath,
-          operation: "write-file",
-          cause,
-        }),
-    ),
-  );
+  const writeSettingsAtomically = Effect.fnUntraced(function* (settings: ServerSettings) {
+    yield* writeServerSettingsToFile(settingsPath, settings).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, pathService),
+    );
+  });
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -507,6 +602,22 @@ const make = Effect.gen(function* () {
       yield* emitChange(settings);
     }),
   );
+
+  const applySettingsPatch = Effect.fnUntraced(function* (
+    current: ServerSettings,
+    patch: ServerSettingsPatch,
+  ) {
+    const nextPersisted = yield* persistProviderEnvironmentSecrets(
+      current,
+      applyServerSettingsPatch(current, patch),
+    );
+    const next = yield* normalizeServerSettings(nextPersisted);
+    yield* writeSettingsAtomically(next);
+    yield* Cache.set(settingsCache, cacheKey, next);
+    yield* emitChange(next);
+    const materialized = yield* materializeProviderEnvironmentSecrets(next);
+    return resolveTextGenerationProvider(materialized);
+  });
 
   const startWatcher = Effect.gen(function* () {
     const settingsDir = pathService.dirname(settingsPath);
@@ -579,16 +690,16 @@ const make = Effect.gen(function* () {
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const nextPersisted = yield* persistProviderEnvironmentSecrets(
-            current,
-            applyServerSettingsPatch(current, patch),
-          );
-          const next = yield* normalizeServerSettings(nextPersisted);
-          yield* writeSettingsAtomically(next);
-          yield* Cache.set(settingsCache, cacheKey, next);
-          yield* emitChange(next);
-          const materialized = yield* materializeProviderEnvironmentSecrets(next);
-          return resolveTextGenerationProvider(materialized);
+          return yield* applySettingsPatch(current, patch);
+        }),
+      ),
+    modifySettings: (modify) =>
+      writeSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* getSettingsFromCache;
+          const { patch, value } = yield* modify(current);
+          const settings = yield* applySettingsPatch(current, patch);
+          return { settings, value };
         }),
       ),
     get streamChanges() {
