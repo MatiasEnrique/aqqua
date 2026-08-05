@@ -199,8 +199,9 @@ a while.
 - `AgentControl.test.ts` — `awaitTurn` does not return `completed` for a thread whose session is
   running but whose latest turn is a stale settled row; and does not settle between spawn and
   first turn.
-- Invariant assertion for the integration suite: no thread may have `session.status = 'running'`
-  and a `latest_turn_id` that is not the session's `active_turn_id`.
+- Invariant assertion for the integration suite: a thread with `session.status = 'running'` must
+  have an `active_turn_id`, and its `latest_turn_id` must point to that active turn's
+  non-completed running projection.
 
 ## Data
 
@@ -208,9 +209,9 @@ Ship a one-time projection repair rather than waiting for another event. For run
 with an `active_turn_id`, set `latest_turn_id` to that active turn and normalize its projected
 row to `state='running'`, `completed_at=NULL`. Rebuild affected inactive sessions from their
 persisted events as well: they may never emit another event, and replay must preserve the
-intentional `latest_turn_id=NULL` written when a session settles. Confirm the repaired
-invariants with a query that includes `NULL` pointers, missing turn rows, and invalid D3 state
-or timestamp combinations:
+intentional `latest_turn_id=NULL` written when a session settles. Confirm the running-session
+invariants with a query that includes `NULL` active-turn and latest-turn pointers, missing turn
+rows, and invalid D3 state or timestamp combinations:
 
 ```sql
 select t.thread_id, s.status, s.active_turn_id, t.latest_turn_id, tu.state, tu.completed_at
@@ -218,9 +219,9 @@ from projection_threads t
 join projection_thread_sessions s on s.thread_id = t.thread_id
 left join projection_turns tu on tu.thread_id = t.thread_id and tu.turn_id = t.latest_turn_id
 where s.status = 'running'
-  and s.active_turn_id is not null
   and (
-    t.latest_turn_id is null
+    s.active_turn_id is null
+    or t.latest_turn_id is null
     or t.latest_turn_id <> s.active_turn_id
     or tu.turn_id is null
     or tu.state <> 'running'
@@ -228,8 +229,10 @@ where s.status = 'running'
   );
 ```
 
-Expected after the fix: no row where a running session points anywhere except its active,
-non-completed running turn.
+Expected after the fix: no rows. This projection-only query cannot derive the expected pointer
+for inactive sessions from events, so the migration test must separately seed corrupt inactive
+projections, replay their persisted events, and assert the rebuilt pointer, state, and timestamp,
+including the intentional `latest_turn_id=NULL` terminal case.
 
 ## Sequencing
 

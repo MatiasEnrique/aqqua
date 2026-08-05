@@ -6,6 +6,7 @@ import {
   SidebarCardItem,
   SidebarCardProvider,
   type SidebarCardDescriptionTone,
+  SidebarCardSubThreadToggle,
 } from "../../sidebar/card";
 import { Tooltip, TooltipTrigger } from "../../ui/tooltip";
 import { SUB_AGENT_INDENT_PX } from "../constants";
@@ -26,7 +27,7 @@ import type { ConversationRowModel, ConversationRowProps } from "./useConversati
 export function ConversationCompactRow(props: {
   readonly row: ConversationRowModel;
   readonly conversation: ConversationRowProps;
-  readonly descriptionTone: SidebarCardDescriptionTone;
+  readonly descriptionTone?: SidebarCardDescriptionTone;
   /** Controls outside the row's own button: selection, sub-agent disclosure. */
   readonly leading?: ReactNode;
   /** Extra detail between the provider mark and the trailing slot. */
@@ -40,10 +41,25 @@ export function ConversationCompactRow(props: {
 }) {
   const { conversation, row } = props;
   const { thread } = conversation;
+  const descriptionTone =
+    props.descriptionTone ??
+    (conversation.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "faint");
+  const leading =
+    props.leading === undefined ? (
+      <SidebarCardSubThreadToggle
+        count={conversation.childCount}
+        isExpanded={conversation.isExpanded}
+        description={thread.title}
+        onToggle={row.handleToggleExpanded}
+        testId={`sidebar-v2-subagent-toggle-${thread.id}`}
+      />
+    ) : (
+      props.leading
+    );
   return (
     <SidebarCardItem size="slim">
       <div
-        className={cn(row.surfaceClassName, "flex h-9 items-center gap-2.5 pr-2.5")}
+        className={cn(row.surfaceClassName, "flex h-9 items-center gap-2.5 pe-2.5")}
         style={{ paddingInlineStart: 10 + conversation.depth * SUB_AGENT_INDENT_PX }}
       >
         <Tooltip>
@@ -65,8 +81,8 @@ export function ConversationCompactRow(props: {
           <ConversationDetailsTooltip row={row} conversation={conversation} />
         </Tooltip>
         <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-2.5">
-          {props.leading === undefined ? null : (
-            <span className="pointer-events-auto contents">{props.leading}</span>
+          {leading === null || leading === false ? null : (
+            <span className="pointer-events-auto contents">{leading}</span>
           )}
           {/* Settled history recedes: dimmed favicon at rest, restored on
                 hover so the tail stays scannable when you're hunting. */}
@@ -92,7 +108,7 @@ export function ConversationCompactRow(props: {
             <ConversationDescription
               row={row}
               conversation={conversation}
-              tone={props.descriptionTone}
+              tone={descriptionTone}
               brightenOnHover
             />
           </span>

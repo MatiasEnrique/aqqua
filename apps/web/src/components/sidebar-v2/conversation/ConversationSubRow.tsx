@@ -37,38 +37,49 @@ export const ConversationSubRow = memo(function ConversationSubRow(props: Conver
   return (
     <SidebarCardItem size="none" className="relative">
       <SidebarCardSubThreadGuides depth={props.depth} />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <div
-              role="button"
-              tabIndex={0}
-              data-testid="sidebar-v2-row-sub"
-              className={cn(row.surfaceClassName, "flex h-8 min-w-0 items-center gap-2 pr-2.5")}
-              style={{ paddingInlineStart: 10 + props.depth * SUB_AGENT_INDENT_PX }}
-              onClick={row.handleClick}
-              onDoubleClick={row.handleDoubleClick}
-              onKeyDown={row.handleKeyDown}
-              onContextMenu={row.handleContextMenu}
-            />
-          }
-        >
+      <div
+        className={cn(row.surfaceClassName, "flex h-8 min-w-0 items-center gap-2 pe-2.5")}
+        style={{ paddingInlineStart: 10 + props.depth * SUB_AGENT_INDENT_PX }}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={thread.title}
+                data-testid="sidebar-v2-row-sub"
+                className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                onClick={row.handleClick}
+                onDoubleClick={row.handleDoubleClick}
+                onKeyDown={row.handleKeyDown}
+                onContextMenu={row.handleContextMenu}
+              />
+            }
+          />
+          <ConversationDetailsTooltip row={row} conversation={props} />
+        </Tooltip>
+        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-2">
           {props.childCount > 0 ? (
-            <SidebarCardSubThreadChevron
-              count={props.childCount}
-              isExpanded={props.isExpanded}
-              description={thread.title}
-              onToggle={row.handleToggleExpanded}
-            />
+            <span className="pointer-events-auto contents">
+              <SidebarCardSubThreadChevron
+                count={props.childCount}
+                isExpanded={props.isExpanded}
+                description={thread.title}
+                onToggle={row.handleToggleExpanded}
+              />
+            </span>
           ) : props.reserveExpandGutter ? (
             <SidebarCardSubThreadGutter />
           ) : null}
-          <ConversationDescription
-            row={row}
-            conversation={props}
-            brightenOnHover
-            tone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "quiet"}
-          />
+          <span className={cn("min-w-0 flex-1", props.isRenaming && "pointer-events-auto")}>
+            <ConversationDescription
+              row={row}
+              conversation={props}
+              brightenOnHover
+              tone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "quiet"}
+            />
+          </span>
           <SidebarCardProvider
             driverKind={row.provider.driverKind}
             displayName={row.provider.displayName}
@@ -77,20 +88,21 @@ export const ConversationSubRow = memo(function ConversationSubRow(props: Conver
           {/* Settling stays reachable, but only on hover, and it reserves no
               width at rest so the description keeps the full row. */}
           {props.settlementSupported ? (
-            <SidebarCardHoverActionSlot
-              actions={
-                <SidebarCardSettleButton
-                  description={thread.title}
-                  onSettle={row.handleSettleClick}
-                  shape="inline"
-                />
-              }
-            />
+            <span className="pointer-events-auto contents">
+              <SidebarCardHoverActionSlot
+                actions={
+                  <SidebarCardSettleButton
+                    description={thread.title}
+                    onSettle={row.handleSettleClick}
+                    shape="inline"
+                  />
+                }
+              />
+            </span>
           ) : null}
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
-        </TooltipTrigger>
-        <ConversationDetailsTooltip row={row} conversation={props} />
-      </Tooltip>
+        </div>
+      </div>
     </SidebarCardItem>
   );
 });

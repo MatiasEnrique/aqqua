@@ -112,6 +112,10 @@ export function SidebarCardWakeButton(props: { readonly onWake: (event: MouseEve
   );
 }
 
+function hasRenderableActions(actions: ReactNode): boolean {
+  return actions !== null && actions !== false && actions !== undefined;
+}
+
 /**
  * Status at rest, actions on hover, in one slot — the actions take the status's
  * place in flow rather than sitting beside it, so a hovered row doesn't reflow.
@@ -126,7 +130,7 @@ export function SidebarCardStatusSwapSlot(props: {
   readonly pinned?: boolean;
   readonly className?: string;
 }) {
-  const hasActions = props.actions !== null && props.actions !== false;
+  const hasActions = hasRenderableActions(props.actions);
   return (
     <span
       className={cn(
@@ -170,6 +174,7 @@ export function SidebarCardHoverActionSlot(props: {
   readonly reserveWidth?: boolean;
   readonly className?: string;
 }) {
+  const hasActions = hasRenderableActions(props.actions);
   return (
     <span
       className={cn(
@@ -182,7 +187,7 @@ export function SidebarCardHoverActionSlot(props: {
         <span
           className={cn(
             "inline-flex justify-end tabular-nums transition-opacity",
-            props.actions === null
+            !hasActions
               ? null
               : "group-focus-within/v2-hover-slot:opacity-0 group-hover/v2-row:opacity-0",
           )}
@@ -190,11 +195,11 @@ export function SidebarCardHoverActionSlot(props: {
           {props.resting}
         </span>
       )}
-      {props.actions === null ? null : (
+      {hasActions ? (
         <span className="absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:opacity-100 group-hover/v2-row:opacity-100">
           {props.actions}
         </span>
-      )}
+      ) : null}
     </span>
   );
 }

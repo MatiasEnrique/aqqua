@@ -30,7 +30,6 @@ export const ConversationSettledRow = memo(function ConversationSettledRow(
       testId="sidebar-v2-row-slim"
       settledPr
       faviconFallback
-      descriptionTone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "faint"}
       leading={
         <>
           <Checkbox
@@ -54,7 +53,7 @@ export const ConversationSettledRow = memo(function ConversationSettledRow(
           reserveWidth
           resting={
             <span
-              role="status"
+              role="img"
               aria-label={`Settled ${settledTimeLabel(thread)}${row.isWoke ? ", woke from snooze" : ""}`}
               title={row.isWoke ? "Settled · Woke from snooze" : "Settled"}
               className={cn(
@@ -64,7 +63,9 @@ export const ConversationSettledRow = memo(function ConversationSettledRow(
             >
               <CircleCheckIcon aria-hidden className="size-3.5" />
               <span className="text-muted-foreground/55">{settledTimeLabel(thread)}</span>
-              {row.isWoke ? <AlarmClockIcon aria-hidden className="size-3" /> : null}
+              {row.isWoke ? (
+                <AlarmClockIcon aria-hidden className="size-3 text-warning-foreground" />
+              ) : null}
             </span>
           }
           actions={

@@ -102,7 +102,7 @@ const baseProps = {
 } satisfies SidebarConversationRowProps;
 
 function activationTarget(markup: string): string | null {
-  return markup.match(/<div role="button"[^>]*>.*?<\/div>/s)?.[0] ?? null;
+  return markup.match(/<div role="button"[^>]*><\/div>/)?.[0] ?? null;
 }
 
 describe("SidebarConversationRow", () => {
@@ -121,24 +121,37 @@ describe("SidebarConversationRow", () => {
     expect(markup).toContain('class="shrink-0"><span role="status"');
   });
 
-  it("keeps card and compact controls outside the row activation target", () => {
-    for (const variantAction of ["settle", "unsettle", "unsnooze"] as const) {
+  it("keeps card, compact, and sub-row controls outside the row activation target", () => {
+    const variants = [
+      { variant: "card", variantAction: "settle" },
+      { variant: "slim", variantAction: "unsettle" },
+      { variant: "slim", variantAction: "unsnooze" },
+      { variant: "sub", variantAction: "settle" },
+    ] as const;
+
+    for (const { variant, variantAction } of variants) {
       const markup = renderToStaticMarkup(
         <SidebarConversationRow
           {...baseProps}
-          variant={variantAction === "settle" ? "card" : "slim"}
+          variant={variant}
           variantAction={variantAction}
           settlementSupported
           snoozeSupported
           childCount={1}
+          depth={variant === "sub" ? 1 : 0}
         />,
       );
 
       const activation = activationTarget(markup);
-      expect(activation).not.toBeNull();
-      expect(activation).not.toContain("<button");
-      expect(activation).not.toContain("<input");
-      expect(markup).toContain(`data-testid="sidebar-v2-subagent-toggle-${thread.id}"`);
+      const label = `${variant}:${variantAction}`;
+      expect(activation, label).not.toBeNull();
+      expect(activation, label).not.toContain("<button");
+      expect(activation, label).not.toContain("<input");
+      expect(markup, label).toContain(
+        variant === "sub"
+          ? `aria-label="Expand sub-agents of ${thread.title}"`
+          : `data-testid="sidebar-v2-subagent-toggle-${thread.id}"`,
+      );
     }
   });
 });

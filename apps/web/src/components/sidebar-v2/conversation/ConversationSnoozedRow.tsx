@@ -1,7 +1,6 @@
 import { memo } from "react";
 import {
   SidebarCardHoverActionSlot,
-  SidebarCardSubThreadToggle,
   SidebarCardUpdatedAt,
   SidebarCardWakeButton,
   SidebarCardWakesAt,
@@ -30,16 +29,6 @@ export const ConversationSnoozedRow = memo(function ConversationSnoozedRow(
       row={row}
       conversation={props}
       testId="sidebar-v2-row-slim"
-      descriptionTone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "faint"}
-      leading={
-        <SidebarCardSubThreadToggle
-          count={props.childCount}
-          isExpanded={props.isExpanded}
-          description={props.thread.title}
-          onToggle={row.handleToggleExpanded}
-          testId={`sidebar-v2-subagent-toggle-${props.thread.id}`}
-        />
-      }
       trailing={
         <SidebarCardHoverActionSlot
           reserveWidth

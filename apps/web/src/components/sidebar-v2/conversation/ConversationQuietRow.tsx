@@ -1,10 +1,6 @@
 import { AlarmClockIcon } from "lucide-react";
 import { memo } from "react";
-import {
-  SidebarCardHoverActionSlot,
-  SidebarCardSettleButton,
-  SidebarCardSubThreadToggle,
-} from "../../sidebar/card";
+import { SidebarCardHoverActionSlot, SidebarCardSettleButton } from "../../sidebar/card";
 import { threadTimeLabel } from "../rowTimeLabels";
 import { ConversationCompactRow } from "./ConversationCompactRow";
 import { useConversationRow, type ConversationRowProps } from "./useConversationRow";
@@ -23,16 +19,6 @@ export const ConversationQuietRow = memo(function ConversationQuietRow(
       row={row}
       conversation={props}
       testId="sidebar-v2-row-slim"
-      descriptionTone={props.isActive || row.isWoke ? "loud" : row.isUnread ? "unread" : "faint"}
-      leading={
-        <SidebarCardSubThreadToggle
-          count={props.childCount}
-          isExpanded={props.isExpanded}
-          description={props.thread.title}
-          onToggle={row.handleToggleExpanded}
-          testId={`sidebar-v2-subagent-toggle-${props.thread.id}`}
-        />
-      }
       trailing={
         <SidebarCardHoverActionSlot
           reserveWidth
@@ -41,9 +27,9 @@ export const ConversationQuietRow = memo(function ConversationQuietRow(
               // A wake can land straight in the settled tail (e.g. PR merged
               // while snoozed); the signal must survive the trip.
               <span
-                role="status"
+                role="img"
                 aria-label="Woke from snooze"
-                className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                className="inline-flex items-center gap-1 text-warning-foreground text-xs font-medium"
               >
                 <AlarmClockIcon aria-hidden className="size-3" />
                 Woke

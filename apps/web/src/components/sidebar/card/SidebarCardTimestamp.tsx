@@ -29,7 +29,7 @@ export function SidebarCardUpdatedAt(props: {
 /** When a snoozed row comes back. Same slot, different clock. */
 export function SidebarCardWakesAt(props: { readonly label: string }) {
   return (
-    <span className="shrink-0 text-[11px] text-blue-600/75 @max-[300px]/sidebar-conversations:hidden dark:text-blue-400/75">
+    <span className="shrink-0 text-[11px] text-info-foreground/75 @max-[300px]/sidebar-conversations:hidden">
       Wakes {props.label}
     </span>
   );

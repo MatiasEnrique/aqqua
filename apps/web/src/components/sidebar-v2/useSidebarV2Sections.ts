@@ -368,7 +368,6 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     },
     [],
   );
-
   // Project scope: one menu above the list. Scoping filters the list without
   // making the header width depend on the number or length of project names.
   const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
@@ -390,6 +389,31 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
           ),
     [scopedProjectGroup],
   );
+  // Rows can unmount while they remain visible (for example when the settled
+  // shelf collapses), so row cleanup must not erase the PR state that put them
+  // there. Forget state only when a thread leaves the current scope; returning
+  // rows then render active once, resubscribe to VCS, and report fresh state.
+  useEffect(() => {
+    const visibleThreadKeys = new Set(
+      threads.flatMap((thread) =>
+        thread.archivedAt === null &&
+        (scopedProjectKeys === null ||
+          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`))
+          ? [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))]
+          : [],
+      ),
+    );
+    setChangeRequestStateByKey((current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const threadKey of current.keys()) {
+        if (visibleThreadKeys.has(threadKey)) continue;
+        next.delete(threadKey);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [scopedProjectKeys, threads]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);

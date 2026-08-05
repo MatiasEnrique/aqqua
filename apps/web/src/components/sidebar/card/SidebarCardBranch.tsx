@@ -37,7 +37,7 @@ export function SidebarCardBranch(props: {
       <Icon aria-hidden className="size-3 shrink-0" />
       <span className="min-w-0 truncate font-mono">{props.branch.label}</span>
       {props.mismatched === true ? (
-        <span aria-label={mismatchLabel} className="shrink-0 font-mono font-semibold">
+        <span role="img" aria-label={mismatchLabel} className="shrink-0 font-mono font-semibold">
           !
         </span>
       ) : null}
