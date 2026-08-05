@@ -47,7 +47,7 @@ import { cardFailureNote } from "./BoardRunTable.logic";
 import { CardArtifactPane } from "./CardArtifactPane";
 import { CardComposerActions } from "./CardComposerActions";
 import {
-  artifactCompletionRevision,
+  artifactVisibilityRevision,
   buildCardTree,
   type CardSelection,
   type CardTreeArtifactStat,
@@ -246,14 +246,14 @@ export function CardDetailView({
   const selectedArtifactRevision =
     card === null || selection.kind !== "artifact"
       ? null
-      : artifactCompletionRevision(card, selection.stepIndex);
+      : artifactVisibilityRevision(card, selection.stepIndex);
   const currentArtifactRevision =
     card === null || currentStepIndex === null || currentStepName === artifactStepName
       ? null
-      : artifactCompletionRevision(card, currentStepIndex);
+      : artifactVisibilityRevision(card, currentStepIndex);
 
   // Artifact files are written by the provider outside the projection stream.
-  // The card completion event is therefore the precise signal to invalidate
+  // A step becoming reviewable is therefore the precise signal to invalidate
   // the cached read for an artifact that is already visible or selected.
   useEffect(() => {
     if (selectedArtifactRevision === null) return;

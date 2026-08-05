@@ -265,21 +265,26 @@ export function formatDiffFilesLabel(stat: CardTreeDiffStat | null): string {
 }
 
 /**
- * The artifact becomes user-facing only after the step reports success. A
- * manual continuation parks that successful step as `paused`; automatic
- * continuation moves it behind the current step (or the card to Done).
+ * The revision at which a step's artifact is stable enough to inspect. A
+ * successful manual continuation parks the step as `paused`; automatic
+ * continuation moves it behind the current step (or the card to Done). A
+ * `needs-input` step has also stopped writing, so an artifact that exists can
+ * be offered for review without exposing a live draft.
  *
  * The revision doubles as the artifact-query invalidation key because the
  * file write itself happens outside the websocket projection stream.
  */
-export function artifactCompletionRevision(
+export function artifactVisibilityRevision(
   card: OrchestrationCard,
   stepIndex: number,
 ): string | null {
   if (card.position.kind === "done") return card.updatedAt;
   if (card.position.kind !== "step") return null;
   if (stepIndex < card.position.stepIndex) return card.updatedAt;
-  if (stepIndex === card.position.stepIndex && card.status === "paused") {
+  if (
+    stepIndex === card.position.stepIndex &&
+    (card.status === "paused" || card.status === "needs-input")
+  ) {
     return card.updatedAt;
   }
   return null;
@@ -332,9 +337,13 @@ export function buildCardTree(input: {
       });
     }
 
-    const artifactRevision = artifactCompletionRevision(card, step.stepIndex);
-    if (artifactRevision !== null) {
-      const artifact = input.artifactByStepIndex.get(step.stepIndex) ?? null;
+    const artifactRevision = artifactVisibilityRevision(card, step.stepIndex);
+    const artifact = input.artifactByStepIndex.get(step.stepIndex) ?? null;
+    const isCurrentNeedsInput =
+      card.position.kind === "step" &&
+      step.stepIndex === card.position.stepIndex &&
+      card.status === "needs-input";
+    if (artifactRevision !== null && (!isCurrentNeedsInput || artifact?.exists === true)) {
       leaves.push({
         kind: "artifact",
         stepIndex: step.stepIndex,
