@@ -52,6 +52,88 @@ it.effect("maps GitLab MR summaries into provider-neutral change requests", () =
   }),
 );
 
+it.effect("advertises checks and maps GitLab pipelines and jobs through the provider surface", () =>
+  Effect.gen(function* () {
+    let checksInput: Parameters<GitLabCli.GitLabCli["Service"]["listChecks"]>[0] | null = null;
+    const provider = yield* makeProvider({
+      listChecks: (input) => {
+        checksInput = input;
+        return Effect.succeed("pending");
+      },
+      listCheckDetails: () => Effect.succeed([{ name: "test", status: "pending" }]),
+    });
+
+    const listChecks = provider.listChecks;
+    if (!listChecks) {
+      return assert.fail("Expected GitLab checks capability");
+    }
+    const status = yield* listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+    const details = yield* provider.listCheckDetails!({ cwd: "/repo", reference: "42" });
+
+    assert.deepStrictEqual(provider.capabilities, {
+      checks: true,
+      checkDetails: true,
+      merge: true,
+      autoMerge: true,
+      changeRequestState: true,
+    });
+    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+    assert.strictEqual(status, "pending");
+    assert.deepStrictEqual(details, [{ name: "test", status: "pending" }]);
+  }),
+);
+
+it.effect("delegates GitLab change-request mutations", () =>
+  Effect.gen(function* () {
+    const calls: Array<string> = [];
+    const provider = yield* makeProvider({
+      getMergeOptions: () =>
+        Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "merge" }),
+      mergeMergeRequest: (input) => {
+        calls.push(`merge:${input.method}`);
+        return Effect.void;
+      },
+      setAutoMerge: (input) => {
+        calls.push(`auto:${input.enabled}`);
+        return Effect.void;
+      },
+      updateMergeRequestState: (input) => {
+        calls.push(`state:${input.state}`);
+        return Effect.void;
+      },
+    });
+
+    const options = yield* provider.getChangeRequestMergeOptions!({
+      cwd: "/repo",
+      reference: "42",
+    });
+    yield* provider.mergeChangeRequest!({
+      cwd: "/repo",
+      reference: "42",
+      method: "squash",
+    });
+    yield* provider.setAutoMerge!({
+      cwd: "/repo",
+      reference: "42",
+      enabled: false,
+    });
+    yield* provider.updateChangeRequestState!({
+      cwd: "/repo",
+      reference: "42",
+      state: "open",
+    });
+
+    assert.deepStrictEqual(options, {
+      methods: ["merge", "squash"],
+      defaultMethod: "merge",
+    });
+    assert.deepStrictEqual(calls, ["merge:squash", "auto:false", "state:open"]);
+  }),
+);
+
 it.effect("adds repository context while retaining GitLab CLI causes", () =>
   Effect.gen(function* () {
     const cause = new GitLabCli.GitLabCliCommandError({

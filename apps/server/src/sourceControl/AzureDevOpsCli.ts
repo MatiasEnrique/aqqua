@@ -13,8 +13,10 @@ import {
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
+  decodeAzureDevOpsChecksStatusJson,
   decodeAzureDevOpsPullRequestJson,
   decodeAzureDevOpsPullRequestListJson,
+  type AzureDevOpsChecksStatus,
   type NormalizedAzureDevOpsPullRequestRecord,
 } from "./azureDevOpsPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -153,6 +155,22 @@ export class AzureDevOpsPullRequestDecodeError extends Schema.TaggedErrorClass<A
   }
 }
 
+export class AzureDevOpsChecksDecodeError extends Schema.TaggedErrorClass<AzureDevOpsChecksDecodeError>()(
+  "AzureDevOpsChecksDecodeError",
+  {
+    operation: Schema.Literal("listChecks"),
+    ...azureDevOpsDecodeErrorFields,
+  },
+) {
+  get detail(): string {
+    return "Azure DevOps CLI returned invalid policy evaluation JSON.";
+  }
+
+  override get message(): string {
+    return `Azure DevOps CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 const AzureDevOpsRepositoryDecodeOperation = Schema.Literals([
   "getRepositoryCloneUrls",
   "getDefaultBranch",
@@ -182,6 +200,7 @@ export const AzureDevOpsCliError = Schema.Union([
   AzureDevOpsCommandFailedError,
   AzureDevOpsPullRequestListDecodeError,
   AzureDevOpsPullRequestDecodeError,
+  AzureDevOpsChecksDecodeError,
   AzureDevOpsRepositoryDecodeError,
 ]);
 export type AzureDevOpsCliError = typeof AzureDevOpsCliError.Type;
@@ -215,6 +234,16 @@ export class AzureDevOpsCli extends Context.Service<
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<NormalizedAzureDevOpsPullRequestRecord, AzureDevOpsCliError>;
+
+    readonly listChecks: (input: {
+      readonly cwd: string;
+      readonly changeRequestNumber: number;
+    }) => Effect.Effect<AzureDevOpsChecksStatus, AzureDevOpsCliError>;
+    readonly updatePullRequestState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<void, AzureDevOpsCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
       readonly cwd: string;
@@ -442,6 +471,56 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    listChecks: (input) =>
+      executeJson({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "policy",
+          "list",
+          "--id",
+          String(input.changeRequestNumber),
+          "--detect",
+          "true",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed(null)
+            : Effect.sync(() => decodeAzureDevOpsChecksStatusJson(raw)).pipe(
+                Effect.flatMap((decoded) =>
+                  Result.isSuccess(decoded)
+                    ? Effect.succeed(decoded.success)
+                    : Effect.fail(
+                        new AzureDevOpsChecksDecodeError({
+                          operation: "listChecks",
+                          command: "az",
+                          cwd: input.cwd,
+                          outputLength: raw.length,
+                          cause: decoded.failure,
+                        }),
+                      ),
+                ),
+              ),
+        ),
+      ),
+    updatePullRequestState: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "repos",
+          "pr",
+          "update",
+          "--detect",
+          "true",
+          "--id",
+          normalizeChangeRequestId(input.reference),
+          "--status",
+          input.state === "open" ? "active" : "abandoned",
+        ],
+      }).pipe(Effect.asVoid),
     getRepositoryCloneUrls: (input) =>
       executeJson({
         cwd: input.cwd,

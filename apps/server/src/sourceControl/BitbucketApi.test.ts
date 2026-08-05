@@ -37,7 +37,11 @@ const bitbucketPullRequest = {
     },
   },
   destination: {
-    branch: { name: "main" },
+    branch: {
+      name: "main",
+      merge_strategies: ["merge_commit", "squash"],
+      default_merge_strategy: "squash",
+    },
     repository: {
       full_name: "pingdotgg/aqqua",
       workspace: { slug: "pingdotgg" },
@@ -163,6 +167,12 @@ function makeLayer(input: {
   return { execute, git: gitMock, layer };
 }
 
+function requestJsonBody(request: HttpClientRequest.HttpClientRequest): unknown {
+  const rawBody = (request.body as { readonly body?: Uint8Array }).body;
+  assert.ok(rawBody);
+  return JSON.parse(new TextDecoder().decode(rawBody));
+}
+
 it.effect("parses pull request responses from the Bitbucket REST API", () => {
   const { execute, layer } = makeLayer({
     response: () =>
@@ -194,6 +204,179 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
       execute.mock.calls[0]?.[0].url,
       "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42",
     );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("rolls up pull request commit statuses", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [{ state: "SUCCESSFUL" }, { state: "INPROGRESS" }],
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "pending");
+    assert.strictEqual(
+      execute.mock.calls[0]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/statuses",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("lists named pull request commit statuses", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [
+          {
+            key: "build",
+            name: "Build and test",
+            state: "FAILED",
+            url: "https://ci.example.test/build/1",
+          },
+          { key: "deploy", state: "INPROGRESS" },
+        ],
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listCheckDetails({
+      cwd: "/repo",
+      reference: "#42",
+    });
+
+    assert.deepStrictEqual(result, [
+      {
+        name: "Build and test",
+        status: "failure",
+        detailsUrl: "https://ci.example.test/build/1",
+      },
+      { name: "deploy", status: "pending" },
+    ]);
+    assert.strictEqual(
+      execute.mock.calls[0]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/statuses",
+    );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("uses repository default strategy and sends merge and state mutations", () => {
+  const { execute, layer } = makeLayer({
+    response: () => Response.json(bitbucketPullRequest),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const options = yield* bitbucket.getMergeOptions({ cwd: "/repo", reference: "42" });
+    yield* bitbucket.mergePullRequest({
+      cwd: "/repo",
+      reference: "42",
+      method: "squash",
+    });
+    yield* bitbucket.updatePullRequestState({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.deepStrictEqual(options, {
+      methods: ["merge", "squash"],
+      defaultMethod: "squash",
+    });
+    const mergeRequest = execute.mock.calls[1]?.[0];
+    const declineRequest = execute.mock.calls[2]?.[0];
+    assert.ok(mergeRequest);
+    assert.ok(declineRequest);
+    assert.strictEqual(
+      mergeRequest.url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/merge",
+    );
+    assert.strictEqual(mergeRequest.method, "POST");
+    assert.deepStrictEqual(requestJsonBody(mergeRequest), {
+      merge_strategy: "squash",
+    });
+    assert.strictEqual(
+      declineRequest.url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/decline",
+    );
+    assert.strictEqual(declineRequest.method, "POST");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("rejects reopening a declined Bitbucket pull request without sending a request", () => {
+  const { execute, layer } = makeLayer({
+    response: () => Response.json(bitbucketPullRequest),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const error = yield* bitbucket
+      .updatePullRequestState({
+        cwd: "/repo",
+        reference: "42",
+        state: "open",
+      })
+      .pipe(Effect.flip);
+
+    assert.strictEqual(error._tag, "BitbucketPullRequestStateUnsupportedError");
+    assert.strictEqual(execute.mock.calls.length, 0);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("includes later Bitbucket commit status pages in the rollup", () => {
+  let responseCount = 0;
+  const { execute, layer } = makeLayer({
+    response: () => {
+      responseCount += 1;
+      return Response.json(
+        responseCount === 1
+          ? {
+              values: [{ state: "SUCCESSFUL" }],
+              next: "https://api.test.local/2.0/statuses?page=2",
+            }
+          : { values: [{ state: "FAILED" }] },
+      );
+    },
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "failure");
+    assert.strictEqual(execute.mock.calls.length, 2);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("bounds Bitbucket commit status pagination", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [{ state: "SUCCESSFUL" }],
+        next: "https://api.test.local/2.0/statuses?page=next",
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "success");
+    assert.strictEqual(execute.mock.calls.length, 20);
   }).pipe(Effect.provide(layer));
 });
 
@@ -437,10 +620,7 @@ it.effect("creates repositories through the Bitbucket REST API", () => {
     assert.strictEqual(request?.url, "https://api.test.local/2.0/repositories/pingdotgg/aqqua");
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
-    const rawBody = (request.body as { readonly body?: Uint8Array }).body;
-    assert.ok(rawBody);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
-    assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(rawBody)), {
+    assert.deepStrictEqual(requestJsonBody(request), {
       scm: "git",
       is_private: true,
     });
@@ -473,10 +653,7 @@ it.effect("creates pull requests using the official REST payload shape", () => {
     );
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
-    const rawBody = (request.body as { readonly body?: Uint8Array }).body;
-    assert.ok(rawBody);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
-    assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(rawBody)), {
+    assert.deepStrictEqual(requestJsonBody(request), {
       title: "Provider PR",
       description: "PR body",
       source: {

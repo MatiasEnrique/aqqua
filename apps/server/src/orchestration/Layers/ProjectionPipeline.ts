@@ -678,6 +678,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             settledOverride: "settled",
             settledAt: event.payload.settledAt,
+            ...(event.payload.settledChangeRequestNumber !== undefined
+              ? { settledChangeRequestNumber: event.payload.settledChangeRequestNumber }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;

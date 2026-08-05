@@ -10,6 +10,7 @@ import {
   IsoDateTime,
   ModelSelection,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
@@ -40,6 +41,7 @@ export const ProjectionThread = Schema.Struct({
   archivedAt: Schema.NullOr(IsoDateTime),
   settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])),
   settledAt: Schema.NullOr(IsoDateTime),
+  settledChangeRequestNumber: Schema.optional(Schema.NullOr(PositiveInt)),
   snoozedUntil: Schema.NullOr(IsoDateTime),
   snoozedAt: Schema.NullOr(IsoDateTime),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -91,6 +93,11 @@ export interface ProjectionThreadRepositoryShape {
   readonly listByProjectId: (
     input: ListProjectionThreadsByProjectInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThread>, ProjectionRepositoryError>;
+
+  /**
+   * List every projected thread in deterministic creation order.
+   */
+  readonly listAll: Effect.Effect<ReadonlyArray<ProjectionThread>, ProjectionRepositoryError>;
 
   /**
    * Soft-delete a projected thread row by id.

@@ -1,7 +1,7 @@
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { PositiveInt, TrimmedNonEmptyString } from "@aqqua/contracts";
+import { PositiveInt, TrimmedNonEmptyString, type GitChangeRequestCheck } from "@aqqua/contracts";
 
 export interface NormalizedBitbucketPullRequestRecord {
   readonly number: number;
@@ -14,6 +14,65 @@ export interface NormalizedBitbucketPullRequestRecord {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+}
+
+export type BitbucketChecksStatus = "success" | "failure" | "pending" | null;
+
+export const BitbucketCommitStatusListSchema = Schema.Struct({
+  values: Schema.Array(
+    Schema.Struct({
+      state: Schema.String,
+      key: Schema.optional(Schema.NullOr(Schema.String)),
+      name: Schema.optional(Schema.NullOr(Schema.String)),
+      url: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  ),
+  next: Schema.optional(TrimmedNonEmptyString),
+});
+
+function classifyBitbucketState(state: string): "success" | "failure" | "pending" {
+  switch (state.trim().toUpperCase()) {
+    case "SUCCESSFUL":
+      return "success";
+    case "FAILED":
+    case "STOPPED":
+      return "failure";
+    default:
+      return "pending";
+  }
+}
+
+export function normalizeBitbucketChecksStatus(
+  input: Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>,
+): BitbucketChecksStatus {
+  if (input.values.length === 0) {
+    return null;
+  }
+  let pending = false;
+  for (const status of input.values) {
+    const classified = classifyBitbucketState(status.state);
+    if (classified === "failure") return "failure";
+    if (classified === "pending") pending = true;
+  }
+  return pending ? "pending" : "success";
+}
+
+export function normalizeBitbucketCheckDetails(
+  input: Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>,
+): ReadonlyArray<GitChangeRequestCheck> {
+  return input.values.flatMap((status) => {
+    const name = status.name?.trim() || status.key?.trim();
+    if (!name) return [];
+    const normalizedStatus = classifyBitbucketState(status.state);
+    const detailsUrl = status.url?.trim();
+    return [
+      {
+        name,
+        status: normalizedStatus,
+        ...(detailsUrl ? { detailsUrl } : {}),
+      },
+    ];
+  });
 }
 
 export const BitbucketRepositoryRefSchema = Schema.Struct({
@@ -31,6 +90,8 @@ export const BitbucketPullRequestBranchSchema = Schema.Struct({
   repository: Schema.optional(Schema.NullOr(BitbucketRepositoryRefSchema)),
   branch: Schema.Struct({
     name: TrimmedNonEmptyString,
+    merge_strategies: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+    default_merge_strategy: Schema.optional(TrimmedNonEmptyString),
   }),
 });
 

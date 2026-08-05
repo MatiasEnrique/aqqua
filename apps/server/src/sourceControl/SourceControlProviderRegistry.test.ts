@@ -40,6 +40,8 @@ function makeRegistry(input: {
   }>;
   readonly process?: Partial<VcsProcess.VcsProcess["Service"]>;
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
+  readonly github?: Partial<GitHubCli.GitHubCli["Service"]>;
+  readonly bitbucket?: Partial<BitbucketApi.BitbucketApi["Service"]>;
 }) {
   const driver = {
     listRemotes: () =>
@@ -89,8 +91,8 @@ function makeRegistry(input: {
         registryLayer,
         processLayer,
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
-        Layer.mock(BitbucketApi.BitbucketApi)({}),
-        Layer.mock(GitHubCli.GitHubCli)({}),
+        Layer.mock(BitbucketApi.BitbucketApi)(input.bitbucket ?? {}),
+        Layer.mock(GitHubCli.GitHubCli)(input.github ?? {}),
         Layer.mock(GitLabCli.GitLabCli)({}),
         ServerConfig.layerTest(process.cwd(), {
           prefix: "aqqua-source-control-registry-test-",
@@ -109,6 +111,49 @@ it.effect("routes GitHub remotes to the GitHub provider", () =>
     const provider = yield* registry.resolve({ cwd: "/repo" });
 
     assert.strictEqual(provider.kind, "github");
+  }),
+);
+
+it.effect("preserves optional capabilities and binds detected context to their methods", () =>
+  Effect.gen(function* () {
+    let receivedContext:
+      | Parameters<BitbucketApi.BitbucketApi["Service"]["getMergeOptions"]>[0]["context"]
+      | null = null;
+    let receivedChecksContext:
+      | Parameters<BitbucketApi.BitbucketApi["Service"]["listCheckDetails"]>[0]["context"]
+      | null = null;
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@bitbucket.org:pingdotgg/aqqua.git" }],
+      bitbucket: {
+        getMergeOptions: (input) => {
+          receivedContext = input.context;
+          return Effect.succeed({ methods: ["merge"], defaultMethod: "merge" });
+        },
+        listCheckDetails: (input) => {
+          receivedChecksContext = input.context;
+          return Effect.succeed([]);
+        },
+      },
+    });
+
+    const provider = yield* registry.resolve({ cwd: "/repo" });
+    assert.strictEqual(provider.capabilities?.merge, true);
+    yield* provider.getChangeRequestMergeOptions!({
+      cwd: "/repo",
+      reference: "42",
+    });
+    yield* provider.listCheckDetails!({ cwd: "/repo", reference: "42" });
+
+    assert.deepStrictEqual(receivedContext, {
+      provider: {
+        kind: "bitbucket",
+        name: "Bitbucket",
+        baseUrl: "https://bitbucket.org",
+      },
+      remoteName: "origin",
+      remoteUrl: "git@bitbucket.org:pingdotgg/aqqua.git",
+    });
+    assert.deepStrictEqual(receivedChecksContext, receivedContext);
   }),
 );
 

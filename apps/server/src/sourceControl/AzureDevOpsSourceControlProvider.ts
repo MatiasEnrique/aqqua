@@ -77,6 +77,39 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "azure-devops",
+    capabilities: { checks: true, changeRequestState: true },
+    listChecks: (input) =>
+      azure.listChecks(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "azure-devops",
+              operation: "listChecks",
+              command: error.command,
+              cwd: input.cwd,
+              reference: String(input.changeRequestNumber),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    updateChangeRequestState: (input) =>
+      azure.updatePullRequestState(input).pipe(
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "azure-devops",
+              operation: "updateChangeRequestState",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: `Azure DevOps could not ${input.state === "open" ? "reactivate" : "abandon"} this pull request. Check your permissions and the pull request state.`,
+              cause: error,
+            }),
+        ),
+      ),
     listChangeRequests: (input) => {
       const source = SourceControlProvider.sourceControlRefFromInput(input);
       return azure

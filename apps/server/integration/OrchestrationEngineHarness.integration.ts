@@ -361,6 +361,7 @@ export const makeOrchestrationIntegrationHarness = (
               pr: null,
             }),
           streamStatus: () => Stream.empty,
+          streamRemoteChanges: Stream.empty,
         }),
       ),
       Layer.provideMerge(

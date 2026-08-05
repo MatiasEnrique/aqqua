@@ -6,7 +6,7 @@ import type { EnvironmentId, ProjectEntry } from "@aqqua/contracts";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { squashAtomCommandFailure } from "@aqqua/client-runtime/state/runtime";
 import { serializeComposerFileLink } from "@aqqua/shared/composerTrigger";
-import { RefreshCw, Search } from "lucide-react";
+import { Files, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { PanelSurfaceHeader } from "~/components/PanelSurfaceHeader";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -472,42 +473,49 @@ export default function FileBrowserPanel({
         className="flex min-h-0 flex-1 flex-col bg-background"
         data-file-browser-panel={`${environmentId}:${cwd}`}
       >
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium text-foreground">{projectName}</div>
-            <div className="truncate text-[10px] leading-none text-muted-foreground">
+        <PanelSurfaceHeader
+          icon={Files}
+          title={projectName}
+          meta={
+            <>
               {entriesQuery.isPending && entriesQuery.data === null
                 ? "Indexing…"
                 : `${fileCount.toLocaleString()} files`}
               {entriesQuery.data?.truncated ? " · partial" : ""}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Search workspace files"
-            onClick={() => model.openSearch()}
-          >
-            <Search className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Refresh workspace files"
-            disabled={entriesQuery.isPending}
-            onClick={() => {
-              void entriesQuery.refresh().catch((error: unknown) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Could not refresh workspace files",
-                  description: error instanceof Error ? error.message : "Workspace refresh failed.",
-                });
-              });
-            }}
-          >
-            <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
-          </button>
-        </div>
+            </>
+          }
+          actions={
+            <>
+              <button
+                type="button"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Search workspace files"
+                onClick={() => model.openSearch()}
+              >
+                <Search className="size-3.5" />
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Refresh workspace files"
+                disabled={entriesQuery.isPending}
+                onClick={() => {
+                  void entriesQuery.refresh().catch((error: unknown) => {
+                    toastManager.add({
+                      type: "error",
+                      title: "Could not refresh workspace files",
+                      description:
+                        error instanceof Error ? error.message : "Workspace refresh failed.",
+                    });
+                  });
+                }}
+              >
+                <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
+              </Button>
+            </>
+          }
+        />
         {entriesQuery.error && entriesQuery.data === null ? (
           <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
         ) : (

@@ -111,6 +111,248 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("reads repository merge settings and maps mutation commands", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+                viewerDefaultMergeMethod: "SQUASH",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValue(Effect.succeed(processOutput("")));
+
+      const github = yield* GitHubCli.GitHubCli;
+      const options = yield* github.getMergeOptions({ cwd: "/repo" });
+      yield* github.mergePullRequest({ cwd: "/repo", reference: "42", method: "squash" });
+      yield* github.setAutoMerge({
+        cwd: "/repo",
+        reference: "42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* github.setAutoMerge({ cwd: "/repo", reference: "42", enabled: false });
+      yield* github.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
+
+      expect(options).toEqual({
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+      });
+      expect(mockRun.mock.calls.map(([input]) => input.args)).toEqual([
+        [
+          "repo",
+          "view",
+          "--json",
+          "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,viewerDefaultMergeMethod",
+        ],
+        ["pr", "merge", "42", "--squash"],
+        ["pr", "merge", "42", "--auto", "--merge"],
+        ["pr", "merge", "42", "--disable-auto"],
+        ["pr", "close", "42"],
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("rejects option-like references before pull request mutations", () =>
+    Effect.gen(function* () {
+      const github = yield* GitHubCli.GitHubCli;
+      const attempts = [
+        () =>
+          github.mergePullRequest({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            method: "squash",
+          }),
+        () =>
+          github.setAutoMerge({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            enabled: false,
+          }),
+        () =>
+          github.updatePullRequestState({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            state: "closed",
+          }),
+      ];
+
+      for (const attempt of attempts) {
+        const error = yield* attempt().pipe(Effect.flip);
+        assert.strictEqual(error._tag, "GitHubPullRequestReferenceError");
+      }
+      assert.strictEqual(mockRun.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("falls back when GitHub omits or changes its default merge method", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+                viewerDefaultMergeMethod: "MERGE_QUEUE",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: false,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+              }),
+            ),
+          ),
+        );
+
+      const github = yield* GitHubCli.GitHubCli;
+      const unknownDefault = yield* github.getMergeOptions({ cwd: "/repo" });
+      const missingDefault = yield* github.getMergeOptions({ cwd: "/repo" });
+
+      assert.deepStrictEqual(unknownDefault, {
+        methods: ["merge", "squash"],
+        defaultMethod: "merge",
+      });
+      assert.deepStrictEqual(missingDefault, {
+        methods: ["squash"],
+        defaultMethod: "squash",
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("rolls up GitHub statusCheckRollup values", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [
+                { status: "COMPLETED", conclusion: "SUCCESS" },
+                { status: "COMPLETED", conclusion: "FAILURE" },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "failure");
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "pr",
+        "view",
+        "42",
+        "--json",
+        "statusCheckRollup",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("treats successful GitHub status contexts as passing checks", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [{ state: "SUCCESS" }],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "success");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("returns named GitHub check runs and status contexts from the rollup", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              statusCheckRollup: [
+                {
+                  name: "unit tests",
+                  status: "COMPLETED",
+                  conclusion: "FAILURE",
+                  detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+                },
+                {
+                  context: "deploy/preview",
+                  state: "PENDING",
+                  targetUrl: "https://preview.example.test",
+                },
+                { name: "docs", status: "COMPLETED", conclusion: "SKIPPED" },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listCheckDetails({ cwd: "/repo", reference: "#42" });
+
+      assert.deepStrictEqual(result, [
+        {
+          name: "unit tests",
+          status: "failure",
+          detailsUrl: "https://github.com/acme/repo/actions/runs/1",
+        },
+        {
+          name: "deploy/preview",
+          status: "pending",
+          detailsUrl: "https://preview.example.test",
+        },
+        { name: "docs", status: "skipped" },
+      ]);
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "pr",
+        "view",
+        "#42",
+        "--json",
+        "statusCheckRollup",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("attributes malformed check details to listCheckDetails", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("{}")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh.listCheckDetails({ cwd: "/repo", reference: "42" }).pipe(Effect.flip);
+
+      if (error._tag !== "GitHubChecksDecodeError") {
+        return assert.fail(`Expected GitHubChecksDecodeError, received ${error._tag}`);
+      }
+      assert.strictEqual(error.operation, "listCheckDetails");
+      assert.match(error.message, /listCheckDetails/);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("trims pull request fields decoded from gh json", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

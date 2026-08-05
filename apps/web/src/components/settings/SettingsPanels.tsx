@@ -497,6 +497,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
         ? ["New worktrees start from origin"]
         : []),
+      ...(settings.autoSettleOnMergedChangeRequest !==
+      DEFAULT_UNIFIED_SETTINGS.autoSettleOnMergedChangeRequest
+        ? ["Settle threads when their pull request merges"]
+        : []),
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -515,6 +519,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.autoSettleOnMergedChangeRequest,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
@@ -560,6 +565,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+      autoSettleOnMergedChangeRequest: DEFAULT_UNIFIED_SETTINGS.autoSettleOnMergedChangeRequest,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
@@ -1387,6 +1393,34 @@ export function GeneralSettingsPanel() {
             }
           />
         ) : null}
+
+        <SettingsRow
+          title="Settle threads when their pull request merges"
+          description="Automatically settles a worktree thread when its pull or merge request is merged."
+          resetAction={
+            settings.autoSettleOnMergedChangeRequest !==
+            DEFAULT_UNIFIED_SETTINGS.autoSettleOnMergedChangeRequest ? (
+              <SettingResetButton
+                label="settle threads when their pull request merges"
+                onClick={() =>
+                  updateSettings({
+                    autoSettleOnMergedChangeRequest:
+                      DEFAULT_UNIFIED_SETTINGS.autoSettleOnMergedChangeRequest,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.autoSettleOnMergedChangeRequest}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoSettleOnMergedChangeRequest: Boolean(checked) })
+              }
+              aria-label="Settle threads when their pull request merges"
+            />
+          }
+        />
 
         <SettingsRow
           title="Add project starts in"

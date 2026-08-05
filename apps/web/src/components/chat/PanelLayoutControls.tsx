@@ -2,6 +2,7 @@ import {
   FileDiffIcon,
   FolderTreeIcon,
   GitGraphIcon,
+  GitPullRequestIcon,
   GlobeIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -9,6 +10,8 @@ import {
   SquareTerminalIcon,
 } from "lucide-react";
 import { memo } from "react";
+
+import { RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS } from "~/rightPanelAvailability";
 
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -58,11 +61,17 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 });
 
 /**
- * The five right-panel surfaces reachable straight from the chat header. These
+ * The right-panel surfaces reachable straight from the chat header. These
  * replaced the generic "toggle right panel" button: users pick the surface they
  * want instead of opening the panel and then hunting for it.
  */
-export type RightPanelSurfaceButtonKind = "files" | "diff" | "history" | "terminal" | "browser";
+export type RightPanelSurfaceButtonKind =
+  | "files"
+  | "diff"
+  | "history"
+  | "pullRequest"
+  | "terminal"
+  | "browser";
 
 /**
  * Maps a right-panel surface kind onto the header button that represents it.
@@ -78,6 +87,8 @@ export function rightPanelSurfaceButtonKindOf(
       return "diff";
     case "history":
       return "history";
+    case "pullRequest":
+      return "pullRequest";
     case "terminal":
       return "terminal";
     case "preview":
@@ -92,31 +103,37 @@ const RIGHT_PANEL_SURFACE_BUTTONS = [
     kind: "files",
     label: "Open file explorer",
     icon: FolderTreeIcon,
-    unavailableReason: "Files are only available when a project is open.",
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files,
   },
   {
     kind: "diff",
     label: "Open diff viewer",
     icon: FileDiffIcon,
-    unavailableReason: "Diff is only available for projects in Git repositories.",
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff,
   },
   {
     kind: "history",
     label: "Open Git history",
     icon: GitGraphIcon,
-    unavailableReason: "History is only available for projects in Git repositories.",
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.history,
+  },
+  {
+    kind: "pullRequest",
+    label: "Open pull request",
+    icon: GitPullRequestIcon,
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.pullRequest,
   },
   {
     kind: "terminal",
     label: "Open terminal",
     icon: SquareTerminalIcon,
-    unavailableReason: "Terminals are only available when a project is open.",
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.terminal,
   },
   {
     kind: "browser",
     label: "Open browser",
     icon: GlobeIcon,
-    unavailableReason: "Browser previews are only available in the Aqqua desktop app.",
+    unavailableReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.browser,
   },
 ] as const satisfies ReadonlyArray<{
   kind: RightPanelSurfaceButtonKind;

@@ -416,6 +416,9 @@ const GitHistoryPanel = lazy(() =>
     default: module.GitHistoryPanel,
   })),
 );
+const PullRequestPanel = lazy(() =>
+  import("./PullRequestPanel").then((module) => ({ default: module.PullRequestPanel })),
+);
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const PENDING_FILES_SURFACE_IDS: ReadonlySet<string> = new Set(["files"]);
@@ -2648,7 +2651,6 @@ function ChatViewContent(props: ChatViewProps) {
       useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "diff");
     }
   }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceOwner]);
-
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -3251,6 +3253,21 @@ function ChatViewContent(props: ChatViewProps) {
     planSidebarOpen,
     rightPanelWorkspaceOwner,
   ]);
+  const addPullRequestSurface = useCallback(() => {
+    if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
+    if (planSidebarOpen) {
+      dismissPlanSidebarForCurrentTurn();
+    }
+    const store = useRightPanelStore.getState();
+    store.close(activeThreadRef);
+    store.open(rightPanelWorkspaceOwner, "pullRequest");
+  }, [
+    activeThreadRef,
+    diffSurfaceAvailable,
+    dismissPlanSidebarForCurrentTurn,
+    planSidebarOpen,
+    rightPanelWorkspaceOwner,
+  ]);
   const addFilesSurface = useCallback(() => {
     if (!activeThreadRef || !rightPanelWorkspaceOwner || !activeProject) return;
     const store = useRightPanelStore.getState();
@@ -3524,6 +3541,9 @@ function ChatViewContent(props: ChatViewProps) {
         case "history":
           addHistorySurface();
           return;
+        case "pullRequest":
+          addPullRequestSurface();
+          return;
         case "terminal":
           addTerminalSurface();
           return;
@@ -3537,6 +3557,7 @@ function ChatViewContent(props: ChatViewProps) {
       addDiffSurface,
       addFilesSurface,
       addHistorySurface,
+      addPullRequestSurface,
       addTerminalSurface,
       createBrowserSurface,
       rightPanelState.surfaces,
@@ -6017,18 +6038,21 @@ function ChatViewContent(props: ChatViewProps) {
     />
   );
   const rightPanelSurfaceControls = (
-    <RightPanelSurfaceControls
-      activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
-      availability={{
-        files: activeProject !== null,
-        diff: diffSurfaceAvailable,
-        history: diffSurfaceAvailable,
-        terminal: activeProject !== null,
-        browser: isPreviewSupportedInRuntime(),
-      }}
-      onOpenSurface={openRightPanelSurface}
-      onCloseSurface={closePreviewPanel}
-    />
+    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <RightPanelSurfaceControls
+        activeSurface={rightPanelOpen ? activeRightPanelSurfaceButtonKind : null}
+        availability={{
+          files: activeProject !== null,
+          diff: diffSurfaceAvailable,
+          history: diffSurfaceAvailable,
+          pullRequest: diffSurfaceAvailable,
+          terminal: activeProject !== null,
+          browser: isPreviewSupportedInRuntime(),
+        }}
+        onOpenSurface={openRightPanelSurface}
+        onCloseSurface={closePreviewPanel}
+      />
+    </div>
   );
   const panelLayoutControls = (
     <div className="workspace-titlebar-controls z-50 gap-1 [-webkit-app-region:no-drag]">
@@ -6098,6 +6122,17 @@ function ChatViewContent(props: ChatViewProps) {
           composerDraftTarget={composerDraftTarget}
           threadRef={activeThreadRef}
           workspaceRef={activeWorkspacePanelRef}
+        />
+      </Suspense>
+    ) : activeRightPanelSurface?.kind === "pullRequest" && gitStatusCwd ? (
+      <Suspense fallback={null}>
+        <PullRequestPanel
+          environmentId={activeThreadRef.environmentId}
+          threadRef={activeThreadRef}
+          cwd={gitStatusCwd}
+          status={gitStatusQuery.data}
+          statusError={gitStatusQuery.error}
+          statusPending={gitStatusQuery.isPending}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
@@ -6568,10 +6603,12 @@ function ChatViewContent(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddHistory={addHistorySurface}
+          onAddPullRequest={addPullRequestSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={diffSurfaceAvailable}
           historyAvailable={diffSurfaceAvailable}
+          pullRequestAvailable={diffSurfaceAvailable}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -6597,10 +6634,12 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddHistory={addHistorySurface}
+            onAddPullRequest={addPullRequestSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={diffSurfaceAvailable}
             historyAvailable={diffSurfaceAvailable}
+            pullRequestAvailable={diffSurfaceAvailable}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}

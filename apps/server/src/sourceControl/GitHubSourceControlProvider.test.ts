@@ -68,6 +68,103 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
   }),
 );
 
+it.effect(
+  "advertises checks and maps GitHub rollups and details through the provider surface",
+  () =>
+    Effect.gen(function* () {
+      let checksInput: Parameters<GitHubCli.GitHubCli["Service"]["listChecks"]>[0] | null = null;
+      const provider = yield* makeProvider({
+        listChecks: (input) => {
+          checksInput = input;
+          return Effect.succeed("failure");
+        },
+        listCheckDetails: () =>
+          Effect.succeed([
+            { name: "unit", status: "failure", detailsUrl: "https://example.test/unit" },
+          ]),
+      });
+
+      const listChecks = provider.listChecks;
+      if (!listChecks) {
+        return assert.fail("Expected GitHub checks capability");
+      }
+      const status = yield* listChecks({
+        cwd: "/repo",
+        changeRequestNumber: 42,
+      });
+      const details = yield* provider.listCheckDetails!({ cwd: "/repo", reference: "#42" });
+
+      assert.deepStrictEqual(provider.capabilities, {
+        checks: true,
+        checkDetails: true,
+        merge: true,
+        autoMerge: true,
+        changeRequestState: true,
+      });
+      assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+      assert.strictEqual(status, "failure");
+      assert.deepStrictEqual(details, [
+        { name: "unit", status: "failure", detailsUrl: "https://example.test/unit" },
+      ]);
+    }),
+);
+
+it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
+  Effect.gen(function* () {
+    const calls: Array<string> = [];
+    const provider = yield* makeProvider({
+      getMergeOptions: () =>
+        Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "squash" }),
+      mergePullRequest: (input) => {
+        calls.push(`merge:${input.reference}:${input.method}`);
+        return Effect.void;
+      },
+      setAutoMerge: (input) => {
+        calls.push(`auto:${input.reference}:${input.enabled}`);
+        return Effect.void;
+      },
+      updatePullRequestState: (input) => {
+        calls.push(`state:${input.reference}:${input.state}`);
+        return Effect.void;
+      },
+    });
+
+    const options = yield* provider.getChangeRequestMergeOptions!({
+      cwd: "/repo",
+      reference: "42",
+    });
+    yield* provider.mergeChangeRequest!({
+      cwd: "/repo",
+      reference: "42",
+      method: "squash",
+    });
+    yield* provider.setAutoMerge!({
+      cwd: "/repo",
+      reference: "42",
+      enabled: true,
+      method: "squash",
+    });
+    yield* provider.updateChangeRequestState!({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.deepStrictEqual(provider.capabilities, {
+      checks: true,
+      checkDetails: true,
+      merge: true,
+      autoMerge: true,
+      changeRequestState: true,
+    });
+    assert.deepStrictEqual(options, {
+      methods: ["merge", "squash"],
+      defaultMethod: "squash",
+    });
+    assert.deepStrictEqual(calls, ["merge:42:squash", "auto:42:true", "state:42:closed"]);
+  }),
+);
+
 it.effect("adds safe request context while retaining GitHub CLI causes", () =>
   Effect.gen(function* () {
     const cause = new GitHubCli.GitHubPullRequestNotFoundError({

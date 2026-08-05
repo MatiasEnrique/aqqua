@@ -59,6 +59,7 @@ const remoteStatusWithPr: VcsStatusRemoteResult = {
     baseRef: "main",
     headRef: "codex/connection-state-audit",
     state: "open",
+    checksStatus: null,
   },
 };
 
@@ -418,6 +419,37 @@ describe("VcsStatusBroadcaster", () => {
     }).pipe(Effect.provide(makeTestLayer(state)));
   });
 
+  it.effect("exposes normalized remote changes to server-side consumers", () => {
+    const state = {
+      currentLocalStatus: baseLocalStatus,
+      currentRemoteStatus: remoteStatusWithPr,
+      localStatusCalls: 0,
+      remoteStatusCalls: 0,
+      localInvalidationCalls: 0,
+      remoteInvalidationCalls: 0,
+    };
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const remoteChange = yield* Deferred.make<{
+        readonly cwd: string;
+        readonly remote: VcsStatusRemoteResult | null;
+      }>();
+      yield* Stream.runForEach(broadcaster.streamRemoteChanges, (change) =>
+        Deferred.succeed(remoteChange, change).pipe(Effect.ignore),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      yield* broadcaster.refreshStatus("/repo");
+
+      assert.deepStrictEqual(yield* Deferred.await(remoteChange), {
+        cwd: "/repo",
+        remote: remoteStatusWithPr,
+      });
+      assert.equal(state.remoteStatusCalls, 1);
+    }).pipe(Effect.provide(makeTestLayer(state)));
+  });
+
   it.effect("loads remote status once when periodic refreshes are disabled", () => {
     const state = {
       currentLocalStatus: baseLocalStatus,
@@ -595,10 +627,77 @@ describe("VcsStatusBroadcaster", () => {
     );
   });
 
-  it.effect("delays automatic refresh when a cached remote snapshot is available", () => {
+  it("keys the remote refresh interval to the last-known PR state", () => {
+    const withPr = (
+      state: "open" | "merged" | "closed",
+      checksStatus: "success" | "failure" | "pending" | null,
+    ): VcsStatusRemoteResult => ({
+      ...baseRemoteStatus,
+      pr: {
+        ...remoteStatusWithPr.pr!,
+        state,
+        checksStatus,
+      },
+    });
+
+    assert.equal(
+      Duration.toMillis(VcsStatusBroadcaster.remoteRefreshIntervalForStatus(null)),
+      900_000,
+    );
+    assert.equal(
+      Duration.toMillis(
+        VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("merged", "pending")),
+      ),
+      1_800_000,
+    );
+    assert.equal(
+      Duration.toMillis(
+        VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("closed", "failure")),
+      ),
+      1_800_000,
+    );
+    assert.equal(
+      Duration.toMillis(
+        VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("open", "pending")),
+      ),
+      90_000,
+    );
+    assert.equal(
+      Duration.toMillis(
+        VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("open", "failure")),
+      ),
+      180_000,
+    );
+    assert.equal(
+      Duration.toMillis(
+        VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("open", "success")),
+      ),
+      600_000,
+    );
+    assert.equal(
+      Duration.toMillis(VcsStatusBroadcaster.remoteRefreshIntervalForStatus(withPr("open", null))),
+      600_000,
+    );
+  });
+
+  it.effect("uses the latest remote state to schedule the next automatic refresh", () => {
+    const pendingRemoteStatus: VcsStatusRemoteResult = {
+      ...remoteStatusWithPr,
+      pr: {
+        ...remoteStatusWithPr.pr!,
+        checksStatus: "pending",
+      },
+    };
+    const passingRemoteStatus: VcsStatusRemoteResult = {
+      ...remoteStatusWithPr,
+      pr: {
+        ...remoteStatusWithPr.pr!,
+        checksStatus: "success",
+      },
+    };
     const state = {
       currentLocalStatus: baseLocalStatus,
-      currentRemoteStatus: baseRemoteStatus,
+      currentRemoteStatus: pendingRemoteStatus,
       localStatusCalls: 0,
       remoteStatusCalls: 0,
       localInvalidationCalls: 0,
@@ -610,28 +709,33 @@ describe("VcsStatusBroadcaster", () => {
       yield* broadcaster.getStatus({ cwd: "/repo" });
       const scope = yield* Scope.make();
       const snapshotDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
-      yield* Stream.runForEach(
-        broadcaster.streamStatus(
-          { cwd: "/repo" },
-          { automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)) },
-        ),
-        (event) =>
-          event._tag === "snapshot"
-            ? Deferred.succeed(snapshotDeferred, event).pipe(Effect.ignore)
-            : Effect.void,
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(snapshotDeferred, event).pipe(Effect.ignore)
+          : Effect.void,
       ).pipe(Effect.forkIn(scope));
 
       yield* Deferred.await(snapshotDeferred);
       assert.equal(state.remoteStatusCalls, 1);
       assert.equal(state.remoteInvalidationCalls, 0);
 
-      yield* TestClock.adjust(Duration.seconds(59));
+      state.currentRemoteStatus = passingRemoteStatus;
+      yield* TestClock.adjust(Duration.seconds(89));
       assert.equal(state.remoteStatusCalls, 1);
 
       yield* TestClock.adjust(Duration.seconds(1));
       yield* Effect.yieldNow;
       assert.equal(state.remoteStatusCalls, 2);
       assert.equal(state.remoteInvalidationCalls, 1);
+
+      yield* TestClock.adjust(Duration.minutes(9));
+      yield* TestClock.adjust(Duration.seconds(59));
+      assert.equal(state.remoteStatusCalls, 2);
+
+      yield* TestClock.adjust(Duration.seconds(1));
+      yield* Effect.yieldNow;
+      assert.equal(state.remoteStatusCalls, 3);
+      assert.equal(state.remoteInvalidationCalls, 2);
 
       yield* Scope.close(scope, Exit.void);
     }).pipe(Effect.provide(Layer.merge(makeTestLayer(state), TestClock.layer())));

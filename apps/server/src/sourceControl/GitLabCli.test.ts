@@ -86,6 +86,218 @@ layer("GitLabCli.layer", (it) => {
     }),
   );
 
+  it.effect("uses the latest merge request pipeline as checks status", () =>
+    Effect.gen(function* () {
+      mockedRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ status: "running" }]),
+          ),
+        ),
+      );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "pending");
+      assert.deepStrictEqual(mockedRun.mock.calls[0]?.[0].args, [
+        "api",
+        "projects/:fullpath/merge_requests/42/pipelines?per_page=1",
+      ]);
+    }),
+  );
+
+  it.effect("lists jobs from the latest merge request pipeline", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify([
+                {
+                  name: "unit tests",
+                  status: "success",
+                  web_url: "https://gitlab.com/acme/repo/-/jobs/1",
+                },
+                { name: "docs", status: "skipped" },
+              ]),
+            ),
+          ),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "!42" });
+
+      assert.deepStrictEqual(result, [
+        {
+          name: "unit tests",
+          status: "success",
+          detailsUrl: "https://gitlab.com/acme/repo/-/jobs/1",
+        },
+        { name: "docs", status: "skipped" },
+      ]);
+      assert.deepStrictEqual(
+        mockedRun.mock.calls.map(([input]) => input.args),
+        [
+          ["api", "projects/:fullpath/merge_requests/42/pipelines?per_page=1"],
+          ["api", "projects/:fullpath/pipelines/99/jobs?per_page=100&page=1"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("includes later pages of jobs from the latest pipeline", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify(
+                Array.from({ length: 100 }, (_, index) => ({
+                  name: `job-${index + 1}`,
+                  status: "success",
+                })),
+              ),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ name: "job-101", status: "failed" }]))),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "42" });
+
+      assert.strictEqual(result.length, 101);
+      assert.deepStrictEqual(result.at(-1), { name: "job-101", status: "failure" });
+      assert.deepStrictEqual(mockedRun.mock.calls.at(-1)?.[0].args, [
+        "api",
+        "projects/:fullpath/pipelines/99/jobs?per_page=100&page=2",
+      ]);
+    }),
+  );
+
+  it.effect("bounds job pagination when every GitLab page is full", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValue(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify(
+                Array.from({ length: 100 }, (_, index) => ({
+                  name: `job-${index + 1}`,
+                  status: "success",
+                })),
+              ),
+            ),
+          ),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "42" });
+
+      assert.strictEqual(result.length, 2_000);
+      assert.strictEqual(mockedRun.mock.calls.length, 21);
+      assert.deepStrictEqual(mockedRun.mock.calls.at(-1)?.[0].args, [
+        "api",
+        "projects/:fullpath/pipelines/99/jobs?per_page=100&page=20",
+      ]);
+    }),
+  );
+
+  it.effect("rejects merge request references that add API path segments", () =>
+    Effect.gen(function* () {
+      const glab = yield* GitLabCli.GitLabCli;
+      const error = yield* glab
+        .listCheckDetails({ cwd: "/repo", reference: "42/jobs" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitLabMergeRequestReferenceError");
+      assert.strictEqual(mockedRun.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("maps project squash settings and issues explicit mutation commands", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify({ squash_option: "default_on" }))),
+        )
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify({ squash: true }))),
+        )
+        .mockReturnValue(Effect.succeed(processOutput("{}")));
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const options = yield* glab.getMergeOptions({ cwd: "/repo", reference: "#42" });
+      yield* glab.mergeMergeRequest({ cwd: "/repo", reference: "#42", method: "squash" });
+      yield* glab.setAutoMerge({
+        cwd: "/repo",
+        reference: "#42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* glab.setAutoMerge({ cwd: "/repo", reference: "#42", enabled: false });
+      yield* glab.updateMergeRequestState({ cwd: "/repo", reference: "#42", state: "open" });
+
+      assert.deepStrictEqual(options, {
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+      });
+      assert.deepStrictEqual(
+        mockedRun.mock.calls.map(([input]) => input.args),
+        [
+          ["api", "projects/:fullpath"],
+          ["api", "projects/:fullpath/merge_requests/42"],
+          ["mr", "merge", "42", "--yes", "--auto-merge=false", "--squash"],
+          ["mr", "merge", "42", "--yes", "--auto-merge"],
+          [
+            "api",
+            "-X",
+            "POST",
+            "projects/:fullpath/merge_requests/42/cancel_merge_when_pipeline_succeeds",
+          ],
+          ["mr", "reopen", "42"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("rejects option-like references before state mutations", () =>
+    Effect.gen(function* () {
+      const glab = yield* GitLabCli.GitLabCli;
+      const error = yield* glab
+        .updateMergeRequestState({
+          cwd: "/repo",
+          reference: "--repo=other/project",
+          state: "closed",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitLabMergeRequestReferenceError");
+      assert.strictEqual(mockedRun.mock.calls.length, 0);
+    }),
+  );
+
   it.effect("skips invalid entries when parsing MR lists", () =>
     Effect.gen(function* () {
       mockedRun.mockReturnValueOnce(

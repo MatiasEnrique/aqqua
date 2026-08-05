@@ -26,6 +26,28 @@ function makeLayer(input: {
 }
 
 describe("GitWorkflowService", () => {
+  it.effect("routes change-request checks through GitManager after resolving Git", () => {
+    const getChangeRequestChecks = vi.fn(() => Effect.succeed({ supported: true, checks: [] }));
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: () => Effect.succeed({ kind: "git" } as never),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(Layer.mock(GitHistory.GitHistory)({})),
+      Layer.provide(Layer.mock(GitManager.GitManager)({ getChangeRequestChecks })),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.getChangeRequestChecks({ cwd: "/repo", reference: "42" });
+
+      assert.deepStrictEqual(result, { supported: true, checks: [] });
+      expect(getChangeRequestChecks).toHaveBeenCalledWith({ cwd: "/repo", reference: "42" });
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("returns an empty local status when no VCS repository is detected", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

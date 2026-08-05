@@ -637,14 +637,14 @@ export function createEnvironmentRpcCommand<R, ER, TTag extends EnvironmentUnary
         readonly input: EnvironmentRpcInput<TTag>;
       },
       registry: AtomRegistry.AtomRegistry,
-    ) => Effect.Effect<void, never, R>;
+    ) => Effect.Effect<void, never, EnvironmentSupervisor | R>;
     readonly onSettled?: (
       target: {
         readonly environmentId: EnvironmentIdType;
         readonly input: EnvironmentRpcInput<TTag>;
       },
       registry: AtomRegistry.AtomRegistry,
-    ) => Effect.Effect<void, never, R>;
+    ) => Effect.Effect<void, never, EnvironmentSupervisor | R>;
   },
 ) {
   return createEnvironmentCommand(runtime, {

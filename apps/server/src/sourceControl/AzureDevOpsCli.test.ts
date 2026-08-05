@@ -92,6 +92,70 @@ describe("AzureDevOpsCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("rolls up pull request policy evaluations", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ status: "approved" }, { status: "running" }]),
+          ),
+        ),
+      );
+
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+      const result = yield* az.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, "pending");
+      assert.deepStrictEqual(mockRun.mock.calls[0]?.[0].args, [
+        "repos",
+        "pr",
+        "policy",
+        "list",
+        "--id",
+        "42",
+        "--detect",
+        "true",
+        "--only-show-errors",
+        "--output",
+        "json",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("returns no checks when Azure emits no policy evaluations", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+      const result = yield* az.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, null);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("maps state updates to Azure CLI", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValue(Effect.succeed(processOutput("{}")));
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+
+      yield* az.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
+
+      const calls = mockRun.mock.calls.map(([input]) => input.args);
+      assert.deepStrictEqual(calls[0], [
+        "repos",
+        "pr",
+        "update",
+        "--detect",
+        "true",
+        "--id",
+        "42",
+        "--status",
+        "abandoned",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("builds a web URL when Azure returns only the pull request REST URL", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

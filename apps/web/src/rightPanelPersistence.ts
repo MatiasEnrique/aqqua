@@ -25,6 +25,7 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "history"; kind: "history" }
+  | { id: "pullRequest"; kind: "pullRequest" }
   | {
       id: "files";
       kind: "files";
@@ -81,6 +82,9 @@ function parsePersistedSurface(
   }
   if (surface.kind === "history" && surface.id === "history") {
     return [{ id: "history", kind: "history" }];
+  }
+  if (surface.kind === "pullRequest" && surface.id === "pullRequest") {
+    return [{ id: "pullRequest", kind: "pullRequest" }];
   }
   if (surface.kind === "files" && surface.id === "files") {
     const relativePath = typeof surface.relativePath === "string" ? surface.relativePath : null;

@@ -154,6 +154,30 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("rejects truncated conflict status instead of returning a partial list", () => {
+  const spawner = ChildProcessSpawner.make(() =>
+    Effect.succeed(
+      makeSuccessfulHandle("u UU N... 100644 100644 100644 a b c path.txt\0".repeat(8_000)),
+    ),
+  );
+  const nodeServicesLayer = Layer.merge(
+    NodeServices.layer,
+    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+  );
+  const layer = GitVcsDriver.layer.pipe(
+    Layer.provide(ServerConfigLayer),
+    Layer.provideMerge(nodeServicesLayer),
+  );
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const error = yield* driver.listConflicts("/repo").pipe(Effect.flip);
+
+    assert.equal(error._tag, "GitCommandError");
+    assert.include(error.detail, "Git output exceeded 262144 bytes and was truncated");
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -1745,6 +1769,238 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           timeoutMs: 10_000,
         });
         assert.notEqual(originMain.exitCode, 0);
+      }),
+    );
+  });
+
+  describe("working-tree operations", () => {
+    it.effect("discards only selected tracked and exact untracked paths", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const outside = yield* makeTmpDir("git-vcs-discard-outside-");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, ".gitignore", "*.ignored\n");
+        yield* git(cwd, ["add", ".gitignore"]);
+        yield* git(cwd, ["commit", "-m", "ignore files"]);
+        yield* writeTextFile(cwd, "README.md", "changed\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "delete-me.txt", "delete\n");
+        yield* writeTextFile(cwd, "staged-new.txt", "staged\n");
+        yield* git(cwd, ["add", "staged-new.txt"]);
+        yield* writeTextFile(cwd, "keep-me.txt", "keep\n");
+        yield* writeTextFile(cwd, "ignored.ignored", "ignored\n");
+        yield* writeTextFile(cwd, "selected.ignored", "selected ignored\n");
+        yield* writeTextFile(cwd, "selected-directory/nested.txt", "nested\n");
+        yield* writeTextFile(outside, "outside.txt", "outside\n");
+
+        yield* driver.discardChanges({
+          cwd,
+          paths: [
+            "README.md",
+            "delete-me.txt",
+            "staged-new.txt",
+            "selected.ignored",
+            "selected-directory",
+          ],
+        });
+
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "# test\n");
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "delete-me.txt")));
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "staged-new.txt")));
+        assert.isTrue(yield* fileSystem.exists(path.join(cwd, "keep-me.txt")));
+        assert.isTrue(yield* fileSystem.exists(path.join(cwd, "ignored.ignored")));
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "selected.ignored")));
+        assert.isTrue(yield* fileSystem.exists(path.join(cwd, "selected-directory/nested.txt")));
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+
+        const outsideRelativePath = path.relative(cwd, path.join(outside, "outside.txt"));
+        const invalid = yield* Effect.exit(
+          driver.discardChanges({ cwd, paths: [outsideRelativePath] }),
+        );
+        assert.isTrue(invalid._tag === "Failure");
+        assert.equal(
+          yield* fileSystem.readFileString(path.join(outside, "outside.txt")),
+          "outside\n",
+        );
+      }),
+    );
+
+    it.effect("lists merge conflicts and resolves ours, theirs, or on-disk content", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        yield* writeTextFile(cwd, "README.md", "feature\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* git(cwd, ["commit", "-m", "feature change"]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* writeTextFile(cwd, "README.md", "main\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* git(cwd, ["commit", "-m", "main change"]);
+
+        const merge = () =>
+          driver.execute({
+            operation: "GitVcsDriver.test.conflictingMerge",
+            cwd,
+            args: ["merge", "feature"],
+            allowNonZeroExit: true,
+            timeoutMs: 10_000,
+          });
+
+        assert.notEqual((yield* merge()).exitCode, 0);
+        assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+          operation: "merge",
+          conflicts: [{ path: "README.md", kind: "both-modified" }],
+        });
+        yield* driver.resolveConflict({ cwd, path: "README.md", resolution: "ours" });
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "main\n");
+        assert.deepStrictEqual((yield* driver.listConflicts(cwd)).conflicts, []);
+        yield* driver.abortConflictOperation({ cwd, operation: "merge" });
+
+        assert.notEqual((yield* merge()).exitCode, 0);
+        yield* driver.resolveConflict({ cwd, path: "README.md", resolution: "theirs" });
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "feature\n");
+        yield* driver.abortConflictOperation({ cwd, operation: "merge" });
+
+        assert.notEqual((yield* merge()).exitCode, 0);
+        yield* writeTextFile(cwd, "README.md", "manual\n");
+        yield* driver.resolveConflict({ cwd, path: "README.md", resolution: "content" });
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "manual\n");
+        assert.deepStrictEqual((yield* driver.listConflicts(cwd)).conflicts, []);
+        yield* driver.abortConflictOperation({ cwd, operation: "merge" });
+        assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+          operation: null,
+          conflicts: [],
+        });
+      }),
+    );
+
+    it.effect("reports deleted-side conflicts and can resolve to deletion", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* writeTextFile(cwd, "victim.txt", "base\n");
+        yield* git(cwd, ["add", "victim.txt"]);
+        yield* git(cwd, ["commit", "-m", "add victim"]);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        yield* git(cwd, ["rm", "victim.txt"]);
+        yield* git(cwd, ["commit", "-m", "delete victim"]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* writeTextFile(cwd, "victim.txt", "main\n");
+        yield* git(cwd, ["add", "victim.txt"]);
+        yield* git(cwd, ["commit", "-m", "modify victim"]);
+
+        const merge = () =>
+          driver.execute({
+            operation: "GitVcsDriver.test.deleteModifyMerge",
+            cwd,
+            args: ["merge", "feature"],
+            allowNonZeroExit: true,
+            timeoutMs: 10_000,
+          });
+
+        assert.notEqual((yield* merge()).exitCode, 0);
+        assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+          operation: "merge",
+          conflicts: [{ path: "victim.txt", kind: "deleted-by-them" }],
+        });
+        yield* driver.resolveConflict({ cwd, path: "victim.txt", resolution: "theirs" });
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "victim.txt")));
+        assert.deepStrictEqual((yield* driver.listConflicts(cwd)).conflicts, []);
+        yield* driver.abortConflictOperation({ cwd, operation: "merge" });
+
+        assert.notEqual((yield* merge()).exitCode, 0);
+        yield* driver.resolveConflict({ cwd, path: "victim.txt", resolution: "ours" });
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "victim.txt")), "main\n");
+        yield* driver.abortConflictOperation({ cwd, operation: "merge" });
+      }),
+    );
+
+    it.effect("rebases successfully when changes do not conflict", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature"]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* writeTextFile(cwd, "main.txt", "main\n");
+        yield* git(cwd, ["add", "main.txt"]);
+        yield* git(cwd, ["commit", "-m", "main"]);
+        const mainHead = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["checkout", "feature"]);
+
+        assert.deepStrictEqual(yield* driver.rebaseFromBase({ cwd, baseRef: "main" }), {
+          status: "rebased",
+        });
+        assert.equal(yield* git(cwd, ["merge-base", "HEAD", "main"]), mainHead);
+      }),
+    );
+
+    it.effect("preserves git diagnostics when a rebase fails before conflicts", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* initRepoWithCommit(cwd);
+
+        const error = yield* driver
+          .rebaseFromBase({ cwd, baseRef: "refs/heads/missing-base" })
+          .pipe(Effect.flip);
+
+        assert.include(error.detail, "invalid upstream");
+      }),
+    );
+
+    it.effect("returns rebase conflicts as data and aborts to the pre-rebase state", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        yield* writeTextFile(cwd, "README.md", "feature\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* git(cwd, ["commit", "-m", "feature"]);
+        const beforeRebase = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["checkout", "main"]);
+        yield* writeTextFile(cwd, "README.md", "main\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* git(cwd, ["commit", "-m", "main"]);
+        yield* git(cwd, ["checkout", "feature"]);
+
+        assert.deepStrictEqual(yield* driver.rebaseFromBase({ cwd, baseRef: "main" }), {
+          status: "conflicts",
+          operation: "rebase",
+          conflicts: [{ path: "README.md", kind: "both-modified" }],
+        });
+        const wrongAbort = yield* Effect.exit(
+          driver.abortConflictOperation({ cwd, operation: "merge" }),
+        );
+        assert.isTrue(wrongAbort._tag === "Failure");
+        yield* driver.abortConflictOperation({ cwd, operation: "rebase" });
+
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), beforeRebase);
+        assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "feature\n");
+        assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+          operation: null,
+          conflicts: [],
+        });
       }),
     );
   });

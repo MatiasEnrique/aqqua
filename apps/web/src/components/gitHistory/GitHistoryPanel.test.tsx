@@ -82,6 +82,7 @@ function renderPanel(): string {
     <GitHistoryPanel
       environmentId={environmentId}
       cwd="/tmp/repo"
+      repositoryRefName="main"
       timestampFormat="24-hour"
       composerDraftTarget={threadRef}
       threadRef={threadRef}
@@ -107,6 +108,14 @@ describe("GitHistoryPanel", () => {
   it("defaults to local commits and renders the origin opt-in", () => {
     const markup = renderPanel();
 
+    expect(markup).toContain(
+      'class="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-3"',
+    );
+    expect(markup).toContain("History");
+    expect(markup).toContain("repo · main");
+    expect(markup).toContain(
+      'class="lucide lucide-git-graph size-4 shrink-0 text-muted-foreground"',
+    );
     expect(markup).toContain("Include origin");
     expect(markup).toContain('aria-label="Include origin commits"');
     expect(testState.historyTarget).toMatchObject({ includeOrigin: false });

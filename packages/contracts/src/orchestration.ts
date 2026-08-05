@@ -14,6 +14,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ProviderItemId,
   ThreadId,
@@ -428,6 +429,9 @@ export const OrchestrationThread = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Optional so payloads from servers predating merge-triggered settlement
+  // continue to decode. Read sites normalize with `?? null`.
+  settledChangeRequestNumber: Schema.optional(PositiveInt),
   // Snooze is an overlay on the active lifecycle, not a fourth destination:
   // a snoozed thread stays "active" in the model and is only suppressed from
   // the inbox until snoozedUntil passes (or the thread raises its hand).
@@ -487,6 +491,9 @@ export const OrchestrationThreadShell = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Optional so payloads from servers predating merge-triggered settlement
+  // continue to decode. Read sites normalize with `?? null`.
+  settledChangeRequestNumber: Schema.optional(PositiveInt),
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   session: Schema.NullOr(OrchestrationSession),
@@ -672,6 +679,12 @@ const ThreadSettleCommand = Schema.Struct({
   type: Schema.Literal("thread.settle"),
   commandId: CommandId,
   threadId: ThreadId,
+  trigger: Schema.optional(
+    Schema.Struct({
+      kind: Schema.Literal("merged-change-request"),
+      number: PositiveInt,
+    }),
+  ),
 });
 
 const ThreadUnsettleCommand = Schema.Struct({
@@ -1139,6 +1152,9 @@ export const ThreadSettledPayload = Schema.Struct({
   threadId: ThreadId,
   settledAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  // Optional so persisted events written before merge-triggered settlement
+  // continue to decode. Read sites normalize with `?? null`.
+  settledChangeRequestNumber: Schema.optional(PositiveInt),
 });
 
 export const ThreadUnsettledPayload = Schema.Struct({

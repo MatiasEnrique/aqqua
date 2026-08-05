@@ -359,6 +359,9 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             settledOverride: "settled",
             settledAt: payload.settledAt,
+            ...(payload.settledChangeRequestNumber !== undefined
+              ? { settledChangeRequestNumber: payload.settledChangeRequestNumber }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

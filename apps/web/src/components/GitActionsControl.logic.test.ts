@@ -3,14 +3,119 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  changeRequestMergeMethodLabel,
+  orderChangeRequestMergeMethods,
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
+  resolveChangeRequestManagementState,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
 } from "./GitActionsControl.logic";
+
+describe("change request management", () => {
+  const options = {
+    methods: ["merge", "squash"] as const,
+    defaultMethod: "squash" as const,
+    autoMergeSupported: true,
+  };
+
+  it("puts the repository default first and labels only allowed methods", () => {
+    assert.deepEqual(orderChangeRequestMergeMethods(options), ["squash", "merge"]);
+    assert.equal(changeRequestMergeMethodLabel("squash"), "Squash and merge");
+    assert.equal(changeRequestMergeMethodLabel("merge"), "Merge commit");
+  });
+
+  it("enables open change request actions when repository options are available", () => {
+    assert.deepEqual(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: null,
+        autoMergeDisabledReason: null,
+        stateAction: "close",
+        stateActionDisabledReason: null,
+      },
+    );
+  });
+
+  it("keeps unsupported and non-open actions visible with reasons", () => {
+    const unsupported = { ...options, autoMergeSupported: false };
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: unsupported,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      { autoMergeDisabledReason: "Auto-merge is not supported by this repository." },
+    );
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "closed",
+        options: null,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: "Reopen the change request before merging.",
+        stateAction: "reopen",
+      },
+    );
+  });
+
+  it("surfaces repository-option failures as the disabled merge reason", () => {
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: null,
+        optionsPending: false,
+        optionsError: "Permission denied while reading repository settings.",
+        mutationPending: false,
+      }),
+      { mergeDisabledReason: "Permission denied while reading repository settings." },
+    );
+  });
+
+  it("disables management actions while options load or a mutation runs", () => {
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options: null,
+        optionsPending: true,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: "Loading repository merge settings.",
+        autoMergeDisabledReason: "Loading repository merge settings.",
+      },
+    );
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        options,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: true,
+      }),
+      {
+        mergeDisabledReason: "A change request action is in progress.",
+        autoMergeDisabledReason: "A change request action is in progress.",
+        stateActionDisabledReason: "A change request action is in progress.",
+      },
+    );
+  });
+});
 
 function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
   return {
@@ -33,7 +138,7 @@ function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
 }
 
 describe("when: ref is clean and has an open PR", () => {
-  it("resolveQuickAction opens the existing PR", () => {
+  it("keeps the header action quiet because PR details live in the panel", () => {
     const quick = resolveQuickAction(
       status({
         pr: {
@@ -47,7 +152,12 @@ describe("when: ref is clean and has an open PR", () => {
       }),
       false,
     );
-    assert.deepInclude(quick, { kind: "open_pr", label: "View PR", disabled: false });
+    assert.deepInclude(quick, {
+      kind: "show_hint",
+      label: "Commit",
+      disabled: true,
+      hint: "Branch is up to date. No action needed.",
+    });
   });
 
   it("buildMenuItems disables commit/push and enables open PR", () => {
@@ -89,6 +199,32 @@ describe("when: ref is clean and has an open PR", () => {
         kind: "open_pr",
       },
     ]);
+  });
+});
+
+describe("when: ref has a closed PR", () => {
+  it("keeps the existing PR affordance instead of offering to create another", () => {
+    const items = buildMenuItems(
+      status({
+        aheadOfDefaultCount: 1,
+        pr: {
+          number: 14,
+          title: "Closed PR",
+          url: "https://example.com/pr/14",
+          baseRef: "main",
+          headRef: "feature/test",
+          state: "closed",
+        },
+      }),
+      false,
+    );
+
+    assert.deepInclude(items[2], {
+      id: "pr",
+      label: "View PR",
+      disabled: false,
+      kind: "open_pr",
+    });
   });
 });
 
@@ -637,7 +773,7 @@ describe("when: ref has no upstream configured", () => {
     });
   });
 
-  it("resolveQuickAction opens PR when clean, no upstream, no local commits are ahead, and PR exists", () => {
+  it("keeps the no-local-commits hint when the PR is available in the panel", () => {
     const quick = resolveQuickAction(
       status({
         hasUpstream: false,
@@ -654,9 +790,10 @@ describe("when: ref has no upstream configured", () => {
       false,
     );
     assert.deepInclude(quick, {
-      kind: "open_pr",
-      label: "View PR",
-      disabled: false,
+      kind: "show_hint",
+      label: "Push",
+      hint: "No local commits to push.",
+      disabled: true,
     });
   });
 

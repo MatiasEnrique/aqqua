@@ -1,11 +1,12 @@
 import type { EnvironmentId, GitHistoryCommitSummary } from "@aqqua/contracts";
 import type { TimestampFormat } from "@aqqua/contracts/settings";
-import { GitBranch, LoaderCircle, RefreshCw, Tag } from "lucide-react";
+import { GitBranch, GitGraph, LoaderCircle, RefreshCw, Tag } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { formatChatTimestampTooltip, formatRelativeTimeLabel } from "../../timestampFormat";
 import DiffPanel, { type DiffPanelProps } from "../DiffPanel";
+import { PanelSurfaceHeader } from "../PanelSurfaceHeader";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { ScrollArea } from "../ui/scroll-area";
@@ -207,39 +208,40 @@ export function GitHistoryPanel(
 
   return (
     <div className="@container/history flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium">History</div>
-          <div className="truncate text-[10px] text-muted-foreground">
-            {refName ? `${repositoryName} · ${refName}` : repositoryName}
-          </div>
-        </div>
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Checkbox
-            className="size-3.5"
-            aria-label="Include origin commits"
-            checked={includeOrigin}
-            onCheckedChange={(checked) => toggleOrigin(checked === true)}
-          />
-          <span>Include origin</span>
-        </label>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={refresh}
-                disabled={history.isPending}
-                aria-label="Refresh Git history"
-              >
-                <RefreshCw className={cn(history.isPending && "animate-spin")} />
-              </Button>
-            }
-          />
-          <TooltipPopup side="bottom">Refresh Git history</TooltipPopup>
-        </Tooltip>
-      </div>
+      <PanelSurfaceHeader
+        icon={GitGraph}
+        title="History"
+        meta={refName ? `${repositoryName} · ${refName}` : repositoryName}
+        actions={
+          <>
+            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Checkbox
+                className="size-3.5"
+                aria-label="Include origin commits"
+                checked={includeOrigin}
+                onCheckedChange={(checked) => toggleOrigin(checked === true)}
+              />
+              <span>Include origin</span>
+            </label>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={refresh}
+                    disabled={history.isPending}
+                    aria-label="Refresh Git history"
+                  >
+                    <RefreshCw className={cn(history.isPending && "animate-spin")} />
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">Refresh Git history</TooltipPopup>
+            </Tooltip>
+          </>
+        }
+      />
 
       <div className="@min-[720px]/history:grid @min-[720px]/history:grid-cols-[minmax(0,1fr)_minmax(320px,38%)] flex min-h-0 flex-1">
         {selectedCommit ? (

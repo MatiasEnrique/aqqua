@@ -504,6 +504,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -537,6 +538,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -572,6 +574,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -939,6 +942,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           archived_at AS "archivedAt",
           settled_override AS "settledOverride",
           settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1400,6 +1404,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 archivedAt: row.archivedAt,
                 settledOverride: row.settledOverride,
                 settledAt: row.settledAt,
+                ...(row.settledChangeRequestNumber != null
+                  ? { settledChangeRequestNumber: row.settledChangeRequestNumber }
+                  : {}),
                 snoozedUntil: row.snoozedUntil,
                 snoozedAt: row.snoozedAt,
                 deletedAt: row.deletedAt,
@@ -1649,6 +1656,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   archivedAt: row.archivedAt,
                   settledOverride: row.settledOverride,
                   settledAt: row.settledAt,
+                  ...(row.settledChangeRequestNumber != null
+                    ? { settledChangeRequestNumber: row.settledChangeRequestNumber }
+                    : {}),
                   snoozedUntil: row.snoozedUntil,
                   snoozedAt: row.snoozedAt,
                   deletedAt: row.deletedAt,
@@ -1817,6 +1827,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         archivedAt: row.archivedAt,
                         settledOverride: row.settledOverride,
                         settledAt: row.settledAt,
+                        ...(row.settledChangeRequestNumber != null
+                          ? { settledChangeRequestNumber: row.settledChangeRequestNumber }
+                          : {}),
                         snoozedUntil: row.snoozedUntil,
                         snoozedAt: row.snoozedAt,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -1959,6 +1972,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   archivedAt: row.archivedAt,
                   settledOverride: row.settledOverride,
                   settledAt: row.settledAt,
+                  ...(row.settledChangeRequestNumber != null
+                    ? { settledChangeRequestNumber: row.settledChangeRequestNumber }
+                    : {}),
                   snoozedUntil: row.snoozedUntil,
                   snoozedAt: row.snoozedAt,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -2233,6 +2249,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         archivedAt: threadRow.value.archivedAt,
         settledOverride: threadRow.value.settledOverride,
         settledAt: threadRow.value.settledAt,
+        ...(threadRow.value.settledChangeRequestNumber != null
+          ? { settledChangeRequestNumber: threadRow.value.settledChangeRequestNumber }
+          : {}),
         snoozedUntil: threadRow.value.snoozedUntil,
         snoozedAt: threadRow.value.snoozedAt,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
@@ -2332,6 +2351,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         archivedAt: threadRow.value.archivedAt,
         settledOverride: threadRow.value.settledOverride,
         settledAt: threadRow.value.settledAt,
+        ...(threadRow.value.settledChangeRequestNumber != null
+          ? { settledChangeRequestNumber: threadRow.value.settledChangeRequestNumber }
+          : {}),
         snoozedUntil: threadRow.value.snoozedUntil,
         snoozedAt: threadRow.value.snoozedAt,
         deletedAt: null,

@@ -9,18 +9,25 @@ import type * as DateTime from "effect/DateTime";
 
 import {
   TrimmedNonEmptyString,
+  type GitChangeRequestCheck,
+  type GitChangeRequestMergeMethod,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@aqqua/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
+  decodeGitLabChecksStatusJson,
+  decodeGitLabLatestPipelineIdJson,
+  decodeGitLabPipelineJobsJson,
   decodeGitLabMergeRequestJson,
   decodeGitLabMergeRequestListJson,
+  type GitLabChecksStatus,
 } from "./gitLabMergeRequests.ts";
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_JOB_PAGES = 20;
 
 const gitLabCliExecutionErrorContext = {
   operation: Schema.Literal("execute"),
@@ -97,6 +104,23 @@ export class GitLabMergeRequestNotFoundError extends Schema.TaggedErrorClass<Git
       },
       error,
     );
+  }
+}
+
+export class GitLabMergeRequestReferenceError extends Schema.TaggedErrorClass<GitLabMergeRequestReferenceError>()(
+  "GitLabMergeRequestReferenceError",
+  {
+    command: Schema.Literal("glab"),
+    cwd: Schema.String,
+    reference: Schema.String,
+  },
+) {
+  get detail(): string {
+    return "A numeric merge request reference or supported merge request URL is required.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in parseMergeRequestReference: ${this.detail}`;
   }
 }
 
@@ -210,15 +234,50 @@ export class GitLabNamespaceDecodeError extends Schema.TaggedErrorClass<GitLabNa
   }
 }
 
+export class GitLabChecksDecodeError extends Schema.TaggedErrorClass<GitLabChecksDecodeError>()(
+  "GitLabChecksDecodeError",
+  {
+    ...gitLabCliDecodeErrorContext,
+    operation: Schema.Literals(["listChecks", "listCheckDetails"]),
+  },
+) {
+  get detail(): string {
+    return "GitLab CLI returned invalid pipeline JSON.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class GitLabMergeOptionsDecodeError extends Schema.TaggedErrorClass<GitLabMergeOptionsDecodeError>()(
+  "GitLabMergeOptionsDecodeError",
+  {
+    ...gitLabCliDecodeErrorContext,
+    operation: Schema.Literal("getMergeOptions"),
+  },
+) {
+  get detail(): string {
+    return "GitLab CLI returned invalid project or merge request merge settings JSON.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 export const GitLabCliError = Schema.Union([
   GitLabCliUnavailableError,
   GitLabCliAuthenticationError,
   GitLabMergeRequestNotFoundError,
+  GitLabMergeRequestReferenceError,
   GitLabCliCommandError,
   GitLabMergeRequestListDecodeError,
   GitLabMergeRequestDecodeError,
   GitLabRepositoryDecodeError,
   GitLabNamespaceDecodeError,
+  GitLabChecksDecodeError,
+  GitLabMergeOptionsDecodeError,
 ]);
 export type GitLabCliError = typeof GitLabCliError.Type;
 export const isGitLabCliError = Schema.is(GitLabCliError);
@@ -242,6 +301,11 @@ export interface GitLabRepositoryCloneUrls {
   readonly sshUrl: string;
 }
 
+export interface GitLabMergeOptions {
+  readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
+  readonly defaultMethod: GitChangeRequestMergeMethod;
+}
+
 export class GitLabCli extends Context.Service<
   GitLabCli,
   {
@@ -263,6 +327,48 @@ export class GitLabCli extends Context.Service<
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<GitLabMergeRequestSummary, GitLabCliError>;
+
+    readonly listChecks: (input: {
+      readonly cwd: string;
+      readonly changeRequestNumber: number;
+    }) => Effect.Effect<GitLabChecksStatus, GitLabCliError>;
+
+    readonly listCheckDetails: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitChangeRequestCheck>, GitLabCliError>;
+
+    readonly getMergeOptions: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<GitLabMergeOptions, GitLabCliError>;
+
+    readonly mergeMergeRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly method: GitChangeRequestMergeMethod;
+    }) => Effect.Effect<void, GitLabCliError>;
+
+    readonly setAutoMerge: (
+      input:
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: true;
+            readonly method: GitChangeRequestMergeMethod;
+          }
+        | {
+            readonly cwd: string;
+            readonly reference: string;
+            readonly enabled: false;
+          },
+    ) => Effect.Effect<void, GitLabCliError>;
+
+    readonly updateMergeRequestState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly state: "open" | "closed";
+    }) => Effect.Effect<void, GitLabCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
       readonly cwd: string;
@@ -311,6 +417,12 @@ const RawGitLabDefaultBranchSchema = Schema.Struct({
 const RawGitLabNamespaceSchema = Schema.Struct({
   id: Schema.Number,
 });
+const RawGitLabProjectMergeOptionsSchema = Schema.Struct({
+  squash_option: Schema.optional(Schema.Literals(["never", "always", "default_on", "default_off"])),
+});
+const RawGitLabMergeRequestOptionsSchema = Schema.Struct({
+  squash: Schema.optional(Schema.Boolean),
+});
 
 const decodeGitLabRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitLabRepositoryCloneUrlsSchema),
@@ -319,6 +431,12 @@ const decodeGitLabDefaultBranch = Schema.decodeEffect(
   Schema.fromJsonString(RawGitLabDefaultBranchSchema),
 );
 const decodeGitLabNamespace = Schema.decodeEffect(Schema.fromJsonString(RawGitLabNamespaceSchema));
+const decodeGitLabProjectMergeOptions = Schema.decodeEffect(
+  Schema.fromJsonString(RawGitLabProjectMergeOptionsSchema),
+);
+const decodeGitLabMergeRequestOptions = Schema.decodeEffect(
+  Schema.fromJsonString(RawGitLabMergeRequestOptionsSchema),
+);
 
 function normalizeRepositoryCloneUrls(
   raw: Schema.Schema.Type<typeof RawGitLabRepositoryCloneUrlsSchema>,
@@ -348,6 +466,22 @@ function normalizeHeadSelector(headSelector: string): string {
   const ownerBranch = /^[^:]+:(.+)$/.exec(trimmed);
   return ownerBranch?.[1]?.trim() || trimmed;
 }
+
+const decodeGitLabMergeRequestId = Schema.decodeUnknownOption(
+  Schema.String.check(Schema.isPattern(/^\d+$/)),
+);
+
+const normalizeChangeRequestId = Effect.fn("GitLabCli.normalizeChangeRequestId")(function* (input: {
+  readonly command: "glab";
+  readonly cwd: string;
+  readonly reference: string;
+}) {
+  const trimmed = input.reference.trim().replace(/^[#!]/, "");
+  const urlMatch = /(?:merge_requests|merge-request|merge|mr)\/(\d+)(?:[?#].*)?\/?$/i.exec(trimmed);
+  const decoded = decodeGitLabMergeRequestId(urlMatch?.[1] ?? trimmed);
+  if (Option.isSome(decoded)) return decoded.value;
+  return yield* new GitLabMergeRequestReferenceError(input);
+});
 
 function sourceRefName(input: {
   readonly headSelector: string;
@@ -495,6 +629,207 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    listChecks: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "api",
+          `projects/:fullpath/merge_requests/${input.changeRequestNumber}/pipelines?per_page=1`,
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          Effect.sync(() => decodeGitLabChecksStatusJson(raw)).pipe(
+            Effect.flatMap((decoded) =>
+              Result.isSuccess(decoded)
+                ? Effect.succeed(decoded.success)
+                : Effect.fail(
+                    new GitLabChecksDecodeError({
+                      operation: "listChecks",
+                      command: "glab",
+                      cwd: input.cwd,
+                      cause: decoded.failure,
+                    }),
+                  ),
+            ),
+          ),
+        ),
+      ),
+    listCheckDetails: Effect.fn("GitLabCli.listCheckDetails")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+      const pipelines = yield* execute({
+        cwd: input.cwd,
+        args: ["api", `projects/:fullpath/merge_requests/${reference}/pipelines?per_page=1`],
+      });
+      const pipelineId = yield* Effect.sync(() =>
+        decodeGitLabLatestPipelineIdJson(pipelines.stdout.trim()),
+      ).pipe(
+        Effect.flatMap((decoded) =>
+          Result.isSuccess(decoded)
+            ? Effect.succeed(decoded.success)
+            : Effect.fail(
+                new GitLabChecksDecodeError({
+                  operation: "listCheckDetails",
+                  command: "glab",
+                  cwd: input.cwd,
+                  cause: decoded.failure,
+                }),
+              ),
+        ),
+      );
+      if (pipelineId === null) return [];
+
+      const checks: GitChangeRequestCheck[] = [];
+      let page = 1;
+      while (page <= MAX_JOB_PAGES) {
+        const jobs = yield* execute({
+          cwd: input.cwd,
+          args: [
+            "api",
+            `projects/:fullpath/pipelines/${pipelineId}/jobs?per_page=100&page=${page}`,
+          ],
+        });
+        const decoded = yield* Effect.sync(() =>
+          decodeGitLabPipelineJobsJson(jobs.stdout.trim()),
+        ).pipe(
+          Effect.flatMap((result) =>
+            Result.isSuccess(result)
+              ? Effect.succeed(result.success)
+              : Effect.fail(
+                  new GitLabChecksDecodeError({
+                    operation: "listCheckDetails",
+                    command: "glab",
+                    cwd: input.cwd,
+                    cause: result.failure,
+                  }),
+                ),
+          ),
+        );
+        checks.push(...decoded);
+        if (decoded.length < 100) return checks;
+        page += 1;
+      }
+      return checks;
+    }),
+    getMergeOptions: Effect.fn("GitLabCli.getMergeOptions")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+      const [project, mergeRequest] = yield* Effect.all(
+        [
+          execute({
+            cwd: input.cwd,
+            args: ["api", "projects/:fullpath"],
+          }).pipe(
+            Effect.flatMap((result) => decodeGitLabProjectMergeOptions(result.stdout.trim())),
+          ),
+          executeMergeRequest({
+            cwd: input.cwd,
+            reference: input.reference,
+            args: ["api", `projects/:fullpath/merge_requests/${reference}`],
+          }).pipe(
+            Effect.flatMap((result) => decodeGitLabMergeRequestOptions(result.stdout.trim())),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          isGitLabCliError(cause)
+            ? cause
+            : new GitLabMergeOptionsDecodeError({
+                operation: "getMergeOptions",
+                command: "glab",
+                cwd: input.cwd,
+                cause,
+              }),
+        ),
+      );
+      const squashOption = project.squash_option ?? "default_off";
+      const methods: ReadonlyArray<GitChangeRequestMergeMethod> =
+        squashOption === "always"
+          ? ["squash"]
+          : squashOption === "never"
+            ? ["merge"]
+            : ["merge", "squash"];
+      const squashDefault =
+        mergeRequest.squash ?? (squashOption === "always" || squashOption === "default_on");
+      return {
+        methods,
+        defaultMethod:
+          squashDefault && methods.includes("squash") ? "squash" : (methods[0] ?? "merge"),
+      };
+    }),
+    mergeMergeRequest: Effect.fn("GitLabCli.mergeMergeRequest")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+      yield* executeMergeRequest({
+        cwd: input.cwd,
+        reference,
+        args: [
+          "mr",
+          "merge",
+          reference,
+          "--yes",
+          "--auto-merge=false",
+          ...(input.method === "squash" ? ["--squash"] : []),
+          ...(input.method === "rebase" ? ["--rebase"] : []),
+        ],
+      });
+    }),
+    setAutoMerge: Effect.fn("GitLabCli.setAutoMerge")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+      if (input.enabled) {
+        yield* executeMergeRequest({
+          cwd: input.cwd,
+          reference,
+          args: [
+            "mr",
+            "merge",
+            reference,
+            "--yes",
+            "--auto-merge",
+            ...(input.method === "squash" ? ["--squash"] : []),
+            ...(input.method === "rebase" ? ["--rebase"] : []),
+          ],
+        });
+        return;
+      }
+      yield* executeMergeRequest({
+        cwd: input.cwd,
+        reference,
+        args: [
+          "api",
+          "-X",
+          "POST",
+          `projects/:fullpath/merge_requests/${reference}/cancel_merge_when_pipeline_succeeds`,
+        ],
+      });
+    }),
+    updateMergeRequestState: Effect.fn("GitLabCli.updateMergeRequestState")(function* (input) {
+      const reference = yield* normalizeChangeRequestId({
+        command: "glab",
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+      yield* executeMergeRequest({
+        cwd: input.cwd,
+        reference,
+        args: ["mr", input.state === "open" ? "reopen" : "close", reference],
+      });
+    }),
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,

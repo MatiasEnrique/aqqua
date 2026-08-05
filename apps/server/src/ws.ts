@@ -2255,6 +2255,38 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "git",
             },
           ),
+        [WS_METHODS.gitGetChangeRequestChecks]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetChangeRequestChecks,
+            gitWorkflow.getChangeRequestChecks(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetChangeRequestMergeOptions]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetChangeRequestMergeOptions,
+            gitWorkflow.getChangeRequestMergeOptions(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitMergeChangeRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitMergeChangeRequest,
+            gitWorkflow
+              .mergeChangeRequest(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitSetAutoMerge]: (input) =>
+          observeRpcEffect(WS_METHODS.gitSetAutoMerge, gitWorkflow.setAutoMerge(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.gitUpdateChangeRequestState]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitUpdateChangeRequestState,
+            gitWorkflow
+              .updateChangeRequestState(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,

@@ -159,6 +159,70 @@ function bindProviderContext(
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: provider.kind,
+    ...(provider.capabilities ? { capabilities: provider.capabilities } : {}),
+    ...(provider.listChecks
+      ? {
+          listChecks: (input: Parameters<NonNullable<typeof provider.listChecks>>[0]) =>
+            provider.listChecks!({
+              ...input,
+              context: input.context ?? context,
+            }),
+        }
+      : {}),
+    ...(provider.listCheckDetails
+      ? {
+          listCheckDetails: Effect.fn("SourceControlProviderRegistry.listCheckDetails")(function* (
+            input: Parameters<NonNullable<typeof provider.listCheckDetails>>[0],
+          ) {
+            return yield* provider.listCheckDetails!({
+              ...input,
+              context: input.context ?? context,
+            });
+          }),
+        }
+      : {}),
+    ...(provider.getChangeRequestMergeOptions
+      ? {
+          getChangeRequestMergeOptions: (
+            input: Parameters<NonNullable<typeof provider.getChangeRequestMergeOptions>>[0],
+          ) =>
+            provider.getChangeRequestMergeOptions!({
+              ...input,
+              context: input.context ?? context,
+            }),
+        }
+      : {}),
+    ...(provider.mergeChangeRequest
+      ? {
+          mergeChangeRequest: (
+            input: Parameters<NonNullable<typeof provider.mergeChangeRequest>>[0],
+          ) =>
+            provider.mergeChangeRequest!({
+              ...input,
+              context: input.context ?? context,
+            }),
+        }
+      : {}),
+    ...(provider.setAutoMerge
+      ? {
+          setAutoMerge: (input: Parameters<NonNullable<typeof provider.setAutoMerge>>[0]) =>
+            provider.setAutoMerge!({
+              ...input,
+              context: input.context ?? context,
+            }),
+        }
+      : {}),
+    ...(provider.updateChangeRequestState
+      ? {
+          updateChangeRequestState: (
+            input: Parameters<NonNullable<typeof provider.updateChangeRequestState>>[0],
+          ) =>
+            provider.updateChangeRequestState!({
+              ...input,
+              context: input.context ?? context,
+            }),
+        }
+      : {}),
     listChangeRequests: (input) =>
       provider.listChangeRequests({
         ...input,

@@ -24,6 +24,7 @@ function makeReadModel(
   session: OrchestrationSession | null = null,
   activities: OrchestrationThread["activities"] = [],
   messages: OrchestrationThread["messages"] = [],
+  settledChangeRequestNumber?: number,
 ): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -44,6 +45,7 @@ function makeReadModel(
         archivedAt,
         settledOverride,
         settledAt: settledOverride === "settled" ? SETTLED_AT : null,
+        ...(settledChangeRequestNumber !== undefined ? { settledChangeRequestNumber } : {}),
         deletedAt: null,
         messages,
         proposedPlans: [],
@@ -168,14 +170,16 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           type: "thread.settle",
           commandId: CommandId.make("cmd-settle-again"),
           threadId: ThreadId.make("thread-1"),
+          trigger: { kind: "merged-change-request", number: 99 },
         },
-        readModel: makeReadModel("settled"),
+        readModel: makeReadModel("settled", null, null, [], [], 42),
       });
       const reEmitEvents = Array.isArray(reEmit) ? reEmit : [reEmit];
       expect(reEmitEvents).toHaveLength(1);
       expect(reEmitEvents[0]?.type).toBe("thread.settled");
       if (reEmitEvents[0]?.type === "thread.settled") {
         expect(reEmitEvents[0].payload.settledAt).toBe(SETTLED_AT);
+        expect(reEmitEvents[0].payload.settledChangeRequestNumber).toBe(42);
         // updatedAt must NOT rewind to the historical settledAt: sorting and
         // relative-time labels key on it.
         expect(reEmitEvents[0].payload.updatedAt).not.toBe(SETTLED_AT);
@@ -608,6 +612,67 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
         [
           { type: "thread.settled", aggregateId: ThreadId.make("thread-grandchild") },
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-child") },
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-parent") },
+        ],
+      );
+    }),
+  );
+
+  it.effect("records a merged change request trigger throughout the cascade", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-from-pr"),
+          threadId: ThreadId.make("thread-parent"),
+          trigger: { kind: "merged-change-request", number: 42 },
+        },
+        readModel: makeHierarchyReadModel(),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(
+        events.map((event) =>
+          event.type === "thread.settled"
+            ? {
+                aggregateId: event.aggregateId,
+                settledChangeRequestNumber: event.payload.settledChangeRequestNumber,
+              }
+            : null,
+        ),
+      ).toEqual([
+        {
+          aggregateId: ThreadId.make("thread-grandchild"),
+          settledChangeRequestNumber: 42,
+        },
+        {
+          aggregateId: ThreadId.make("thread-child"),
+          settledChangeRequestNumber: 42,
+        },
+        {
+          aggregateId: ThreadId.make("thread-parent"),
+          settledChangeRequestNumber: 42,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("merged change request settlement preserves active descendant pins", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-preserve-active"),
+          threadId: ThreadId.make("thread-parent"),
+          trigger: { kind: "merged-change-request", number: 42 },
+        },
+        readModel: makeHierarchyReadModel({
+          grandchild: { settledOverride: "active" },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
           { type: "thread.settled", aggregateId: ThreadId.make("thread-child") },
           { type: "thread.settled", aggregateId: ThreadId.make("thread-parent") },
         ],

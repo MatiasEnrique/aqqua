@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import { GitCommandError } from "@aqqua/contracts";
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 import { runVcsDriverContractSuite } from "./testing/VcsDriverContractHarness.ts";
 
@@ -107,4 +108,149 @@ it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
       ),
     ),
   );
+});
+
+it.effect("GitVcsDriver rejects truncated conflict status output", () =>
+  Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    if (!driver.listConflicts) {
+      return assert.fail("Git conflict listing is unavailable");
+    }
+
+    const error = yield* driver.listConflicts("/repo").pipe(Effect.flip);
+    if (error._tag !== "VcsProcessExitError") {
+      return assert.fail(`Expected VcsProcessExitError, received ${error._tag}`);
+    }
+    assert.include(error.detail, "truncated");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: () =>
+            Effect.succeed({
+              exitCode: ChildProcessSpawner.ExitCode(0),
+              stdout: "u UU N... 100644 100644 100644 100644 aaa bbb ccc src/app.ts\0",
+              stderr: "",
+              stdoutTruncated: true,
+              stderrTruncated: false,
+            }),
+        }),
+      ),
+    ),
+  ),
+);
+
+it.effect("GitVcsDriver rejects truncated discard path enumeration", () => {
+  let calls = 0;
+  let truncatedEnumeration: "tracked" | "untracked" = "tracked";
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    if (!driver.discardChanges) {
+      return assert.fail("Git discard is unavailable");
+    }
+
+    for (const enumeration of ["tracked", "untracked"] as const) {
+      calls = 0;
+      truncatedEnumeration = enumeration;
+      const error = yield* driver
+        .discardChanges({ cwd: "/repo", paths: ["README.md"] })
+        .pipe(Effect.flip);
+
+      if (error._tag !== "VcsProcessExitError") {
+        return assert.fail(`Expected VcsProcessExitError, received ${error._tag}`);
+      }
+      assert.include(error.detail, "truncated");
+      assert.strictEqual(calls, enumeration === "tracked" ? 2 : 3);
+    }
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            Effect.sync(() => {
+              calls += 1;
+              const resolvingRoot = input.args.includes("rev-parse");
+              const enumeratingUntracked = input.args.includes("--others");
+              const truncated =
+                !resolvingRoot &&
+                (truncatedEnumeration === "untracked"
+                  ? enumeratingUntracked
+                  : !enumeratingUntracked);
+              return {
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout: resolvingRoot ? "/repo\n" : "README.md\0",
+                stderr: "",
+                stdoutTruncated: truncated,
+                stderrTruncated: false,
+              };
+            }),
+        }),
+      ),
+    ),
+  );
+});
+
+it.effect("the provider-neutral Git driver exposes working-tree operations", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const cwd = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "aqqua-git-vcs-working-tree-",
+    });
+    const driver = yield* VcsDriver.VcsDriver;
+    assert.isFunction(driver.discardChanges);
+    assert.isFunction(driver.listConflicts);
+    assert.isFunction(driver.resolveConflict);
+    assert.isFunction(driver.rebaseFromBase);
+    assert.isFunction(driver.abortConflictOperation);
+    if (
+      !driver.discardChanges ||
+      !driver.listConflicts ||
+      !driver.resolveConflict ||
+      !driver.rebaseFromBase ||
+      !driver.abortConflictOperation
+    ) {
+      return assert.fail("Git working-tree operations are unavailable");
+    }
+
+    yield* runGit(cwd, ["init"]);
+    yield* runGit(cwd, ["config", "user.email", "test@test.com"]);
+    yield* runGit(cwd, ["config", "user.name", "Test"]);
+    yield* fileSystem.writeFileString(path.join(cwd, "README.md"), "base\n");
+    yield* runGit(cwd, ["add", "README.md"]);
+    yield* runGit(cwd, ["commit", "-m", "base"]);
+    yield* fileSystem.writeFileString(path.join(cwd, "README.md"), "changed\n");
+    yield* fileSystem.writeFileString(path.join(cwd, "untracked.txt"), "remove\n");
+
+    yield* driver.discardChanges({ cwd, paths: ["README.md", "untracked.txt"] });
+
+    assert.equal(yield* fileSystem.readFileString(path.join(cwd, "README.md")), "base\n");
+    assert.isFalse(yield* fileSystem.exists(path.join(cwd, "untracked.txt")));
+    assert.deepStrictEqual(yield* driver.listConflicts(cwd), {
+      operation: null,
+      conflicts: [],
+    });
+  }).pipe(Effect.provide(GitContractLayer)),
+);
+
+it("selects deletion when ours or theirs has no conflict stage", () => {
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "theirs"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "ours"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "ours"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "theirs"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("both-deleted", "ours"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("deleted-by-us", "ours"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("deleted-by-them", "theirs"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("both-deleted", "content"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "content"));
+});
+
+it("parses porcelain-v2 unmerged records into typed conflicts", () => {
+  const record = "u UU N... 100644 100644 100644 100644 aaa bbb ccc src/app.ts";
+  assert.deepStrictEqual(GitVcsDriver.parseConflictStatus(`${record}\0`), [
+    { path: "src/app.ts", kind: "both-modified" },
+  ]);
 });

@@ -34,6 +34,80 @@ import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 
+const CONFLICT_STATUS_MAX_OUTPUT_BYTES = 256 * 1024;
+
+const CONFLICT_KIND_BY_STATUS: Readonly<Record<string, VcsDriver.VcsConflictKind>> = {
+  UU: "both-modified",
+  AA: "both-added",
+  DD: "both-deleted",
+  AU: "added-by-us",
+  UA: "added-by-them",
+  DU: "deleted-by-us",
+  UD: "deleted-by-them",
+};
+
+export function parseConflictStatus(stdout: string): ReadonlyArray<VcsDriver.VcsConflict> {
+  const conflicts: VcsDriver.VcsConflict[] = [];
+  for (const record of stdout.split("\0")) {
+    if (!record.startsWith("u ")) {
+      continue;
+    }
+    const match = /^u (\S{2}) \S+ \S+ \S+ \S+ \S+ \S+ \S+ \S+ (.*)$/s.exec(record);
+    if (!match) {
+      continue;
+    }
+    const status = match[1] ?? "";
+    const filePath = match[2] ?? "";
+    const kind = CONFLICT_KIND_BY_STATUS[status];
+    if (kind && filePath.length > 0) {
+      conflicts.push({ path: filePath, kind });
+    }
+  }
+  return conflicts;
+}
+
+export function conflictResolutionDeletesPath(
+  kind: VcsDriver.VcsConflictKind,
+  resolution: VcsDriver.VcsResolveConflictInput["resolution"],
+): boolean {
+  return (
+    resolution !== "content" &&
+    (kind === "both-deleted" ||
+      (kind === "deleted-by-us" && resolution === "ours") ||
+      (kind === "deleted-by-them" && resolution === "theirs") ||
+      (kind === "added-by-us" && resolution === "theirs") ||
+      (kind === "added-by-them" && resolution === "ours"))
+  );
+}
+
+export function validateSelectedPaths(
+  path: Path.Path,
+  repositoryRoot: string,
+  selectedPaths: ReadonlyArray<string>,
+): ReadonlyArray<string> | string {
+  const validated: string[] = [];
+  const seen = new Set<string>();
+  for (const selectedPath of selectedPaths) {
+    if (selectedPath.length === 0 || selectedPath.includes("\0") || path.isAbsolute(selectedPath)) {
+      return `Invalid repository-relative path '${selectedPath}'.`;
+    }
+    const absolutePath = path.resolve(repositoryRoot, selectedPath);
+    const relativePath = path.relative(repositoryRoot, absolutePath);
+    if (
+      relativePath.length === 0 ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`)
+    ) {
+      return `Path '${selectedPath}' is outside the repository or selects its root.`;
+    }
+    if (!seen.has(relativePath)) {
+      seen.add(relativePath);
+      validated.push(relativePath);
+    }
+  }
+  return validated;
+}
+
 export interface ExecuteGitInput {
   readonly operation: string;
   readonly cwd: string;
@@ -231,6 +305,21 @@ export class GitVcsDriver extends Context.Service<
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
+    readonly discardChanges: (
+      input: VcsDriver.VcsDiscardChangesInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly listConflicts: (
+      cwd: string,
+    ) => Effect.Effect<VcsDriver.VcsConflictList, GitCommandError>;
+    readonly resolveConflict: (
+      input: VcsDriver.VcsResolveConflictInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly rebaseFromBase: (
+      input: VcsDriver.VcsRebaseFromBaseInput,
+    ) => Effect.Effect<VcsDriver.VcsRebaseFromBaseResult, GitCommandError>;
+    readonly abortConflictOperation: (
+      input: VcsDriver.VcsAbortConflictOperationInput,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -641,6 +730,325 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       maxOutputBytes: 64 * 1024,
     }).pipe(Effect.asVoid);
 
+  const workingTreeError = (
+    operation: string,
+    cwd: string,
+    command: string,
+    detail: string,
+    exitCode = 1,
+  ) =>
+    new VcsProcessExitError({
+      operation,
+      command,
+      cwd,
+      exitCode,
+      detail,
+    });
+
+  const mapWorkingTreePlatformError =
+    (operation: string, cwd: string, command: string, detail: string) => () =>
+      new VcsProcessExitError({
+        operation,
+        command,
+        cwd,
+        exitCode: 1,
+        detail,
+      });
+
+  const resolveRepositoryRoot = Effect.fn("GitVcsDriver.resolveRepositoryRoot")(function* (
+    cwd: string,
+    operation: string,
+  ) {
+    const result = yield* gitCommand(vcsProcess, operation, cwd, ["rev-parse", "--show-toplevel"]);
+    return result.stdout.trim();
+  });
+
+  const resolveConflictOperation = Effect.fn("GitVcsDriver.resolveConflictOperation")(function* (
+    cwd: string,
+  ) {
+    const onInspectError = mapWorkingTreePlatformError(
+      "GitVcsDriver.resolveConflictOperation",
+      cwd,
+      "git rev-parse --git-path",
+      "Failed to inspect Git operation state.",
+    );
+    const resolveGitPath = Effect.fn("GitVcsDriver.resolveConflictOperation.gitPath")(function* (
+      name: string,
+    ) {
+      const result = yield* gitCommand(
+        vcsProcess,
+        "GitVcsDriver.resolveConflictOperation",
+        cwd,
+        ["rev-parse", "--git-path", name],
+        { timeoutMs: 5_000, maxOutputBytes: 4_096 },
+      );
+      const gitPath = result.stdout.trim();
+      return path.isAbsolute(gitPath) ? gitPath : path.resolve(cwd, gitPath);
+    });
+
+    const rebaseMergePath = yield* resolveGitPath("rebase-merge");
+    if (yield* fileSystem.exists(rebaseMergePath).pipe(Effect.mapError(onInspectError))) {
+      return "rebase" as const;
+    }
+    const rebaseApplyPath = yield* resolveGitPath("rebase-apply");
+    if (yield* fileSystem.exists(rebaseApplyPath).pipe(Effect.mapError(onInspectError))) {
+      return "rebase" as const;
+    }
+    const mergeHeadPath = yield* resolveGitPath("MERGE_HEAD");
+    return (yield* fileSystem.exists(mergeHeadPath).pipe(Effect.mapError(onInspectError)))
+      ? ("merge" as const)
+      : null;
+  });
+
+  const listConflicts: NonNullable<VcsDriver.VcsDriver["Service"]["listConflicts"]> = Effect.fn(
+    "GitVcsDriver.listConflicts",
+  )(function* (cwd) {
+    const result = yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.listConflicts",
+      cwd,
+      ["status", "--porcelain=v2", "-z", "--untracked-files=no"],
+      {
+        timeoutMs: 10_000,
+        maxOutputBytes: CONFLICT_STATUS_MAX_OUTPUT_BYTES,
+      },
+    );
+    if (result.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.listConflicts",
+        cwd,
+        "git status --porcelain=v2",
+        "Conflict status output was truncated; the conflict list is incomplete.",
+      );
+    }
+    return {
+      operation: yield* resolveConflictOperation(cwd),
+      conflicts: parseConflictStatus(result.stdout),
+    };
+  });
+
+  const discardChanges: NonNullable<VcsDriver.VcsDriver["Service"]["discardChanges"]> = Effect.fn(
+    "GitVcsDriver.discardChanges",
+  )(function* (input) {
+    if (input.paths.length === 0) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges",
+        input.cwd,
+        "git restore",
+        "At least one explicit path is required.",
+      );
+    }
+    const repositoryRoot = yield* resolveRepositoryRoot(
+      input.cwd,
+      "GitVcsDriver.discardChanges.repositoryRoot",
+    );
+    const selectedPaths = validateSelectedPaths(path, repositoryRoot, input.paths);
+    if (typeof selectedPaths === "string") {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges",
+        input.cwd,
+        "git restore",
+        selectedPaths,
+      );
+    }
+
+    const trackedResult = yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.discardChanges.listTracked",
+      repositoryRoot,
+      ["--literal-pathspecs", "ls-files", "-z", "--", ...selectedPaths],
+      {
+        timeoutMs: 10_000,
+        maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+      },
+    );
+    if (trackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listTracked",
+        repositoryRoot,
+        "git ls-files",
+        "Tracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
+    const trackedPaths = splitNullSeparatedPaths(
+      trackedResult.stdout,
+      trackedResult.stdoutTruncated,
+    );
+    const untrackedResult = yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.discardChanges.listUntracked",
+      repositoryRoot,
+      ["--literal-pathspecs", "ls-files", "--others", "-z", "--", ...selectedPaths],
+      {
+        timeoutMs: 10_000,
+        maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+      },
+    );
+    if (untrackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listUntracked",
+        repositoryRoot,
+        "git ls-files --others",
+        "Untracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
+    const selected = new Set(selectedPaths);
+    const exactUntrackedPaths = splitNullSeparatedPaths(
+      untrackedResult.stdout,
+      untrackedResult.stdoutTruncated,
+    ).filter((untrackedPath) => selected.has(untrackedPath));
+    if (trackedPaths.length > 0) {
+      yield* gitCommand(
+        vcsProcess,
+        "GitVcsDriver.discardChanges.restoreTracked",
+        repositoryRoot,
+        [
+          "--literal-pathspecs",
+          "restore",
+          "--source=HEAD",
+          "--staged",
+          "--worktree",
+          "--",
+          ...trackedPaths,
+        ],
+        { timeoutMs: 20_000, maxOutputBytes: 64 * 1024 },
+      );
+    }
+    yield* Effect.forEach(
+      exactUntrackedPaths,
+      (untrackedPath) =>
+        fileSystem
+          .remove(path.resolve(repositoryRoot, untrackedPath), { force: true })
+          .pipe(
+            Effect.mapError(
+              mapWorkingTreePlatformError(
+                "GitVcsDriver.discardChanges.removeUntracked",
+                repositoryRoot,
+                "remove",
+                "Failed to remove selected untracked path.",
+              ),
+            ),
+          ),
+      { discard: true },
+    );
+  });
+
+  const resolveConflict: NonNullable<VcsDriver.VcsDriver["Service"]["resolveConflict"]> = Effect.fn(
+    "GitVcsDriver.resolveConflict",
+  )(function* (input) {
+    const repositoryRoot = yield* resolveRepositoryRoot(
+      input.cwd,
+      "GitVcsDriver.resolveConflict.repositoryRoot",
+    );
+    const selectedPaths = validateSelectedPaths(path, repositoryRoot, [input.path]);
+    if (typeof selectedPaths === "string") {
+      return yield* workingTreeError(
+        "GitVcsDriver.resolveConflict",
+        input.cwd,
+        "git add",
+        selectedPaths,
+      );
+    }
+    const [selectedPath] = selectedPaths;
+    const conflicts = yield* listConflicts(repositoryRoot);
+    const conflict = conflicts.conflicts.find((candidate) => candidate.path === selectedPath);
+    if (!selectedPath || !conflict) {
+      return yield* workingTreeError(
+        "GitVcsDriver.resolveConflict",
+        input.cwd,
+        "git add",
+        `Path '${input.path}' is not conflicted.`,
+      );
+    }
+    if (conflictResolutionDeletesPath(conflict.kind, input.resolution)) {
+      yield* gitCommand(
+        vcsProcess,
+        "GitVcsDriver.resolveConflict.remove",
+        repositoryRoot,
+        ["--literal-pathspecs", "rm", "--", selectedPath],
+        { timeoutMs: 10_000, maxOutputBytes: 64 * 1024 },
+      );
+      return;
+    }
+    if (input.resolution !== "content") {
+      yield* gitCommand(
+        vcsProcess,
+        "GitVcsDriver.resolveConflict.checkout",
+        repositoryRoot,
+        ["--literal-pathspecs", "checkout", `--${input.resolution}`, "--", selectedPath],
+        { timeoutMs: 10_000, maxOutputBytes: 64 * 1024 },
+      );
+    }
+    yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.resolveConflict.markResolved",
+      repositoryRoot,
+      ["--literal-pathspecs", "add", "-A", "--", selectedPath],
+      { timeoutMs: 10_000, maxOutputBytes: 64 * 1024 },
+    );
+  });
+
+  const rebaseFromBase: NonNullable<VcsDriver.VcsDriver["Service"]["rebaseFromBase"]> = Effect.fn(
+    "GitVcsDriver.rebaseFromBase",
+  )(function* (input) {
+    if (input.baseRef.trim().length === 0 || input.baseRef.includes("\0")) {
+      return yield* workingTreeError(
+        "GitVcsDriver.rebaseFromBase",
+        input.cwd,
+        "git rebase",
+        "A non-empty base ref is required.",
+      );
+    }
+    const result = yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.rebaseFromBase",
+      input.cwd,
+      ["rebase", "--", input.baseRef],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 120_000,
+        maxOutputBytes: 256 * 1024,
+      },
+    );
+    if (result.exitCode === 0) {
+      return { status: "rebased" as const };
+    }
+    const conflicts = yield* listConflicts(input.cwd);
+    if (conflicts.operation === "rebase" && conflicts.conflicts.length > 0) {
+      return { status: "conflicts" as const, ...conflicts };
+    }
+    return yield* workingTreeError(
+      "GitVcsDriver.rebaseFromBase",
+      input.cwd,
+      "git rebase",
+      result.stderr.trim() || "git rebase failed",
+      result.exitCode,
+    );
+  });
+
+  const abortConflictOperation: NonNullable<
+    VcsDriver.VcsDriver["Service"]["abortConflictOperation"]
+  > = Effect.fn("GitVcsDriver.abortConflictOperation")(function* (input) {
+    const operation = yield* resolveConflictOperation(input.cwd);
+    if (operation !== input.operation) {
+      return yield* workingTreeError(
+        "GitVcsDriver.abortConflictOperation",
+        input.cwd,
+        `git ${input.operation} --abort`,
+        operation === null
+          ? `No ${input.operation} is in progress.`
+          : `Cannot abort ${input.operation}; a ${operation} is in progress.`,
+      );
+    }
+    yield* gitCommand(
+      vcsProcess,
+      "GitVcsDriver.abortConflictOperation",
+      input.cwd,
+      [input.operation, "--abort"],
+      { timeoutMs: 30_000, maxOutputBytes: 256 * 1024 },
+    );
+  });
+
   const resolveHeadCommit = (cwd: string) =>
     execute({
       operation: "GitVcsDriver.checkpoints.resolveHeadCommit",
@@ -905,6 +1313,11 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     listRemotes,
     filterIgnoredPaths,
     initRepository,
+    discardChanges,
+    listConflicts,
+    resolveConflict,
+    rebaseFromBase,
+    abortConflictOperation,
   };
 });
 

@@ -24,12 +24,22 @@ import {
   type VcsInspectWorktreeRemovalInput,
   type VcsInspectWorktreeRemovalResult,
   type GitManagerServiceError,
+  type GitGetChangeRequestChecksInput,
+  type GitGetChangeRequestChecksResult,
+  type GitGetChangeRequestMergeOptionsInput,
+  type GitGetChangeRequestMergeOptionsResult,
+  type GitMergeChangeRequestInput,
+  type GitMergeChangeRequestResult,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
   type GitPullRequestRefInput,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
   type GitResolvePullRequestResult,
+  type GitSetAutoMergeInput,
+  type GitSetAutoMergeResult,
+  type GitUpdateChangeRequestStateInput,
+  type GitUpdateChangeRequestStateResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
   type VcsStatusInput,
@@ -67,6 +77,21 @@ export class GitWorkflowService extends Context.Service<
     readonly resolvePullRequest: (
       input: GitPullRequestRefInput,
     ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
+    readonly getChangeRequestChecks: (
+      input: GitGetChangeRequestChecksInput,
+    ) => Effect.Effect<GitGetChangeRequestChecksResult, GitManagerServiceError>;
+    readonly getChangeRequestMergeOptions: (
+      input: GitGetChangeRequestMergeOptionsInput,
+    ) => Effect.Effect<GitGetChangeRequestMergeOptionsResult, GitManagerServiceError>;
+    readonly mergeChangeRequest: (
+      input: GitMergeChangeRequestInput,
+    ) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
+    readonly setAutoMerge: (
+      input: GitSetAutoMergeInput,
+    ) => Effect.Effect<GitSetAutoMergeResult, GitManagerServiceError>;
+    readonly updateChangeRequestState: (
+      input: GitUpdateChangeRequestStateInput,
+    ) => Effect.Effect<GitUpdateChangeRequestStateResult, GitManagerServiceError>;
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
@@ -325,6 +350,23 @@ export const make = Effect.gen(function* () {
     resolvePullRequest: routeGitManager(
       "GitWorkflowService.resolvePullRequest",
       gitManager.resolvePullRequest,
+    ),
+    getChangeRequestChecks: routeGitManager(
+      "GitWorkflowService.getChangeRequestChecks",
+      gitManager.getChangeRequestChecks,
+    ),
+    getChangeRequestMergeOptions: routeGitManager(
+      "GitWorkflowService.getChangeRequestMergeOptions",
+      gitManager.getChangeRequestMergeOptions,
+    ),
+    mergeChangeRequest: routeGitManager(
+      "GitWorkflowService.mergeChangeRequest",
+      gitManager.mergeChangeRequest,
+    ),
+    setAutoMerge: routeGitManager("GitWorkflowService.setAutoMerge", gitManager.setAutoMerge),
+    updateChangeRequestState: routeGitManager(
+      "GitWorkflowService.updateChangeRequestState",
+      gitManager.updateChangeRequestState,
     ),
     preparePullRequestThread: routeGitManager(
       "GitWorkflowService.preparePullRequestThread",

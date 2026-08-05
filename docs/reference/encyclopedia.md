@@ -79,6 +79,13 @@ The current materialized view of orchestration state. In [the contracts][1], it 
 
 A side-effecting service that handles follow-up work after events or runtime signals. Examples include [CheckpointReactor.ts][6], [ProviderCommandReactor.ts][12], and [ProviderRuntimeIngestion.ts][5].
 
+#### Auto-settle
+
+The optional behavior that settles a worktree thread after its pull request or merge request is
+reported as merged. [PullRequestSettleReactor.ts][33] consumes subscription-gated remote status
+updates, respects the server setting, and remembers which change request settled the thread so a
+manual un-settle is not reversed for the same change request.
+
 #### Receipt
 
 A lightweight typed runtime signal emitted when an async milestone completes. See [RuntimeReceiptBus.ts][13].
@@ -219,3 +226,4 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [30]: ../../apps/server/src/usage/UsageScanner.ts
 [31]: ../../packages/contracts/src/usage.ts
 [32]: ../../apps/server/src/usage/AccountRateLimits.ts
+[33]: ../../apps/server/src/orchestration/Layers/PullRequestSettleReactor.ts

@@ -5,6 +5,7 @@ import {
   FileDiff,
   Files,
   GitGraph,
+  GitPullRequest,
   Globe2,
   PanelRightClose,
   Plus,
@@ -23,6 +24,7 @@ import {
 
 import { isElectron } from "~/env";
 import type { RightPanelSurface } from "~/rightPanelStore";
+import { RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS } from "~/rightPanelAvailability";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -52,20 +54,15 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddHistory: () => void;
+  onAddPullRequest: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   historyAvailable: boolean;
+  pullRequestAvailable: boolean;
   filesAvailable: boolean;
   children: ReactNode;
 }
-
-const SURFACE_DISABLED_REASONS = {
-  browser: "Browser previews are only available in the Aqqua desktop app.",
-  files: "Files are only available when a project is open.",
-  diff: "Diff is only available for projects in Git repositories.",
-  history: "History is only available for projects in Git repositories.",
-} as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
 
@@ -102,10 +99,12 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddHistory: () => void;
+  onAddPullRequest: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   historyAvailable: boolean;
+  pullRequestAvailable: boolean;
   filesAvailable: boolean;
 }) {
   const actions = [
@@ -114,7 +113,7 @@ function RightPanelEmptyState(props: {
       description: "Open a local app or URL.",
       icon: Globe2,
       available: props.browserAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.browser,
+      disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.browser,
       onClick: props.onAddBrowser,
     },
     {
@@ -130,7 +129,7 @@ function RightPanelEmptyState(props: {
       description: "Browse and read workspace files.",
       icon: Files,
       available: props.filesAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.files,
+      disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files,
       onClick: props.onAddFiles,
     },
     {
@@ -138,7 +137,7 @@ function RightPanelEmptyState(props: {
       description: "Review changes in this thread.",
       icon: FileDiff,
       available: props.diffAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.diff,
+      disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff,
       onClick: props.onAddDiff,
     },
     {
@@ -146,8 +145,16 @@ function RightPanelEmptyState(props: {
       description: "Browse the repository commit graph.",
       icon: GitGraph,
       available: props.historyAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.history,
+      disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.history,
       onClick: props.onAddHistory,
+    },
+    {
+      label: "Pull request",
+      description: "Watch the current pull request and its checks.",
+      icon: GitPullRequest,
+      available: props.pullRequestAvailable,
+      disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.pullRequest,
+      onClick: props.onAddPullRequest,
     },
   ] as const;
 
@@ -217,6 +224,8 @@ export function rightPanelSurfaceTitle(
       return "Diff";
     case "history":
       return "History";
+    case "pullRequest":
+      return "Pull request";
     case "files":
       return "Files";
     case "terminal":
@@ -272,6 +281,8 @@ function SurfaceIcon({
       return <FileDiff className="size-3.5 shrink-0" />;
     case "history":
       return <GitGraph className="size-3.5 shrink-0" />;
+    case "pullRequest":
+      return <GitPullRequest className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
     case "terminal":
@@ -458,7 +469,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-44">
                   <SurfaceMenuItem
                     available={props.browserAvailable}
-                    disabledReason={SURFACE_DISABLED_REASONS.browser}
+                    disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.browser}
                     onClick={props.onAddBrowser}
                   >
                     <Globe2 />
@@ -470,7 +481,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   </SurfaceMenuItem>
                   <SurfaceMenuItem
                     available={props.filesAvailable}
-                    disabledReason={SURFACE_DISABLED_REASONS.files}
+                    disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files}
                     onClick={props.onAddFiles}
                   >
                     <Files />
@@ -478,7 +489,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   </SurfaceMenuItem>
                   <SurfaceMenuItem
                     available={props.diffAvailable}
-                    disabledReason={SURFACE_DISABLED_REASONS.diff}
+                    disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff}
                     onClick={props.onAddDiff}
                   >
                     <FileDiff />
@@ -486,11 +497,19 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   </SurfaceMenuItem>
                   <SurfaceMenuItem
                     available={props.historyAvailable}
-                    disabledReason={SURFACE_DISABLED_REASONS.history}
+                    disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.history}
                     onClick={props.onAddHistory}
                   >
                     <GitGraph />
                     History
+                  </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.pullRequestAvailable}
+                    disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.pullRequest}
+                    onClick={props.onAddPullRequest}
+                  >
+                    <GitPullRequest />
+                    Pull request
                   </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
@@ -520,10 +539,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddHistory={props.onAddHistory}
+            onAddPullRequest={props.onAddPullRequest}
             onAddFiles={props.onAddFiles}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             historyAvailable={props.historyAvailable}
+            pullRequestAvailable={props.pullRequestAvailable}
             filesAvailable={props.filesAvailable}
           />
         ) : (

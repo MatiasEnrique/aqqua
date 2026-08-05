@@ -187,6 +187,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           threadId: ThreadId.make("thread-1"),
           settledAt: "2026-01-01T00:00:01.000Z",
           updatedAt: "2026-01-01T00:00:01.000Z",
+          settledChangeRequestNumber: 42,
         },
       });
       yield* projectionPipeline.bootstrap;
@@ -194,15 +195,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const settledRows = yield* sql<{
         readonly settledOverride: string | null;
         readonly settledAt: string | null;
+        readonly settledChangeRequestNumber: number | null;
       }>`
         SELECT
           settled_override AS "settledOverride",
-          settled_at AS "settledAt"
+          settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber"
         FROM projection_threads
         WHERE thread_id = 'thread-1'
       `;
       assert.deepEqual(settledRows, [
-        { settledOverride: "settled", settledAt: "2026-01-01T00:00:01.000Z" },
+        {
+          settledOverride: "settled",
+          settledAt: "2026-01-01T00:00:01.000Z",
+          settledChangeRequestNumber: 42,
+        },
       ]);
 
       yield* eventStore.append({
@@ -226,14 +233,22 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const unsettledRows = yield* sql<{
         readonly settledOverride: string | null;
         readonly settledAt: string | null;
+        readonly settledChangeRequestNumber: number | null;
       }>`
         SELECT
           settled_override AS "settledOverride",
-          settled_at AS "settledAt"
+          settled_at AS "settledAt",
+          settled_change_request_number AS "settledChangeRequestNumber"
         FROM projection_threads
         WHERE thread_id = 'thread-1'
       `;
-      assert.deepEqual(unsettledRows, [{ settledOverride: "active", settledAt: null }]);
+      assert.deepEqual(unsettledRows, [
+        {
+          settledOverride: "active",
+          settledAt: null,
+          settledChangeRequestNumber: 42,
+        },
+      ]);
     }),
   );
 

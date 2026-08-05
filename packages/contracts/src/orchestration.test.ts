@@ -392,6 +392,7 @@ it.effect("decodes thread settle and unsettle commands", () =>
       type: "thread.settle",
       commandId: "cmd-settle-1",
       threadId: "thread-1",
+      trigger: { kind: "merged-change-request", number: 42 },
     });
     const unsettle = yield* decodeOrchestrationCommand({
       type: "thread.unsettle",
@@ -401,6 +402,12 @@ it.effect("decodes thread settle and unsettle commands", () =>
     });
 
     assert.strictEqual(settle.type, "thread.settle");
+    if (settle.type === "thread.settle") {
+      assert.deepStrictEqual(settle.trigger, {
+        kind: "merged-change-request",
+        number: 42,
+      });
+    }
     assert.strictEqual(unsettle.type, "thread.unsettle");
 
     // "activity" is server-owned: it exists on the event, never on the
@@ -412,6 +419,14 @@ it.effect("decodes thread settle and unsettle commands", () =>
       reason: "activity",
     }).pipe(Effect.flip);
     assert.ok(forged);
+
+    const invalidTrigger = yield* decodeOrchestrationCommand({
+      type: "thread.settle",
+      commandId: "cmd-settle-invalid-trigger",
+      threadId: "thread-1",
+      trigger: { kind: "merged-change-request", number: 0 },
+    }).pipe(Effect.flip);
+    assert.ok(invalidTrigger);
   }),
 );
 
@@ -450,8 +465,10 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
 
     assert.strictEqual(thread.settledOverride, null);
     assert.strictEqual(thread.settledAt, null);
+    assert.strictEqual(thread.settledChangeRequestNumber, undefined);
     assert.strictEqual(shell.settledOverride, null);
     assert.strictEqual(shell.settledAt, null);
+    assert.strictEqual(shell.settledChangeRequestNumber, undefined);
   }),
 );
 
@@ -612,6 +629,7 @@ it.effect("decodes thread settled and unsettled events", () =>
         threadId: "thread-1",
         settledAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+        settledChangeRequestNumber: 42,
       },
     });
     const unsettled = yield* decodeOrchestrationEvent({
@@ -633,6 +651,9 @@ it.effect("decodes thread settled and unsettled events", () =>
     });
 
     assert.strictEqual(settled.type, "thread.settled");
+    if (settled.type === "thread.settled") {
+      assert.strictEqual(settled.payload.settledChangeRequestNumber, 42);
+    }
     assert.strictEqual(unsettled.type, "thread.unsettled");
   }),
 );

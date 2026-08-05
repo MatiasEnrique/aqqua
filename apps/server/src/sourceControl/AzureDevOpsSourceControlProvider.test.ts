@@ -46,6 +46,59 @@ it.effect("maps Azure DevOps PR summaries into provider-neutral change requests"
   }),
 );
 
+it.effect("advertises checks and maps Azure policies through the provider surface", () =>
+  Effect.gen(function* () {
+    let checksInput: Parameters<AzureDevOpsCli.AzureDevOpsCli["Service"]["listChecks"]>[0] | null =
+      null;
+    const provider = yield* makeProvider({
+      listChecks: (input) => {
+        checksInput = input;
+        return Effect.succeed("success");
+      },
+    });
+
+    const listChecks = provider.listChecks;
+    if (!listChecks) {
+      return assert.fail("Expected Azure DevOps checks capability");
+    }
+    const status = yield* listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.deepStrictEqual(provider.capabilities, {
+      checks: true,
+      changeRequestState: true,
+    });
+    assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
+    assert.strictEqual(status, "success");
+    assert.isUndefined(provider.listCheckDetails);
+    assert.isUndefined(provider.getChangeRequestMergeOptions);
+    assert.isUndefined(provider.mergeChangeRequest);
+    assert.isUndefined(provider.setAutoMerge);
+  }),
+);
+
+it.effect("delegates supported Azure DevOps change-request mutations", () =>
+  Effect.gen(function* () {
+    const calls: Array<string> = [];
+    const provider = yield* makeProvider({
+      updatePullRequestState: (input) => {
+        calls.push(`state:${input.state}`);
+        return Effect.void;
+      },
+    });
+
+    yield* provider.updateChangeRequestState!({
+      cwd: "/repo",
+      reference: "42",
+      state: "closed",
+    });
+
+    assert.deepStrictEqual(calls, ["state:closed"]);
+  }),
+);
+
 it.effect("adds change-request context while retaining Azure CLI causes", () =>
   Effect.gen(function* () {
     const cause = new AzureDevOpsCli.AzureDevOpsCommandFailedError({

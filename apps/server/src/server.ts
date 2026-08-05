@@ -54,8 +54,10 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus.
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { BoardReactorLive } from "./orchestration/Layers/BoardReactor.ts";
+import { PullRequestSettleReactorLive } from "./orchestration/Layers/PullRequestSettleReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
+import { PullRequestSettleReactor } from "./orchestration/Services/PullRequestSettleReactor.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -227,6 +229,14 @@ const ReactorLayerLive = Layer.empty.pipe(
   // as AgentControl — the adapter registry is consumed (not re-exported) by
   // ProviderLayerLive, so provide it here explicitly.
   Layer.provideMerge(BoardReactorLive.pipe(Layer.provide(ProviderAdapterRegistryLive))),
+  Layer.provideMerge(
+    Layer.effectDiscard(
+      Effect.gen(function* () {
+        const reactor = yield* PullRequestSettleReactor;
+        yield* reactor.start();
+      }),
+    ).pipe(Layer.provide(PullRequestSettleReactorLive)),
+  ),
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
