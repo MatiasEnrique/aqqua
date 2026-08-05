@@ -141,6 +141,58 @@ it.effect("GitVcsDriver rejects truncated conflict status output", () =>
   ),
 );
 
+it.effect("GitVcsDriver rejects truncated discard path enumeration", () => {
+  let calls = 0;
+  let truncatedEnumeration: "tracked" | "untracked" = "tracked";
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    if (!driver.discardChanges) {
+      return assert.fail("Git discard is unavailable");
+    }
+
+    for (const enumeration of ["tracked", "untracked"] as const) {
+      calls = 0;
+      truncatedEnumeration = enumeration;
+      const error = yield* driver
+        .discardChanges({ cwd: "/repo", paths: ["README.md"] })
+        .pipe(Effect.flip);
+
+      if (error._tag !== "VcsProcessExitError") {
+        return assert.fail(`Expected VcsProcessExitError, received ${error._tag}`);
+      }
+      assert.include(error.detail, "truncated");
+      assert.strictEqual(calls, enumeration === "tracked" ? 2 : 3);
+    }
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            Effect.sync(() => {
+              calls += 1;
+              const resolvingRoot = input.args.includes("rev-parse");
+              const enumeratingUntracked = input.args.includes("--others");
+              const truncated =
+                !resolvingRoot &&
+                (truncatedEnumeration === "untracked"
+                  ? enumeratingUntracked
+                  : !enumeratingUntracked);
+              return {
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout: resolvingRoot ? "/repo\n" : "README.md\0",
+                stderr: "",
+                stdoutTruncated: truncated,
+                stderrTruncated: false,
+              };
+            }),
+        }),
+      ),
+    ),
+  );
+});
+
 it.effect("the provider-neutral Git driver exposes working-tree operations", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

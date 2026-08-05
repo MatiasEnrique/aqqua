@@ -69,6 +69,23 @@ export class GitHubPullRequestNotFoundError extends Schema.TaggedErrorClass<GitH
   }
 }
 
+export class GitHubPullRequestReferenceError extends Schema.TaggedErrorClass<GitHubPullRequestReferenceError>()(
+  "GitHubPullRequestReferenceError",
+  {
+    command: Schema.Literal("gh"),
+    cwd: Schema.String,
+    reference: Schema.String,
+  },
+) {
+  get detail(): string {
+    return "Pull request references beginning with '-' are not supported.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in validatePullRequestReference: ${this.detail}`;
+  }
+}
+
 export class GitHubCliCommandError extends Schema.TaggedErrorClass<GitHubCliCommandError>()(
   "GitHubCliCommandError",
   gitHubCliFailureFields,
@@ -173,6 +190,7 @@ export const GitHubCliError = Schema.Union([
   GitHubCliUnavailableError,
   GitHubCliAuthenticationError,
   GitHubPullRequestNotFoundError,
+  GitHubPullRequestReferenceError,
   GitHubCliCommandError,
   GitHubPullRequestListDecodeError,
   GitHubChangeRequestListDecodeError,
@@ -358,6 +376,18 @@ function mergeMethodFlag(method: GitChangeRequestMergeMethod): string {
   }
 }
 
+const validatePullRequestMutationReference = Effect.fn(
+  "GitHubCli.validatePullRequestMutationReference",
+)(function* (input: { readonly cwd: string; readonly reference: string }) {
+  const reference = input.reference.trim();
+  if (!reference.startsWith("-")) return reference;
+  return yield* new GitHubPullRequestReferenceError({
+    command: "gh",
+    cwd: input.cwd,
+    reference: input.reference,
+  });
+});
+
 function normalizeGitHubMergeOptions(
   raw: Schema.Schema.Type<typeof RawGitHubMergeOptionsSchema>,
 ): GitHubMergeOptions {
@@ -438,42 +468,13 @@ export const make = Effect.gen(function* () {
   const readCheckRollup = Effect.fn("GitHubCli.readCheckRollup")(function* (input: {
     readonly cwd: string;
     readonly reference: string;
-    readonly operation: "listChecks" | "listCheckDetails";
   }) {
     const output = yield* execute({
       cwd: input.cwd,
       args: ["pr", "view", input.reference, "--json", "statusCheckRollup"],
     });
     const raw = output.stdout.trim();
-    const status = yield* Effect.sync(() => decodeGitHubChecksStatusJson(raw)).pipe(
-      Effect.flatMap((decoded) =>
-        Result.isSuccess(decoded)
-          ? Effect.succeed(decoded.success)
-          : Effect.fail(
-              new GitHubChecksDecodeError({
-                operation: input.operation,
-                command: "gh",
-                cwd: input.cwd,
-                cause: decoded.failure,
-              }),
-            ),
-      ),
-    );
-    const details = yield* Effect.sync(() => decodeGitHubCheckDetailsJson(raw)).pipe(
-      Effect.flatMap((decoded) =>
-        Result.isSuccess(decoded)
-          ? Effect.succeed(decoded.success)
-          : Effect.fail(
-              new GitHubChecksDecodeError({
-                operation: input.operation,
-                command: "gh",
-                cwd: input.cwd,
-                cause: decoded.failure,
-              }),
-            ),
-      ),
-    );
-    return { status, details };
+    return raw;
   });
 
   return GitHubCli.of({
@@ -550,17 +551,29 @@ export const make = Effect.gen(function* () {
         ),
       ),
     listChecks: Effect.fn("GitHubCli.listChecks")(function* (input) {
-      return (yield* readCheckRollup({
+      const raw = yield* readCheckRollup({
         cwd: input.cwd,
         reference: String(input.changeRequestNumber),
+      });
+      const decoded = decodeGitHubChecksStatusJson(raw);
+      if (Result.isSuccess(decoded)) return decoded.success;
+      return yield* new GitHubChecksDecodeError({
         operation: "listChecks",
-      })).status;
+        command: "gh",
+        cwd: input.cwd,
+        cause: decoded.failure,
+      });
     }),
     listCheckDetails: Effect.fn("GitHubCli.listCheckDetails")(function* (input) {
-      return (yield* readCheckRollup({
-        ...input,
+      const raw = yield* readCheckRollup(input);
+      const decoded = decodeGitHubCheckDetailsJson(raw);
+      if (Result.isSuccess(decoded)) return decoded.success;
+      return yield* new GitHubChecksDecodeError({
         operation: "listCheckDetails",
-      })).details;
+        command: "gh",
+        cwd: input.cwd,
+        cause: decoded.failure,
+      });
     }),
     getMergeOptions: (input) =>
       execute({
@@ -587,26 +600,32 @@ export const make = Effect.gen(function* () {
         ),
         Effect.map(normalizeGitHubMergeOptions),
       ),
-    mergePullRequest: (input) =>
-      execute({
+    mergePullRequest: Effect.fn("GitHubCli.mergePullRequest")(function* (input) {
+      const reference = yield* validatePullRequestMutationReference(input);
+      yield* execute({
         cwd: input.cwd,
-        args: ["pr", "merge", input.reference, mergeMethodFlag(input.method)],
-      }).pipe(Effect.asVoid),
-    setAutoMerge: (input) =>
-      execute({
+        args: ["pr", "merge", reference, mergeMethodFlag(input.method)],
+      });
+    }),
+    setAutoMerge: Effect.fn("GitHubCli.setAutoMerge")(function* (input) {
+      const reference = yield* validatePullRequestMutationReference(input);
+      yield* execute({
         cwd: input.cwd,
         args: [
           "pr",
           "merge",
-          input.reference,
+          reference,
           ...(input.enabled ? ["--auto", mergeMethodFlag(input.method)] : ["--disable-auto"]),
         ],
-      }).pipe(Effect.asVoid),
-    updatePullRequestState: (input) =>
-      execute({
+      });
+    }),
+    updatePullRequestState: Effect.fn("GitHubCli.updatePullRequestState")(function* (input) {
+      const reference = yield* validatePullRequestMutationReference(input);
+      yield* execute({
         cwd: input.cwd,
-        args: ["pr", input.state === "open" ? "reopen" : "close", input.reference],
-      }).pipe(Effect.asVoid),
+        args: ["pr", input.state === "open" ? "reopen" : "close", reference],
+      });
+    }),
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,

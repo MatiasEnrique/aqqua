@@ -571,11 +571,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Archived children are excluded rather than cascaded: they are out of
       // the inbox entirely, and their requireThreadNotArchived guard would
       // otherwise veto the parent's settle over an invisible row.
+      // A merged-change-request cascade also preserves explicit keep-active
+      // pins. Propagating the trigger makes that rule recursive and records the
+      // merge memo on every descendant that was actually auto-settled.
       const unsettledChildThreads = listThreadsByParentThreadId(readModel, command.threadId).filter(
         (child) =>
           child.deletedAt === null &&
           child.archivedAt === null &&
-          !(child.settledOverride === "settled" && child.settledAt !== null),
+          !(child.settledOverride === "settled" && child.settledAt !== null) &&
+          !(command.trigger !== undefined && child.settledOverride === "active"),
       );
       if (unsettledChildThreads.length > 0) {
         return yield* decideCommandSequence({
@@ -586,6 +590,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 type: "thread.settle",
                 commandId: command.commandId,
                 threadId: child.id,
+                ...(command.trigger !== undefined ? { trigger: command.trigger } : {}),
               }),
             ),
             {

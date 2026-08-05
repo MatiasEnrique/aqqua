@@ -129,6 +129,7 @@ const make = Effect.gen(function* () {
         thread.deletedAt !== null ||
         thread.archivedAt !== null ||
         thread.settledOverride === "settled" ||
+        thread.settledOverride === "active" ||
         (thread.settledChangeRequestNumber ?? null) === pullRequest.number
       ) {
         continue;
@@ -170,6 +171,7 @@ const make = Effect.gen(function* () {
       thread.value.deletedAt !== null ||
       thread.value.archivedAt !== null ||
       thread.value.settledOverride === "settled" ||
+      thread.value.settledOverride === "active" ||
       (thread.value.settledChangeRequestNumber ?? null) === pending.changeRequestNumber
     ) {
       yield* clearPendingSettlement(event.payload.threadId);

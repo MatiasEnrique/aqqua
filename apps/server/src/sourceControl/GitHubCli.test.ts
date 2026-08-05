@@ -160,6 +160,38 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("rejects option-like references before pull request mutations", () =>
+    Effect.gen(function* () {
+      const github = yield* GitHubCli.GitHubCli;
+      const attempts = [
+        () =>
+          github.mergePullRequest({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            method: "squash",
+          }),
+        () =>
+          github.setAutoMerge({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            enabled: false,
+          }),
+        () =>
+          github.updatePullRequestState({
+            cwd: "/repo",
+            reference: "--repo=other/project",
+            state: "closed",
+          }),
+      ];
+
+      for (const attempt of attempts) {
+        const error = yield* attempt().pipe(Effect.flip);
+        assert.strictEqual(error._tag, "GitHubPullRequestReferenceError");
+      }
+      assert.strictEqual(mockRun.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("falls back when GitHub omits or changes its default merge method", () =>
     Effect.gen(function* () {
       mockRun

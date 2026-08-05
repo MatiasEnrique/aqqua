@@ -862,6 +862,14 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
       },
     );
+    if (trackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listTracked",
+        repositoryRoot,
+        "git ls-files",
+        "Tracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
     const trackedPaths = splitNullSeparatedPaths(
       trackedResult.stdout,
       trackedResult.stdoutTruncated,
@@ -876,6 +884,14 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
       },
     );
+    if (untrackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listUntracked",
+        repositoryRoot,
+        "git ls-files --others",
+        "Untracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
     const selected = new Set(selectedPaths);
     const exactUntrackedPaths = splitNullSeparatedPaths(
       untrackedResult.stdout,

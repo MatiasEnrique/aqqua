@@ -312,6 +312,36 @@ it.effect("does not re-settle an explicitly settled thread for a different merge
   ),
 );
 
+it.effect("does not auto-settle a thread pinned active", () =>
+  withHarness(
+    {
+      initialThread: {
+        settledOverride: "active",
+      },
+    },
+    (harness) =>
+      Effect.gen(function* () {
+        yield* harness.publishAndDrain(MERGED_REMOTE);
+        expect(harness.dispatched).toHaveLength(0);
+      }),
+  ),
+);
+
+it.effect("clears a queued settlement retry after the thread is pinned active", () =>
+  withHarness({ rejectDispatchCount: 1 }, (harness) =>
+    Effect.gen(function* () {
+      yield* harness.publishAndDrain(MERGED_REMOTE);
+      expect(harness.dispatched).toHaveLength(1);
+
+      yield* harness.unsettleThread;
+      yield* harness.publishSessionAndDrain("ready");
+      yield* harness.publishSessionAndDrain("stopped");
+
+      expect(harness.dispatched).toHaveLength(1);
+    }),
+  ),
+);
+
 it.effect("does not settle when automatic merge settlement is disabled", () =>
   withHarness({ settingEnabled: false }, (harness) =>
     Effect.gen(function* () {

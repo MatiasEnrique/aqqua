@@ -619,7 +619,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
-  it.effect("records a merged change request trigger on the parent only during cascade", () =>
+  it.effect("records a merged change request trigger throughout the cascade", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
         command: {
@@ -643,17 +643,40 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       ).toEqual([
         {
           aggregateId: ThreadId.make("thread-grandchild"),
-          settledChangeRequestNumber: undefined,
+          settledChangeRequestNumber: 42,
         },
         {
           aggregateId: ThreadId.make("thread-child"),
-          settledChangeRequestNumber: undefined,
+          settledChangeRequestNumber: 42,
         },
         {
           aggregateId: ThreadId.make("thread-parent"),
           settledChangeRequestNumber: 42,
         },
       ]);
+    }),
+  );
+
+  it.effect("merged change request settlement preserves active descendant pins", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-parent-preserve-active"),
+          threadId: ThreadId.make("thread-parent"),
+          trigger: { kind: "merged-change-request", number: 42 },
+        },
+        readModel: makeHierarchyReadModel({
+          grandchild: { settledOverride: "active" },
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-child") },
+          { type: "thread.settled", aggregateId: ThreadId.make("thread-parent") },
+        ],
+      );
     }),
   );
 

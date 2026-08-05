@@ -2145,6 +2145,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         maxOutputBytes: WORKING_TREE_PATHS_MAX_OUTPUT_BYTES,
       },
     );
+    if (trackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listTracked",
+        repositoryRoot,
+        ["ls-files"],
+        "Tracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
     const trackedPaths = splitNullSeparatedGitStdoutPaths(trackedResult);
     const untrackedResult = yield* executeGit(
       "GitVcsDriver.discardChanges.listUntracked",
@@ -2155,6 +2163,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         maxOutputBytes: WORKING_TREE_PATHS_MAX_OUTPUT_BYTES,
       },
     );
+    if (untrackedResult.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.discardChanges.listUntracked",
+        repositoryRoot,
+        ["ls-files", "--others"],
+        "Untracked path enumeration was truncated; no changes were discarded.",
+      );
+    }
     const selected = new Set(selectedPaths);
     const exactUntrackedPaths = splitNullSeparatedGitStdoutPaths(untrackedResult).filter(
       (untrackedPath) => selected.has(untrackedPath),
@@ -2883,6 +2899,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           `+refs/pull/${input.prNumber}/head:refs/heads/${input.branch}`,
         ],
         {
+          timeoutMs: NETWORK_TIMEOUT_MS,
           fallbackErrorDetail: "git fetch pull request branch failed",
         },
       );
@@ -2896,6 +2913,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ["fetch", "--quiet", input.remoteName],
         {
           env: STATUS_UPSTREAM_REFRESH_ENV,
+          timeoutMs: NETWORK_TIMEOUT_MS,
           fallbackErrorDetail: `git fetch ${input.remoteName} failed`,
         },
       );
@@ -2949,13 +2967,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const fetchRemoteTrackingBranch: GitVcsDriver.GitVcsDriver["Service"]["fetchRemoteTrackingBranch"] =
     Effect.fn("fetchRemoteTrackingBranch")(function* (input) {
-      yield* runGit("GitVcsDriver.fetchRemoteTrackingBranch", input.cwd, [
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        input.remoteName,
-        `+refs/heads/${input.remoteBranch}:refs/remotes/${input.remoteName}/${input.remoteBranch}`,
-      ]);
+      yield* executeGit(
+        "GitVcsDriver.fetchRemoteTrackingBranch",
+        input.cwd,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          input.remoteName,
+          `+refs/heads/${input.remoteBranch}:refs/remotes/${input.remoteName}/${input.remoteBranch}`,
+        ],
+        { timeoutMs: NETWORK_TIMEOUT_MS },
+      ).pipe(Effect.asVoid);
     });
 
   const setBranchUpstream: GitVcsDriver.GitVcsDriver["Service"]["setBranchUpstream"] = (input) =>
