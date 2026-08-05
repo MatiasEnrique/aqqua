@@ -9,6 +9,7 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -321,38 +322,40 @@ function makeMutableServerSettingsService(
   return Effect.gen(function* () {
     const settingsRef = yield* Ref.make(initial);
     const changes = yield* PubSub.unbounded<ContractServerSettings>();
+    const writeSemaphore = yield* Semaphore.make(1);
 
-    const updateSettings = (
-      patch: Parameters<ServerSettingsModule.ServerSettingsService["Service"]["updateSettings"]>[0],
+    const modifySettings = <A, E>(
+      modify: (current: ContractServerSettings) => Effect.Effect<
+        {
+          readonly patch: Parameters<
+            ServerSettingsModule.ServerSettingsService["Service"]["updateSettings"]
+          >[0];
+          readonly value: A;
+        },
+        E
+      >,
     ) =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(settingsRef);
-        const next = applyServerSettingsPatch(current, patch);
-        encodeServerSettings(next);
-        yield* Ref.set(settingsRef, next);
-        yield* PubSub.publish(changes, next);
-        return next;
-      });
+      writeSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(settingsRef);
+          const { patch, value } = yield* modify(current);
+          const next = applyServerSettingsPatch(current, patch);
+          encodeServerSettings(next);
+          yield* Ref.set(settingsRef, next);
+          yield* PubSub.publish(changes, next);
+          return { settings: next, value };
+        }),
+      );
 
     return {
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(settingsRef),
-      updateSettings,
-      modifySettings: <A, E>(
-        modify: (
-          current: ContractServerSettings,
-        ) => Effect.Effect<
-          { readonly patch: Parameters<typeof updateSettings>[0]; readonly value: A },
-          E
-        >,
-      ) =>
-        Effect.gen(function* () {
-          const current = yield* Ref.get(settingsRef);
-          const { patch, value } = yield* modify(current);
-          const settings = yield* updateSettings(patch);
-          return { settings, value };
-        }),
+      updateSettings: (patch) =>
+        modifySettings(() => Effect.succeed({ patch, value: undefined })).pipe(
+          Effect.map(({ settings }) => settings),
+        ),
+      modifySettings,
       get streamChanges() {
         return Stream.fromPubSub(changes);
       },
