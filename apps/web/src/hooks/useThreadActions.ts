@@ -13,6 +13,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
+import { findFlowOwnedThread } from "@aqqua/client-runtime/state/boards";
 import { canSettle, canSnooze, effectiveSnoozed } from "@aqqua/client-runtime/state/thread-settled";
 import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
@@ -27,6 +28,7 @@ import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
+import { environmentBoards } from "../state/boards";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
@@ -61,6 +63,18 @@ export class ThreadArchiveBlockedError extends Schema.TaggedErrorClass<ThreadArc
 ) {
   override get message(): string {
     return "Cannot archive a running thread.";
+  }
+}
+
+export class ThreadDeleteFlowOwnedError extends Schema.TaggedErrorClass<ThreadDeleteFlowOwnedError>()(
+  "ThreadDeleteFlowOwnedError",
+  {
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return "This conversation belongs to a flow card. Delete the card from the flow, or settle the conversation to file it away.";
   }
 }
 
@@ -156,6 +170,28 @@ export const WORKTREE_DELETION_BOUNDARY = {
   worktreeRemoval: "server-after-thread-delete",
   localBranchRemoval: "server-after-worktree-removal",
 } as const;
+
+function readFlowOwnedTarget(
+  targets: ReadonlyArray<EnvironmentThreadShell>,
+): EnvironmentThreadShell | null {
+  const byEnvironment = new Map<EnvironmentId, EnvironmentThreadShell[]>();
+  for (const target of targets) {
+    const bucket = byEnvironment.get(target.environmentId);
+    if (bucket === undefined) byEnvironment.set(target.environmentId, [target]);
+    else bucket.push(target);
+  }
+  for (const [environmentId, environmentTargets] of byEnvironment) {
+    const cards = appAtomRegistry.get(environmentBoards.environmentCardsAtom(environmentId));
+    if (cards.length === 0) continue;
+    const threads = readEnvironmentThreadRefs(environmentId).flatMap((ref) => {
+      const shell = readThreadShell(ref);
+      return shell === null ? [] : [shell];
+    });
+    const owned = findFlowOwnedThread({ targets: environmentTargets, cards, threads });
+    if (owned !== null) return owned;
+  }
+  return null;
+}
 
 export function useThreadActions() {
   const archiveThreadMutation = useAtomCommand(threadEnvironment.archive, {
@@ -406,6 +442,16 @@ export function useThreadActions() {
     ) => {
       const threadRef = scopeThreadRef(target.environmentId, target.id);
       const thread = readThreadShell(threadRef) ?? target;
+      if (readFlowOwnedTarget([thread]) !== null) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadDeleteFlowOwnedError({
+              environmentId: threadRef.environmentId,
+              threadId: threadRef.threadId,
+            }),
+          ),
+        );
+      }
       const threads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap((ref) => {
         const shell = readThreadShell(ref);
         return shell === null ? [] : [shell];
@@ -888,6 +934,17 @@ export function useThreadActions() {
 
   const deleteThreads = useCallback(
     async (targets: ReadonlyArray<EnvironmentThreadShell>) => {
+      const flowOwned = readFlowOwnedTarget(targets);
+      if (flowOwned !== null) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadDeleteFlowOwnedError({
+              environmentId: flowOwned.environmentId,
+              threadId: flowOwned.id,
+            }),
+          ),
+        );
+      }
       const planResult = await confirmThreadDeletion(targets);
       if (planResult._tag === "Failure") return planResult;
       if (planResult.value === null) return AsyncResult.success(null);

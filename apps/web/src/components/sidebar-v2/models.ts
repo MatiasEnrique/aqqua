@@ -96,6 +96,8 @@ export type SidebarThreadsSection = {
   readonly threadByKeyRef: MutableRefObject<ReadonlyMap<string, EnvironmentThreadShell>>;
   readonly settledThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
   readonly snoozedThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
+  readonly flowOwnedThreadKeys: ReadonlySet<string>;
+  readonly flowOwnedThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
   readonly jumpLabelByKey: ReadonlyMap<string, string>;
   readonly showJumpHints: boolean;
   readonly setShowJumpHints: (show: boolean) => void;

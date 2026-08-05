@@ -3505,4 +3505,52 @@ describe("BoardReactor", () => {
       }),
     ),
   );
+
+  it.effect("marks the card failed when its current step conversation is archived", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+        const released = (yield* harness.readModel).cards.find(
+          (entry) => entry.id === harness.cardId,
+        )!;
+        const threadId = released.stepThreads[0]!.threadId;
+        yield* harness.sessionSet(threadId, "ready");
+        yield* harness.drain;
+        yield* harness.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("cmd-archive-current-root"),
+          threadId,
+        });
+        yield* harness.drain;
+
+        const card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.status).toBe("failed");
+        expect(card.position).toEqual({ kind: "step", stepIndex: 0 });
+      }),
+    ),
+  );
+
+  it.effect("does not fail a card for conversation teardown owned by reset", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+        const released = (yield* harness.readModel).cards.find(
+          (entry) => entry.id === harness.cardId,
+        )!;
+        yield* harness.sessionSet(released.stepThreads[0]!.threadId, "ready");
+        yield* harness.drain;
+        yield* harness.dispatch({
+          type: "card.reset",
+          commandId: CommandId.make("cmd-reset-with-archive"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        const card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.status).not.toBe("failed");
+        expect(card.position).toEqual({ kind: "todo" });
+        expect(card.operation).toBeNull();
+      }),
+    ),
+  );
 });

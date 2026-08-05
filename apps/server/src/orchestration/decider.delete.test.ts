@@ -1,7 +1,11 @@
 import {
+  BoardId,
+  CardId,
+  CardOperationId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
+  type OrchestrationCard,
   ProjectId,
   ThreadId,
   type OrchestrationCommand,
@@ -23,6 +27,40 @@ const asCommandId = (value: string): CommandId => CommandId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+
+const NOW = "2026-01-01T00:00:00.000Z";
+
+function makeFlowCard(
+  rootThreadIds: ReadonlyArray<string>,
+  overrides: Partial<OrchestrationCard> = {},
+): OrchestrationCard {
+  return {
+    id: CardId.make("card-delete"),
+    boardId: BoardId.make("board-delete"),
+    projectId: asProjectId("project-delete"),
+    title: "Delete owned conversations",
+    parameters: {},
+    position: { kind: "done" },
+    status: null,
+    operation: null,
+    lastError: null,
+    snapshot: null,
+    branch: null,
+    worktreePath: null,
+    stepThreads: rootThreadIds.map((threadId, stepIndex) => ({
+      stepIndex,
+      threadId: asThreadId(threadId),
+      spawnedAt: NOW,
+    })),
+    createdAt: NOW,
+    updatedAt: NOW,
+    releasedAt: NOW,
+    completedAt: NOW,
+    settledAt: null,
+    archivedAt: null,
+    ...overrides,
+  };
+}
 
 const seedReadModel = Effect.gen(function* () {
   const now = "2026-01-01T00:00:00.000Z";
@@ -304,6 +342,47 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
     }),
   );
 
+  it.effect("rejects deleting a flow step thread or its descendant", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      for (const threadId of ["thread-parent", "thread-grandchild"]) {
+        const error = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.delete",
+            commandId: asCommandId(`cmd-delete-owned-`),
+            threadId: asThreadId(threadId),
+          },
+          readModel: { ...readModel, cards: [makeFlowCard(["thread-parent"])] },
+        }).pipe(Effect.flip);
+        expect(error.message).toContain("owned by unarchived flow card 'card-delete'");
+      }
+    }),
+  );
+
+  it.effect("continues allowing settlement of a flow-owned thread", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: asCommandId("cmd-settle-owned-root"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel: {
+          ...readModel,
+          cards: [makeFlowCard(["thread-parent"])],
+        },
+      });
+      const events = Array.isArray(result) ? result : [result];
+
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.settled",
+        "thread.settled",
+        "thread.settled",
+      ]);
+    }),
+  );
+
   it.effect("deleting a thread skips sub-agent threads that are already deleted", () =>
     Effect.gen(function* () {
       const readModel = yield* seedHierarchyReadModel;
@@ -326,14 +405,28 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
       const result = yield* decideOrchestrationCommand({
         command: {
           type: "thread.delete",
-          commandId: asCommandId("cmd-thread-delete-parent"),
+          commandId: asCommandId("ordinary-cleanup-command-id"),
           threadId: asThreadId("thread-parent"),
         },
-        readModel: withDeletedChild,
+        readModel: {
+          ...withDeletedChild,
+          cards: [
+            makeFlowCard(["thread-parent"], {
+              operation: {
+                kind: "deleting",
+                operationId: CardOperationId.make("op-legacy-card-delete"),
+                requestedAt: NOW,
+              },
+            }),
+          ],
+        },
       });
       const events = Array.isArray(result) ? result : [result];
       expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
-        [{ type: "thread.deleted", aggregateId: asThreadId("thread-parent") }],
+        [
+          { type: "thread.deleted", aggregateId: asThreadId("thread-grandchild") },
+          { type: "thread.deleted", aggregateId: asThreadId("thread-parent") },
+        ],
       );
     }),
   );

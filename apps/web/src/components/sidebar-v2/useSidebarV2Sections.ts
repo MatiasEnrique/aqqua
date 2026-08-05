@@ -73,6 +73,7 @@ import {
   addEphemeralHiddenWorktreeKey,
   nextEphemeralHiddenWorktreeKeys,
 } from "./ephemeralHiddenWorktrees";
+import { useFlowOwnedThreadKeys } from "./useFlowOwnedThreads";
 import type {
   SidebarProjectsSection,
   SidebarRouteSection,
@@ -843,6 +844,9 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   );
   const snoozedThreadKeysRef = useRef(snoozedThreadKeys);
   snoozedThreadKeysRef.current = snoozedThreadKeys;
+  const flowOwnedThreadKeys = useFlowOwnedThreadKeys(threads);
+  const flowOwnedThreadKeysRef = useRef(flowOwnedThreadKeys);
+  flowOwnedThreadKeysRef.current = flowOwnedThreadKeys;
 
   const jumpLabelByKey = useMemo(() => {
     const mapping = new Map<string, string>();
@@ -916,6 +920,8 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     threadByKeyRef,
     settledThreadKeysRef,
     snoozedThreadKeysRef,
+    flowOwnedThreadKeys,
+    flowOwnedThreadKeysRef,
     jumpLabelByKey,
     showJumpHints,
     setShowJumpHints,

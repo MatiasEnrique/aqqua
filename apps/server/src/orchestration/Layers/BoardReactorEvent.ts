@@ -1,7 +1,11 @@
 import type { CardId, CardOperationId, OrchestrationEvent, ThreadId } from "@aqqua/contracts";
 import * as Context from "effect/Context";
 
-import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
+import type { BoardReactorEvent as BoardReactorCoreEvent } from "./BoardStepEntrySaga.ts";
+
+export type BoardReactorEvent =
+  | BoardReactorCoreEvent
+  | Extract<OrchestrationEvent, { type: "thread.deleted" | "thread.archived" }>;
 
 /**
  * Test-only: when provided, processEvent dies for matching event types so
@@ -35,6 +39,8 @@ export function eventThreadId(event: BoardReactorEvent): ThreadId | null {
     case "thread.activity-appended":
     case "thread.turn-interrupt-requested":
     case "thread.turn-start-requested":
+    case "thread.deleted":
+    case "thread.archived":
       return event.payload.threadId;
     default:
       return null;
@@ -66,4 +72,6 @@ export const isBoardReactorEvent = (event: OrchestrationEvent): event is BoardRe
   event.type === "thread.session-set" ||
   event.type === "thread.activity-appended" ||
   event.type === "thread.turn-interrupt-requested" ||
-  event.type === "thread.turn-start-requested";
+  event.type === "thread.turn-start-requested" ||
+  event.type === "thread.deleted" ||
+  event.type === "thread.archived";

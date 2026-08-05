@@ -71,8 +71,11 @@ export const ConversationSettledRow = memo(function ConversationSettledRow(
           actions={
             <>
               {/* Deletion needs no server capability, so it renders even where
-                  settlement is unsupported. */}
-              <SidebarCardDeleteButton onDelete={row.handleDeleteClick} />
+                  settlement is unsupported — but never for a conversation a
+                  live flow card still owns. */}
+              {props.deletable ? (
+                <SidebarCardDeleteButton onDelete={row.handleDeleteClick} />
+              ) : null}
               {props.settlementSupported ? (
                 <SidebarCardUnsettleButton onUnsettle={row.handleUnsettleClick} />
               ) : null}

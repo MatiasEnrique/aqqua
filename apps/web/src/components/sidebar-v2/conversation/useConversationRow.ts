@@ -49,6 +49,7 @@ export interface ConversationRowProps {
   readonly settlementSupported: boolean;
   /** Same contract for thread.snooze/unsnooze. */
   readonly snoozeSupported: boolean;
+  readonly deletable: boolean;
   /** 0 for a root conversation, 1+ for a sub-agent spawned by an orchestrator. */
   readonly depth: number;
   /** Direct sub-agent count among the rows this section renders. */

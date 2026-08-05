@@ -2,9 +2,12 @@ import {
   boardArtifactFileName,
   type CardOperationKind,
   type CardStepState,
+  canDeleteCard,
+  cardActionAvailability,
   cardCurrentStepIndex,
   cardOperation,
   cardStepThreadId,
+  isCardStarting,
   selectCardSteps,
   selectSubAgentThreads,
 } from "@aqqua/client-runtime/state/boards";
@@ -145,6 +148,75 @@ export function isPendingOperationResolved(
   if (card === null) return true;
   if (cardOperation(card) !== null) return true;
   return card.updatedAt !== pending.cardUpdatedAt;
+}
+
+export type CardThreadPresence = "linked" | "starting" | "preparing" | "unavailable" | "unreleased";
+
+const STEP_ENTRY_OPERATIONS: ReadonlySet<CardOperationKind> = new Set<CardOperationKind>([
+  "starting",
+  "advancing",
+  "retrying",
+]);
+
+export function resolveCardThreadPresence(input: {
+  readonly card: OrchestrationCard;
+  readonly selection: CardSelection;
+  readonly threadId: ThreadId | null;
+  readonly threadShellExists: boolean;
+}): CardThreadPresence {
+  const { card, selection, threadId } = input;
+  if (threadId !== null) {
+    return input.threadShellExists ? "linked" : "unavailable";
+  }
+  if (isCardStarting(card)) return "starting";
+  if (card.position.kind === "todo") return "unreleased";
+  const operation = cardOperation(card);
+  if (
+    card.position.kind === "step" &&
+    selection.stepIndex === card.position.stepIndex &&
+    operation !== null &&
+    STEP_ENTRY_OPERATIONS.has(operation)
+  ) {
+    return "preparing";
+  }
+  return "unavailable";
+}
+
+export interface CardThreadRecovery {
+  readonly canRetryStep: boolean;
+  readonly canMarkDone: boolean;
+  readonly canReset: boolean;
+  readonly canDelete: boolean;
+}
+
+const NO_RECOVERY: CardThreadRecovery = Object.freeze({
+  canRetryStep: false,
+  canMarkDone: false,
+  canReset: false,
+  canDelete: false,
+});
+
+export function cardThreadRecovery(input: {
+  readonly card: OrchestrationCard;
+  readonly selection: CardSelection;
+  readonly resetSupported?: boolean;
+}): CardThreadRecovery {
+  const { card, selection } = input;
+  if (
+    card.position.kind !== "step" ||
+    selection.kind !== "step" ||
+    selection.stepIndex !== card.position.stepIndex ||
+    card.settledAt !== null
+  ) {
+    return NO_RECOVERY;
+  }
+  const availability = cardActionAvailability(card);
+  return {
+    canRetryStep: availability.canRetry,
+    canMarkDone: availability.canContinue,
+    canReset: availability.canReset && input.resetSupported !== false,
+    canDelete: canDeleteCard(card),
+  };
 }
 
 // ── Tree model ─────────────────────────────────────────────────

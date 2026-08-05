@@ -21,8 +21,10 @@ import type * as PlatformError from "effect/PlatformError";
  */
 import { boardOperationThreadId, hasOpenBlockingRequest } from "./boardCardHelpers.ts";
 import {
+  listActiveDescendantDeletionRoots,
   listThreadsByParentThreadId,
   listThreadsByProjectId,
+  listUnarchivedCardsOwningThread,
   requireActiveProjectWorkspaceRootAbsent,
   requireBoard,
   requireBoardAbsent,
@@ -435,14 +437,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const blockingOwner = listUnarchivedCardsOwningThread(readModel, command.threadId).find(
+        (card) => card.operation?.kind !== "deleting",
+      );
+      if (blockingOwner !== undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is owned by unarchived flow card '${blockingOwner.id}' and cannot be deleted directly; reset or delete the flow card instead.`,
+        });
+      }
       // Deleting an orchestrator thread takes its sub-agent threads with it:
       // each child is deleted through its own thread.delete so grandchildren
       // cascade too and every descendant gets its own thread.deleted event
       // (session shutdown, attachment cleanup, and client updates all key off
       // per-thread events).
-      const activeChildThreads = listThreadsByParentThreadId(readModel, command.threadId).filter(
-        (thread) => thread.deletedAt === null,
-      );
+      const activeChildThreads = listActiveDescendantDeletionRoots(readModel, command.threadId);
       if (activeChildThreads.length > 0) {
         return yield* decideCommandSequence({
           readModel,
