@@ -10,6 +10,7 @@ import {
   EventId,
   type IsoDateTime,
   MessageId,
+  type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationThread,
   type ProjectId,
@@ -32,6 +33,7 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import {
@@ -46,11 +48,22 @@ import {
   AgentTerminalRuntimeError,
   AgentWorkspaceNotFoundError,
 } from "../Errors.ts";
-import { type AgentInstanceCandidate, resolveAgentProfile } from "../Profiles.ts";
+import {
+  type AgentInstanceCandidate,
+  resolveAgentProfile,
+  type ResolvedAgentProfile,
+} from "../Profiles.ts";
+import {
+  type AgentModelSelection,
+  listAgentModels,
+  resolveAgentModelSelection,
+  type ResolvedAgentLaunch,
+} from "../ModelCatalog.ts";
 import {
   AgentControl,
   type AgentControlShape,
   type AgentHandle,
+  type AgentModelSummary,
   type AgentRunResult,
   type AgentProfileSummary,
   type AgentRunStatus,
@@ -120,6 +133,7 @@ const make = Effect.gen(function* () {
   const projection = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const registry = yield* ProviderAdapterRegistry;
+  const providerRegistry = yield* ProviderRegistry;
   const settings = yield* ServerSettingsService;
   const terminals = yield* TerminalManager.TerminalManager;
   const crypto = yield* Crypto.Crypto;
@@ -198,13 +212,21 @@ const make = Effect.gen(function* () {
    * A PTY-hosted sub-agent has no provider session, so operations that wait on one
    * must refuse rather than wait forever.
    */
-  const subAgentRuntime = (thread: OrchestrationThread): "session" | "terminal" => {
+  const subAgentLinkPayload = (thread: OrchestrationThread): Record<string, unknown> => {
     const linked = thread.activities.find((activity) => activity.kind === "agent.parent.linked");
-    const payload =
-      typeof linked?.payload === "object" && linked.payload !== null
-        ? (linked.payload as Record<string, unknown>)
-        : {};
-    return payload.runtime === "terminal" ? "terminal" : "session";
+    return typeof linked?.payload === "object" && linked.payload !== null
+      ? (linked.payload as Record<string, unknown>)
+      : {};
+  };
+
+  const subAgentRuntime = (thread: OrchestrationThread): "session" | "terminal" =>
+    subAgentLinkPayload(thread).runtime === "terminal" ? "terminal" : "session";
+
+  const subAgentCompatibilityLabel = (thread: OrchestrationThread): string => {
+    const payload = subAgentLinkPayload(thread);
+    return typeof payload.profile === "string"
+      ? payload.profile
+      : (thread.title.split(":")[0] ?? "").trim();
   };
 
   const listSubAgentShells = (operation: string, parentThreadId: ThreadId) =>
@@ -362,27 +384,15 @@ const make = Effect.gen(function* () {
     readonly operation: string;
     readonly projectId: ProjectId;
     readonly projectWorkspaceRoot: string;
-    readonly projectDefaultModelSelection: Parameters<
-      typeof resolveAgentProfile
-    >[0]["projectDefaultModelSelection"];
     readonly parentThreadId: ThreadId | null;
     readonly branch: string | null;
     readonly worktreePath: string | null;
-    readonly profile: AgentProfileName;
+    readonly compatibilityLabel: string;
+    readonly resolved: ResolvedAgentLaunch | ResolvedAgentProfile;
     readonly task: string;
     readonly title?: string;
   }) {
-    const serverSettings = yield* settings.getSettings.pipe(
-      Effect.catchCause(dispatchFailure(input.operation)),
-    );
-    const resolved = yield* Effect.fromResult(
-      resolveAgentProfile({
-        profile: input.profile,
-        profiles: serverSettings.agentProfiles,
-        instances: yield* instanceCandidates,
-        projectDefaultModelSelection: input.projectDefaultModelSelection,
-      }),
-    );
+    const resolved = input.resolved;
 
     const childThreadId = ThreadId.make(yield* uuid);
     const createdAt = yield* nowIso;
@@ -413,7 +423,7 @@ const make = Effect.gen(function* () {
           kind: "agent.cli.started",
           summary: "Started from the aqqua CLI",
           tone: "info",
-          payload: { profile: input.profile, runtime: resolved.runtime },
+          payload: { profile: input.compatibilityLabel, runtime: resolved.runtime },
           createdAt,
         });
       } else {
@@ -428,7 +438,7 @@ const make = Effect.gen(function* () {
           tone: "info",
           payload: {
             parentThreadId: input.parentThreadId,
-            profile: input.profile,
+            profile: input.compatibilityLabel,
             runtime: resolved.runtime,
           },
           createdAt,
@@ -441,7 +451,7 @@ const make = Effect.gen(function* () {
           tone: "tool",
           payload: {
             childThreadId,
-            profile: input.profile,
+            profile: input.compatibilityLabel,
             runtime: resolved.runtime,
             title,
           },
@@ -449,6 +459,9 @@ const make = Effect.gen(function* () {
         });
       }
       if (resolved.runtime === "terminal") {
+        const serverSettings = yield* settings.getSettings.pipe(
+          Effect.catchCause(dispatchFailure(input.operation)),
+        );
         return yield* openAgentTerminal({
           childThreadId,
           cwd: input.worktreePath ?? input.projectWorkspaceRoot,
@@ -483,7 +496,7 @@ const make = Effect.gen(function* () {
           Effect.andThen(
             Effect.fail(
               new AgentLaunchFailedError({
-                profile: input.profile,
+                profile: input.compatibilityLabel,
                 detail: Cause.hasInterrupts(cause)
                   ? "the request was interrupted before the sub-agent could start."
                   : Cause.pretty(cause),
@@ -496,28 +509,65 @@ const make = Effect.gen(function* () {
 
     return {
       threadId: childThreadId,
-      profile: input.profile,
+      profile: input.compatibilityLabel,
       // Set for a PTY-hosted sub-agent. A `session` sub-agent gets its terminal
       // from the UI on demand, like any other thread.
       terminalId,
     } satisfies AgentHandle;
   });
 
-  const spawn: AgentControlShape["spawn"] = Effect.fn("AgentControl.spawn")(function* (input) {
-    const parent = yield* requireOrchestrator(input.parentThreadId);
+  const resolveCatalogLaunch = Effect.fn("AgentControl.resolveCatalogLaunch")(function* (input: {
+    readonly operation: string;
+    readonly projectDefaultModelSelection: ModelSelection | null;
+    readonly selection: AgentModelSelection;
+  }) {
+    const providers = yield* providerRegistry.getProviders.pipe(
+      Effect.catchCause(dispatchFailure(input.operation)),
+    );
+    const resolved = yield* Effect.fromResult(
+      resolveAgentModelSelection({
+        providers,
+        projectDefaultModelSelection: input.projectDefaultModelSelection,
+        selection: input.selection,
+      }),
+    );
+    return { resolved, compatibilityLabel: resolved.titlePrefix } as const;
+  });
 
-    const existing = yield* listSubAgentShells("spawn", input.parentThreadId);
+  const resolveProfileLaunch = Effect.fn("AgentControl.resolveProfileLaunch")(function* (input: {
+    readonly operation: string;
+    readonly projectDefaultModelSelection: ModelSelection | null;
+    readonly profile: AgentProfileName;
+  }) {
+    const serverSettings = yield* settings.getSettings.pipe(
+      Effect.catchCause(dispatchFailure(input.operation)),
+    );
+    const resolved = yield* Effect.fromResult(
+      resolveAgentProfile({
+        profile: input.profile,
+        profiles: serverSettings.agentProfiles,
+        instances: yield* instanceCandidates,
+        projectDefaultModelSelection: input.projectDefaultModelSelection,
+      }),
+    );
+    return { resolved, compatibilityLabel: input.profile as string } as const;
+  });
+
+  const prepareParentLaunch = Effect.fn("AgentControl.prepareParentLaunch")(function* (
+    parentThreadId: ThreadId,
+  ) {
+    const parent = yield* requireOrchestrator(parentThreadId);
+    const existing = yield* listSubAgentShells("spawn", parentThreadId);
     const statuses = yield* Effect.forEach(existing, (thread) =>
       readAgentRunStatus("spawn", thread),
     );
     const live = existing.filter((_, index) => statuses[index] === "running");
     if (live.length >= MAX_LIVE_SUB_AGENTS_PER_PARENT) {
       return yield* new AgentConcurrencyLimitError({
-        parentThreadId: input.parentThreadId,
+        parentThreadId,
         limit: MAX_LIVE_SUB_AGENTS_PER_PARENT,
       });
     }
-
     const project = yield* readProject("spawn", parent.projectId);
     if (project === null) {
       return yield* new AgentDispatchError({
@@ -525,84 +575,148 @@ const make = Effect.gen(function* () {
         detail: "the orchestrator's project no longer exists.",
       });
     }
+    return { parent, project } as const;
+  });
+
+  const spawn: AgentControlShape["spawn"] = Effect.fn("AgentControl.spawn")(function* (input) {
+    const { parent, project } = yield* prepareParentLaunch(input.parentThreadId);
+    const launch = yield* resolveCatalogLaunch({
+      operation: "spawn",
+      projectDefaultModelSelection: project.defaultModelSelection,
+      selection: input.selection,
+    });
     return yield* launchAgent({
       operation: "spawn",
       projectId: parent.projectId,
       projectWorkspaceRoot: project.workspaceRoot,
-      projectDefaultModelSelection: project.defaultModelSelection,
       parentThreadId: input.parentThreadId,
       branch: parent.branch,
       worktreePath: parent.worktreePath,
-      profile: input.profile,
+      ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
     });
   });
 
+  const spawnProfile: AgentControlShape["spawnProfile"] = Effect.fn("AgentControl.spawnProfile")(
+    function* (input) {
+      const { parent, project } = yield* prepareParentLaunch(input.parentThreadId);
+      const launch = yield* resolveProfileLaunch({
+        operation: "spawn",
+        projectDefaultModelSelection: project.defaultModelSelection,
+        profile: input.profile,
+      });
+      return yield* launchAgent({
+        operation: "spawn",
+        projectId: parent.projectId,
+        projectWorkspaceRoot: project.workspaceRoot,
+        parentThreadId: input.parentThreadId,
+        branch: parent.branch,
+        worktreePath: parent.worktreePath,
+        ...launch,
+        task: input.task,
+        ...(input.title === undefined ? {} : { title: input.title }),
+      });
+    },
+  );
+
+  const resolveStandaloneWorkspace = Effect.fn("AgentControl.resolveStandaloneWorkspace")(
+    function* (requested: string) {
+      const requestedCwd = path.resolve(requested);
+      const cwd = yield* fileSystem
+        .realPath(requestedCwd)
+        .pipe(Effect.orElseSucceed(() => requestedCwd));
+      const [snapshot, archivedSnapshot] = yield* Effect.all([
+        projection.getShellSnapshot(),
+        projection.getArchivedShellSnapshot(),
+      ]).pipe(Effect.catchCause(dispatchFailure("spawnStandalone")));
+      const isWithin = (root: string) => {
+        const relative = path.relative(path.resolve(root), cwd);
+        return (
+          relative === "" ||
+          (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+        );
+      };
+      const projectById = new Map(snapshot.projects.map((project) => [project.id, project]));
+      const candidates = [
+        ...[...snapshot.threads, ...archivedSnapshot.threads].flatMap((thread) =>
+          thread.worktreePath !== null && isWithin(thread.worktreePath)
+            ? [
+                {
+                  root: path.resolve(thread.worktreePath),
+                  projectId: thread.projectId,
+                  branch: thread.branch,
+                  worktreePath: thread.worktreePath,
+                  priority: 1,
+                },
+              ]
+            : [],
+        ),
+        ...snapshot.projects.flatMap((project) =>
+          isWithin(project.workspaceRoot)
+            ? [
+                {
+                  root: path.resolve(project.workspaceRoot),
+                  projectId: project.id,
+                  branch: null,
+                  worktreePath: null,
+                  priority: 0,
+                },
+              ]
+            : [],
+        ),
+      ].toSorted(
+        (left, right) => right.root.length - left.root.length || right.priority - left.priority,
+      );
+      const target = candidates[0];
+      const project = target === undefined ? undefined : projectById.get(target.projectId);
+      if (target === undefined || project === undefined) {
+        return yield* new AgentWorkspaceNotFoundError({});
+      }
+
+      return { project, target } as const;
+    },
+  );
+
   const spawnStandalone: AgentControlShape["spawnStandalone"] = Effect.fn(
     "AgentControl.spawnStandalone",
   )(function* (input) {
-    const requestedCwd = path.resolve(input.cwd);
-    const cwd = yield* fileSystem
-      .realPath(requestedCwd)
-      .pipe(Effect.orElseSucceed(() => requestedCwd));
-    const [snapshot, archivedSnapshot] = yield* Effect.all([
-      projection.getShellSnapshot(),
-      projection.getArchivedShellSnapshot(),
-    ]).pipe(Effect.catchCause(dispatchFailure("spawnStandalone")));
-    const isWithin = (root: string) => {
-      const relative = path.relative(path.resolve(root), cwd);
-      return (
-        relative === "" ||
-        (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
-      );
-    };
-    const projectById = new Map(snapshot.projects.map((project) => [project.id, project]));
-    const candidates = [
-      ...[...snapshot.threads, ...archivedSnapshot.threads].flatMap((thread) =>
-        thread.worktreePath !== null && isWithin(thread.worktreePath)
-          ? [
-              {
-                root: path.resolve(thread.worktreePath),
-                projectId: thread.projectId,
-                branch: thread.branch,
-                worktreePath: thread.worktreePath,
-                priority: 1,
-              },
-            ]
-          : [],
-      ),
-      ...snapshot.projects.flatMap((project) =>
-        isWithin(project.workspaceRoot)
-          ? [
-              {
-                root: path.resolve(project.workspaceRoot),
-                projectId: project.id,
-                branch: null,
-                worktreePath: null,
-                priority: 0,
-              },
-            ]
-          : [],
-      ),
-    ].toSorted(
-      (left, right) => right.root.length - left.root.length || right.priority - left.priority,
-    );
-    const target = candidates[0];
-    const project = target === undefined ? undefined : projectById.get(target.projectId);
-    if (target === undefined || project === undefined) {
-      return yield* new AgentWorkspaceNotFoundError({});
-    }
-
+    const { project, target } = yield* resolveStandaloneWorkspace(input.cwd);
+    const launch = yield* resolveCatalogLaunch({
+      operation: "spawnStandalone",
+      projectDefaultModelSelection: project.defaultModelSelection,
+      selection: input.selection,
+    });
     return yield* launchAgent({
       operation: "spawnStandalone",
       projectId: project.id,
       projectWorkspaceRoot: project.workspaceRoot,
-      projectDefaultModelSelection: project.defaultModelSelection,
       parentThreadId: null,
       branch: target.branch,
       worktreePath: target.worktreePath,
+      ...launch,
+      task: input.task,
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
+  });
+
+  const spawnStandaloneProfile: AgentControlShape["spawnStandaloneProfile"] = Effect.fn(
+    "AgentControl.spawnStandaloneProfile",
+  )(function* (input) {
+    const { project, target } = yield* resolveStandaloneWorkspace(input.cwd);
+    const launch = yield* resolveProfileLaunch({
+      operation: "spawnStandalone",
+      projectDefaultModelSelection: project.defaultModelSelection,
       profile: input.profile,
+    });
+    return yield* launchAgent({
+      operation: "spawnStandalone",
+      projectId: project.id,
+      projectWorkspaceRoot: project.workspaceRoot,
+      parentThreadId: null,
+      branch: target.branch,
+      worktreePath: target.worktreePath,
+      ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
     });
@@ -641,9 +755,7 @@ const make = Effect.gen(function* () {
 
     return {
       threadId: input.childThreadId,
-      // The role is not persisted on the thread; the title prefix written at
-      // spawn time is the cheap stand-in. `list` documents the same limitation.
-      profile: (child.title.split(":")[0] ?? "").trim() as AgentProfileName,
+      profile: subAgentCompatibilityLabel(child),
       terminalId: null,
     } satisfies AgentHandle;
   });
@@ -867,14 +979,66 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const listProjectModels = Effect.fn("AgentControl.listProjectModels")(function* (input: {
+    readonly operation: string;
+    readonly projectDefaultModelSelection: ModelSelection | null;
+  }) {
+    const providers = yield* providerRegistry.getProviders.pipe(
+      Effect.catchCause(dispatchFailure(input.operation)),
+    );
+    return listAgentModels({
+      providers,
+      projectDefaultModelSelection: input.projectDefaultModelSelection,
+    }).map(
+      (row): AgentModelSummary => ({
+        instanceId: row.instanceId,
+        driver: row.driverKind,
+        providerName: row.providerName,
+        model: row.model,
+        available: row.available,
+        unavailableReason: row.unavailableReason,
+        isProjectDefault: row.isProjectDefault,
+      }),
+    );
+  });
+
+  const models: AgentControlShape["models"] = Effect.fn("AgentControl.models")(function* (input) {
+    const parent = yield* requireOrchestrator(input.parentThreadId);
+    const project = yield* readProject("models", parent.projectId);
+    if (project === null) {
+      return yield* new AgentDispatchError({
+        operation: "models",
+        detail: "the orchestrator's project no longer exists.",
+      });
+    }
+    return yield* listProjectModels({
+      operation: "models",
+      projectDefaultModelSelection: project.defaultModelSelection,
+    });
+  });
+
+  const modelsStandalone: AgentControlShape["modelsStandalone"] = Effect.fn(
+    "AgentControl.modelsStandalone",
+  )(function* (input) {
+    const { project } = yield* resolveStandaloneWorkspace(input.cwd);
+    return yield* listProjectModels({
+      operation: "modelsStandalone",
+      projectDefaultModelSelection: project.defaultModelSelection,
+    });
+  });
+
   return {
     spawn,
+    spawnProfile,
     spawnStandalone,
+    spawnStandaloneProfile,
     send,
     awaitTurn,
     interrupt,
     list,
     profiles,
+    models,
+    modelsStandalone,
   } satisfies AgentControlShape;
 });
 

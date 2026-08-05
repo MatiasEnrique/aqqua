@@ -1,17 +1,24 @@
 /**
  * Typed failures for orchestrator → sub-agent delegation.
  *
- * Error messages name profiles, thread ids, and roles — never provider instance
- * ids, credentials, worktree paths, or orchestration command shapes. These
- * messages are surfaced to the orchestrating agent, so anything in them is
- * effectively disclosed to a model.
+ * Error messages name profiles, thread ids, and roles — never credentials,
+ * worktree paths, or orchestration command shapes. These messages are surfaced
+ * to the orchestrating agent, so anything in them is effectively disclosed to a
+ * model.
+ *
+ * Model-catalog failures are the one place instance ids appear: an orchestrator
+ * selects a row *by* instance id and lists them through `agent models`, so
+ * naming the id it just typed discloses nothing it did not already hold. The
+ * legacy profile errors keep hiding instance ids, because a profile's target is
+ * machine-local configuration the caller never named.
  *
  * @module agent-control/Errors
  */
-import { ThreadId } from "@aqqua/contracts";
+import { ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 import * as Schema from "effect/Schema";
 
 const ProfileName = Schema.String;
+const ModelSlug = Schema.String;
 
 export class AgentProfileUnknownError extends Schema.TaggedErrorClass<AgentProfileUnknownError>()(
   "AgentProfileUnknownError",
@@ -40,6 +47,94 @@ export class AgentProfileUnavailableError extends Schema.TaggedErrorClass<AgentP
     return `Agent profile '${this.profile}' is not usable: ${this.detail}`;
   }
 }
+
+export class AgentModelInstanceUnknownError extends Schema.TaggedErrorClass<AgentModelInstanceUnknownError>()(
+  "AgentModelInstanceUnknownError",
+  {
+    instanceId: ProviderInstanceId,
+    availableInstanceIds: Schema.Array(ProviderInstanceId),
+  },
+) {
+  override get message(): string {
+    const available =
+      this.availableInstanceIds.length === 0
+        ? "no provider instances are configured"
+        : `configured instances: ${this.availableInstanceIds.join(", ")}`;
+    return `Unknown provider instance '${this.instanceId}' (${available}).`;
+  }
+}
+
+export class AgentModelInstanceUnavailableError extends Schema.TaggedErrorClass<AgentModelInstanceUnavailableError>()(
+  "AgentModelInstanceUnavailableError",
+  {
+    instanceId: ProviderInstanceId,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Provider instance '${this.instanceId}' cannot run a sub-agent: ${this.detail}`;
+  }
+}
+
+export class AgentModelUnknownError extends Schema.TaggedErrorClass<AgentModelUnknownError>()(
+  "AgentModelUnknownError",
+  {
+    instanceId: ProviderInstanceId,
+    model: ModelSlug,
+    availableModels: Schema.Array(ModelSlug),
+  },
+) {
+  override get message(): string {
+    const available =
+      this.availableModels.length === 0
+        ? "it advertises no models"
+        : `it offers: ${this.availableModels.join(", ")}`;
+    return `Provider instance '${this.instanceId}' has no model '${this.model}' (${available}).`;
+  }
+}
+
+export class AgentModelReasoningUnsupportedError extends Schema.TaggedErrorClass<AgentModelReasoningUnsupportedError>()(
+  "AgentModelReasoningUnsupportedError",
+  {
+    instanceId: ProviderInstanceId,
+    model: ModelSlug,
+  },
+) {
+  override get message(): string {
+    return `Model '${this.model}' on '${this.instanceId}' does not expose a reasoning level. Spawn it without one.`;
+  }
+}
+
+export class AgentModelReasoningInvalidError extends Schema.TaggedErrorClass<AgentModelReasoningInvalidError>()(
+  "AgentModelReasoningInvalidError",
+  {
+    instanceId: ProviderInstanceId,
+    model: ModelSlug,
+    reasoning: Schema.String,
+    supported: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `Model '${this.model}' on '${this.instanceId}' does not support reasoning '${this.reasoning}' (supported: ${this.supported.join(", ")}).`;
+  }
+}
+
+export class AgentModelCatalogEmptyError extends Schema.TaggedErrorClass<AgentModelCatalogEmptyError>()(
+  "AgentModelCatalogEmptyError",
+  {},
+) {
+  override get message(): string {
+    return "No configured provider can run a sub-agent right now. Enable, install, or sign in to a provider in aqqua settings.";
+  }
+}
+
+export type AgentModelCatalogError =
+  | AgentModelInstanceUnknownError
+  | AgentModelInstanceUnavailableError
+  | AgentModelUnknownError
+  | AgentModelReasoningUnsupportedError
+  | AgentModelReasoningInvalidError
+  | AgentModelCatalogEmptyError;
 
 export class AgentParentNotFoundError extends Schema.TaggedErrorClass<AgentParentNotFoundError>()(
   "AgentParentNotFoundError",
@@ -143,6 +238,7 @@ export class AgentDispatchError extends Schema.TaggedErrorClass<AgentDispatchErr
 export type AgentControlError =
   | AgentProfileUnknownError
   | AgentProfileUnavailableError
+  | AgentModelCatalogError
   | AgentParentNotFoundError
   | AgentWorkspaceNotFoundError
   | AgentNotOwnedError

@@ -47,6 +47,10 @@ function selectDescriptor(
     id,
     label,
     type: "select" as const,
+    // Cursor emits its effort control under the native id `reasoning`, and that
+    // is the descriptor the agent catalog resolves a semantic reasoning level
+    // against — its thinking boolean is a separate, unmarked toggle.
+    ...(id === "reasoning" ? { semantic: "reasoning" as const } : {}),
     options: [...options],
     ...(options.find((option) => option.isDefault)?.id
       ? { currentValue: options.find((option) => option.isDefault)?.id }
@@ -390,6 +394,15 @@ describe("buildCursorCapabilitiesFromConfigOptions", () => {
         ],
       }),
     );
+  });
+
+  it("marks only the effort select as reasoning, never the thinking boolean", () => {
+    const capabilities = buildCursorCapabilitiesFromConfigOptions(parameterizedClaudeConfigOptions);
+
+    const marked = (capabilities.optionDescriptors ?? []).filter(
+      (descriptor) => descriptor.semantic === "reasoning",
+    );
+    expect(marked.map((descriptor) => descriptor.id)).toEqual(["reasoning"]);
   });
 
   it("detects boolean thinking toggles from model_config options", () => {

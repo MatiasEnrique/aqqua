@@ -16,11 +16,13 @@ import {
   AgentInterruptRequest,
   AgentInterruptResponse,
   AgentListResponse,
+  AgentModelsResponse,
   AgentProfileName,
   AgentProfilesResponse,
   AgentSendRequest,
   AgentSendResponse,
   AgentSpawnRequest,
+  type AgentSpawnRequest as AgentSpawnRequestType,
   AgentSpawnResponse,
   ThreadId,
 } from "@aqqua/contracts";
@@ -72,10 +74,12 @@ const authenticate = Effect.fn("agentControl.authenticate")(function* () {
 });
 
 const INVALID_PROFILE_NAME_TAG = "InvalidAgentProfileNameError";
+const CONFLICTING_SELECTORS_TAG = "AgentSpawnSelectorConflictError";
 
-const failureStatus = (tag: string): number => {
+export const agentFailureStatus = (tag: string): number => {
   if (tag === "AgentNotOwnedError") return 403;
-  if (tag === INVALID_PROFILE_NAME_TAG) return 400;
+  if (tag === INVALID_PROFILE_NAME_TAG || tag === CONFLICTING_SELECTORS_TAG) return 400;
+  if (tag === "AgentModelInstanceUnknownError" || tag === "AgentModelUnknownError") return 404;
   return 409;
 };
 
@@ -85,7 +89,7 @@ const failureResponse = (error: { readonly _tag: string; readonly message: strin
     AgentErrorResponse,
     { error: error._tag, message: error.message },
     {
-      status: failureStatus(error._tag),
+      status: agentFailureStatus(error._tag),
       headers: { "cache-control": "no-store" },
     },
   );
@@ -110,6 +114,42 @@ const decodeProfileName = (value: string) =>
         "use only letters, digits, '-' or '_'. Run `aqqua agent profiles` to see the configured profiles.",
     })),
   );
+
+const selectorConflict = {
+  _tag: CONFLICTING_SELECTORS_TAG,
+  message:
+    "'profile' cannot be combined with 'modelSelection' or 'reasoning'. Choose one selector style.",
+} as const;
+
+export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(function* (input: {
+  readonly agents: AgentControl["Service"];
+  readonly parentThreadId: ThreadId;
+  readonly body: AgentSpawnRequestType;
+}) {
+  const { agents, body, parentThreadId } = input;
+  const shared = {
+    parentThreadId,
+    task: body.task,
+    ...(body.title === undefined ? {} : { title: body.title }),
+  };
+  if (
+    body.profile !== undefined &&
+    (body.modelSelection !== undefined || body.reasoning !== undefined)
+  ) {
+    return yield* Effect.fail(selectorConflict);
+  }
+  if (body.profile !== undefined) {
+    const profile = yield* decodeProfileName(body.profile);
+    return yield* agents.spawnProfile({ ...shared, profile });
+  }
+  return yield* agents.spawn({
+    ...shared,
+    selection: {
+      model: body.modelSelection ?? null,
+      ...(body.reasoning === undefined ? {} : { reasoning: body.reasoning }),
+    },
+  });
+});
 
 const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
   Effect.gen(function* () {
@@ -160,18 +200,7 @@ export const agentControlRouteLayer = Layer.unwrap(
         route(AgentSpawnResponse, (parentThreadId) =>
           decodeBody(AgentSpawnRequest).pipe(
             Effect.orDie,
-            Effect.flatMap((body) =>
-              decodeProfileName(body.profile).pipe(
-                Effect.flatMap((profile) =>
-                  agents.spawn({
-                    parentThreadId,
-                    profile,
-                    task: body.task,
-                    ...(body.title === undefined ? {} : { title: body.title }),
-                  }),
-                ),
-              ),
-            ),
+            Effect.flatMap((body) => dispatchAgentSpawn({ agents, parentThreadId, body })),
           ),
         ),
       ),
@@ -221,6 +250,13 @@ export const agentControlRouteLayer = Layer.unwrap(
                 .pipe(Effect.as({ interrupted: body.threadId })),
             ),
           ),
+        ),
+      ),
+      HttpRouter.route(
+        "GET",
+        `${AGENT_API_PREFIX}/models`,
+        route(AgentModelsResponse, (parentThreadId) =>
+          agents.models({ parentThreadId }).pipe(Effect.map((models) => ({ models }))),
         ),
       ),
       HttpRouter.route(

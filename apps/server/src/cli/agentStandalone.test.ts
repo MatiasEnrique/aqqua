@@ -1,11 +1,57 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AuthOrchestrationOperateScope, AuthSessionId } from "@aqqua/contracts";
+import { AuthOrchestrationOperateScope, AuthSessionId, ProviderInstanceId } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import { requireStandaloneUserPresence, withStandaloneAgentSession } from "./agentStandalone.ts";
+import {
+  requireStandaloneUserPresence,
+  standaloneSpawnPayload,
+  withStandaloneAgentSession,
+} from "./agentStandalone.ts";
+
+it("forwards canonical standalone model selection and reasoning unchanged", () => {
+  assert.deepEqual(
+    standaloneSpawnPayload({
+      cwd: "/tmp/project",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("pi-work"),
+        model: "openrouter/anthropic/claude-sonnet-5",
+        options: [{ id: "serviceTier", value: "priority" }],
+      },
+      reasoning: "high",
+      task: "Implement it",
+    }),
+    {
+      cwd: "/tmp/project",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("pi-work"),
+        model: "openrouter/anthropic/claude-sonnet-5",
+        options: [{ id: "serviceTier", value: "priority" }],
+      },
+      reasoning: "high",
+      task: "Implement it",
+    },
+  );
+});
+
+it("forwards legacy standalone profiles through the compatibility field", () => {
+  assert.deepEqual(
+    standaloneSpawnPayload({
+      cwd: "/tmp/project",
+      profile: "terminalImplementer",
+      task: "Run interactively",
+      title: "Terminal lane",
+    }),
+    {
+      cwd: "/tmp/project",
+      profile: "terminalImplementer",
+      task: "Run interactively",
+      title: "Terminal lane",
+    },
+  );
+});
 
 it.effect("requires an attached interactive terminal before standalone authorization", () =>
   Effect.gen(function* () {

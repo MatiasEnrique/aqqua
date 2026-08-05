@@ -38,6 +38,7 @@ it("maps current Codex model capability fields", () => {
       id: "reasoningEffort",
       label: "Reasoning",
       type: "select",
+      semantic: "reasoning",
       options: [{ id: "super-high", label: "super-high", isDefault: true }],
       currentValue: "super-high",
     },
@@ -143,4 +144,28 @@ it("ignores custom models that shadow a preferred slug", () => {
   ]);
 
   assert.deepStrictEqual(models.find((model) => model.isDefault)?.slug, "gpt-5.4");
+});
+
+it("marks the Codex reasoning descriptor without renaming it or marking service tier", () => {
+  const capabilities = mapCodexModelCapabilities({
+    additionalSpeedTiers: [],
+    defaultReasoningEffort: "medium",
+    defaultServiceTier: "default",
+    description: "Test model",
+    displayName: "GPT Test",
+    hidden: false,
+    id: "gpt-test",
+    isDefault: true,
+    model: "gpt-test",
+    serviceTiers: [{ id: "priority", name: "Fast", description: "Lower latency responses." }],
+    supportedReasoningEfforts: [{ description: "Balanced", reasoningEffort: "medium" }],
+  });
+
+  const marked = (capabilities.optionDescriptors ?? []).filter(
+    (descriptor) => descriptor.semantic === "reasoning",
+  );
+  assert.deepStrictEqual(
+    marked.map((descriptor) => descriptor.id),
+    ["reasoningEffort"],
+  );
 });

@@ -1,6 +1,7 @@
 import type {
   ProviderDriverKind,
   ModelCapabilities,
+  ProviderOptionSemantic,
   ServerProvider,
   ServerProviderAuth,
   ServerProviderSkill,
@@ -164,6 +165,15 @@ export function providerModelsFromSettings(
   return [...resolvedBuiltInModels, ...customEntries];
 }
 
+/**
+ * Build a select descriptor.
+ *
+ * Pass `semantic: "reasoning"` for the control that *is* this provider's
+ * reasoning level, whatever it is called natively. Marking is how the agent
+ * catalog offers one conceptual reasoning input across providers that spell the
+ * option `reasoningEffort`, `effort`, or `reasoning`; the `id` is still what
+ * ends up in `ModelSelection.options`.
+ */
 export function buildSelectOptionDescriptor(input: {
   readonly id: string;
   readonly label: string;
@@ -171,6 +181,7 @@ export function buildSelectOptionDescriptor(input: {
     | ReadonlyArray<{ value: string; label: string; isDefault?: boolean | undefined }>
     | undefined;
   readonly description?: string;
+  readonly semantic?: ProviderOptionSemantic;
   readonly promptInjectedValues?: ReadonlyArray<string>;
 }) {
   const options = (input.options ?? []).map((option) =>
@@ -183,6 +194,7 @@ export function buildSelectOptionDescriptor(input: {
     id: input.id,
     label: input.label,
     type: "select" as const,
+    ...(input.semantic ? { semantic: input.semantic } : {}),
     options,
     ...(currentValue ? { currentValue } : {}),
     ...(input.description ? { description: input.description } : {}),

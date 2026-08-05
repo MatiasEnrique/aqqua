@@ -1,8 +1,15 @@
 /**
- * Agent profile resolution.
+ * Agent profile resolution — the legacy compatibility adapter.
  *
  * Turns a role name an orchestrator asks for ("implementer") into the concrete
  * `ModelSelection` + runtime settings a sub-agent thread is created with.
+ *
+ * Superseded as the primary seam by `ModelCatalog`, which selects a provider
+ * model directly and needs no machine-local settings record in front of it.
+ * This module stays because saved profiles, persisted `profileName` flow steps,
+ * and un-migrated `--profile` callers must keep working — and because a
+ * `terminal`-runtime sub-agent is still only reachable here: the catalog
+ * launches sessions, since a PTY cannot be made to honour a chosen model.
  *
  * Kept pure — the caller supplies settings, the live provider instances, and the
  * owning project's default model — so every resolution rule is directly testable

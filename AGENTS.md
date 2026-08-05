@@ -89,25 +89,36 @@ When a task splits cleanly across providers, delegate with `aqqua agent` from yo
 shell. Sub-agents appear nested under this thread in the sidebar and can be opened,
 read, and interrupted while they work.
 
-- `aqqua agent spawn --profile implementer --task-file <path>` — start one; returns immediately.
+- `aqqua agent models` — every advertised provider-instance/model row, plus the
+  reason when a known row cannot currently spawn.
+- `aqqua agent spawn --instance codex --model gpt-5.6-sol --reasoning high --task-file <path>`
+  — start one; returns immediately.
 - `aqqua agent await <threadId>` — wait for its current task; re-run to keep waiting.
 - `aqqua agent send <threadId> --message-file <path>` — continue it with its context intact.
 - `aqqua agent list` / `aqqua agent interrupt <threadId>`.
 
 - `aqqua agent events --follow` — NDJSON as sub-agents start, change status, and settle.
 
-Agents can author flows with `aqqua flow` and manage the machine-local agent profiles
-those flows reference with `aqqua profile`. Start with `aqqua flow schema` and
-`aqqua profile schema`; both command groups support `--json`.
+Pick the agent by model, not by preset: `--instance` and `--model` travel together and
+name an exact catalog row from `aqqua agent models`. `--reasoning` is the semantic level
+(`low`, `high`, …), validated against what that model advertises and written onto the
+provider's own option; omit it to keep the provider's default. Omit the model entirely
+and the spawn falls back to the project's default selection, then to the first instance
+that can host an agent.
+
+`--profile <name>` still works. It is the compatibility path for saved presets and for
+the one thing model selection cannot express: a `terminal`-runtime sub-agent, which runs
+the provider's own CLI in the sub-agent's terminal and is watched rather than awaited
+(`await` and `send` will tell you so). Model-first spawns always run as a session, so
+their reasoning, tool calls, and file changes render as a normal transcript.
+
+Agents can author flows with `aqqua flow`, whose steps name an agent the same way
+(`"agent": {"instanceId", "model", "reasoning"?}`), and manage legacy profiles with
+`aqqua profile`. Start with `aqqua flow schema` and `aqqua profile schema`; both command
+groups support `--json`.
 
 Pass long tasks by file, not inline. Add `--json` for machine-readable output. A
 sub-agent cannot itself delegate.
-
-A profile's runtime decides how its sub-agent is hosted: `session` runs it through a
-provider adapter, so its reasoning, tool calls, and file changes render as a normal
-transcript; `terminal` runs the provider's own CLI in the sub-agent's terminal, which
-you watch rather than await. `aqqua agent await` and `send` do not apply to a
-`terminal` sub-agent and will tell you so.
 
 ## Test data
 

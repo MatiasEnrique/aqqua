@@ -20,10 +20,15 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ServerConfig from "../config.ts";
+import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { AgentCliError } from "./agentCliError.ts";
 import {
   AGENT_API_ENV,
@@ -33,7 +38,8 @@ import {
   detectAgentInvocationAncestry,
 } from "./agentInvocationIdentity.ts";
 import { spawnStandaloneAgent } from "./agentStandalone.ts";
-import { projectLocationFlags } from "./config.ts";
+import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { withEnvironmentCliSessionToken } from "./environmentAccess.ts";
 
 export { AgentCliError } from "./agentCliError.ts";
 import {
@@ -46,13 +52,19 @@ import {
   AgentInterruptResponse,
   AgentListResponse,
   type AgentListResponse as AgentListResponseType,
+  AgentModelsResponse,
+  type AgentModelsResponse as AgentModelsResponseType,
   AgentProfilesResponse,
   type AgentProfilesResponse as AgentProfilesResponseType,
   AgentSendRequest,
   AgentSendResponse,
   AgentSpawnRequest,
   AgentSpawnResponse,
+  AuthOrchestrationReadScope,
+  EnvironmentHttpApi,
+  ProviderInstanceId,
 } from "@aqqua/contracts";
+import { findReasoningDescriptor } from "../agent-control/ModelCatalog.ts";
 
 export { AGENT_API_ENV, AGENT_THREAD_ENV, AGENT_TOKEN_ENV } from "./agentInvocationIdentity.ts";
 
@@ -72,13 +84,14 @@ export const resolveSpawnTransport = (
 };
 
 export const formatSpawnStarted = (input: {
-  readonly profile: string;
+  readonly label: string;
+  readonly selector: "model" | "profile";
   readonly threadId: string;
   readonly transport: "session" | "standalone";
 }): string =>
   input.transport === "session"
-    ? `Started ${input.profile} sub-agent ${input.threadId}. Await it with: aqqua agent await ${input.threadId}`
-    : `Started ${input.profile} agent ${input.threadId}. Open it in aqqua to follow its progress.`;
+    ? `Started ${input.selector} ${input.label} as sub-agent ${input.threadId}. Await it with: aqqua agent await ${input.threadId}`
+    : `Started ${input.selector} ${input.label} as agent ${input.threadId}. Open it in aqqua to follow its progress.`;
 
 const NOT_IN_SESSION_HELP = [
   "This command must run inside an aqqua agent session.",
@@ -112,6 +125,7 @@ export interface AgentApi {
   ) => Effect.Effect<AgentInterruptResponse, AgentCliError>;
   readonly list: () => Effect.Effect<AgentListResponseType, AgentCliError>;
   readonly profiles: () => Effect.Effect<AgentProfilesResponseType, AgentCliError>;
+  readonly models: () => Effect.Effect<AgentModelsResponseType, AgentCliError>;
 }
 
 type ResponseDecoder<A, E> = (body: unknown) => Effect.Effect<A, E>;
@@ -122,6 +136,7 @@ const decodeAgentAwaitResponse = Schema.decodeUnknownEffect(AgentAwaitResponse);
 const decodeAgentInterruptResponse = Schema.decodeUnknownEffect(AgentInterruptResponse);
 const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
 const decodeAgentProfilesResponse = Schema.decodeUnknownEffect(AgentProfilesResponse);
+const decodeAgentModelsResponse = Schema.decodeUnknownEffect(AgentModelsResponse);
 
 const invalidServerResponse = (status: number, path: string) =>
   new AgentCliError({
@@ -218,6 +233,14 @@ const agentApi = Effect.fn("agentCli.api")(function* () {
         "/api/agents/profiles",
         decodeAgentProfilesResponse,
       ),
+    models: () =>
+      send(
+        client.get(`${origin}/api/agents/models`, {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+        "/api/agents/models",
+        decodeAgentModelsResponse,
+      ),
   } satisfies AgentApi;
 });
 
@@ -271,12 +294,107 @@ const emit = (input: { readonly json: boolean; readonly value: unknown; readonly
 
 const cliRuntime = Layer.merge(FetchHttpClient.layer, NodeServices.layer);
 
+export const listStandaloneAgentModels = Effect.fn("agentCli.listStandaloneModels")(
+  function* (input: { readonly flags: CliAuthLocationFlags; readonly cwd?: string }) {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveCliAuthConfig(input.flags, logLevel);
+    const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
+    if (Option.isNone(runtimeState)) {
+      return yield* new AgentCliError({
+        detail:
+          "No running aqqua desktop environment was found. Open the desktop app and try again, " +
+          "or pass --base-dir for a non-default aqqua home.",
+      });
+    }
+
+    return yield* Effect.gen(function* () {
+      const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      return yield* withEnvironmentCliSessionToken(
+        environmentAuth,
+        { scopes: [AuthOrchestrationReadScope], label: "aqqua agent models cli" },
+        (token) =>
+          Effect.gen(function* () {
+            const client = yield* HttpApiClient.make(EnvironmentHttpApi, {
+              baseUrl: runtimeState.value.origin,
+            });
+            return yield* client.agents.standaloneModels({
+              headers: { authorization: `Bearer ${token}` },
+              payload: { cwd: input.cwd ?? process.cwd() },
+            });
+          }),
+      );
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentCliError({
+            detail:
+              cause instanceof Error
+                ? cause.message
+                : `Could not reach the aqqua desktop environment at ${runtimeState.value.origin}.`,
+          }),
+      ),
+      Effect.provide(
+        EnvironmentAuth.runtimeLayer.pipe(
+          Layer.provideMerge(FetchHttpClient.layer),
+          Layer.provide(ServerConfig.layer(config)),
+          Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),
+        ),
+      ),
+    );
+  },
+);
+
+export const resolveSpawnSelector = Effect.fn("agentCli.resolveSpawnSelector")(function* (input: {
+  readonly profile: string | undefined;
+  readonly instance: string | undefined;
+  readonly model: string | undefined;
+  readonly reasoning: string | undefined;
+}) {
+  if (
+    input.profile !== undefined &&
+    (input.instance !== undefined || input.model !== undefined || input.reasoning !== undefined)
+  ) {
+    return yield* new AgentCliError({
+      detail: "--profile cannot be combined with --instance, --model, or --reasoning.",
+    });
+  }
+  if ((input.instance === undefined) !== (input.model === undefined)) {
+    return yield* new AgentCliError({
+      detail: "--instance and --model must be provided together.",
+    });
+  }
+  if (input.profile !== undefined) return { profile: input.profile } as const;
+  return {
+    ...(input.instance === undefined || input.model === undefined
+      ? {}
+      : {
+          modelSelection: {
+            instanceId: ProviderInstanceId.make(input.instance),
+            model: input.model,
+          },
+        }),
+    ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
+  } as const;
+});
+
 const spawnCommand = Command.make("spawn", {
   ...projectLocationFlags,
   json: jsonFlag,
   profile: Flag.string("profile").pipe(
-    Flag.withDescription("Role to run, e.g. implementer."),
-    Flag.withDefault("implementer"),
+    Flag.withDescription("Deprecated profile compatibility selector."),
+    Flag.optional,
+  ),
+  instance: Flag.string("instance").pipe(
+    Flag.withDescription("Exact provider instance id; requires --model."),
+    Flag.optional,
+  ),
+  model: Flag.string("model").pipe(
+    Flag.withDescription("Exact model slug; requires --instance."),
+    Flag.optional,
+  ),
+  reasoning: Flag.string("reasoning").pipe(
+    Flag.withDescription("Semantic reasoning choice advertised by the selected model."),
+    Flag.optional,
   ),
   task: Flag.string("task").pipe(
     Flag.withDescription("Task text. Prefer --task-file for anything long."),
@@ -300,6 +418,12 @@ const spawnCommand = Command.make("spawn", {
         label: "task",
       });
       const title = Option.getOrUndefined(flags.title);
+      const selector = yield* resolveSpawnSelector({
+        profile: Option.getOrUndefined(flags.profile),
+        instance: Option.getOrUndefined(flags.instance),
+        model: Option.getOrUndefined(flags.model),
+        reasoning: Option.getOrUndefined(flags.reasoning),
+      });
       const directTransport = resolveSpawnTransport(process.env);
       const transport =
         directTransport === "standalone"
@@ -314,13 +438,13 @@ const spawnCommand = Command.make("spawn", {
       const result =
         transport === "session"
           ? yield* (yield* agentApi()).spawn({
-              profile: flags.profile,
+              ...selector,
               task,
               ...(title === undefined ? {} : { title }),
             })
           : yield* spawnStandaloneAgent({
               flags,
-              profile: flags.profile,
+              ...selector,
               task,
               ...(title === undefined ? {} : { title }),
             });
@@ -328,7 +452,12 @@ const spawnCommand = Command.make("spawn", {
       yield* emit({
         json: flags.json,
         value: result,
-        text: formatSpawnStarted({ profile: flags.profile, threadId, transport }),
+        text: formatSpawnStarted({
+          label: result.profile,
+          selector: "profile" in selector ? "profile" : "model",
+          threadId,
+          transport,
+        }),
       });
     }).pipe(Effect.provide(cliRuntime)),
   ),
@@ -462,8 +591,78 @@ export const formatProfileLine = (
   return `${profile.name.padEnd(14)} ${model.padEnd(22)} ${notes.join("  ")}`.trimEnd();
 };
 
+export const formatModelLine = (model: AgentModelsResponseType["models"][number]): string => {
+  const reasoning = findReasoningDescriptor(model.model);
+  const notes = [
+    model.isProjectDefault ? "DEFAULT" : undefined,
+    reasoning === undefined || reasoning.type !== "select"
+      ? undefined
+      : `reasoning=${reasoning.options.map((option) => option.id).join(",")}`,
+    model.available ? undefined : `UNAVAILABLE: ${model.unavailableReason ?? "unknown reason"}`,
+  ].filter((note) => note !== undefined);
+  return `${model.providerName} (${model.instanceId}, ${model.driver})  ${model.model.slug}  ${model.model.name}${notes.length === 0 ? "" : `  ${notes.join("  ")}`}`;
+};
+
+export const renderModelsOutput = (result: AgentModelsResponseType, json: boolean): string =>
+  json
+    ? toJsonLine(result)
+    : result.models.length === 0
+      ? "No provider models are available."
+      : result.models.map(formatModelLine).join("\n");
+
+export const loadAgentModels = <
+  SessionError,
+  SessionRequirements,
+  StandaloneError,
+  StandaloneRequirements,
+>(input: {
+  readonly transport: "session" | "standalone";
+  readonly session: () => Effect.Effect<AgentModelsResponseType, SessionError, SessionRequirements>;
+  readonly standalone: () => Effect.Effect<
+    AgentModelsResponseType,
+    StandaloneError,
+    StandaloneRequirements
+  >;
+}): Effect.Effect<
+  AgentModelsResponseType,
+  SessionError | StandaloneError,
+  SessionRequirements | StandaloneRequirements
+> => (input.transport === "session" ? input.session() : input.standalone());
+
+const modelsCommand = Command.make("models", {
+  ...projectLocationFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("List the live model catalog this orchestrator can spawn."),
+  Command.withHandler(
+    Effect.fn("agentCli.models")(function* (flags) {
+      return yield* Effect.gen(function* () {
+        const directTransport = resolveSpawnTransport(process.env);
+        const transport =
+          directTransport === "standalone"
+            ? resolveSpawnTransport(process.env, yield* detectAgentInvocationAncestry())
+            : directTransport;
+        if (transport === "invalid-session") {
+          return yield* new AgentCliError({ detail: INCOMPLETE_SESSION_HELP });
+        }
+        if (transport === "agent-origin") {
+          return yield* new AgentCliError({ detail: AGENT_ORIGIN_HELP });
+        }
+        const result = yield* loadAgentModels({
+          transport,
+          session: () => agentApi().pipe(Effect.flatMap((api) => api.models())),
+          standalone: () => listStandaloneAgentModels({ flags }),
+        });
+        yield* Console.log(renderModelsOutput(result, flags.json));
+      }).pipe(Effect.provide(cliRuntime));
+    }),
+  ),
+);
+
 const profilesCommand = Command.make("profiles", { json: jsonFlag }).pipe(
-  Command.withDescription("List the agent profiles this session can spawn."),
+  Command.withDescription(
+    "Legacy/deprecated: list agent profiles. Use 'aqqua agent models' for model-first orchestration.",
+  ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const api = yield* agentApi();
@@ -577,6 +776,7 @@ export const agentCommand = Command.make("agent").pipe(
     awaitCommand,
     interruptCommand,
     listCommand,
+    modelsCommand,
     profilesCommand,
     eventsCommand,
   ]),

@@ -10,6 +10,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  buildSelectOptionDescriptor,
   isCommandMissingCause,
   providerModelsFromSettings,
   spawnAndCollect,
@@ -132,5 +133,29 @@ describe("ProviderCommandNotFoundError", () => {
       expect(error).not.toHaveProperty("stderr");
       expect(error.message).not.toContain("secret-token-value");
     });
+  });
+});
+
+describe("buildSelectOptionDescriptor", () => {
+  it("carries a semantic marker through without touching the provider-native id", () => {
+    const descriptor = buildSelectOptionDescriptor({
+      id: "effort",
+      label: "Reasoning",
+      semantic: "reasoning",
+      options: [{ value: "high", label: "High", isDefault: true }],
+    });
+
+    expect(descriptor.id).toBe("effort");
+    expect(descriptor.semantic).toBe("reasoning");
+  });
+
+  it("leaves unmarked controls without a semantic field at all", () => {
+    const descriptor = buildSelectOptionDescriptor({
+      id: "contextWindow",
+      label: "Context Window",
+      options: [{ value: "1m", label: "1M" }],
+    });
+
+    expect("semantic" in descriptor).toBe(false);
   });
 });

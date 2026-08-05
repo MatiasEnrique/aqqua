@@ -8,7 +8,11 @@ import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
-import { AgentSpawnResponse, AgentStandaloneSpawnRequest } from "./agentControl.ts";
+import {
+  AgentModelsResponse,
+  AgentSpawnResponse,
+  AgentStandaloneSpawnRequest,
+} from "./agentControl.ts";
 import {
   AuthAccessTokenResult,
   AuthBrowserSessionRequest,
@@ -325,6 +329,11 @@ const EnvironmentAgentSpawnErrors = [
   EnvironmentScopeRequiredError,
   EnvironmentInternalError,
 ] as const;
+const EnvironmentAgentModelsErrors = [
+  EnvironmentHttpConflictError,
+  EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
 const EnvironmentAgentProfileReadErrors = [
   EnvironmentHttpBadRequestError,
   EnvironmentScopeRequiredError,
@@ -525,14 +534,26 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
-export class EnvironmentAgentHttpApi extends HttpApiGroup.make("agents").add(
-  HttpApiEndpoint.post("standaloneSpawn", "/api/agents/standalone", {
-    headers: OptionalBearerHeaders,
-    payload: AgentStandaloneSpawnRequest,
-    success: AgentSpawnResponse,
-    error: EnvironmentAgentSpawnErrors,
-  }).middleware(EnvironmentAuthenticatedAuth),
-) {}
+export const EnvironmentAgentModelsRequest = Schema.Struct({ cwd: Schema.String });
+export type EnvironmentAgentModelsRequest = typeof EnvironmentAgentModelsRequest.Type;
+
+export class EnvironmentAgentHttpApi extends HttpApiGroup.make("agents")
+  .add(
+    HttpApiEndpoint.post("standaloneSpawn", "/api/agents/standalone", {
+      headers: OptionalBearerHeaders,
+      payload: AgentStandaloneSpawnRequest,
+      success: AgentSpawnResponse,
+      error: EnvironmentAgentSpawnErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("standaloneModels", "/api/agents/models", {
+      headers: OptionalBearerHeaders,
+      payload: EnvironmentAgentModelsRequest,
+      success: AgentModelsResponse,
+      error: EnvironmentAgentModelsErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
 
 export class EnvironmentSettingsHttpApi extends HttpApiGroup.make("settings")
   .add(

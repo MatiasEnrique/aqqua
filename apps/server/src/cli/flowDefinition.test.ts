@@ -1,4 +1,4 @@
-import { AgentProfileName, BoardStepId } from "@aqqua/contracts";
+import { AgentProfileName, BoardStepId, ProviderInstanceId } from "@aqqua/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -26,6 +26,26 @@ const step = (
   name,
   promptTemplate,
   profileName: AgentProfileName.make(profileName),
+  continuation: "auto" as const,
+});
+
+const agentStep = (
+  name: string,
+  promptTemplate: string,
+  agent: { instanceId: string; model: string; reasoning?: string } = {
+    instanceId: "codex",
+    model: "gpt-5-codex",
+  },
+  id = `step-${name}`,
+) => ({
+  id: BoardStepId.make(id),
+  name,
+  promptTemplate,
+  agent: {
+    instanceId: ProviderInstanceId.make(agent.instanceId),
+    model: agent.model,
+    ...(agent.reasoning === undefined ? {} : { reasoning: agent.reasoning }),
+  },
   continuation: "auto" as const,
 });
 
@@ -61,6 +81,70 @@ it.effect(
       assert.strictEqual(decoded.steps[1]?.continuation, "manual");
     }),
 );
+
+it.effect("decodes canonical agent steps alongside legacy profileName steps", () =>
+  Effect.gen(function* () {
+    const decoded = yield* decodeFlowDefinition(
+      `{
+        "name": "Ship a feature",
+        "steps": [
+          {
+            "name": "Plan",
+            "agent": {
+              "instanceId": "codex",
+              "model": "gpt-5-codex",
+              "reasoning": "high"
+            },
+            "promptTemplate": "Plan \${request}"
+          },
+          {
+            "name": "Implement",
+            "profileName": "implementer",
+            "promptTemplate": "Implement \${artifact}"
+          }
+        ]
+      }`,
+      Effect.succeed("minted"),
+    ).pipe(Effect.provide(NodeServices.layer));
+
+    assert.deepStrictEqual(decoded.steps[0]?.agent, {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5-codex",
+      reasoning: "high",
+    });
+    assert.strictEqual(decoded.steps[0]?.profileName, undefined);
+    assert.strictEqual(decoded.steps[1]?.profileName, "implementer");
+    assert.strictEqual(decoded.steps[1]?.agent, undefined);
+  }),
+);
+
+// Which selectors a step may carry is `BoardSnapshot`'s rule, not the CLI's;
+// the CLI only has to surface the rejection against the offending step.
+const ambiguousSelectorCases = [
+  {
+    name: "a step naming both selectors",
+    step: `{"name":"Plan","agent":{"instanceId":"codex","model":"gpt-5-codex"},"profileName":"implementer","promptTemplate":"Plan"}`,
+  },
+  {
+    name: "a step naming neither selector",
+    step: `{"name":"Plan","promptTemplate":"Plan"}`,
+  },
+] as const;
+
+for (const testCase of ambiguousSelectorCases) {
+  it.effect(`rejects ${testCase.name}`, () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(
+        decodeFlowDefinition(
+          `{"name":"Flow","steps":[${testCase.step}]}`,
+          Effect.succeed("step-1"),
+        ).pipe(Effect.provide(NodeServices.layer)),
+      );
+      assert.instanceOf(failure, FlowDefinitionDecodeError);
+      assert.include(failure.message, `["steps"][0]`);
+    }),
+  );
+}
 
 it.effect("rejects contract violations before custom validation", () =>
   Effect.gen(function* () {
@@ -173,6 +257,41 @@ it.effect("rejects unknown profiles and lists the built-in plus configured profi
     assert.include(failure.message, "Planning");
     assert.include(failure.message, "implementer");
     assert.include(failure.message, "reviewer");
+  }),
+);
+
+it.effect("never treats a canonical agent step as an unknown profile", () =>
+  Effect.gen(function* () {
+    const result = yield* validateFlowDefinition({
+      definition: definition([
+        agentStep("Plan", "Plan ${request}", {
+          instanceId: "not_on_this_machine",
+          model: "some-model",
+          reasoning: "high",
+        }),
+        agentStep("Implement", "Use ${artifact}"),
+      ]),
+      availableProfileNames: [],
+      allowUnknownProfiles: false,
+    });
+
+    assert.deepStrictEqual(result.unknownProfileNames, []);
+    assert.deepStrictEqual(result.parameterNames, ["request"]);
+  }),
+);
+
+it.effect("warns only about the legacy steps in a mixed flow", () =>
+  Effect.gen(function* () {
+    const result = yield* validateFlowDefinition({
+      definition: definition([
+        agentStep("Plan", "Plan ${request}"),
+        step("Implement", "Use ${artifact}", "Planning"),
+      ]),
+      availableProfileNames: [],
+      allowUnknownProfiles: true,
+    });
+
+    assert.deepStrictEqual(result.unknownProfileNames, ["Planning"]);
   }),
 );
 

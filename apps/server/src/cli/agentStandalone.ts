@@ -1,4 +1,9 @@
-import { AuthOrchestrationOperateScope, EnvironmentHttpApi } from "@aqqua/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentHttpApi,
+  type AgentStandaloneSpawnRequest,
+  type ModelSelection,
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -16,6 +21,22 @@ import { AgentCliError } from "./agentCliError.ts";
 import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 const standalonePresenceError = (detail: string) => new AgentCliError({ detail });
+
+export const standaloneSpawnPayload = (input: {
+  readonly cwd: string;
+  readonly profile?: string;
+  readonly modelSelection?: ModelSelection;
+  readonly reasoning?: string;
+  readonly task: string;
+  readonly title?: string;
+}): AgentStandaloneSpawnRequest => ({
+  cwd: input.cwd,
+  task: input.task,
+  ...(input.profile === undefined ? {} : { profile: input.profile }),
+  ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+  ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
+  ...(input.title === undefined ? {} : { title: input.title }),
+});
 
 /**
  * Standalone spawn is a human action, not an alternate agent identity path.
@@ -70,7 +91,9 @@ export const withStandaloneAgentSession = Effect.fn("agentCli.withStandaloneAgen
 
 export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(function* (input: {
   readonly flags: CliAuthLocationFlags;
-  readonly profile: string;
+  readonly profile?: string;
+  readonly modelSelection?: ModelSelection;
+  readonly reasoning?: string;
   readonly task: string;
   readonly title?: string;
 }) {
@@ -93,12 +116,7 @@ export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(functi
       });
       return yield* client.agents.standaloneSpawn({
         headers: { authorization: `Bearer ${token}` },
-        payload: {
-          profile: input.profile,
-          task: input.task,
-          cwd: process.cwd(),
-          ...(input.title === undefined ? {} : { title: input.title }),
-        },
+        payload: standaloneSpawnPayload({ ...input, cwd: process.cwd() }),
       });
     }),
   ).pipe(

@@ -15,6 +15,25 @@ export const ProviderOptionChoice = Schema.Struct({
 });
 export type ProviderOptionChoice = typeof ProviderOptionChoice.Type;
 
+/**
+ * What a provider option *means*, independent of the provider-native `id` it
+ * is addressed by.
+ *
+ * Provider CLIs disagree on the name of the same control — Codex, Grok and pi
+ * call it `reasoningEffort`, Claude calls it `effort`, Cursor emits it as
+ * `reasoning`. Orchestration wants to say "reasoning: high" once, so providers
+ * tag the descriptor rather than renaming it: the marker is what the catalog
+ * matches on, the native `id` is still what gets written into
+ * `ModelSelection.options`.
+ *
+ * Absent means "no semantic promise" — a model with no reasoning-marked
+ * descriptor rejects an explicit reasoning request instead of silently
+ * dropping it. Only `select` descriptors may carry a marker: reasoning is a
+ * level picked from advertised choices, never an on/off toggle.
+ */
+export const ProviderOptionSemantic = Schema.Literals(["reasoning"]);
+export type ProviderOptionSemantic = typeof ProviderOptionSemantic.Type;
+
 const ProviderOptionDescriptorBase = {
   id: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
@@ -24,6 +43,9 @@ const ProviderOptionDescriptorBase = {
 export const SelectProviderOptionDescriptor = Schema.Struct({
   ...ProviderOptionDescriptorBase,
   type: Schema.Literal("select"),
+  // Select-only: a semantic level is *chosen from* the advertised values below,
+  // so a boolean toggle has nothing to answer "how much" with.
+  semantic: Schema.optional(ProviderOptionSemantic),
   options: Schema.Array(ProviderOptionChoice),
   currentValue: Schema.optional(TrimmedNonEmptyString),
   promptInjectedValues: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
@@ -34,6 +56,11 @@ export const BooleanProviderOptionDescriptor = Schema.Struct({
   ...ProviderOptionDescriptorBase,
   type: Schema.Literal("boolean"),
   currentValue: Schema.optional(Schema.Boolean),
+  // Declared-but-unsatisfiable so a marked toggle fails the union outright
+  // rather than decoding with the marker quietly dropped: the catalog would
+  // then see an unmarked descriptor and report "no reasoning control", hiding
+  // the provider's real mistake.
+  semantic: Schema.optional(Schema.Never),
 });
 export type BooleanProviderOptionDescriptor = typeof BooleanProviderOptionDescriptor.Type;
 

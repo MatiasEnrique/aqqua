@@ -310,6 +310,7 @@ export function buildCursorCapabilitiesFromConfigOptions(
           buildSelectOptionDescriptor({
             id: "reasoning",
             label: reasoningConfig?.name?.trim() || "Reasoning",
+            semantic: "reasoning",
             options: reasoningEffortLevels,
           }),
         ]

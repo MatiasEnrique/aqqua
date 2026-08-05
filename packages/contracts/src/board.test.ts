@@ -31,6 +31,7 @@ import {
   OrchestrationShellSnapshot,
   OrchestrationShellStreamEvent,
 } from "./orchestration.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeBoardStep = Schema.decodeUnknownEffect(BoardStep);
 const decodeOrchestrationBoard = Schema.decodeUnknownEffect(OrchestrationBoard);
@@ -128,6 +129,94 @@ it.effect("defaults BoardStep.continuation to auto when omitted", () =>
       profileName: "implementer",
     });
     assert.strictEqual(parsed.continuation, "auto");
+  }),
+);
+
+it.effect("decodes a canonical BoardStep that names an instance, model, and reasoning", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBoardStep({
+      id: "step-1",
+      name: "Implement",
+      promptTemplate: "Do the work",
+      agent: { instanceId: "grok", model: "grok-build", reasoning: "high" },
+    });
+
+    assert.deepStrictEqual(parsed.agent, {
+      instanceId: ProviderInstanceId.make("grok"),
+      model: "grok-build",
+      reasoning: "high",
+    });
+    assert.strictEqual(parsed.profileName, undefined);
+    assert.strictEqual(parsed.continuation, "auto");
+  }),
+);
+
+it.effect("keeps a canonical BoardStep model slug exact, dots and slashes included", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBoardStep({
+      id: "step-1",
+      name: "Review",
+      promptTemplate: "Review the work",
+      agent: { instanceId: "pi_work", model: "openrouter/anthropic/claude-sonnet-4.6" },
+    });
+
+    assert.strictEqual(parsed.agent?.model, "openrouter/anthropic/claude-sonnet-4.6");
+    assert.strictEqual(parsed.agent?.reasoning, undefined);
+  }),
+);
+
+it.effect("holds a step's instance id to the same slug rules as every routing key", () =>
+  Effect.gen(function* () {
+    // A model slug may contain a slash; the instance id that routes it may not.
+    for (const instanceId of ["pi work", "pi/work", ""]) {
+      const result = yield* Effect.exit(
+        decodeBoardStep({
+          id: "step-1",
+          name: "Review",
+          promptTemplate: "Review the work",
+          agent: { instanceId, model: "grok-build" },
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure", `expected '${instanceId}' to be rejected`);
+    }
+  }),
+);
+
+it.effect("still decodes a historical profileName step so persisted flows keep running", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBoardStep({
+      id: "step-1",
+      name: "Implement",
+      promptTemplate: "Do the work",
+      profileName: "implementer",
+    });
+
+    assert.strictEqual(parsed.profileName, "implementer");
+    assert.strictEqual(parsed.agent, undefined);
+  }),
+);
+
+it.effect("rejects a BoardStep that names both selectors or neither", () =>
+  Effect.gen(function* () {
+    const both = yield* Effect.exit(
+      decodeBoardStep({
+        id: "step-1",
+        name: "Implement",
+        promptTemplate: "Do the work",
+        profileName: "implementer",
+        agent: { instanceId: "grok", model: "grok-build" },
+      }),
+    );
+    assert.strictEqual(both._tag, "Failure");
+
+    const neither = yield* Effect.exit(
+      decodeBoardStep({
+        id: "step-1",
+        name: "Implement",
+        promptTemplate: "Do the work",
+      }),
+    );
+    assert.strictEqual(neither._tag, "Failure");
   }),
 );
 

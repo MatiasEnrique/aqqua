@@ -1,17 +1,17 @@
 /**
  * AgentControl - orchestrator → sub-agent delegation.
  *
- * One interface behind which the whole delegation mechanism lives: profile
- * resolution, child thread creation, workspace binding, fresh-versus-continued
+ * One interface behind which the whole delegation mechanism lives: model catalog
+ * and legacy profile resolution, child thread creation, workspace binding, fresh-versus-continued
  * context, orchestration command dispatch, completion waiting, final-message
  * extraction, cancellation, the per-parent concurrency cap, recursion
  * prevention, and lifecycle activity emission.
  *
- * Callers see thread ids, role names, statuses, and messages. They never see
- * provider instance ids, MCP credentials, worktree paths, terminal pids, or
- * orchestration command shapes — front-ends (the `aqqua agent` CLI, and optionally
- * an MCP toolkit) hand these values to a model, so the interface is also the
- * disclosure boundary.
+ * Callers see catalog model identities, compatibility labels, thread ids,
+ * statuses, and messages. They never see MCP credentials, worktree paths,
+ * terminal pids, or orchestration command shapes — front-ends (the `aqqua agent`
+ * CLI, and optionally an MCP toolkit) hand these values to a model, so the
+ * interface is also the disclosure boundary.
  *
  * Delegated operations receive `parentThreadId` from the authenticated caller,
  * never from the model, so an orchestrator cannot impersonate another parent.
@@ -20,12 +20,19 @@
  *
  * @module agent-control/Services/AgentControl
  */
-import type { AgentProfileName, ThreadId } from "@aqqua/contracts";
+import type {
+  AgentProfileName,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerProviderModel,
+  ThreadId,
+} from "@aqqua/contracts";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import type * as Effect from "effect/Effect";
 
 import type { AgentControlError } from "../Errors.ts";
+import type { AgentModelSelection } from "../ModelCatalog.ts";
 
 /**
  * Outcome of a sub-agent's turn.
@@ -38,7 +45,8 @@ export type AgentRunStatus = "completed" | "failed" | "interrupted" | "running";
 
 export interface AgentHandle {
   readonly threadId: ThreadId;
-  readonly profile: AgentProfileName;
+  /** Legacy response field; canonical launches use the resolved model title prefix. */
+  readonly profile: string;
   /** Terminal bound to the sub-agent's workspace, when one was opened. */
   readonly terminalId: string | null;
 }
@@ -82,6 +90,16 @@ export interface AgentProfileSummary {
   readonly unavailable: string | null;
 }
 
+export interface AgentModelSummary {
+  readonly instanceId: ProviderInstanceId;
+  readonly driver: ProviderDriverKind;
+  readonly providerName: string;
+  readonly model: ServerProviderModel;
+  readonly available: boolean;
+  readonly unavailableReason: string | null;
+  readonly isProjectDefault: boolean;
+}
+
 export interface AgentControlShape {
   /**
    * Create a sub-agent thread under `parentThreadId` and start its first turn.
@@ -92,6 +110,14 @@ export interface AgentControlShape {
    */
   readonly spawn: (input: {
     readonly parentThreadId: ThreadId;
+    readonly selection: AgentModelSelection;
+    readonly task: string;
+    readonly title?: string;
+  }) => Effect.Effect<AgentHandle, AgentControlError>;
+
+  /** Compatibility path for legacy profile-based callers. */
+  readonly spawnProfile: (input: {
+    readonly parentThreadId: ThreadId;
     readonly profile: AgentProfileName;
     readonly task: string;
     readonly title?: string;
@@ -99,6 +125,14 @@ export interface AgentControlShape {
 
   /** Start an unparented agent in the project or worktree containing `cwd`. */
   readonly spawnStandalone: (input: {
+    readonly cwd: string;
+    readonly selection: AgentModelSelection;
+    readonly task: string;
+    readonly title?: string;
+  }) => Effect.Effect<AgentHandle, AgentControlError>;
+
+  /** Compatibility path for legacy standalone profile-based callers. */
+  readonly spawnStandaloneProfile: (input: {
     readonly cwd: string;
     readonly profile: AgentProfileName;
     readonly task: string;
@@ -142,6 +176,16 @@ export interface AgentControlShape {
   readonly profiles: (input: {
     readonly parentThreadId: ThreadId;
   }) => Effect.Effect<ReadonlyArray<AgentProfileSummary>, AgentControlError>;
+
+  /** Live/cached catalog rows for the orchestrator's project. */
+  readonly models: (input: {
+    readonly parentThreadId: ThreadId;
+  }) => Effect.Effect<ReadonlyArray<AgentModelSummary>, AgentControlError>;
+
+  /** Live/cached catalog rows for the project or worktree containing `cwd`. */
+  readonly modelsStandalone: (input: {
+    readonly cwd: string;
+  }) => Effect.Effect<ReadonlyArray<AgentModelSummary>, AgentControlError>;
 }
 
 export class AgentControl extends Context.Service<AgentControl, AgentControlShape>()(

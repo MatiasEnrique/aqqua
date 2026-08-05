@@ -1,6 +1,7 @@
 import {
   AuthAdministrativeScopes,
   BoardId,
+  type BoardStep,
   CardId,
   CommandId,
   DEFAULT_AGENT_PROFILE_NAME,
@@ -237,7 +238,9 @@ const jsonFlag = Flag.boolean("json").pipe(
 );
 
 const allowUnknownProfilesFlag = Flag.boolean("allow-unknown-profiles").pipe(
-  Flag.withDescription("Warn instead of failing when a referenced agent profile does not exist."),
+  Flag.withDescription(
+    "Warn instead of failing when a legacy 'profileName' step names a profile that does not exist.",
+  ),
   Flag.withDefault(false),
 );
 
@@ -260,12 +263,19 @@ export const canonicalFlowDefinition = {
   steps: [
     {
       name: "Plan",
-      profileName: "Planning",
+      agent: {
+        instanceId: "codex",
+        model: "gpt-5.6-sol",
+        reasoning: "high",
+      },
       promptTemplate: "Plan ${card_title}: ${request}",
     },
     {
       name: "Implement",
-      profileName: "implementer",
+      agent: {
+        instanceId: "codex",
+        model: "gpt-5.6-sol",
+      },
       promptTemplate: "Implement the plan:\n${artifact}",
       continuation: "manual",
     },
@@ -285,11 +295,22 @@ const flowSchemaText = `Flow definition JSON:
   "steps": [{
     "id"?: string,
     "name": string,
-    "profileName": string,
+    "agent": { "instanceId": string, "model": string, "reasoning"?: string },
+    "profileName"?: string,
     "promptTemplate": string,
     "continuation"?: "auto" | "manual"
   }]
 }
+
+Naming the agent for a step:
+  - "agent" is canonical: an exact provider instance id plus the exact model
+    slug that instance advertises, and an optional semantic reasoning level.
+    Both are validated against the environment that runs the card, at the
+    moment the step starts — not while the flow is saved.
+  - "profileName" is the legacy compatibility selector kept so flows written
+    before model-first orchestration keep running. It resolves through the
+    machine-local agent profile of that name.
+  - A step names its agent exactly one way: "agent" or "profileName".
 
 Placeholders:
   \${card_title}          card title
@@ -302,9 +323,11 @@ Validation rules:
   - A flow has 1 to 20 steps.
   - Step names are non-empty, at most 64 characters, unique ignoring case, and safe artifact names.
   - Prompt templates are non-empty and at most 20000 characters.
-  - Profile names start with a letter and contain only letters, numbers, underscores, or dashes.
+  - agent.instanceId and agent.model are non-empty; agent.reasoning, when set, is checked
+    against the chosen model's advertised levels when the step runs.
+  - Legacy profile names start with a letter and contain only letters, numbers, underscores, or dashes.
   - Card parameter names start with a letter or underscore and contain only letters, numbers, underscores, or dashes.
-  - Referenced profiles must exist unless --allow-unknown-profiles is passed.
+  - Legacy profile names must exist locally unless --allow-unknown-profiles is passed.
   - \${artifact} is not allowed in the first step.
   - \${artifact:Step name} must name an earlier step exactly.
   - continuation defaults to "auto"; supplied step ids are preserved and missing ids are generated.
@@ -431,13 +454,36 @@ const requireLiveFlowServer = Effect.fn("requireLiveFlowServer")(function* (
   }
 });
 
+/**
+ * The step's agent selector, exactly as authored — a canonical instance/model
+ * identity or the legacy profile name. Round-trips: `show --json` is a valid
+ * `update --file` body for either kind of step.
+ */
+const stepSelectorValue = (step: BoardStep) =>
+  step.agent === undefined
+    ? { profileName: step.profileName }
+    : {
+        agent: {
+          instanceId: step.agent.instanceId,
+          model: step.agent.model,
+          ...(step.agent.reasoning === undefined ? {} : { reasoning: step.agent.reasoning }),
+        },
+      };
+
+/** One line's worth of selector, honest about which seam the step uses. */
+const formatStepSelector = (step: BoardStep): string =>
+  step.agent === undefined
+    ? `profile=${step.profileName} (legacy)`
+    : `instance=${step.agent.instanceId} model=${step.agent.model}` +
+      (step.agent.reasoning === undefined ? "" : ` reasoning=${step.agent.reasoning}`);
+
 const flowDefinitionValue = (flow: OrchestrationBoard) => ({
   id: flow.id,
   name: flow.name,
   steps: flow.steps.map((step) => ({
     id: step.id,
     name: step.name,
-    profileName: step.profileName,
+    ...stepSelectorValue(step),
     continuation: step.continuation,
     promptTemplate: step.promptTemplate,
   })),
@@ -447,7 +493,7 @@ const formatFlowDefinition = (flow: OrchestrationBoard) => {
   const steps = flow.steps
     .map(
       (step, index) =>
-        `${index + 1}. ${step.name} (${step.id}) profile=${step.profileName} continuation=${step.continuation}\n   promptTemplate=${toJsonLine(step.promptTemplate)}`,
+        `${index + 1}. ${step.name} (${step.id}) ${formatStepSelector(step)} continuation=${step.continuation}\n   promptTemplate=${toJsonLine(step.promptTemplate)}`,
     )
     .join("\n");
   return `Flow ${flow.name} (${flow.id})\n${steps}`;
@@ -466,7 +512,7 @@ const formatDefinitionSuccess = (input: {
   const warning =
     input.unknownProfileNames.length === 0
       ? ""
-      : ` Warning: unknown agent profiles: ${input.unknownProfileNames.join(", ")}.`;
+      : ` Warning: unknown legacy agent profiles: ${input.unknownProfileNames.join(", ")}.`;
   return `${input.verb} flow ${input.flowId}. ${parameters}${warning}`;
 };
 
@@ -493,7 +539,16 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
           id: flow.id,
           name: flow.name,
           stepCount: flow.steps.length,
-          profiles: [...new Set(flow.steps.map((step) => step.profileName))].toSorted(),
+          // Preserve the pre-model-first JSON field for scripts that inspect
+          // legacy flows. Canonical selectors are exposed separately.
+          profiles: [
+            ...new Set(
+              flow.steps.flatMap((step) =>
+                step.profileName === undefined ? [] : [step.profileName],
+              ),
+            ),
+          ].toSorted(),
+          agents: [...new Set(flow.steps.map(formatStepSelector))].toSorted(),
         }))
         .toSorted(
           (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
@@ -504,7 +559,7 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
           : value
               .map(
                 (flow) =>
-                  `${flow.name} (${flow.id}) — ${flow.stepCount} step${flow.stepCount === 1 ? "" : "s"}; profiles: ${flow.profiles.join(", ") || "none"}`,
+                  `${flow.name} (${flow.id}) — ${flow.stepCount} step${flow.stepCount === 1 ? "" : "s"}; agents: ${flow.agents.join(", ") || "none"}`,
               )
               .join("\n");
       return emit({ json: input.action.json, value, text });
@@ -537,7 +592,7 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
         id: flowId,
         parameters: validated.parameterNames,
         warnings: validated.unknownProfileNames.map(
-          (profileName) => `Unknown agent profile: ${profileName}`,
+          (profileName) => `Unknown legacy agent profile: ${profileName}`,
         ),
       };
       return emit({
@@ -570,7 +625,7 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
         id: flow.id,
         parameters: validated.parameterNames,
         warnings: validated.unknownProfileNames.map(
-          (profileName) => `Unknown agent profile: ${profileName}`,
+          (profileName) => `Unknown legacy agent profile: ${profileName}`,
         ),
       };
       return emit({

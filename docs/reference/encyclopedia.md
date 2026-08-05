@@ -119,9 +119,17 @@ The safety/access mode for a thread or session. In [the contracts][1], the main 
 
 The agent interaction style for a thread. In [the contracts][1], the main values are `default` and `plan`. See [runtime-modes.md][18].
 
+#### Agent model
+
+One provider-instance/model pair an orchestrator can spawn on. Identity is the pair, not the slug: two instances advertising the same slug are separate rows. The catalog in [ModelCatalog.ts][36] is pure and snapshot-driven — it reads the same [`ServerProvider`][37] snapshots the UI renders, so it cannot go stale and adds no refresh, poll, or subscription. Rows that cannot be spawned right now are listed anyway, carrying the provider's own reason. See [agent-models.md][38].
+
+#### Agent selection
+
+What one spawn or one flow step asks for: an exact `instanceId + model`, plus an optional semantic `reasoning` level. The instance and model travel together, so half a selection is unrepresentable. With no model named, resolution falls back to the project's default selection (validated like any other), then to the first spawnable snapshot's own default model; with nothing spawnable it fails. `reasoning` is looked up against the chosen model's advertised reasoning descriptor and written onto that provider's native option id; omitting it leaves the provider's default in place. Resolution always launches a `session`. Defined in [ModelCatalog.ts][36], carried on a flow step by `BoardStepAgent` in [the board contracts][25].
+
 #### Agent profile
 
-A machine-local named definition of the provider target, model, runtime, runtime mode, interaction mode, and provider options used to start an agent. Flows reference agent profiles by name. They can be managed in Settings or with [`aqqua profile`][34].
+A machine-local named preset of the provider target, model, runtime, runtime mode, interaction mode, and provider options used to start an agent. Superseded as the primary seam by the agent model catalog and kept as a **compatibility surface**: saved presets, flow steps persisted with `profileName`, and un-migrated `--profile` callers all still resolve through [Profiles.ts][39], and a `terminal`-runtime agent is reachable only here. Unlike an agent selection, a profile may target a _driver_ rather than an exact instance, and its model is not checked against what the instance advertises. Nothing is removed. Managed in Settings or with [`aqqua profile`][34]; see [agent-profiles.md][40].
 
 #### Assistant delivery mode
 
@@ -169,7 +177,7 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 
 #### Flow
 
-A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent-profile reference, and a continuation mode (`auto` or `manual`). Flows are represented internally by [the board contracts][25], executed by [BoardReactor.ts][26], and managed in the app or with [`aqqua flow`][35].
+A per-project kanban definition whose user-defined columns are agentic steps between the built-in To-Do and Done. Each step is a prompt template, an agent selector, and a continuation mode (`auto` or `manual`). A step names its agent exactly one way: canonically through `agent` (an agent selection), or — for flows persisted before model-first orchestration — through the legacy `profileName`; both at once, or neither, is rejected by the schema. Canonical steps are validated against the running environment's catalog at step entry, not when the flow is saved, because a flow can be authored on one machine and run on another. Flows are represented internally by [the board contracts][25], executed by [BoardReactor.ts][26], and managed in the app or with [`aqqua flow`][35].
 
 #### Card
 
@@ -233,3 +241,8 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [33]: ../../apps/server/src/orchestration/Layers/PullRequestSettleReactor.ts
 [34]: ../user/agent-profiles.md
 [35]: ../user/agentic-board.md#managing-flows-from-the-cli
+[36]: ../../apps/server/src/agent-control/ModelCatalog.ts
+[37]: ../../packages/contracts/src/server.ts
+[38]: ../user/agent-models.md
+[39]: ../../apps/server/src/agent-control/Profiles.ts
+[40]: ../user/agent-profiles.md

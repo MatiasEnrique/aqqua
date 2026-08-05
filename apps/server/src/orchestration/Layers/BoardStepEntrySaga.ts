@@ -4,12 +4,14 @@ import * as NodePath from "node:path";
 import {
   type AgentProfileName,
   type BoardSnapshot,
+  type BoardStep,
   type CardId,
   type CardOperation,
   type CardOperationId,
   type CardStatus,
   CommandId,
   EventId,
+  type ModelSelection,
   type OrchestrationCard,
   type OrchestrationEvent,
   type ThreadId,
@@ -22,12 +24,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
+import { resolveAgentModelSelection } from "../../agent-control/ModelCatalog.ts";
 import { resolveAgentProfile } from "../../agent-control/Profiles.ts";
 import { boardArtifactsRoot, resolveBoardArtifactPath } from "../../boardArtifacts.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { ProjectSetupScriptRunner } from "../../project/ProjectSetupScriptRunner.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   boardOperationMessageId,
@@ -75,6 +79,9 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
   const gitWorkflow = yield* GitWorkflowService;
   const settings = yield* ServerSettingsService;
   const registry = yield* ProviderAdapterRegistry;
+  // Read-only snapshot access. A canonical step resolves against whatever the
+  // registry already holds; the saga never refreshes, subscribes, or polls.
+  const providerRegistry = yield* ProviderRegistry;
   const config = yield* ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const setupScriptRunner = yield* ProjectSetupScriptRunner;
@@ -146,6 +153,60 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
       });
     }
     return candidates;
+  });
+
+  /**
+   * Decide which agent a step runs as.
+   *
+   * A canonical step carries an exact `instanceId + model` and resolves through
+   * the pure model catalog against the provider snapshots this environment
+   * already holds — the authoring machine never saw them, so this is the first
+   * and only place the selection can be checked. A step persisted before
+   * model-first orchestration keeps resolving through the profile adapter, so
+   * existing flows and their `terminal`-runtime profiles are unaffected.
+   *
+   * Both branches return the same three things the thread is created and
+   * started with: an exact model selection, a runtime mode, and an interaction
+   * mode. Failures come back as the reason to fail the card operation with.
+   */
+  const resolveStepAgent = Effect.fn("BoardStepEntrySaga.resolveStepAgent")(function* (input: {
+    readonly step: BoardStep;
+    readonly projectDefaultModelSelection: ModelSelection | null;
+  }) {
+    const { projectDefaultModelSelection, step } = input;
+
+    if (step.agent !== undefined) {
+      const providers = yield* providerRegistry.getProviders;
+      const resolved = resolveAgentModelSelection({
+        providers,
+        projectDefaultModelSelection,
+        selection: {
+          model: { instanceId: step.agent.instanceId, model: step.agent.model },
+          ...(step.agent.reasoning === undefined ? {} : { reasoning: step.agent.reasoning }),
+        },
+      });
+      return Result.isFailure(resolved)
+        ? {
+            ok: false as const,
+            reason: `Step '${step.name}' cannot run its agent: ${resolved.failure.message}`,
+          }
+        : { ok: true as const, launch: resolved.success };
+    }
+
+    const serverSettings = yield* settings.getSettings;
+    const instances = yield* instanceCandidates;
+    const resolved = resolveAgentProfile({
+      profile: step.profileName as AgentProfileName,
+      profiles: serverSettings.agentProfiles,
+      instances,
+      projectDefaultModelSelection,
+    });
+    return Result.isFailure(resolved)
+      ? {
+          ok: false as const,
+          reason: `Agent profile '${step.profileName}' is unavailable: ${resolved.failure.message}`,
+        }
+      : { ok: true as const, launch: resolved.success };
   });
 
   const resolveBaseBranch = Effect.fn("BoardReactor.resolveBaseBranch")(function* (
@@ -340,20 +401,15 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
       return;
     }
 
-    const serverSettings = yield* settings.getSettings;
-    const instances = yield* instanceCandidates;
-    const resolved = resolveAgentProfile({
-      profile: step.profileName as AgentProfileName,
-      profiles: serverSettings.agentProfiles,
-      instances,
+    const agent = yield* resolveStepAgent({
+      step,
       projectDefaultModelSelection: project.defaultModelSelection ?? null,
     });
-    if (Result.isFailure(resolved)) {
-      yield* fail(
-        `Agent profile '${step.profileName}' is unavailable: ${resolved.failure.message}`,
-      );
+    if (!agent.ok) {
+      yield* fail(agent.reason);
       return;
     }
+    const launch = agent.launch;
 
     const prompt = assembleBoardStepPrompt({
       template: step.promptTemplate,
@@ -421,9 +477,9 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
         projectId: latestCard.projectId,
         parentThreadId: null,
         title,
-        modelSelection: resolved.success.modelSelection,
-        runtimeMode: resolved.success.runtimeMode,
-        interactionMode: resolved.success.interactionMode,
+        modelSelection: launch.modelSelection,
+        runtimeMode: launch.runtimeMode,
+        interactionMode: launch.interactionMode,
         branch: latestBranch,
         worktreePath: latestWorktreePath,
         createdAt,
@@ -465,9 +521,9 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
           text: prompt.text,
           attachments: [],
         },
-        modelSelection: resolved.success.modelSelection,
-        runtimeMode: resolved.success.runtimeMode,
-        interactionMode: resolved.success.interactionMode,
+        modelSelection: launch.modelSelection,
+        runtimeMode: launch.runtimeMode,
+        interactionMode: launch.interactionMode,
         createdAt: yield* nowIso,
       });
       // Keep the durable claim; processSessionSet / restart will re-enter.

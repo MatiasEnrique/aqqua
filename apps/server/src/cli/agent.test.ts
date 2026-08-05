@@ -1,6 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { AgentListResponse } from "@aqqua/contracts";
+import {
+  AgentListResponse,
+  AgentModelsResponse,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -12,10 +17,14 @@ import {
   agentCommand,
   decodeServerResponse,
   formatSpawnStarted,
+  formatModelLine,
   formatProfileLine,
   formatServerFailure,
+  loadAgentModels,
+  renderModelsOutput,
   resolveText,
   resolveSpawnTransport,
+  resolveSpawnSelector,
   watchTransitions,
 } from "./agent.ts";
 
@@ -48,7 +57,8 @@ it("fails closed when only part of an agent session environment remains", () => 
 
 it("does not recommend the session-only await command after a standalone spawn", () => {
   const output = formatSpawnStarted({
-    profile: "implementer",
+    label: "gpt-5.6-sol",
+    selector: "model",
     threadId: "thread-1",
     transport: "standalone",
   });
@@ -115,6 +125,174 @@ it("reports why an unusable profile cannot be spawned instead of naming a model"
   assert.notInclude(line, "gpt-5.6-sol");
 });
 
+it.effect("builds exact model, bare default, and legacy profile spawn selectors", () =>
+  Effect.gen(function* () {
+    assert.deepEqual(
+      yield* resolveSpawnSelector({
+        profile: undefined,
+        instance: "codex-work",
+        model: "openrouter/anthropic/claude-sonnet-5",
+        reasoning: "high",
+      }),
+      {
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex-work"),
+          model: "openrouter/anthropic/claude-sonnet-5",
+        },
+        reasoning: "high",
+      },
+    );
+    assert.deepEqual(
+      yield* resolveSpawnSelector({
+        profile: undefined,
+        instance: undefined,
+        model: undefined,
+        reasoning: undefined,
+      }),
+      {},
+    );
+    assert.deepEqual(
+      yield* resolveSpawnSelector({
+        profile: "implementer",
+        instance: undefined,
+        model: undefined,
+        reasoning: undefined,
+      }),
+      { profile: "implementer" },
+    );
+  }),
+);
+
+it.effect("rejects half model selections and profile conflicts", () =>
+  Effect.gen(function* () {
+    const half = yield* Effect.flip(
+      resolveSpawnSelector({
+        profile: undefined,
+        instance: "codex",
+        model: undefined,
+        reasoning: undefined,
+      }),
+    );
+    assert.match(half.message, /must be provided together/);
+
+    const conflict = yield* Effect.flip(
+      resolveSpawnSelector({
+        profile: "implementer",
+        instance: undefined,
+        model: undefined,
+        reasoning: "high",
+      }),
+    );
+    assert.match(conflict.message, /cannot be combined/);
+  }),
+);
+
+const catalogRow = {
+  instanceId: ProviderInstanceId.make("codex-work"),
+  driver: ProviderDriverKind.make("codex"),
+  providerName: "Codex Work",
+  model: {
+    slug: "gpt-5.6-sol",
+    name: "GPT-5.6 Sol",
+    isCustom: false,
+    isDefault: true,
+    capabilities: {
+      optionDescriptors: [
+        {
+          id: "reasoningEffort",
+          label: "Reasoning",
+          type: "select" as const,
+          semantic: "reasoning" as const,
+          options: ["low", "high"].map((id) => ({ id, label: id })),
+        },
+      ],
+    },
+  },
+  available: true,
+  unavailableReason: null,
+  isProjectDefault: true,
+};
+
+it("formats catalog rows with identity, exact slug, display name, default, and reasoning choices", () => {
+  const line = formatModelLine(catalogRow);
+  for (const expected of [
+    "Codex Work",
+    "codex-work",
+    "gpt-5.6-sol",
+    "GPT-5.6 Sol",
+    "DEFAULT",
+    "reasoning=low,high",
+  ]) {
+    assert.include(line, expected);
+  }
+});
+
+it("shows catalog unavailability reasons in human output", () => {
+  const line = formatModelLine({
+    ...catalogRow,
+    available: false,
+    unavailableReason: "Not signed in.",
+    isProjectDefault: false,
+  });
+  assert.include(line, "UNAVAILABLE: Not signed in.");
+});
+
+it("renders standalone model discovery in human and JSON formats", () => {
+  const result = { models: [catalogRow] };
+  const human = renderModelsOutput(result, false);
+  assert.include(human, "Codex Work");
+  assert.include(human, "gpt-5.6-sol");
+
+  const json = JSON.parse(renderModelsOutput(result, true)) as typeof result;
+  assert.deepEqual(json, result);
+});
+
+it.effect("uses the environment fallback for ordinary-terminal model discovery", () =>
+  Effect.gen(function* () {
+    let sessionCalls = 0;
+    let standaloneCalls = 0;
+    const result = yield* loadAgentModels({
+      transport: "standalone",
+      session: () => {
+        sessionCalls += 1;
+        return Effect.succeed({ models: [] });
+      },
+      standalone: () => {
+        standaloneCalls += 1;
+        return Effect.succeed({ models: [catalogRow] });
+      },
+    });
+
+    assert.equal(sessionCalls, 0);
+    assert.equal(standaloneCalls, 1);
+    assert.equal(result.models[0]?.instanceId, catalogRow.instanceId);
+  }),
+);
+
+it.effect("decodes schema-first JSON model catalog output including unavailable rows", () =>
+  Effect.gen(function* () {
+    const result = yield* decodeServerResponse(
+      Schema.decodeUnknownEffect(AgentModelsResponse),
+      200,
+      "/api/agents/models",
+      {
+        models: [
+          catalogRow,
+          {
+            ...catalogRow,
+            instanceId: "codex-personal",
+            available: false,
+            unavailableReason: "Not signed in.",
+            isProjectDefault: false,
+          },
+        ],
+      },
+    );
+    assert.equal(result.models.length, 2);
+    assert.equal(result.models[1]?.unavailableReason, "Not signed in.");
+  }),
+);
+
 const unused = () => Effect.die("unused");
 const makeApi = (list: AgentApi["list"]): AgentApi => ({
   spawn: unused,
@@ -123,6 +301,7 @@ const makeApi = (list: AgentApi["list"]): AgentApi => ({
   interrupt: unused,
   list,
   profiles: unused,
+  models: unused,
 });
 
 it.effect("follow exits after an empty first snapshot", () =>
