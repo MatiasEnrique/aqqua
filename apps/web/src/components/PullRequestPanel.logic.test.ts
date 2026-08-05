@@ -1,8 +1,13 @@
-import type { GitChangeRequestCheck, VcsStatusResult } from "@aqqua/contracts";
+import type {
+  GitChangeRequestCheck,
+  GitRepositoryChangeRequestSummary,
+  VcsStatusResult,
+} from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   aggregateChecksPresentation,
+  branchPanelPullRequest,
   changeRequestCommentCount,
   changeRequestStatePresentation,
   checkPresentation,
@@ -12,8 +17,10 @@ import {
   pullRequestFingerprint,
   pullRequestSectionVisibility,
   reduceDeleteBranchDialogStep,
+  selectablePullRequests,
   shouldRefetchChecks,
   statusToneClassName,
+  summaryPanelPullRequest,
 } from "./PullRequestPanel.logic";
 
 const pr = (overrides: Partial<NonNullable<VcsStatusResult["pr"]>> = {}) => ({
@@ -25,6 +32,57 @@ const pr = (overrides: Partial<NonNullable<VcsStatusResult["pr"]>> = {}) => ({
   state: "open" as const,
   checksStatus: "pending" as const,
   ...overrides,
+});
+
+const summary = (
+  overrides: Partial<GitRepositoryChangeRequestSummary> = {},
+): GitRepositoryChangeRequestSummary => ({
+  number: 43,
+  title: "Make pull requests selectable",
+  url: "https://example.test/pulls/43",
+  baseRefName: "main",
+  headRefName: "feature/pr-selector",
+  state: "open",
+  ...overrides,
+});
+
+describe("panel pull request normalization", () => {
+  it("preserves the branch pull request shape and its aggregate checks status", () => {
+    expect(branchPanelPullRequest(pr())).toEqual(pr());
+    expect(branchPanelPullRequest(null)).toBeNull();
+  });
+
+  it("normalizes repository summaries without inventing a checks status", () => {
+    expect(summaryPanelPullRequest(summary())).toEqual({
+      number: 43,
+      title: "Make pull requests selectable",
+      url: "https://example.test/pulls/43",
+      baseRef: "main",
+      headRef: "feature/pr-selector",
+      state: "open",
+    });
+  });
+
+  it("deduplicates the branch pull request from repository choices", () => {
+    expect(
+      selectablePullRequests(pr(), {
+        supported: true,
+        changeRequests: [summary({ number: 42 }), summary(), summary({ number: 44 })],
+        truncated: false,
+      }).map(({ number }) => number),
+    ).toEqual([43, 44]);
+  });
+
+  it("has no repository choices for unavailable or unsupported results", () => {
+    expect(selectablePullRequests(null, null)).toEqual([]);
+    expect(
+      selectablePullRequests(null, {
+        supported: false,
+        changeRequests: [summary()],
+        truncated: false,
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("shouldRefetchChecks", () => {
@@ -147,6 +205,12 @@ describe("pull request detail presentation", () => {
     expect(
       pullRequestMetadata({ pr: pr({ checksStatus: null }), conversation: null }),
     ).toMatchObject({ reviewersLabel: "—", commentsLabel: "—", checksLabel: "—" });
+    expect(
+      pullRequestMetadata({
+        pr: summaryPanelPullRequest(summary()),
+        conversation: null,
+      }),
+    ).toMatchObject({ checksLabel: "—" });
   });
 
   it("gates GitHub-only sections and branch deletion", () => {

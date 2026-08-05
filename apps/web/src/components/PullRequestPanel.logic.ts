@@ -2,10 +2,58 @@ import type {
   GitChangeRequestCheck,
   GitDeleteChangeRequestBranchLocalState,
   GitGetChangeRequestConversationResult,
+  GitListRepositoryChangeRequestsResult,
+  GitRepositoryChangeRequestSummary,
   VcsStatusResult,
 } from "@aqqua/contracts";
 
 export type PullRequestStatus = NonNullable<VcsStatusResult["pr"]>;
+
+export interface PanelPullRequest {
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly baseRef: string;
+  readonly headRef: string;
+  readonly state: "open" | "closed" | "merged";
+  readonly checksStatus?: "success" | "failure" | "pending" | null | undefined;
+}
+
+export function branchPanelPullRequest(pr: VcsStatusResult["pr"]): PanelPullRequest | null {
+  if (pr === null) return null;
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    baseRef: pr.baseRef,
+    headRef: pr.headRef,
+    state: pr.state,
+    checksStatus: pr.checksStatus,
+  };
+}
+
+export function summaryPanelPullRequest(
+  summary: GitRepositoryChangeRequestSummary,
+): PanelPullRequest {
+  return {
+    number: summary.number,
+    title: summary.title,
+    url: summary.url,
+    baseRef: summary.baseRefName,
+    headRef: summary.headRefName,
+    state: summary.state,
+  };
+}
+
+export function selectablePullRequests(
+  branchPr: PanelPullRequest | null,
+  result: GitListRepositoryChangeRequestsResult | null,
+): ReadonlyArray<PanelPullRequest> {
+  if (result === null || !result.supported) return [];
+  return result.changeRequests
+    .filter((summary) => summary.number !== branchPr?.number)
+    .map(summaryPanelPullRequest);
+}
 
 export interface StatusPresentation {
   readonly label: string;
