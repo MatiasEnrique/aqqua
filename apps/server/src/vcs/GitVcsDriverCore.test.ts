@@ -1792,8 +1792,9 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.isTrue(yield* fileSystem.exists(path.join(cwd, "selected-directory/nested.txt")));
         assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
 
+        const outsideRelativePath = path.relative(cwd, path.join(outside, "outside.txt"));
         const invalid = yield* Effect.exit(
-          driver.discardChanges({ cwd, paths: ["../outside.txt"] }),
+          driver.discardChanges({ cwd, paths: [outsideRelativePath] }),
         );
         assert.isTrue(invalid._tag === "Failure");
         assert.equal(

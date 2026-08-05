@@ -692,7 +692,14 @@ function makeManager(input?: {
       Effect.map((provider) => {
         const resolvedProvider =
           input?.checksSupported === false
-            ? { ...provider, capabilities: { checks: false as const } }
+            ? {
+                ...provider,
+                capabilities: {
+                  ...provider.capabilities,
+                  checks: false as const,
+                  checkDetails: false as const,
+                },
+              }
             : provider;
         return SourceControlProviderRegistry.SourceControlProviderRegistry.of({
           get: () => Effect.succeed(resolvedProvider),
@@ -3131,10 +3138,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("caches repository merge options and reports auto-merge support", () =>
+  it.effect("caches repository merge options by canonical path", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("aqqua-git-manager-");
       yield* initRepo(repoDir);
+      const symlinkDir = NodePath.join(repoDir, "repo-link");
+      NodeFS.symlinkSync(repoDir, symlinkDir, "dir");
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
           mergeOptions: {
@@ -3149,7 +3158,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         reference: "#42",
       });
       const second = yield* manager.getChangeRequestMergeOptions({
-        cwd: repoDir,
+        cwd: symlinkDir,
         reference: "#43",
       });
 
@@ -3278,6 +3287,44 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(ghCalls).toContain("pr merge 42 --auto --merge");
       expect(ghCalls).toContain("pr close 42");
+    }),
+  );
+
+  it.effect("refreshes cached PR status after toggling auto-merge", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/auto-merge-refresh"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/auto-merge-refresh"]);
+
+      const pullRequest = {
+        number: 42,
+        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        baseRefName: "main",
+        headRefName: "feature/auto-merge-refresh",
+      };
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ ...pullRequest, title: "Before auto-merge" }]),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([{ ...pullRequest, title: "After auto-merge" }]),
+          ],
+        },
+      });
+
+      expect((yield* manager.status({ cwd: repoDir })).pr?.title).toBe("Before auto-merge");
+      yield* manager.setAutoMerge({
+        cwd: repoDir,
+        reference: "#42",
+        enabled: true,
+        method: "merge",
+      });
+      yield* manager.invalidateRemoteStatus(repoDir);
+      expect((yield* manager.status({ cwd: repoDir })).pr?.title).toBe("After auto-merge");
     }),
   );
 

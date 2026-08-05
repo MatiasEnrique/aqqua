@@ -167,6 +167,12 @@ function makeLayer(input: {
   return { execute, git: gitMock, layer };
 }
 
+function requestJsonBody(request: HttpClientRequest.HttpClientRequest): unknown {
+  const rawBody = (request.body as { readonly body?: Uint8Array }).body;
+  assert.ok(rawBody);
+  return JSON.parse(new TextDecoder().decode(rawBody));
+}
+
 it.effect("parses pull request responses from the Bitbucket REST API", () => {
   const { execute, layer } = makeLayer({
     response: () =>
@@ -285,12 +291,43 @@ it.effect("uses repository default strategy and sends merge and state mutations"
       methods: ["merge", "squash"],
       defaultMethod: "squash",
     });
+    const mergeRequest = execute.mock.calls[1]?.[0];
+    const declineRequest = execute.mock.calls[2]?.[0];
+    assert.ok(mergeRequest);
+    assert.ok(declineRequest);
     assert.strictEqual(
-      execute.mock.calls[1]?.[0].url,
+      mergeRequest.url,
       "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/merge",
     );
-    assert.strictEqual(execute.mock.calls[1]?.[0].method, "POST");
-    assert.strictEqual(execute.mock.calls[2]?.[0].method, "PUT");
+    assert.strictEqual(mergeRequest.method, "POST");
+    assert.deepStrictEqual(requestJsonBody(mergeRequest), {
+      merge_strategy: "squash",
+    });
+    assert.strictEqual(
+      declineRequest.url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/decline",
+    );
+    assert.strictEqual(declineRequest.method, "POST");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("rejects reopening a declined Bitbucket pull request without sending a request", () => {
+  const { execute, layer } = makeLayer({
+    response: () => Response.json(bitbucketPullRequest),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const error = yield* bitbucket
+      .updatePullRequestState({
+        cwd: "/repo",
+        reference: "42",
+        state: "open",
+      })
+      .pipe(Effect.flip);
+
+    assert.strictEqual(error._tag, "BitbucketPullRequestStateUnsupportedError");
+    assert.strictEqual(execute.mock.calls.length, 0);
   }).pipe(Effect.provide(layer));
 });
 
@@ -319,6 +356,27 @@ it.effect("includes later Bitbucket commit status pages in the rollup", () => {
 
     assert.strictEqual(result, "failure");
     assert.strictEqual(execute.mock.calls.length, 2);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("bounds Bitbucket commit status pagination", () => {
+  const { execute, layer } = makeLayer({
+    response: () =>
+      Response.json({
+        values: [{ state: "SUCCESSFUL" }],
+        next: "https://api.test.local/2.0/statuses?page=next",
+      }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listChecks({
+      cwd: "/repo",
+      changeRequestNumber: 42,
+    });
+
+    assert.strictEqual(result, "success");
+    assert.strictEqual(execute.mock.calls.length, 20);
   }).pipe(Effect.provide(layer));
 });
 
@@ -562,10 +620,7 @@ it.effect("creates repositories through the Bitbucket REST API", () => {
     assert.strictEqual(request?.url, "https://api.test.local/2.0/repositories/pingdotgg/aqqua");
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
-    const rawBody = (request.body as { readonly body?: Uint8Array }).body;
-    assert.ok(rawBody);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
-    assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(rawBody)), {
+    assert.deepStrictEqual(requestJsonBody(request), {
       scm: "git",
       is_private: true,
     });
@@ -598,10 +653,7 @@ it.effect("creates pull requests using the official REST payload shape", () => {
     );
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
-    const rawBody = (request.body as { readonly body?: Uint8Array }).body;
-    assert.ok(rawBody);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
-    assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(rawBody)), {
+    assert.deepStrictEqual(requestJsonBody(request), {
       title: "Provider PR",
       description: "PR body",
       source: {

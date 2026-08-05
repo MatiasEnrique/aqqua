@@ -110,6 +110,37 @@ it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
   );
 });
 
+it.effect("GitVcsDriver rejects truncated conflict status output", () =>
+  Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    if (!driver.listConflicts) {
+      return assert.fail("Git conflict listing is unavailable");
+    }
+
+    const error = yield* driver.listConflicts("/repo").pipe(Effect.flip);
+    if (error._tag !== "VcsProcessExitError") {
+      return assert.fail(`Expected VcsProcessExitError, received ${error._tag}`);
+    }
+    assert.include(error.detail, "truncated");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: () =>
+            Effect.succeed({
+              exitCode: ChildProcessSpawner.ExitCode(0),
+              stdout: "u UU N... 100644 100644 100644 100644 aaa bbb ccc src/app.ts\0",
+              stderr: "",
+              stdoutTruncated: true,
+              stderrTruncated: false,
+            }),
+        }),
+      ),
+    ),
+  ),
+);
+
 it.effect("the provider-neutral Git driver exposes working-tree operations", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -158,4 +189,16 @@ it("selects deletion when ours or theirs has no conflict stage", () => {
   assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "ours"));
   assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "ours"));
   assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-them", "theirs"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("both-deleted", "ours"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("deleted-by-us", "ours"));
+  assert.isTrue(GitVcsDriver.conflictResolutionDeletesPath("deleted-by-them", "theirs"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("both-deleted", "content"));
+  assert.isFalse(GitVcsDriver.conflictResolutionDeletesPath("added-by-us", "content"));
+});
+
+it("parses porcelain-v2 unmerged records into typed conflicts", () => {
+  const record = "u UU N... 100644 100644 100644 100644 aaa bbb ccc src/app.ts";
+  assert.deepStrictEqual(GitVcsDriver.parseConflictStatus(`${record}\0`), [
+    { path: "src/app.ts", kind: "both-modified" },
+  ]);
 });

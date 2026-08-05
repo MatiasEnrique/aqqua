@@ -160,6 +160,50 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("falls back when GitHub omits or changes its default merge method", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+                viewerDefaultMergeMethod: "MERGE_QUEUE",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                mergeCommitAllowed: false,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: false,
+              }),
+            ),
+          ),
+        );
+
+      const github = yield* GitHubCli.GitHubCli;
+      const unknownDefault = yield* github.getMergeOptions({ cwd: "/repo" });
+      const missingDefault = yield* github.getMergeOptions({ cwd: "/repo" });
+
+      assert.deepStrictEqual(unknownDefault, {
+        methods: ["merge", "squash"],
+        defaultMethod: "merge",
+      });
+      assert.deepStrictEqual(missingDefault, {
+        methods: ["squash"],
+        defaultMethod: "squash",
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("rolls up GitHub statusCheckRollup values", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(
@@ -259,6 +303,21 @@ describe("GitHubCli.layer", () => {
         "--json",
         "statusCheckRollup",
       ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("attributes malformed check details to listCheckDetails", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("{}")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh.listCheckDetails({ cwd: "/repo", reference: "42" }).pipe(Effect.flip);
+
+      if (error._tag !== "GitHubChecksDecodeError") {
+        return assert.fail(`Expected GitHubChecksDecodeError, received ${error._tag}`);
+      }
+      assert.strictEqual(error.operation, "listCheckDetails");
+      assert.match(error.message, /listCheckDetails/);
     }).pipe(Effect.provide(layer)),
   );
 

@@ -8,7 +8,7 @@ import type {
   VcsStatusResult,
 } from "@aqqua/contracts";
 import { ExternalLinkIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
 import { readLocalApi } from "~/localApi";
@@ -55,6 +55,7 @@ export function ManagePullRequestDialog({
   const [autoMergeEnabled, setAutoMergeEnabled] = useState<boolean | null>(null);
   const [mutation, setMutation] = useState<"merge" | "auto-merge" | "state" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const hasUserSelectedMergeMethod = useRef(false);
   const threadToastData = useMemo(() => ({ threadRef }), [threadRef]);
   const presentation = useMemo(
     () => getSourceControlPresentation(sourceControlProvider),
@@ -87,16 +88,17 @@ export function ManagePullRequestDialog({
   });
 
   useEffect(() => {
-    const options = mergeOptionsQuery.data;
-    if (options) {
-      setSelectedMergeMethod(options.defaultMethod);
-    }
-  }, [changeRequest.number, mergeOptionsQuery.data]);
-
-  useEffect(() => {
+    hasUserSelectedMergeMethod.current = false;
     setAutoMergeEnabled(null);
     setError(null);
   }, [changeRequest.number]);
+
+  useEffect(() => {
+    const options = mergeOptionsQuery.data;
+    if (options && !hasUserSelectedMergeMethod.current) {
+      setSelectedMergeMethod(options.defaultMethod);
+    }
+  }, [changeRequest.number, mergeOptionsQuery.data]);
 
   const openExistingPr = useCallback(async () => {
     const api = readLocalApi();
@@ -248,9 +250,10 @@ export function ManagePullRequestDialog({
             <p className="text-xs font-medium text-foreground">Merge method</p>
             <RadioGroup
               value={selectedMergeMethod}
-              onValueChange={(value) =>
-                setSelectedMergeMethod(value as GitChangeRequestMergeMethod)
-              }
+              onValueChange={(value) => {
+                hasUserSelectedMergeMethod.current = true;
+                setSelectedMergeMethod(value as GitChangeRequestMergeMethod);
+              }}
               className="space-y-2"
               disabled={management.mergeDisabledReason !== null}
             >

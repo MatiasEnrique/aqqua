@@ -517,21 +517,23 @@ export const make = Effect.gen(function* () {
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
-          Effect.sync(() => decodeAzureDevOpsChecksStatusJson(raw)).pipe(
-            Effect.flatMap((decoded) =>
-              Result.isSuccess(decoded)
-                ? Effect.succeed(decoded.success)
-                : Effect.fail(
-                    new AzureDevOpsChecksDecodeError({
-                      operation: "listChecks",
-                      command: "az",
-                      cwd: input.cwd,
-                      outputLength: raw.length,
-                      cause: decoded.failure,
-                    }),
-                  ),
-            ),
-          ),
+          raw.length === 0
+            ? Effect.succeed(null)
+            : Effect.sync(() => decodeAzureDevOpsChecksStatusJson(raw)).pipe(
+                Effect.flatMap((decoded) =>
+                  Result.isSuccess(decoded)
+                    ? Effect.succeed(decoded.success)
+                    : Effect.fail(
+                        new AzureDevOpsChecksDecodeError({
+                          operation: "listChecks",
+                          command: "az",
+                          cwd: input.cwd,
+                          outputLength: raw.length,
+                          cause: decoded.failure,
+                        }),
+                      ),
+                ),
+              ),
         ),
       ),
     // Azure branch policies can restrict completion strategies, while the CLI

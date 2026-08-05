@@ -119,10 +119,8 @@ export function PullRequestPanel({
     if (refreshPending) return;
     setRefreshPending(true);
     try {
-      await Promise.all([
-        refreshStatus({ environmentId, input: { cwd } }),
-        checksQuery.refresh().catch(() => undefined),
-      ]);
+      await refreshStatus({ environmentId, input: { cwd } });
+      await checksQuery.refresh().catch(() => undefined);
     } finally {
       setRefreshPending(false);
     }

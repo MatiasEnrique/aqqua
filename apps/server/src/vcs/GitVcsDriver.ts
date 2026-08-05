@@ -766,6 +766,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
   const resolveConflictOperation = Effect.fn("GitVcsDriver.resolveConflictOperation")(function* (
     cwd: string,
   ) {
+    const onInspectError = mapWorkingTreePlatformError(
+      "GitVcsDriver.resolveConflictOperation",
+      cwd,
+      "git rev-parse --git-path",
+      "Failed to inspect Git operation state.",
+    );
     const resolveGitPath = Effect.fn("GitVcsDriver.resolveConflictOperation.gitPath")(function* (
       name: string,
     ) {
@@ -781,52 +787,15 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     });
 
     const rebaseMergePath = yield* resolveGitPath("rebase-merge");
-    if (
-      yield* fileSystem
-        .exists(rebaseMergePath)
-        .pipe(
-          Effect.mapError(
-            mapWorkingTreePlatformError(
-              "GitVcsDriver.resolveConflictOperation",
-              cwd,
-              "git rev-parse --git-path",
-              "Failed to inspect Git operation state.",
-            ),
-          ),
-        )
-    ) {
+    if (yield* fileSystem.exists(rebaseMergePath).pipe(Effect.mapError(onInspectError))) {
       return "rebase" as const;
     }
     const rebaseApplyPath = yield* resolveGitPath("rebase-apply");
-    if (
-      yield* fileSystem
-        .exists(rebaseApplyPath)
-        .pipe(
-          Effect.mapError(
-            mapWorkingTreePlatformError(
-              "GitVcsDriver.resolveConflictOperation",
-              cwd,
-              "git rev-parse --git-path",
-              "Failed to inspect Git operation state.",
-            ),
-          ),
-        )
-    ) {
+    if (yield* fileSystem.exists(rebaseApplyPath).pipe(Effect.mapError(onInspectError))) {
       return "rebase" as const;
     }
     const mergeHeadPath = yield* resolveGitPath("MERGE_HEAD");
-    return (yield* fileSystem
-      .exists(mergeHeadPath)
-      .pipe(
-        Effect.mapError(
-          mapWorkingTreePlatformError(
-            "GitVcsDriver.resolveConflictOperation",
-            cwd,
-            "git rev-parse --git-path",
-            "Failed to inspect Git operation state.",
-          ),
-        ),
-      ))
+    return (yield* fileSystem.exists(mergeHeadPath).pipe(Effect.mapError(onInspectError)))
       ? ("merge" as const)
       : null;
   });
@@ -844,6 +813,14 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         maxOutputBytes: CONFLICT_STATUS_MAX_OUTPUT_BYTES,
       },
     );
+    if (result.stdoutTruncated) {
+      return yield* workingTreeError(
+        "GitVcsDriver.listConflicts",
+        cwd,
+        "git status --porcelain=v2",
+        "Conflict status output was truncated; the conflict list is incomplete.",
+      );
+    }
     return {
       operation: yield* resolveConflictOperation(cwd),
       conflicts: parseConflictStatus(result.stdout),

@@ -247,30 +247,26 @@ export const GitGetChangeRequestChecksInput = GitPullRequestRefInput;
 export type GitGetChangeRequestChecksInput = typeof GitGetChangeRequestChecksInput.Type;
 
 export const GitMergeChangeRequestInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  reference: GitPullRequestReference,
+  ...GitPullRequestRefInput.fields,
   method: GitChangeRequestMergeMethod,
 });
 export type GitMergeChangeRequestInput = typeof GitMergeChangeRequestInput.Type;
 
 export const GitSetAutoMergeInput = Schema.Union([
   Schema.Struct({
-    cwd: TrimmedNonEmptyStringSchema,
-    reference: GitPullRequestReference,
+    ...GitPullRequestRefInput.fields,
     enabled: Schema.Literal(true),
     method: GitChangeRequestMergeMethod,
   }),
   Schema.Struct({
-    cwd: TrimmedNonEmptyStringSchema,
-    reference: GitPullRequestReference,
+    ...GitPullRequestRefInput.fields,
     enabled: Schema.Literal(false),
   }),
 ]);
 export type GitSetAutoMergeInput = typeof GitSetAutoMergeInput.Type;
 
 export const GitUpdateChangeRequestStateInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  reference: GitPullRequestReference,
+  ...GitPullRequestRefInput.fields,
   state: Schema.Literals(["open", "closed"]),
 });
 export type GitUpdateChangeRequestStateInput = typeof GitUpdateChangeRequestStateInput.Type;

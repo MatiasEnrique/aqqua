@@ -226,4 +226,4 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [30]: ../../apps/server/src/usage/UsageScanner.ts
 [31]: ../../packages/contracts/src/usage.ts
 [32]: ../../apps/server/src/usage/AccountRateLimits.ts
-[33]: ../apps/server/src/orchestration/Layers/PullRequestSettleReactor.ts
+[33]: ../../apps/server/src/orchestration/Layers/PullRequestSettleReactor.ts

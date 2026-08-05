@@ -1844,11 +1844,12 @@ export const make = Effect.gen(function* () {
 
   const getChangeRequestMergeOptions: GitManager["Service"]["getChangeRequestMergeOptions"] =
     Effect.fn("getChangeRequestMergeOptions")(function* (input) {
-      const provider = yield* sourceControlProvider(input.cwd);
+      const cwd = yield* normalizeStatusCacheKey(input.cwd);
+      const provider = yield* sourceControlProvider(cwd);
       const normalizedReference = normalizePullRequestReference(input.reference);
       return yield* Cache.get(
         mergeOptionsCache,
-        `${input.cwd}\u0000${provider.kind === "github" ? "" : normalizedReference}`,
+        `${cwd}\u0000${provider.kind === "github" ? "" : normalizedReference}`,
       );
     });
 
@@ -1911,6 +1912,7 @@ export const make = Effect.gen(function* () {
         ...input,
         reference: normalizePullRequestReference(input.reference),
       });
+      yield* bumpPrLookupEpoch(input.cwd);
       return { enabled: input.enabled };
     },
   );

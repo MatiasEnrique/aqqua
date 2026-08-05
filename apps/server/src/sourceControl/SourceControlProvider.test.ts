@@ -30,6 +30,7 @@ it("requires each change-request capability flag and its methods", () => {
   const mergeChangeRequest = () => Effect.void;
   const setAutoMerge = () => Effect.void;
   const updateChangeRequestState = () => Effect.void;
+  const listCheckDetails = () => Effect.succeed([]);
 
   assert.strictEqual(
     supportsChangeRequestMerge({
@@ -63,6 +64,35 @@ it("requires each change-request capability flag and its methods", () => {
       updateChangeRequestState,
     }),
     true,
+  );
+  assert.strictEqual(
+    supportsChangeRequestAutoMerge({
+      ...base,
+      capabilities: { autoMerge: true },
+    }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestStateUpdate({
+      ...base,
+      capabilities: { changeRequestState: true },
+    }),
+    false,
+  );
+  assert.strictEqual(
+    supportsChangeRequestCheckDetails({
+      ...base,
+      capabilities: { checkDetails: true },
+      listCheckDetails,
+    }),
+    true,
+  );
+  assert.strictEqual(
+    supportsChangeRequestCheckDetails({
+      ...base,
+      capabilities: { checkDetails: true },
+    }),
+    false,
   );
 });
 

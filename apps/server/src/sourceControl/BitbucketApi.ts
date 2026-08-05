@@ -33,6 +33,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 const DEFAULT_API_BASE_URL = "https://api.bitbucket.org/2.0";
+const MAX_STATUS_PAGES = 20;
 
 const BitbucketApiEnvConfig = Config.all({
   baseUrl: Config.string("AQQUA_BITBUCKET_API_BASE_URL").pipe(
@@ -184,6 +185,18 @@ export class BitbucketCheckoutError extends Schema.TaggedErrorClass<BitbucketChe
   }
 }
 
+export class BitbucketPullRequestStateUnsupportedError extends Schema.TaggedErrorClass<BitbucketPullRequestStateUnsupportedError>()(
+  "BitbucketPullRequestStateUnsupportedError",
+  {
+    reference: Schema.String,
+    state: Schema.Literal("open"),
+  },
+) {
+  override get message(): string {
+    return `Bitbucket API failed in updatePullRequestState: Bitbucket Cloud cannot reopen declined pull request ${this.reference}.`;
+  }
+}
+
 export const BitbucketApiError = Schema.Union([
   BitbucketRepositoryLocatorError,
   BitbucketRequestError,
@@ -195,6 +208,7 @@ export const BitbucketApiError = Schema.Union([
   BitbucketRepositoryRemoteNotFoundError,
   BitbucketPullRequestBodyReadError,
   BitbucketCheckoutError,
+  BitbucketPullRequestStateUnsupportedError,
 ]);
 export type BitbucketApiError = typeof BitbucketApiError.Type;
 export const isBitbucketApiError = Schema.is(BitbucketApiError);
@@ -222,11 +236,6 @@ const RawBitbucketRepositorySchema = Schema.Struct({
         name: TrimmedNonEmptyString,
       }),
     ),
-  ),
-  override_settings: Schema.optional(
-    Schema.Struct({
-      default_merge_strategy: Schema.optional(TrimmedNonEmptyString),
-    }),
   ),
 });
 
@@ -741,6 +750,36 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((repository) => getRawPullRequestFromRepository(repository, input.reference)),
     );
 
+  const fetchAllStatuses = Effect.fn("BitbucketApi.fetchAllStatuses")(function* (input: {
+    readonly operation: "listChecks" | "listCheckDetails";
+    readonly repository: BitbucketRepositoryLocator;
+    readonly pullRequestId: string;
+  }) {
+    const values: Array<
+      Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>["values"][number]
+    > = [];
+    for (let pageNumber = 1; pageNumber <= MAX_STATUS_PAGES; pageNumber += 1) {
+      const page = yield* executeJson(
+        input.operation,
+        HttpClientRequest.get(
+          apiUrl(
+            `/repositories/${encodeURIComponent(input.repository.workspace)}/${encodeURIComponent(input.repository.repoSlug)}/pullrequests/${encodeURIComponent(input.pullRequestId)}/statuses`,
+          ),
+          {
+            urlParams: {
+              pagelen: "100",
+              page: String(pageNumber),
+            },
+          },
+        ),
+        BitbucketCommitStatusListSchema,
+      );
+      values.push(...page.values);
+      if (page.next === undefined) break;
+    }
+    return { values };
+  });
+
   const readConfigValueNullable = (cwd: string, key: string) =>
     git.readConfigValue(cwd, key).pipe(Effect.orElseSucceed(() => null));
 
@@ -826,58 +865,23 @@ export const make = Effect.gen(function* () {
       getRawPullRequest(input).pipe(Effect.map(normalizeBitbucketPullRequestRecord)),
     listChecks: (input) =>
       resolveRepository(input).pipe(
-        Effect.flatMap(
-          Effect.fn("BitbucketApi.listChecks")(function* (repository) {
-            const values: Array<{ readonly state: string }> = [];
-            let pageNumber = 1;
-            let hasNextPage = true;
-            while (hasNextPage) {
-              const page = yield* executeJson(
-                "listChecks",
-                HttpClientRequest.get(
-                  apiUrl(
-                    `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${input.changeRequestNumber}/statuses`,
-                  ),
-                  {
-                    urlParams: {
-                      pagelen: "100",
-                      page: String(pageNumber),
-                    },
-                  },
-                ),
-                BitbucketCommitStatusListSchema,
-              );
-              values.push(...page.values);
-              hasNextPage = page.next !== undefined;
-              pageNumber += 1;
-            }
-            return normalizeBitbucketChecksStatus({ values });
+        Effect.flatMap((repository) =>
+          fetchAllStatuses({
+            operation: "listChecks",
+            repository,
+            pullRequestId: String(input.changeRequestNumber),
           }),
         ),
+        Effect.map(normalizeBitbucketChecksStatus),
       ),
     listCheckDetails: Effect.fn("BitbucketApi.listCheckDetails")(function* (input) {
       const repository = yield* resolveRepository(input);
-      const values: Array<
-        Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>["values"][number]
-      > = [];
-      let pageNumber = 1;
-      let hasNextPage = true;
-      while (hasNextPage) {
-        const page = yield* executeJson(
-          "listCheckDetails",
-          HttpClientRequest.get(
-            apiUrl(
-              `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}/statuses`,
-            ),
-            { urlParams: { pagelen: "100", page: String(pageNumber) } },
-          ),
-          BitbucketCommitStatusListSchema,
-        );
-        values.push(...page.values);
-        hasNextPage = page.next !== undefined;
-        pageNumber += 1;
-      }
-      return normalizeBitbucketCheckDetails({ values });
+      const statuses = yield* fetchAllStatuses({
+        operation: "listCheckDetails",
+        repository,
+        pullRequestId: normalizeChangeRequestId(input.reference),
+      });
+      return normalizeBitbucketCheckDetails(statuses);
     }),
     getMergeOptions: (input) =>
       resolveRepository(input).pipe(
@@ -906,24 +910,27 @@ export const make = Effect.gen(function* () {
         Effect.asVoid,
       ),
     updatePullRequestState: (input) =>
-      resolveRepository(input).pipe(
-        Effect.flatMap((repository) =>
-          executeJson(
-            "updatePullRequestState",
-            HttpClientRequest.put(
-              apiUrl(
-                `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}`,
+      input.state === "open"
+        ? Effect.fail(
+            new BitbucketPullRequestStateUnsupportedError({
+              reference: input.reference,
+              state: "open",
+            }),
+          )
+        : resolveRepository(input).pipe(
+            Effect.flatMap((repository) =>
+              executeJson(
+                "updatePullRequestState",
+                HttpClientRequest.post(
+                  apiUrl(
+                    `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}/decline`,
+                  ),
+                ),
+                BitbucketPullRequestSchema,
               ),
-            ).pipe(
-              HttpClientRequest.bodyJsonUnsafe({
-                state: input.state === "open" ? "OPEN" : "DECLINED",
-              }),
             ),
-            BitbucketPullRequestSchema,
+            Effect.asVoid,
           ),
-        ),
-        Effect.asVoid,
-      ),
     getRepositoryCloneUrls: (input) =>
       getRepository(input).pipe(Effect.map(normalizeRepositoryCloneUrls)),
     createRepository: (input) =>

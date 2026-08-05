@@ -30,6 +30,18 @@ export const BitbucketCommitStatusListSchema = Schema.Struct({
   next: Schema.optional(TrimmedNonEmptyString),
 });
 
+function classifyBitbucketState(state: string): "success" | "failure" | "pending" {
+  switch (state.trim().toUpperCase()) {
+    case "SUCCESSFUL":
+      return "success";
+    case "FAILED":
+    case "STOPPED":
+      return "failure";
+    default:
+      return "pending";
+  }
+}
+
 export function normalizeBitbucketChecksStatus(
   input: Schema.Schema.Type<typeof BitbucketCommitStatusListSchema>,
 ): BitbucketChecksStatus {
@@ -38,17 +50,9 @@ export function normalizeBitbucketChecksStatus(
   }
   let pending = false;
   for (const status of input.values) {
-    switch (status.state.trim().toUpperCase()) {
-      case "FAILED":
-      case "STOPPED":
-        return "failure";
-      case "SUCCESSFUL":
-        break;
-      case "INPROGRESS":
-      default:
-        pending = true;
-        break;
-    }
+    const classified = classifyBitbucketState(status.state);
+    if (classified === "failure") return "failure";
+    if (classified === "pending") pending = true;
   }
   return pending ? "pending" : "success";
 }
@@ -59,13 +63,7 @@ export function normalizeBitbucketCheckDetails(
   return input.values.flatMap((status) => {
     const name = status.name?.trim() || status.key?.trim();
     if (!name) return [];
-    const state = status.state.trim().toUpperCase();
-    const normalizedStatus: GitChangeRequestCheck["status"] =
-      state === "SUCCESSFUL"
-        ? "success"
-        : state === "FAILED" || state === "STOPPED"
-          ? "failure"
-          : "pending";
+    const normalizedStatus = classifyBitbucketState(status.state);
     const detailsUrl = status.url?.trim();
     return [
       {

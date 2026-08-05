@@ -106,6 +106,10 @@ it.effect("delegates GitLab change-request mutations", () =>
       },
     });
 
+    const options = yield* provider.getChangeRequestMergeOptions!({
+      cwd: "/repo",
+      reference: "42",
+    });
     yield* provider.mergeChangeRequest!({
       cwd: "/repo",
       reference: "42",
@@ -122,6 +126,10 @@ it.effect("delegates GitLab change-request mutations", () =>
       state: "open",
     });
 
+    assert.deepStrictEqual(options, {
+      methods: ["merge", "squash"],
+      defaultMethod: "merge",
+    });
     assert.deepStrictEqual(calls, ["merge:squash", "auto:false", "state:open"]);
   }),
 );

@@ -80,7 +80,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.gitRunStackedAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitGetChangeRequestChecks]: AuthOrchestrationReadScope,
-  [WS_METHODS.gitGetChangeRequestMergeOptions]: AuthOrchestrationOperateScope,
+  [WS_METHODS.gitGetChangeRequestMergeOptions]: AuthOrchestrationReadScope,
   [WS_METHODS.gitMergeChangeRequest]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitSetAutoMerge]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitUpdateChangeRequestState]: AuthOrchestrationOperateScope,

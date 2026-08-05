@@ -142,14 +142,17 @@ export class GitHubRepositoryDecodeError extends Schema.TaggedErrorClass<GitHubR
 
 export class GitHubChecksDecodeError extends Schema.TaggedErrorClass<GitHubChecksDecodeError>()(
   "GitHubChecksDecodeError",
-  gitHubCliDecodeFields,
+  {
+    ...gitHubCliDecodeFields,
+    operation: Schema.Literals(["listChecks", "listCheckDetails"]),
+  },
 ) {
   get detail(): string {
     return "GitHub CLI returned invalid checks JSON.";
   }
 
   override get message(): string {
-    return `GitHub CLI failed in listChecks: ${this.detail}`;
+    return `GitHub CLI failed in ${this.operation}: ${this.detail}`;
   }
 }
 
@@ -335,7 +338,7 @@ const RawGitHubMergeOptionsSchema = Schema.Struct({
   mergeCommitAllowed: Schema.Boolean,
   squashMergeAllowed: Schema.Boolean,
   rebaseMergeAllowed: Schema.Boolean,
-  viewerDefaultMergeMethod: Schema.Literals(["MERGE", "SQUASH", "REBASE"]),
+  viewerDefaultMergeMethod: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const decodeRawGitHubRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubRepositoryCloneUrlsSchema),
@@ -362,11 +365,9 @@ function normalizeGitHubMergeOptions(
   if (raw.mergeCommitAllowed) methods.push("merge");
   if (raw.squashMergeAllowed) methods.push("squash");
   if (raw.rebaseMergeAllowed) methods.push("rebase");
-  const configuredDefault =
-    raw.viewerDefaultMergeMethod.toLowerCase() as GitChangeRequestMergeMethod;
-  const defaultMethod = methods.includes(configuredDefault)
-    ? configuredDefault
-    : (methods[0] ?? "merge");
+  const normalizedDefault = raw.viewerDefaultMergeMethod?.trim().toLowerCase();
+  const configuredDefault = methods.find((method) => method === normalizedDefault);
+  const defaultMethod = configuredDefault ?? methods[0] ?? "merge";
   return {
     methods: methods.length > 0 ? methods : ["merge"],
     defaultMethod,
@@ -437,6 +438,7 @@ export const make = Effect.gen(function* () {
   const readCheckRollup = Effect.fn("GitHubCli.readCheckRollup")(function* (input: {
     readonly cwd: string;
     readonly reference: string;
+    readonly operation: "listChecks" | "listCheckDetails";
   }) {
     const output = yield* execute({
       cwd: input.cwd,
@@ -449,6 +451,7 @@ export const make = Effect.gen(function* () {
           ? Effect.succeed(decoded.success)
           : Effect.fail(
               new GitHubChecksDecodeError({
+                operation: input.operation,
                 command: "gh",
                 cwd: input.cwd,
                 cause: decoded.failure,
@@ -462,6 +465,7 @@ export const make = Effect.gen(function* () {
           ? Effect.succeed(decoded.success)
           : Effect.fail(
               new GitHubChecksDecodeError({
+                operation: input.operation,
                 command: "gh",
                 cwd: input.cwd,
                 cause: decoded.failure,
@@ -549,10 +553,14 @@ export const make = Effect.gen(function* () {
       return (yield* readCheckRollup({
         cwd: input.cwd,
         reference: String(input.changeRequestNumber),
+        operation: "listChecks",
       })).status;
     }),
     listCheckDetails: Effect.fn("GitHubCli.listCheckDetails")(function* (input) {
-      return (yield* readCheckRollup(input)).details;
+      return (yield* readCheckRollup({
+        ...input,
+        operation: "listCheckDetails",
+      })).details;
     }),
     getMergeOptions: (input) =>
       execute({

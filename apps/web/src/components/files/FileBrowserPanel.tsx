@@ -494,9 +494,10 @@ export default function FileBrowserPanel({
               >
                 <Search className="size-3.5" />
               </button>
-              <button
+              <Button
                 type="button"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                variant="ghost"
+                size="icon-xs"
                 aria-label="Refresh workspace files"
                 disabled={entriesQuery.isPending}
                 onClick={() => {
@@ -511,7 +512,7 @@ export default function FileBrowserPanel({
                 }}
               >
                 <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
-              </button>
+              </Button>
             </>
           }
         />

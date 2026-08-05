@@ -452,6 +452,13 @@ describe("change request mutation contracts", () => {
         state: "closed",
       }).state,
     ).toBe("closed");
+    expect(
+      decodeUpdateChangeRequestStateInput({
+        cwd: "/repo",
+        reference: "#42",
+        state: "open",
+      }).state,
+    ).toBe("open");
     expect(() =>
       decodeUpdateChangeRequestStateInput({
         cwd: "/repo",

@@ -123,6 +123,17 @@ describe("AzureDevOpsCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("returns no checks when Azure emits no policy evaluations", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const az = yield* AzureDevOpsCli.AzureDevOpsCli;
+      const result = yield* az.listChecks({ cwd: "/repo", changeRequestNumber: 42 });
+
+      assert.strictEqual(result, null);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("maps completion, auto-complete, and state updates to Azure CLI", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValue(Effect.succeed(processOutput("{}")));
@@ -143,14 +154,54 @@ describe("AzureDevOpsCli.layer", () => {
       yield* az.updatePullRequestState({ cwd: "/repo", reference: "42", state: "closed" });
 
       const calls = mockRun.mock.calls.map(([input]) => input.args);
-      expect(calls[0]).toEqual(
-        expect.arrayContaining(["--status", "completed", "--squash", "false"]),
-      );
-      expect(calls[1]).toEqual(
-        expect.arrayContaining(["--auto-complete", "true", "--squash", "false"]),
-      );
-      expect(calls[2]).toEqual(expect.arrayContaining(["--auto-complete", "false"]));
-      expect(calls[3]).toEqual(expect.arrayContaining(["--status", "abandoned"]));
+      assert.deepStrictEqual(calls[0], [
+        "repos",
+        "pr",
+        "update",
+        "--detect",
+        "true",
+        "--id",
+        "42",
+        "--status",
+        "completed",
+        "--squash",
+        "false",
+      ]);
+      assert.deepStrictEqual(calls[1], [
+        "repos",
+        "pr",
+        "update",
+        "--detect",
+        "true",
+        "--id",
+        "42",
+        "--auto-complete",
+        "true",
+        "--squash",
+        "false",
+      ]);
+      assert.deepStrictEqual(calls[2], [
+        "repos",
+        "pr",
+        "update",
+        "--detect",
+        "true",
+        "--id",
+        "42",
+        "--auto-complete",
+        "false",
+      ]);
+      assert.deepStrictEqual(calls[3], [
+        "repos",
+        "pr",
+        "update",
+        "--detect",
+        "true",
+        "--id",
+        "42",
+        "--status",
+        "abandoned",
+      ]);
     }).pipe(Effect.provide(layer)),
   );
 

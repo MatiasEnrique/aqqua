@@ -132,7 +132,7 @@ layer("GitLabCli.layer", (it) => {
         );
 
       const glab = yield* GitLabCli.GitLabCli;
-      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "#42" });
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "!42" });
 
       assert.deepStrictEqual(result, [
         {
@@ -186,6 +186,51 @@ layer("GitLabCli.layer", (it) => {
         "api",
         "projects/:fullpath/pipelines/99/jobs?per_page=100&page=2",
       ]);
+    }),
+  );
+
+  it.effect("bounds job pagination when every GitLab page is full", () =>
+    Effect.gen(function* () {
+      mockedRun
+        .mockReturnValueOnce(
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          Effect.succeed(processOutput(JSON.stringify([{ id: 99, status: "running" }]))),
+        )
+        .mockReturnValue(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify(
+                Array.from({ length: 100 }, (_, index) => ({
+                  name: `job-${index + 1}`,
+                  status: "success",
+                })),
+              ),
+            ),
+          ),
+        );
+
+      const glab = yield* GitLabCli.GitLabCli;
+      const result = yield* glab.listCheckDetails({ cwd: "/repo", reference: "42" });
+
+      assert.strictEqual(result.length, 2_000);
+      assert.strictEqual(mockedRun.mock.calls.length, 21);
+      assert.deepStrictEqual(mockedRun.mock.calls.at(-1)?.[0].args, [
+        "api",
+        "projects/:fullpath/pipelines/99/jobs?per_page=100&page=20",
+      ]);
+    }),
+  );
+
+  it.effect("rejects merge request references that add API path segments", () =>
+    Effect.gen(function* () {
+      const glab = yield* GitLabCli.GitLabCli;
+      const error = yield* glab
+        .listCheckDetails({ cwd: "/repo", reference: "42/jobs" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitLabMergeRequestReferenceError");
+      assert.strictEqual(mockedRun.mock.calls.length, 0);
     }),
   );
 

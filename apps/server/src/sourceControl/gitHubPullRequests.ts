@@ -156,6 +156,19 @@ export function decodeGitHubPullRequestJson(
   return Result.fail(result.failure);
 }
 
+const FAILURE_CONCLUSIONS = new Set([
+  "FAILURE",
+  "CANCELLED",
+  "TIMED_OUT",
+  "ACTION_REQUIRED",
+  "STALE",
+  "STARTUP_FAILURE",
+]);
+
+function isFailedCheck(state: string | undefined, conclusion: string | undefined): boolean {
+  return state === "FAILURE" || state === "ERROR" || FAILURE_CONCLUSIONS.has(conclusion ?? "");
+}
+
 export function decodeGitHubChecksStatusJson(
   raw: string,
 ): Result.Result<GitHubChecksStatus, Cause.Cause<Schema.SchemaError>> {
@@ -172,13 +185,7 @@ export function decodeGitHubChecksStatusJson(
     const status = check.status?.trim().toUpperCase();
     const conclusion = check.conclusion?.trim().toUpperCase();
     const state = check.state?.trim().toUpperCase();
-    if (
-      state === "FAILURE" ||
-      state === "ERROR" ||
-      ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"].includes(
-        conclusion ?? "",
-      )
-    ) {
+    if (isFailedCheck(state, conclusion)) {
       return Result.succeed("failure");
     }
     if (state !== undefined) {
@@ -211,13 +218,7 @@ function normalizeGitHubCheckStatus(check: {
   if (state === "SUCCESS" || conclusion === "SUCCESS") return "success";
   if (conclusion === "SKIPPED") return "skipped";
   if (conclusion === "NEUTRAL") return "neutral";
-  if (
-    state === "FAILURE" ||
-    state === "ERROR" ||
-    ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"].includes(
-      conclusion ?? "",
-    )
-  ) {
+  if (isFailedCheck(state, conclusion)) {
     return "failure";
   }
   return status === "COMPLETED" && conclusion ? "neutral" : "pending";
