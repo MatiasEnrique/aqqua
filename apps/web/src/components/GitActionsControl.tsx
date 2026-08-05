@@ -90,7 +90,6 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
-import { ChangeRequestChecksBadge } from "./ChangeRequestChecksBadge";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -1682,9 +1681,6 @@ export default function GitActionsControl({
         </Button>
       ) : (
         <div className="flex shrink-0 items-center gap-1.5">
-          {gitStatusForActions?.pr ? (
-            <ChangeRequestChecksBadge status={gitStatusForActions.pr.checksStatus} />
-          ) : null}
           <Group aria-label="Git actions" className="shrink-0">
             {quickActionDisabledReason ? (
               <Popover>
