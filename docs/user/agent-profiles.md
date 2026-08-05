@@ -43,6 +43,8 @@ The optional `model` is a free-form slug; omit it to inherit the project's
 default. `runtime` is `session` or `terminal`, `runtimeMode` controls access,
 and `interactionMode` is `default` or `plan`. For provider options, use
 `reasoningEffort` with Codex, Cursor, and Grok, and `effort` with Claude.
+OpenCode and pi accept no provider option ids today — omit `options` for those
+targets.
 
 The built-in `implementer` profile always appears in `list` and is marked
 `built-in` until customized. Updating it creates a stored customization.

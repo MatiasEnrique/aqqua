@@ -625,6 +625,7 @@ const buildAppUnderTest = (options?: {
           ready: Effect.void,
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
           updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          modifySettings: () => Effect.die("modifySettings unused in this test"),
           streamChanges: Stream.empty,
           ...options?.layers?.serverSettings,
         }),

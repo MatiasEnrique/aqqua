@@ -12,7 +12,6 @@ import {
   type AgentProfileMap,
   type ServerSettings,
 } from "@aqqua/contracts";
-import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
@@ -274,10 +273,14 @@ export const mutateProfileFile = Effect.fn("profileCli.mutateProfileFile")(funct
   );
 });
 
+/**
+ * Offline fallback is only for unreachable or older servers. A timeout leaves
+ * the server write outcome unknown, so falling back would race two writers on
+ * the same settings file — surface the timeout instead.
+ */
 export const liveMutationShouldFallBack = (cause: unknown) =>
-  (HttpClientError.isHttpClientError(cause) &&
-    (cause.response === undefined || cause.response.status === 404)) ||
-  Cause.isTimeoutError(cause);
+  HttpClientError.isHttpClientError(cause) &&
+  (cause.response === undefined || cause.response.status === 404);
 
 const callLiveMutation = Effect.fn("profileCli.callLiveMutation")(function* (
   origin: string,
@@ -286,11 +289,12 @@ const callLiveMutation = Effect.fn("profileCli.callLiveMutation")(function* (
 ) {
   const client = yield* HttpApiClient.make(EnvironmentHttpApi, { baseUrl: origin });
   if (mutation.kind === "upsert") {
+    // HttpApiClient expects the schema Type and encodes the payload itself.
     yield* client.settings.upsertAgentProfile({
       headers: { authorization: `Bearer ${token}` },
       params: { name: mutation.name },
-      payload: encodeProfile(mutation.profile),
-    } as Parameters<typeof client.settings.upsertAgentProfile>[0]);
+      payload: mutation.profile,
+    });
     return;
   }
   yield* client.settings.deleteAgentProfile({
@@ -513,6 +517,9 @@ export const PROFILE_SCHEMA_HELP = {
   optionIds: {
     codexCursorGrok: "reasoningEffort",
     claude: "effort",
+    // OpenCode and pi accept no provider option ids today; omit `options` for those targets.
+    opencode: "none — omit options",
+    pi: "none — omit options",
   },
   namePattern: "^[a-zA-Z][a-zA-Z0-9_-]*$ (maximum 64 characters)",
   example: {
@@ -534,7 +541,7 @@ const schemaCommand = Command.make("schema", { json: jsonFlag }).pipe(
         "Name: ^[a-zA-Z][a-zA-Z0-9_-]*$, maximum 64 characters.",
         'target (required): {"kind":"driver","driver":"codex"} or {"kind":"instance","instanceId":"claudeAgent"}.',
         "model (optional): free-form slug; omitted means inherit the project's default model.",
-        'options (optional): [{"id":"reasoningEffort","value":"high"}] for Codex/Cursor/Grok; use id "effort" for Claude.',
+        'options (optional): [{"id":"reasoningEffort","value":"high"}] for Codex/Cursor/Grok; use id "effort" for Claude; omit for OpenCode and pi (no option ids).',
         "runtime: session | terminal. runtimeMode: approval-required | auto-accept-edits | auto | full-access.",
         "interactionMode: default | plan. titlePrefix is optional.",
         `Example:\n${toJsonLine(PROFILE_SCHEMA_HELP.example)}`,

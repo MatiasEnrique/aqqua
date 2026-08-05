@@ -4,6 +4,7 @@ import {
   type ClientOrchestrationCommand,
   type OrchestrationReadModel,
 } from "@aqqua/contracts";
+import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -13,7 +14,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as References from "effect/References";
 import { GlobalFlag } from "effect/unstable/cli";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/http";
 import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
@@ -63,6 +64,15 @@ export const withEnvironmentCliSessionToken = <A, E, R>(
 const withEnvironmentCliLiveServerTimeout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.timeout(ENVIRONMENT_CLI_LIVE_SERVER_TIMEOUT));
 
+/**
+ * True when a live-server probe failed before any HTTP response body was
+ * available (or the wait timed out). Only these failures justify offline
+ * fallback; declared status codes and protocol errors must surface instead.
+ */
+export const isLiveServerTransportFailure = (cause: unknown): boolean =>
+  Cause.isTimeoutError(cause) ||
+  (HttpClientError.isHttpClientError(cause) && cause.response === undefined);
+
 const makeLiveServerClient = (origin: string) =>
   HttpApiClient.make(EnvironmentHttpApi, {
     baseUrl: origin,
@@ -77,6 +87,17 @@ export const fetchLiveOrchestrationSnapshot = Effect.fn("fetchLiveOrchestrationS
   },
   (effect, _origin, _bearerToken, mapError) =>
     effect.pipe(withEnvironmentCliLiveServerTimeout, Effect.mapError(mapError)),
+);
+
+/** Probe the live server without mapping errors so callers can classify them. */
+const probeLiveOrchestrationSnapshot = Effect.fn("probeLiveOrchestrationSnapshot")(
+  function* (origin: string, bearerToken: string) {
+    const client = yield* makeLiveServerClient(origin);
+    return yield* client.orchestration.snapshot({
+      headers: { authorization: `Bearer ${bearerToken}` },
+    });
+  },
+  (effect) => effect.pipe(withEnvironmentCliLiveServerTimeout),
 );
 
 export const dispatchLiveOrchestrationCommand = Effect.fn("dispatchLiveOrchestrationCommand")(
@@ -119,11 +140,7 @@ export const tryResolveLiveEnvironment = Effect.fn("tryResolveLiveEnvironment")(
   }
 
   const attempt = withEnvironmentCliSessionToken(environmentAuth, options, (token) =>
-    fetchLiveOrchestrationSnapshot(
-      runtimeState.value.origin,
-      token,
-      options.mapLiveServerError,
-    ).pipe(
+    probeLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
       Effect.as({
         origin: runtimeState.value.origin,
       }),
@@ -133,6 +150,12 @@ export const tryResolveLiveEnvironment = Effect.fn("tryResolveLiveEnvironment")(
   const attempted = yield* Effect.result(attempt);
   if (attempted._tag === "Success") {
     return Option.some(attempted.success);
+  }
+
+  // Auth, declared HTTP, and protocol failures must not clear runtime state or
+  // silently drop into offline mode — only unreachable-server cases do.
+  if (!isLiveServerTransportFailure(attempted.failure)) {
+    return yield* Effect.fail(options.mapLiveServerError(attempted.failure));
   }
 
   yield* Effect.logDebug(

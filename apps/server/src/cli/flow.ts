@@ -533,6 +533,11 @@ export const readAvailableFlowProfileNames = Effect.fn("readAvailableFlowProfile
     .pipe(Effect.orElseSucceed(() => ""));
   const decoded = decodeServerSettingsJson(contents);
   if (Exit.isFailure(decoded)) {
+    yield* Effect.logWarning(
+      `Could not decode agent profiles from '${settingsPath}'; ` +
+        `validating flows against the built-in '${DEFAULT_AGENT_PROFILE_NAME}' profile only.`,
+      { settingsPath, cause: decoded.cause },
+    );
     return [DEFAULT_AGENT_PROFILE_NAME];
   }
   return [

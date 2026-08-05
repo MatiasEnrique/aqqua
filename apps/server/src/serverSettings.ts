@@ -129,11 +129,8 @@ export class ServerSettingsService extends Context.Service<
       patch: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    /**
-     * Compute a patch from the current settings while holding the write lock.
-     * Optional only so external test doubles written before this API remain source-compatible.
-     */
-    readonly modifySettings?: <A, E>(
+    /** Compute a patch from the current settings while holding the write lock. */
+    readonly modifySettings: <A, E>(
       modify: (
         current: ServerSettings,
       ) => Effect.Effect<{ readonly patch: ServerSettingsPatch; readonly value: A }, E>,

@@ -47,35 +47,26 @@ const getAgentProfiles = Effect.fn("environment.settings.getAgentProfiles")(func
   };
 });
 
-const getAtomicSettingsModifier = Effect.fn("getAtomicSettingsModifier")(function* () {
-  const settings = yield* ServerSettingsService;
-  if (settings.modifySettings === undefined) {
-    return yield* failEnvironmentInternal(
-      "internal_error",
-      new Error("Server settings atomic modifier is unavailable."),
-    );
-  }
-  return settings.modifySettings;
-});
-
 const upsertAgentProfile = Effect.fn("environment.settings.upsertAgentProfile")(function* (
   nameValue: string,
   profile: AgentProfile,
 ) {
   yield* requireEnvironmentScope(AuthAccessWriteScope);
   const name = yield* decodeSettingsAgentProfileName(nameValue);
-  const modifySettings = yield* getAtomicSettingsModifier();
-  const updated = yield* modifySettings((current) =>
-    Effect.succeed({
-      patch: {
-        agentProfiles: {
-          ...current.agentProfiles,
-          [name]: profile,
+  const settings = yield* ServerSettingsService;
+  const updated = yield* settings
+    .modifySettings((current) =>
+      Effect.succeed({
+        patch: {
+          agentProfiles: {
+            ...current.agentProfiles,
+            [name]: profile,
+          },
         },
-      },
-      value: undefined,
-    }),
-  ).pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)));
+        value: undefined,
+      }),
+    )
+    .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)));
   return { name, profile: updated.settings.agentProfiles[name] ?? profile };
 });
 
@@ -84,24 +75,26 @@ const deleteAgentProfile = Effect.fn("environment.settings.deleteAgentProfile")(
 ) {
   yield* requireEnvironmentScope(AuthAccessWriteScope);
   const name = yield* decodeSettingsAgentProfileName(nameValue);
-  const modifySettings = yield* getAtomicSettingsModifier();
-  const updated = yield* modifySettings((current) => {
-    const existing = current.agentProfiles[name];
-    if (existing === undefined) {
-      return new EnvironmentHttpNotFoundError({
-        message: `Agent profile '${name}' is not stored.`,
+  const settings = yield* ServerSettingsService;
+  const updated = yield* settings
+    .modifySettings((current) => {
+      const existing = current.agentProfiles[name];
+      if (existing === undefined) {
+        return new EnvironmentHttpNotFoundError({
+          message: `Agent profile '${name}' is not stored.`,
+        });
+      }
+      const { [name]: _removed, ...agentProfiles } = current.agentProfiles;
+      return Effect.succeed({
+        patch: { agentProfiles },
+        value: existing,
       });
-    }
-    const { [name]: _removed, ...agentProfiles } = current.agentProfiles;
-    return Effect.succeed({
-      patch: { agentProfiles },
-      value: existing,
-    });
-  }).pipe(
-    Effect.catchTag("ServerSettingsError", (error) =>
-      failEnvironmentInternal("internal_error", error),
-    ),
-  );
+    })
+    .pipe(
+      Effect.catchTag("ServerSettingsError", (error) =>
+        failEnvironmentInternal("internal_error", error),
+      ),
+    );
   return { name, profile: updated.value };
 });
 

@@ -7,11 +7,13 @@ import {
   ProviderInstanceId,
 } from "@aqqua/contracts";
 import { assert, it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
+import { HttpClientError, HttpClientRequest } from "effect/unstable/http";
 
 import {
   IMPLICIT_DEFAULT_PROFILE,
@@ -98,6 +100,22 @@ it("does not treat a declared missing-profile response as an old-server endpoint
       new EnvironmentHttpNotFoundError({ message: "Agent profile 'reviewer' is not stored." }),
     ),
   );
+});
+
+it("falls back only for transport failures and missing endpoints, never timeouts", () => {
+  const request = HttpClientRequest.get("http://127.0.0.1:9/api/settings/agent-profiles/reviewer");
+  assert.isTrue(
+    liveMutationShouldFallBack(
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({
+          request,
+          description: "connection refused",
+        }),
+      }),
+    ),
+  );
+  // A timeout leaves the server write outcome unknown; offline fallback would race.
+  assert.isFalse(liveMutationShouldFallBack(new Cause.TimeoutError()));
 });
 
 it.effect("offline create preserves unrelated settings and writes the profile", () =>

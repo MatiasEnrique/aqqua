@@ -23,6 +23,7 @@ import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
+  unsupportedProviderSessions,
   type ProviderDriver,
   type ProviderDriverCreateInput,
   type ProviderInstance,
@@ -175,6 +176,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       listPiSkills(effectiveConfig, instanceId, cwd, processEnv).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
+    const readSession = unsupportedProviderSessions.readSession(instanceId, DRIVER_KIND);
 
     return {
       instanceId,
@@ -187,6 +189,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       adapter,
       textGeneration,
       listSkills,
+      listSessions: unsupportedProviderSessions.listSessions,
+      readSession,
+      makeResumeCursor: unsupportedProviderSessions.makeResumeCursor,
+      matchesResumeCursor: unsupportedProviderSessions.matchesResumeCursor,
     } satisfies ProviderInstance;
   }),
 };

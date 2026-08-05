@@ -322,18 +322,36 @@ function makeMutableServerSettingsService(
     const settingsRef = yield* Ref.make(initial);
     const changes = yield* PubSub.unbounded<ContractServerSettings>();
 
+    const updateSettings = (
+      patch: Parameters<ServerSettingsModule.ServerSettingsService["Service"]["updateSettings"]>[0],
+    ) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(settingsRef);
+        const next = applyServerSettingsPatch(current, patch);
+        encodeServerSettings(next);
+        yield* Ref.set(settingsRef, next);
+        yield* PubSub.publish(changes, next);
+        return next;
+      });
+
     return {
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(settingsRef),
-      updateSettings: (patch) =>
+      updateSettings,
+      modifySettings: <A, E>(
+        modify: (
+          current: ContractServerSettings,
+        ) => Effect.Effect<
+          { readonly patch: Parameters<typeof updateSettings>[0]; readonly value: A },
+          E
+        >,
+      ) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(settingsRef);
-          const next = applyServerSettingsPatch(current, patch);
-          encodeServerSettings(next);
-          yield* Ref.set(settingsRef, next);
-          yield* PubSub.publish(changes, next);
-          return next;
+          const { patch, value } = yield* modify(current);
+          const settings = yield* updateSettings(patch);
+          return { settings, value };
         }),
       get streamChanges() {
         return Stream.fromPubSub(changes);

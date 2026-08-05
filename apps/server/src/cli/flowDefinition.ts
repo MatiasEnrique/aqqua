@@ -68,6 +68,17 @@ export class FlowDefinitionDuplicateStepNameError extends Schema.TaggedErrorClas
   }
 }
 
+export class FlowDefinitionDuplicateStepIdError extends Schema.TaggedErrorClass<FlowDefinitionDuplicateStepIdError>()(
+  "FlowDefinitionDuplicateStepIdError",
+  {
+    stepId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Flow step ids must be unique; '${this.stepId}' is repeated.`;
+  }
+}
+
 export class FlowDefinitionUnsafeStepNameError extends Schema.TaggedErrorClass<FlowDefinitionUnsafeStepNameError>()(
   "FlowDefinitionUnsafeStepNameError",
   {
@@ -76,6 +87,21 @@ export class FlowDefinitionUnsafeStepNameError extends Schema.TaggedErrorClass<F
 ) {
   override get message(): string {
     return `Flow step name '${this.stepName}' cannot be used as an artifact name.`;
+  }
+}
+
+export class FlowDefinitionDuplicateArtifactNameError extends Schema.TaggedErrorClass<FlowDefinitionDuplicateArtifactNameError>()(
+  "FlowDefinitionDuplicateArtifactNameError",
+  {
+    stepName: Schema.String,
+    artifactName: Schema.String,
+  },
+) {
+  override get message(): string {
+    return (
+      `Flow step name '${this.stepName}' collides with another step after artifact sanitization ` +
+      `('${this.artifactName}'); step names must produce unique artifact file names.`
+    );
   }
 }
 
@@ -161,20 +187,35 @@ export const validateFlowDefinition = Effect.fn("validateFlowDefinition")(functi
   }
 
   const seenStepNames = new Set<string>();
+  const seenStepIds = new Set<string>();
+  const seenArtifactNames = new Set<string>();
   const earlierStepNames = new Set<string>();
   const parameterNames: string[] = [];
   const seenParameterNames = new Set<string>();
 
   for (const [index, step] of input.definition.steps.entries()) {
+    if (seenStepIds.has(step.id)) {
+      return yield* new FlowDefinitionDuplicateStepIdError({ stepId: step.id });
+    }
+    seenStepIds.add(step.id);
+
     const normalizedName = step.name.toLowerCase();
     if (seenStepNames.has(normalizedName)) {
       return yield* new FlowDefinitionDuplicateStepNameError({ stepName: step.name });
     }
     seenStepNames.add(normalizedName);
 
-    if (sanitizeBoardStepName(step.name) === null) {
+    const artifactName = sanitizeBoardStepName(step.name);
+    if (artifactName === null) {
       return yield* new FlowDefinitionUnsafeStepNameError({ stepName: step.name });
     }
+    if (seenArtifactNames.has(artifactName)) {
+      return yield* new FlowDefinitionDuplicateArtifactNameError({
+        stepName: step.name,
+        artifactName,
+      });
+    }
+    seenArtifactNames.add(artifactName);
 
     for (const placeholder of extractBoardTemplatePlaceholders(step.promptTemplate)) {
       switch (placeholder.kind) {

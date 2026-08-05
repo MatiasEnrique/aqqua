@@ -87,6 +87,19 @@ const invalidCases = [
     errorTag: "FlowDefinitionDuplicateStepNameError",
   },
   {
+    name: "duplicate step ids",
+    value: definition([
+      step("Plan", "Plan", "implementer", "same-id"),
+      step("Implement", "Implement", "implementer", "same-id"),
+    ]),
+    errorTag: "FlowDefinitionDuplicateStepIdError",
+  },
+  {
+    name: "sanitized artifact name collisions",
+    value: definition([step("Plan A", "Plan"), step("Plan-A", "Implement")]),
+    errorTag: "FlowDefinitionDuplicateArtifactNameError",
+  },
+  {
     name: "a traversal step name",
     value: definition([step("../x", "Plan")]),
     errorTag: "FlowDefinitionUnsafeStepNameError",
