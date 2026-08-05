@@ -39,6 +39,7 @@ import { ServerConfig } from "../config.ts";
 
 const isGitCommandError = Schema.is(GitCommandError);
 const DEFAULT_TIMEOUT_MS = 30_000;
+const WORKTREE_REMOVE_TIMEOUT_MS = 30_000;
 // Push, pull, and fetch move pack data over the network, so their duration
 // scales with payload size and link speed rather than repository size on disk.
 const NETWORK_TIMEOUT_MS = 120_000;
@@ -2998,7 +2999,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
     args.push(input.path);
     yield* executeGit("GitVcsDriver.removeWorktree", input.cwd, args, {
-      timeoutMs: 15_000,
+      timeoutMs: WORKTREE_REMOVE_TIMEOUT_MS,
       fallbackErrorDetail: "git worktree remove failed",
     });
   });

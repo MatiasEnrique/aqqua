@@ -724,6 +724,64 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.notInclude(error.detail, "Git command failed in");
       }),
     );
+
+    it.effect("keeps worktree removal alive until its 30-second timeout", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const spawned = yield* Deferred.make<void>();
+          const spawner = ChildProcessSpawner.make((command) =>
+            Effect.sync(() => {
+              if (!ChildProcess.isStandardCommand(command)) {
+                return assert.fail("expected a standard Git command");
+              }
+              const removeArgs = ["worktree", "remove", "--force", "/worktree"];
+              if (
+                command.args.length !== removeArgs.length ||
+                !command.args.every((arg, index) => arg === removeArgs[index])
+              ) {
+                return makeNonRepositoryHandle();
+              }
+              return ChildProcessSpawner.makeHandle({
+                pid: ChildProcessSpawner.ProcessId(1),
+                exitCode: Deferred.succeed(spawned, undefined).pipe(Effect.andThen(Effect.never)),
+                isRunning: Effect.succeed(true),
+                kill: () => Effect.void,
+                unref: Effect.succeed(Effect.void),
+                stdin: Sink.drain,
+                stdout: Stream.empty,
+                stderr: Stream.empty,
+                all: Stream.empty,
+                getInputFd: () => Sink.drain,
+                getOutputFd: () => Stream.empty,
+              });
+            }),
+          );
+          const nodeServicesLayer = Layer.merge(
+            NodeServices.layer,
+            Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          );
+          const driver = yield* makeGitVcsDriverCore().pipe(
+            Effect.provide(ServerConfigLayer),
+            Effect.provide(nodeServicesLayer),
+          );
+          const errorFiber = yield* driver
+            .removeWorktree({ cwd: "/repo", path: "/worktree", force: true })
+            .pipe(Effect.flip, Effect.forkScoped);
+
+          yield* Deferred.await(spawned);
+          yield* TestClock.adjust("15 seconds");
+          assert.isUndefined(errorFiber.pollUnsafe());
+          yield* TestClock.adjust("15 seconds");
+
+          const error = yield* Fiber.join(errorFiber);
+          assert.deepInclude(error, {
+            _tag: "GitCommandError",
+            operation: "GitVcsDriver.removeWorktree",
+            detail: "Git command timed out.",
+          });
+        }),
+      ),
+    );
   });
 
   describe("review diff previews", () => {
