@@ -26,6 +26,7 @@ import { useProject } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import type { BoardEditorSubmit } from "./BoardEditorDialog";
+import { boardCommandFailureDescription, reportBoardCommandResult } from "./boardCommandFeedback";
 import {
   cardNeedsYou,
   sidebarBoardChoiceAfterSettle,
@@ -37,18 +38,6 @@ export type BoardEditorTarget = {
   /** `null` creates a new board; a board edits it. */
   readonly board: OrchestrationBoard | null;
 };
-
-function cardCommandFailureDescription(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) return error.message;
-  if (typeof error === "string" && error.trim().length > 0) return error;
-  if (typeof error === "object" && error !== null) {
-    const message = (error as { readonly message?: unknown }).message;
-    if (typeof message === "string" && message.trim().length > 0) return message;
-    const detail = (error as { readonly detail?: unknown }).detail;
-    if (typeof detail === "string" && detail.trim().length > 0) return detail;
-  }
-  return "The server rejected the card command without a reason.";
-}
 
 export function useSidebarProjectBoardController({
   projectRef,
@@ -198,7 +187,7 @@ export function useSidebarProjectBoardController({
             stackedThreadToast({
               type: "error",
               title: "Could not settle card",
-              description: cardCommandFailureDescription(squashAtomCommandFailure(result)),
+              description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
             }),
           );
         }
@@ -220,7 +209,7 @@ export function useSidebarProjectBoardController({
             stackedThreadToast({
               type: "error",
               title: "Could not delete card",
-              description: cardCommandFailureDescription(squashAtomCommandFailure(result)),
+              description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
             }),
           );
         }
@@ -239,7 +228,7 @@ export function useSidebarProjectBoardController({
         stackedThreadToast({
           type: "error",
           title: "Could not resume deletion",
-          description: cardCommandFailureDescription(squashAtomCommandFailure(result)),
+          description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
         }),
       );
     });
@@ -248,21 +237,23 @@ export function useSidebarProjectBoardController({
     const target = editorTarget?.board ?? null;
     if (target === null) {
       const boardId = BoardId.make(randomUUID());
-      await createBoard({
+      const result = await createBoard({
         environmentId,
         input: { boardId, projectId, name: input.name, steps: input.steps },
       });
+      if (!reportBoardCommandResult(result, "Could not create flow")) return false;
       setChosenBoard(boardId);
-      return;
+      return true;
     }
-    await updateBoard({
+    const result = await updateBoard({
       environmentId,
       input: { boardId: target.id, name: input.name, steps: input.steps },
     });
+    return reportBoardCommandResult(result, "Could not update flow");
   };
   const handleCardSubmit = async (input: CardCreateSubmit) => {
-    if (board === null) return;
-    await createCard({
+    if (board === null) return false;
+    const result = await createCard({
       environmentId,
       input: {
         cardId: CardId.make(randomUUID()),
@@ -271,6 +262,7 @@ export function useSidebarProjectBoardController({
         parameters: input.parameters,
       },
     });
+    return reportBoardCommandResult(result, "Could not create card");
   };
 
   return {

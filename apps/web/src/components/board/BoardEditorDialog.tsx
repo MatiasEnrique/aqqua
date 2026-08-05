@@ -76,18 +76,19 @@ export function BoardEditorDialog({
   /** Project root the step threads run in; scopes native-skill discovery. */
   readonly workspaceRoot?: string | null;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onSubmit: (input: BoardEditorSubmit) => Promise<void> | void;
+  readonly onSubmit: (input: BoardEditorSubmit) => Promise<boolean> | boolean;
 }) {
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async (input: BoardEditorSubmit) => {
     setIsSaving(true);
+    let succeeded = false;
     try {
-      await onSubmit(input);
+      succeeded = await onSubmit(input);
     } finally {
       setIsSaving(false);
     }
-    onOpenChange(false);
+    if (succeeded) onOpenChange(false);
   };
 
   return (

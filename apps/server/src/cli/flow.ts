@@ -1,10 +1,12 @@
 import {
   AuthAdministrativeScopes,
   BoardId,
+  CardId,
   CommandId,
   DEFAULT_AGENT_PROFILE_NAME,
   EnvironmentHttpCommonError,
   type OrchestrationBoard,
+  type OrchestrationCard,
   type OrchestrationReadModel,
   ServerSettings,
   type ClientOrchestrationCommand,
@@ -22,16 +24,30 @@ import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 import { HttpClient, HttpClientError } from "effect/unstable/http";
 
 import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
-import { runWithEnvironmentAccess } from "./environmentAccess.ts";
+import { type EnvironmentAccessMode, runWithEnvironmentAccess } from "./environmentAccess.ts";
+import {
+  decodeFlowCardDefinition,
+  type FlowCardDefinition,
+  validateFlowCardDefinition,
+} from "./flowCardDefinition.ts";
 import { decodeFlowDefinition, validateFlowDefinition } from "./flowDefinition.ts";
 
 type FlowCliDispatchCommand = Extract<
   ClientOrchestrationCommand,
-  { type: "board.create" | "board.update" | "board.delete" }
+  {
+    type:
+      | "board.create"
+      | "board.update"
+      | "board.delete"
+      | "card.create"
+      | "card.release"
+      | "card.reset";
+  }
 >;
 
 export type FlowCommandAccess = {
   readonly snapshot: OrchestrationReadModel;
+  readonly mode: EnvironmentAccessMode;
   readonly dispatch: (
     command: FlowCliDispatchCommand,
   ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
@@ -55,7 +71,17 @@ export type FlowCommandAction =
       readonly allowUnknownProfiles: boolean;
       readonly json: boolean;
     }
-  | { readonly type: "delete"; readonly identifier: string; readonly json: boolean };
+  | { readonly type: "delete"; readonly identifier: string; readonly json: boolean }
+  | {
+      readonly type: "card-create";
+      readonly flowIdentifier: string;
+      readonly title: string;
+      readonly parameters: FlowCardDefinition["parameters"];
+      readonly json: boolean;
+    }
+  | { readonly type: "card-list"; readonly json: boolean }
+  | { readonly type: "card-start"; readonly cardId: string; readonly json: boolean }
+  | { readonly type: "card-reset"; readonly cardId: string; readonly json: boolean };
 
 export class FlowLiveServerDeclaredResponseError extends Schema.TaggedErrorClass<FlowLiveServerDeclaredResponseError>()(
   "FlowLiveServerDeclaredResponseError",
@@ -165,6 +191,24 @@ export class FlowIdentifierGenerationError extends Schema.TaggedErrorClass<FlowI
   }
 }
 
+export class FlowCardNotFoundError extends Schema.TaggedErrorClass<FlowCardNotFoundError>()(
+  "FlowCardNotFoundError",
+  { cardId: Schema.String },
+) {
+  override get message(): string {
+    return `No card matched '${this.cardId}' in the current project.`;
+  }
+}
+
+export class FlowLiveServerRequiredError extends Schema.TaggedErrorClass<FlowLiveServerRequiredError>()(
+  "FlowLiveServerRequiredError",
+  { action: Schema.String },
+) {
+  override get message(): string {
+    return `A running aqqua server is required to ${this.action}.`;
+  }
+}
+
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
 export function flowCommandErrorFromLiveServerRequest(cause: unknown) {
@@ -201,9 +245,15 @@ const definitionFileFlag = Flag.string("file").pipe(
   Flag.withDescription("Path to a flow definition JSON file."),
 );
 
+const cardDefinitionFileFlag = Flag.string("file").pipe(
+  Flag.withDescription("Path to a card definition JSON file."),
+);
+
 const flowIdentifierArgument = Argument.string("id-or-name").pipe(
   Argument.withDescription("Flow id or exact flow name."),
 );
+
+const cardIdArgument = Argument.string("card-id").pipe(Argument.withDescription("Card id."));
 
 export const canonicalFlowDefinition = {
   name: "Ship a feature",
@@ -220,6 +270,13 @@ export const canonicalFlowDefinition = {
       continuation: "manual",
     },
   ],
+};
+
+export const canonicalFlowCardDefinition = {
+  title: "Ship card commands",
+  parameters: {
+    request: "Add CLI support for creating and starting cards",
+  },
 };
 
 const flowSchemaText = `Flow definition JSON:
@@ -255,11 +312,32 @@ Validation rules:
 Canonical example:
 ${toJsonLine(canonicalFlowDefinition)}`;
 
+const flowCardSchemaText = `Card definition JSON:
+{
+  "title": string,
+  "parameters": { [parameterName]: string }
+}
+
+Validation rules:
+  - The title is non-empty and at most 255 characters.
+  - Parameters must exactly match the custom placeholders used by the flow.
+  - Parameter values are non-empty and at most 4000 characters.
+  - Create places the card in To Do. Start requires a running aqqua server.
+
+Canonical example:
+${toJsonLine(canonicalFlowCardDefinition)}`;
+
 const activeFlowsForProject = (
   snapshot: OrchestrationReadModel,
   projectId: ProjectId,
 ): ReadonlyArray<OrchestrationBoard> =>
   snapshot.boards.filter((flow) => flow.projectId === projectId && flow.deletedAt === null);
+
+const activeCardsForProject = (
+  snapshot: OrchestrationReadModel,
+  projectId: ProjectId,
+): ReadonlyArray<OrchestrationCard> =>
+  snapshot.cards.filter((card) => card.projectId === projectId && card.archivedAt === null);
 
 const isPathWithin = (path: Path.Path, root: string, candidate: string) => {
   const relative = path.relative(path.resolve(root), candidate);
@@ -333,6 +411,26 @@ export const resolveFlow = Effect.fn("resolveFlow")(function* (
   return yield* new FlowNotFoundError({ identifier, candidates });
 });
 
+const resolveFlowCard = Effect.fn("resolveFlowCard")(function* (
+  cards: ReadonlyArray<OrchestrationCard>,
+  cardId: string,
+) {
+  const card = cards.find((candidate) => candidate.id === cardId);
+  if (card === undefined) {
+    return yield* new FlowCardNotFoundError({ cardId });
+  }
+  return card;
+});
+
+const requireLiveFlowServer = Effect.fn("requireLiveFlowServer")(function* (
+  mode: EnvironmentAccessMode,
+  action: string,
+) {
+  if (mode !== "live") {
+    return yield* new FlowLiveServerRequiredError({ action });
+  }
+});
+
 const flowDefinitionValue = (flow: OrchestrationBoard) => ({
   id: flow.id,
   name: flow.name,
@@ -380,6 +478,7 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
 }) {
   const project = yield* resolveFlowProject(input.access.snapshot, input.cwd);
   const flows = activeFlowsForProject(input.access.snapshot, project.id);
+  const cards = activeCardsForProject(input.access.snapshot, project.id);
   const mintUuid =
     input.mintUuid ??
     Crypto.Crypto.pipe(
@@ -498,6 +597,89 @@ export const executeFlowCommand = Effect.fn("executeFlowCommand")(function* (inp
         text: `Deleted flow ${flow.id} (${flow.name}).`,
       });
     }
+    case "card-create": {
+      const flow = yield* resolveFlow(flows, input.action.flowIdentifier);
+      const definition = yield* validateFlowCardDefinition(flow, {
+        title: input.action.title,
+        parameters: input.action.parameters,
+      });
+      const cardId = CardId.make(yield* mintUuid);
+      yield* input.access.dispatch({
+        type: "card.create",
+        commandId: CommandId.make(yield* mintUuid),
+        cardId,
+        boardId: flow.id,
+        title: definition.title,
+        parameters: definition.parameters,
+      });
+      return emit({
+        json: input.action.json,
+        value: { id: cardId, flowId: flow.id, position: "todo" },
+        text: `Created card ${cardId} in ${flow.name}.`,
+      });
+    }
+    case "card-list": {
+      const flowById = new Map(flows.map((flow) => [flow.id, flow]));
+      const value = cards
+        .flatMap((card) => {
+          const flow = flowById.get(card.boardId);
+          return flow === undefined
+            ? []
+            : [
+                {
+                  id: card.id,
+                  flowId: flow.id,
+                  flowName: flow.name,
+                  title: card.title,
+                  position: card.position,
+                  status: card.status,
+                },
+              ];
+        })
+        .toSorted(
+          (left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id),
+        );
+      const text =
+        value.length === 0
+          ? "No active cards found for this project."
+          : value
+              .map(
+                (card) =>
+                  `${card.title} (${card.id}) — ${card.flowName}; ${card.position.kind}${card.status === null ? "" : `; ${card.status}`}`,
+              )
+              .join("\n");
+      return emit({ json: input.action.json, value, text });
+    }
+    case "card-start": {
+      const { cardId } = input.action;
+      yield* requireLiveFlowServer(input.access.mode, "start a flow card");
+      const card = yield* resolveFlowCard(cards, cardId);
+      yield* input.access.dispatch({
+        type: "card.release",
+        commandId: CommandId.make(yield* mintUuid),
+        cardId: card.id,
+      });
+      return emit({
+        json: input.action.json,
+        value: { id: card.id, startRequested: true },
+        text: `Start requested for card ${card.id} (${card.title}).`,
+      });
+    }
+    case "card-reset": {
+      const { cardId } = input.action;
+      yield* requireLiveFlowServer(input.access.mode, "reset a flow card");
+      const card = yield* resolveFlowCard(cards, cardId);
+      yield* input.access.dispatch({
+        type: "card.reset",
+        commandId: CommandId.make(yield* mintUuid),
+        cardId: card.id,
+      });
+      return emit({
+        json: input.action.json,
+        value: { id: card.id, resetRequested: true },
+        text: `Reset requested for card ${card.id} (${card.title}).`,
+      });
+    }
   }
 });
 
@@ -516,6 +698,13 @@ export const readFlowDefinitionFile = Effect.fn("readFlowDefinitionFile")(functi
     return yield* new FlowDefinitionFileError({ path: file, detail: "the file is empty." });
   }
   return contents;
+});
+
+export const readFlowCardDefinitionFile = Effect.fn("readFlowCardDefinitionFile")(function* (
+  file: string,
+) {
+  const contents = yield* readFlowDefinitionFile(file);
+  return yield* decodeFlowCardDefinition(contents);
 });
 
 const decodeServerSettingsJson = Schema.decodeExit(fromLenientJson(ServerSettings));
@@ -557,10 +746,10 @@ const runFlowWithEnvironmentAccess = Effect.fn("runFlowWithEnvironmentAccess")(f
       mapLiveServerError: flowCommandErrorFromLiveServerRequest,
       connectionFailureLogMessage: "Failed to connect to the persisted flow CLI server.",
     },
-    ({ snapshot, dispatch }) =>
+    ({ snapshot, dispatch, mode }) =>
       executeFlowCommand({
         action,
-        access: { snapshot, dispatch },
+        access: { snapshot, dispatch, mode },
         cwd: process.cwd(),
       }),
   );
@@ -583,6 +772,21 @@ const prepareDefinitionAction = Effect.fn("prepareDefinitionAction")(function* (
     contents,
     availableProfileNames,
     allowUnknownProfiles: flags.allowUnknownProfiles,
+    json: flags.json,
+  } satisfies FlowCommandAction;
+});
+
+const prepareCardCreateAction = Effect.fn("prepareCardCreateAction")(function* (flags: {
+  readonly flowIdentifier: string;
+  readonly file: string;
+  readonly json: boolean;
+}) {
+  const definition = yield* readFlowCardDefinitionFile(flags.file);
+  return {
+    type: "card-create",
+    flowIdentifier: flags.flowIdentifier,
+    title: definition.title,
+    parameters: definition.parameters,
     json: flags.json,
   } satisfies FlowCommandAction;
 });
@@ -676,6 +880,85 @@ const flowSchemaCommand = Command.make("schema", {
   ),
 );
 
+const flowCardCreateCommand = Command.make("create", {
+  ...projectLocationFlags,
+  flowIdentifier: flowIdentifierArgument,
+  file: cardDefinitionFileFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Create a To Do card from a JSON definition file."),
+  Command.withHandler(
+    Effect.fn("flowCardCreateCommand")(function* (flags) {
+      const action = yield* prepareCardCreateAction(flags);
+      return yield* runFlowWithEnvironmentAccess(flags, action);
+    }),
+  ),
+);
+
+const flowCardListCommand = Command.make("list", {
+  ...projectLocationFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("List active cards for the current project."),
+  Command.withHandler((flags) =>
+    runFlowWithEnvironmentAccess(flags, { type: "card-list", json: flags.json }),
+  ),
+);
+
+const flowCardStartCommand = Command.make("start", {
+  ...projectLocationFlags,
+  cardId: cardIdArgument,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Start a To Do card through the running aqqua server."),
+  Command.withHandler((flags) =>
+    runFlowWithEnvironmentAccess(flags, {
+      type: "card-start",
+      cardId: flags.cardId,
+      json: flags.json,
+    }),
+  ),
+);
+
+const flowCardResetCommand = Command.make("reset", {
+  ...projectLocationFlags,
+  cardId: cardIdArgument,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Reset a card to To Do through the running aqqua server."),
+  Command.withHandler((flags) =>
+    runFlowWithEnvironmentAccess(flags, {
+      type: "card-reset",
+      cardId: flags.cardId,
+      json: flags.json,
+    }),
+  ),
+);
+
+const flowCardSchemaCommand = Command.make("schema", { json: jsonFlag }).pipe(
+  Command.withDescription("Print the card definition format and validation rules."),
+  Command.withHandler((flags) =>
+    Console.log(
+      emit({
+        json: flags.json,
+        value: canonicalFlowCardDefinition,
+        text: flowCardSchemaText,
+      }),
+    ),
+  ),
+);
+
+const flowCardCommand = Command.make("card").pipe(
+  Command.withDescription("Create and run flow cards."),
+  Command.withSubcommands([
+    flowCardListCommand,
+    flowCardCreateCommand,
+    flowCardStartCommand,
+    flowCardResetCommand,
+    flowCardSchemaCommand,
+  ]),
+);
+
 export const flowCommand = Command.make("flow").pipe(
   Command.withDescription("Create and manage project flows."),
   Command.withSubcommands([
@@ -685,5 +968,6 @@ export const flowCommand = Command.make("flow").pipe(
     flowUpdateCommand,
     flowDeleteCommand,
     flowSchemaCommand,
+    flowCardCommand,
   ]),
 );

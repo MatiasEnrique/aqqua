@@ -4,10 +4,12 @@ import {
   AgentProfileName,
   BoardId,
   BoardStepId,
+  CardId,
   CommandId,
   type ClientOrchestrationCommand,
   OrchestrationReadModel,
   type OrchestrationBoard,
+  type OrchestrationCard,
   ProjectId,
 } from "@aqqua/contracts";
 import * as NetService from "@aqqua/shared/Net";
@@ -24,6 +26,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 import {
   executeFlowCommand,
   FlowAmbiguousNameError,
+  FlowLiveServerRequiredError,
   flowCommand,
   readAvailableFlowProfileNames,
   resolveFlow,
@@ -84,20 +87,51 @@ const flow = (overrides: Partial<OrchestrationBoard> = {}): OrchestrationBoard =
   ...overrides,
 });
 
-const snapshot = (flows: ReadonlyArray<OrchestrationBoard>) =>
+const card = (overrides: Partial<OrchestrationCard> = {}): OrchestrationCard => ({
+  id: CardId.make("card-1"),
+  boardId: BoardId.make("flow-1"),
+  projectId: ProjectId.make("project-1"),
+  title: "Ship the CLI",
+  parameters: { request: "Add card commands" },
+  position: { kind: "todo" },
+  status: null,
+  operation: null,
+  lastError: null,
+  snapshot: null,
+  branch: null,
+  worktreePath: null,
+  stepThreads: [],
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  releasedAt: null,
+  completedAt: null,
+  settledAt: null,
+  archivedAt: null,
+  ...overrides,
+});
+
+const snapshot = (
+  flows: ReadonlyArray<OrchestrationBoard>,
+  cards: ReadonlyArray<OrchestrationCard> = [],
+) =>
   decodeSnapshot({
     snapshotSequence: 1,
     projects: [project],
     threads: [],
     boards: flows,
-    cards: [],
+    cards,
     updatedAt: timestamp,
   });
 
-const makeAccess = (flows: ReadonlyArray<OrchestrationBoard>) => {
+const makeAccess = (
+  flows: ReadonlyArray<OrchestrationBoard>,
+  cards: ReadonlyArray<OrchestrationCard> = [],
+  mode: "live" | "offline" = "live",
+) => {
   const commands: ClientOrchestrationCommand[] = [];
   const access: FlowCommandAccess = {
-    snapshot: snapshot(flows),
+    snapshot: snapshot(flows, cards),
+    mode,
     dispatch: (command) =>
       Effect.sync(() => {
         commands.push(command);
@@ -297,6 +331,110 @@ it.effect("soft-deletes by dispatching the flow delete command", () =>
   }),
 );
 
+it.effect("creates a card for a named flow and reports its id", () =>
+  Effect.gen(function* () {
+    const { access, commands } = makeAccess([flow()]);
+    const ids = ["card-created", "command-created"];
+    const output = yield* run(
+      {
+        type: "card-create",
+        flowIdentifier: "Ship",
+        title: "Ship card commands",
+        parameters: { request: "Add CLI support" },
+        json: true,
+      },
+      access,
+      Effect.sync(() => ids.shift() ?? "unexpected"),
+    );
+
+    assert.strictEqual(output, '{"id":"card-created","flowId":"flow-1","position":"todo"}');
+    assert.deepStrictEqual(commands, [
+      {
+        type: "card.create",
+        commandId: CommandId.make("command-created"),
+        cardId: CardId.make("card-created"),
+        boardId: BoardId.make("flow-1"),
+        title: "Ship card commands",
+        parameters: { request: "Add CLI support" },
+      },
+    ]);
+  }),
+);
+
+it.effect("lists project cards with their flow and current state", () =>
+  Effect.gen(function* () {
+    const { access } = makeAccess([flow()], [card()]);
+    const output = yield* run({ type: "card-list", json: true }, access);
+    const decoded = yield* decodeUnknownJson(output);
+    assert.deepStrictEqual(decoded, [
+      {
+        id: "card-1",
+        flowId: "flow-1",
+        flowName: "Ship",
+        title: "Ship the CLI",
+        position: { kind: "todo" },
+        status: null,
+      },
+    ]);
+  }),
+);
+
+it.effect("starts an existing todo card through the live server", () =>
+  Effect.gen(function* () {
+    const { access, commands } = makeAccess([flow()], [card()]);
+    const output = yield* run(
+      { type: "card-start", cardId: "card-1", json: false },
+      access,
+      Effect.succeed("command-start"),
+    );
+
+    assert.strictEqual(output, "Start requested for card card-1 (Ship the CLI).");
+    assert.deepStrictEqual(commands, [
+      {
+        type: "card.release",
+        commandId: CommandId.make("command-start"),
+        cardId: CardId.make("card-1"),
+      },
+    ]);
+  }),
+);
+
+it.effect("refuses to start a card from an offline CLI runtime", () =>
+  Effect.gen(function* () {
+    const { access, commands } = makeAccess([flow()], [card()], "offline");
+    const failure = yield* Effect.flip(
+      run(
+        { type: "card-start", cardId: "card-1", json: false },
+        access,
+        Effect.succeed("command-start"),
+      ),
+    );
+
+    assert.instanceOf(failure, FlowLiveServerRequiredError);
+    assert.deepStrictEqual(commands, []);
+  }),
+);
+
+it.effect("requests a live card reset so a CLI-started run has a way back to To Do", () =>
+  Effect.gen(function* () {
+    const { access, commands } = makeAccess([flow()], [card({ status: "failed" })]);
+    const output = yield* run(
+      { type: "card-reset", cardId: "card-1", json: true },
+      access,
+      Effect.succeed("command-reset"),
+    );
+
+    assert.strictEqual(output, '{"id":"card-1","resetRequested":true}');
+    assert.deepStrictEqual(commands, [
+      {
+        type: "card.reset",
+        commandId: CommandId.make("command-reset"),
+        cardId: CardId.make("card-1"),
+      },
+    ]);
+  }),
+);
+
 it.effect("reads configured profiles leniently and always includes implementer", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -342,6 +480,29 @@ it.effect("prints the canonical schema example as JSON through the CLI command",
           continuation: "manual",
         },
       ],
+    });
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        FetchHttpClient.layer,
+        NetService.layer,
+        TestConsole.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("exposes the nested card definition schema through the CLI", () =>
+  Effect.gen(function* () {
+    yield* Command.runWith(flowCommand, { version: "0.0.0" })(["card", "schema", "--json"]);
+    const output =
+      (yield* TestConsole.logLines).findLast((line): line is string => typeof line === "string") ??
+      "";
+    const decoded = yield* decodeUnknownJson(output);
+    assert.deepStrictEqual(decoded, {
+      title: "Ship card commands",
+      parameters: { request: "Add CLI support for creating and starting cards" },
     });
   }).pipe(
     Effect.provide(
