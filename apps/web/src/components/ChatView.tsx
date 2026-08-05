@@ -6109,6 +6109,7 @@ function ChatViewContent(props: ChatViewProps) {
           threadRef={activeThreadRef}
           workspaceRef={activeWorkspacePanelRef}
           fallbackCwd={gitCwd}
+          onOpenPullRequest={addPullRequestSurface}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "history" && gitStatusCwd ? (
@@ -6238,6 +6239,7 @@ function ChatViewContent(props: ChatViewProps) {
             rightPanelOpen={rightPanelOpen}
             rightPanelSurfaceControls={rightPanelSurfaceControls}
             gitCwd={gitCwd}
+            onOpenPullRequest={addPullRequestSurface}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}

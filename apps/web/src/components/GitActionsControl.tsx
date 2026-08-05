@@ -89,12 +89,13 @@ import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
-import { openPullRequestLink } from "~/lib/openPullRequestLink";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
+  /** Opens the in-app pull request panel for the current workspace. */
+  onOpenPullRequest?: () => void;
 }
 
 interface PendingDefaultBranchAction {
@@ -970,6 +971,7 @@ export default function GitActionsControl({
   gitCwd,
   activeThreadRef,
   draftId,
+  onOpenPullRequest,
 }: GitActionsControlProps) {
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -1211,18 +1213,9 @@ export default function GitActionsControl({
     };
   }, [activeEnvironmentId, gitCwd, refreshVcsStatus]);
 
-  const openExistingPr = useCallback(async () => {
-    const api = readLocalApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Link opening is unavailable.",
-        data: threadToastData,
-      });
-      return;
-    }
-    const prUrl = gitStatusForActions?.pr?.url ?? null;
-    if (!prUrl) {
+  const openExistingPr = useCallback(() => {
+    const hasOpenPr = gitStatusForActions?.pr?.state === "open";
+    if (!hasOpenPr) {
       toastManager.add({
         type: "error",
         title: "No change request found.",
@@ -1230,18 +1223,16 @@ export default function GitActionsControl({
       });
       return;
     }
-    void openPullRequestLink(api.shell, prUrl).catch((err: unknown) => {
-      console.error(err);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Unable to open pull request link",
-          description: err instanceof Error ? err.message : "An error occurred.",
-          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-        }),
-      );
-    });
-  }, [gitStatusForActions, threadToastData]);
+    if (!onOpenPullRequest) {
+      toastManager.add({
+        type: "error",
+        title: "Pull request panel is unavailable.",
+        data: threadToastData,
+      });
+      return;
+    }
+    onOpenPullRequest();
+  }, [gitStatusForActions?.pr?.state, onOpenPullRequest, threadToastData]);
 
   runGitActionWithToast = useEffectEvent(
     async ({
@@ -1441,10 +1432,16 @@ export default function GitActionsControl({
         toastActionProps = {
           children: toastCta.label,
           onClick: () => {
-            const api = readLocalApi();
-            if (!api) return;
             closeResultToast();
-            void api.shell.openExternal(toastCta.url);
+            if (onOpenPullRequest) {
+              onOpenPullRequest();
+              return;
+            }
+            toastManager.add({
+              type: "error",
+              title: "Pull request panel is unavailable.",
+              ...(scopedToastData !== undefined ? { data: scopedToastData } : {}),
+            });
           },
         };
       }
@@ -1585,7 +1582,7 @@ export default function GitActionsControl({
   const openDialogForMenuItem = (item: GitActionMenuItem) => {
     if (item.disabled) return;
     if (item.kind === "open_pr") {
-      void openExistingPr();
+      openExistingPr();
       return;
     }
     if (item.dialogAction === "push") {

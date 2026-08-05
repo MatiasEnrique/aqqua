@@ -36,6 +36,7 @@ interface ChatHeaderProps {
   /** Per-surface right-panel icon buttons (Files / Diff / Terminal / Browser). */
   rightPanelSurfaceControls?: ReactNode;
   gitCwd: string | null;
+  onOpenPullRequest?: () => void;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -73,6 +74,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   rightPanelSurfaceControls,
   gitCwd,
+  onOpenPullRequest,
   onNewThreadInProject,
   onRunProjectScript,
   onAddProjectScript,
@@ -170,6 +172,7 @@ export const ChatHeader = memo(function ChatHeader({
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             {...(draftId ? { draftId } : {})}
+            {...(onOpenPullRequest ? { onOpenPullRequest } : {})}
           />
         )}
         {rightPanelSurfaceControls}
