@@ -5,6 +5,16 @@ import { type MouseEvent, useCallback } from "react";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { readLocalApi } from "../localApi";
 
+const SAFE_PULL_REQUEST_PROTOCOLS = new Set(["http:", "https:"]);
+
+function isSafePullRequestUrl(targetUrl: string): boolean {
+  try {
+    return SAFE_PULL_REQUEST_PROTOCOLS.has(new URL(targetUrl).protocol);
+  } catch {
+    return false;
+  }
+}
+
 export class PullRequestLinkOpenError extends Schema.TaggedErrorClass<PullRequestLinkOpenError>()(
   "PullRequestLinkOpenError",
   {
@@ -15,7 +25,8 @@ export class PullRequestLinkOpenError extends Schema.TaggedErrorClass<PullReques
   static fromCause(targetUrl: string, cause: unknown): PullRequestLinkOpenError {
     let targetOrigin: string | null = null;
     try {
-      targetOrigin = new URL(targetUrl).origin;
+      const origin = new URL(targetUrl).origin;
+      targetOrigin = origin === "null" ? null : origin;
     } catch {
       // Keep malformed URLs out of diagnostics while preserving the open failure below.
     }
@@ -33,6 +44,12 @@ export async function openPullRequestLink(
   shell: Pick<LocalApi["shell"], "openExternal">,
   targetUrl: string,
 ): Promise<void> {
+  if (!isSafePullRequestUrl(targetUrl)) {
+    throw PullRequestLinkOpenError.fromCause(
+      targetUrl,
+      new Error("Unsupported pull request URL protocol."),
+    );
+  }
   try {
     await shell.openExternal(targetUrl);
   } catch (cause) {

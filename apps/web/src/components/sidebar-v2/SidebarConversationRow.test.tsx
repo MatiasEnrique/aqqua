@@ -27,7 +27,7 @@ vi.mock("../../threadSelectionStore", () => ({
 vi.mock("../../lib/openPullRequestLink", () => ({ useOpenPrLink: () => () => {} }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: undefined }) }));
 
-import { SidebarConversationRow } from "./SidebarConversationRow";
+import { SidebarConversationRow, type SidebarConversationRowProps } from "./SidebarConversationRow";
 
 const environmentId = EnvironmentId.make("environment-local");
 const thread: EnvironmentThreadShell = {
@@ -63,45 +63,54 @@ const thread: EnvironmentThreadShell = {
   hasActionableProposedPlan: false,
 };
 
+const baseProps = {
+  thread,
+  variant: "card",
+  variantAction: "settle",
+  settlementSupported: false,
+  snoozeSupported: false,
+  snoozeWakeLabelText: null,
+  wokeAt: null,
+  depth: 0,
+  childCount: 0,
+  subAgentStateCounts: null,
+  reserveExpandGutter: false,
+  isExpanded: false,
+  onToggleExpanded: () => {},
+  isActive: false,
+  jumpLabel: null,
+  environmentLabel: null,
+  projectCwd: null,
+  projectTitle: null,
+  showProjectIdentity: false,
+  providerEntryByInstanceId: new Map(),
+  onThreadClick: () => {},
+  onThreadActivate: () => {},
+  onStartRename: () => {},
+  onRenameTitleChange: () => {},
+  onCommitRename: () => {},
+  onCancelRename: () => {},
+  isRenaming: false,
+  renamingTitle: "",
+  onContextMenu: () => {},
+  onSettle: () => {},
+  onUnsettle: () => {},
+  onSnooze: () => {},
+  onUnsnooze: () => {},
+  onDelete: () => {},
+  onChangeRequestState: () => {},
+} satisfies SidebarConversationRowProps;
+
+function activationTarget(markup: string): string | null {
+  return markup.match(/<div role="button"[^>]*><\/div>/)?.[0] ?? null;
+}
+
 describe("SidebarConversationRow", () => {
   it("keeps collapsed sub-agent states visible beside the parent's own state", () => {
     const markup = renderToStaticMarkup(
       <SidebarConversationRow
-        thread={thread}
-        variant="card"
-        variantAction="settle"
-        settlementSupported={false}
-        snoozeSupported={false}
-        snoozeWakeLabelText={null}
-        wokeAt={null}
-        depth={0}
-        childCount={0}
+        {...baseProps}
         subAgentStateCounts={{ working: 1, needsInput: 1, done: 0, stale: 0, settled: 1 }}
-        reserveExpandGutter={false}
-        isExpanded={false}
-        onToggleExpanded={() => {}}
-        isActive={false}
-        jumpLabel={null}
-        environmentLabel={null}
-        projectCwd={null}
-        projectTitle={null}
-        showProjectIdentity={false}
-        providerEntryByInstanceId={new Map()}
-        onThreadClick={() => {}}
-        onThreadActivate={() => {}}
-        onStartRename={() => {}}
-        onRenameTitleChange={() => {}}
-        onCommitRename={() => {}}
-        onCancelRename={() => {}}
-        isRenaming={false}
-        renamingTitle=""
-        onContextMenu={() => {}}
-        onSettle={() => {}}
-        onUnsettle={() => {}}
-        onSnooze={() => {}}
-        onUnsnooze={() => {}}
-        onDelete={() => {}}
-        onChangeRequestState={() => {}}
       />,
     );
 
@@ -110,5 +119,39 @@ describe("SidebarConversationRow", () => {
       'aria-label="1 working conversation, 1 needs input conversation, 1 settled conversation"',
     );
     expect(markup).toContain('class="shrink-0"><span role="status"');
+  });
+
+  it("keeps card, compact, and sub-row controls outside the row activation target", () => {
+    const variants = [
+      { variant: "card", variantAction: "settle" },
+      { variant: "slim", variantAction: "unsettle" },
+      { variant: "slim", variantAction: "unsnooze" },
+      { variant: "sub", variantAction: "settle" },
+    ] as const;
+
+    for (const { variant, variantAction } of variants) {
+      const markup = renderToStaticMarkup(
+        <SidebarConversationRow
+          {...baseProps}
+          variant={variant}
+          variantAction={variantAction}
+          settlementSupported
+          snoozeSupported
+          childCount={1}
+          depth={variant === "sub" ? 1 : 0}
+        />,
+      );
+
+      const activation = activationTarget(markup);
+      const label = `${variant}:${variantAction}`;
+      expect(activation, label).not.toBeNull();
+      expect(activation, label).not.toContain("<button");
+      expect(activation, label).not.toContain("<input");
+      expect(markup, label).toContain(
+        variant === "sub"
+          ? `aria-label="Expand sub-agents of ${thread.title}"`
+          : `data-testid="sidebar-v2-subagent-toggle-${thread.id}"`,
+      );
+    }
   });
 });

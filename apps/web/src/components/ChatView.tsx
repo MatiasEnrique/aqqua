@@ -231,7 +231,6 @@ import { environmentShell } from "../state/shell";
 import {
   ChatComposer,
   type ChatComposerHandle,
-  type ComposerSkin,
   type ComposerIdlePrimaryActionRenderer,
 } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
@@ -6134,10 +6133,6 @@ function ChatViewContent(props: ChatViewProps) {
     ) : null
   ) : null;
 
-  const composerSkin: ComposerSkin = "terminal";
-
-  const contextStripBelowComposer = !isDraftHeroState;
-
   const composerContextStrip =
     showComposerContextStrip && activeThread ? (
       <BranchToolbar
@@ -6321,7 +6316,6 @@ function ChatViewContent(props: ChatViewProps) {
               ref={setComposerOverlayElement}
               data-chat-composer-overlay="true"
               data-chat-composer-overlay-docked={isDraftHeroState ? "false" : "true"}
-              data-composer-skin={composerSkin}
               className={
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center"
@@ -6366,10 +6360,7 @@ function ChatViewContent(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    <div
-                      data-composer-skin={composerSkin}
-                      className="chat-composer-glass-shell relative mx-auto w-full max-w-3xl"
-                    >
+                    <div className="chat-composer-glass-shell relative mx-auto w-full max-w-3xl">
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[var(--chat-composer-radius,10px)]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
@@ -6386,10 +6377,6 @@ function ChatViewContent(props: ChatViewProps) {
                             isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
-                            skin={composerSkin}
-                            {...(contextStripBelowComposer
-                              ? {}
-                              : { contextSlot: composerContextStrip })}
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}
                             phase={phase}
                             isConnecting={isConnecting}
@@ -6459,15 +6446,17 @@ function ChatViewContent(props: ChatViewProps) {
                           />
                         </div>
                       </div>
-                      <div className="min-h-0">
-                        <div
-                          data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
-                          className="relative z-0"
-                        >
-                          {contextStripBelowComposer && composerContextStrip !== null && (
-                            <div className="pointer-events-auto">{composerContextStrip}</div>
-                          )}
-                        </div>
+                    </div>
+                    {/* Outside the glass shell: the strip reads as page content
+                        below the composer, not as part of the card. */}
+                    <div className="min-h-0">
+                      <div
+                        data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
+                        className="relative z-0"
+                      >
+                        {composerContextStrip !== null && (
+                          <div className="pointer-events-auto">{composerContextStrip}</div>
+                        )}
                       </div>
                     </div>
                     <div

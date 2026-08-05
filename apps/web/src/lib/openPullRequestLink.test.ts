@@ -12,6 +12,18 @@ describe("openPullRequestLink", () => {
     expect(openExternal).toHaveBeenCalledExactlyOnceWith(targetUrl);
   });
 
+  it.each(["javascript:alert(1)", "file:///etc/passwd", "not a URL"])(
+    "rejects unsafe pull request URL %s before reaching the shell",
+    async (targetUrl) => {
+      const openExternal = vi.fn(async () => undefined);
+
+      await expect(openPullRequestLink({ openExternal }, targetUrl)).rejects.toBeInstanceOf(
+        PullRequestLinkOpenError,
+      );
+      expect(openExternal).not.toHaveBeenCalled();
+    },
+  );
+
   it("reports bridge failures with a safe target origin", async () => {
     const cause = new Error("desktop shell unavailable");
     const targetUrl = "https://github.com/pingdotgg/aqqua/pull/123?token=secret";

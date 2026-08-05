@@ -38,9 +38,7 @@ function SidebarBrand() {
   return (
     <Link
       aria-label="Go to threads"
-      className={cn(
-        "sidebar-brand absolute left-1/2 z-10 h-7 w-fit min-w-0 -translate-x-1/2 shrink-0 items-center justify-center overflow-hidden rounded-md text-foreground outline-hidden ring-ring focus-visible:ring-2",
-      )}
+      className="sidebar-brand z-10 h-7 w-fit min-w-0 shrink-0 items-center justify-center overflow-hidden rounded-md text-foreground outline-hidden ring-ring focus-visible:ring-2"
       to="/"
     >
       <BrandLogo />
