@@ -841,6 +841,131 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         );
       }),
     );
+
+    it.effect("resolves the configured merge base for a remote head ref", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "develop"]);
+        yield* writeTextFile(cwd, "develop.txt", "develop\n");
+        yield* git(cwd, ["add", "develop.txt"]);
+        yield* git(cwd, ["commit", "-m", "develop commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "develop"]);
+        yield* git(cwd, ["checkout", "-b", "feature/remote-head"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature/remote-head"]);
+        yield* git(cwd, ["config", "branch.feature/remote-head.gh-merge-base", "develop"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+
+        const preview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: "origin/feature/remote-head",
+        });
+
+        const branchRange = preview.sources.find((source) => source.kind === "branch-range");
+        assert.equal(branchRange?.headRef, "origin/feature/remote-head");
+        assert.equal(branchRange?.baseRef, "origin/develop");
+        assert.include(branchRange?.diff, "feature.txt");
+        assert.notInclude(branchRange?.diff, "develop.txt");
+
+        const selfPreview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: `origin/${initialBranch}`,
+        });
+        const selfRange = selfPreview.sources.find((source) => source.kind === "branch-range");
+        assert.notEqual(selfRange?.baseRef, `origin/${initialBranch}`);
+      }),
+    );
+
+    it.effect("resolves the configured merge base for a head on a secondary remote", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const origin = yield* makeTmpDir("git-vcs-driver-origin-");
+        const fork = yield* makeTmpDir("git-vcs-driver-fork-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(origin, ["init", "--bare"]);
+        yield* git(fork, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", origin]);
+        yield* git(cwd, ["remote", "add", "fork", fork]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "develop"]);
+        yield* writeTextFile(cwd, "develop.txt", "develop\n");
+        yield* git(cwd, ["add", "develop.txt"]);
+        yield* git(cwd, ["commit", "-m", "develop commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "develop"]);
+        yield* git(cwd, ["checkout", "-b", "feature/fork-head"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        yield* git(cwd, ["push", "-u", "fork", "feature/fork-head"]);
+        yield* git(cwd, ["config", "branch.feature/fork-head.gh-merge-base", "develop"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+
+        const preview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: "fork/feature/fork-head",
+        });
+
+        const branchRange = preview.sources.find((source) => source.kind === "branch-range");
+        assert.equal(branchRange?.headRef, "fork/feature/fork-head");
+        assert.equal(branchRange?.baseRef, "origin/develop");
+        assert.include(branchRange?.diff, "feature.txt");
+        assert.notInclude(branchRange?.diff, "develop.txt");
+      }),
+    );
+
+    it.effect("keeps the identity of a local branch that shadows a remote ref", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "develop"]);
+        yield* writeTextFile(cwd, "develop.txt", "develop\n");
+        yield* git(cwd, ["add", "develop.txt"]);
+        yield* git(cwd, ["commit", "-m", "develop commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "develop"]);
+        yield* git(cwd, ["checkout", "-b", "develop2", initialBranch]);
+        yield* writeTextFile(cwd, "develop2.txt", "develop2\n");
+        yield* git(cwd, ["add", "develop2.txt"]);
+        yield* git(cwd, ["commit", "-m", "develop2 commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "develop2"]);
+        yield* git(cwd, ["checkout", "-b", "feature-x", "develop"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature-x"]);
+        yield* git(cwd, ["config", "branch.feature-x.gh-merge-base", "develop"]);
+        yield* git(cwd, ["checkout", "-b", "origin/feature-x", "develop2"]);
+        yield* writeTextFile(cwd, "shadow.txt", "shadow\n");
+        yield* git(cwd, ["add", "shadow.txt"]);
+        yield* git(cwd, ["commit", "-m", "shadow commit"]);
+        yield* git(cwd, ["config", "branch.origin/feature-x.gh-merge-base", "develop2"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+
+        const preview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: "origin/feature-x",
+        });
+
+        const branchRange = preview.sources.find((source) => source.kind === "branch-range");
+        assert.equal(branchRange?.baseRef, "origin/develop2");
+        assert.include(branchRange?.diff, "shadow.txt");
+        assert.notInclude(branchRange?.diff, "feature.txt");
+        assert.notInclude(branchRange?.diff, "develop2.txt");
+      }),
+    );
   });
 
   describe("repository status", () => {

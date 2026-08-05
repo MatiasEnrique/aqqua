@@ -1374,16 +1374,34 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     cwd: string,
     refName: string,
   ) {
-    const configuredBaseBranch = yield* runGitStdout(
-      "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
-      cwd,
-      ["config", "--get", `branch.${refName}.gh-merge-base`],
-      true,
-    ).pipe(Effect.map((stdout) => stdout.trim()));
-
     const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
       Effect.orElseSucceed(() => null),
     );
+    const remoteNames = yield* listRemoteNames(cwd).pipe(Effect.orElseSucceed(() => []));
+    // Longest-first so a remote named "a/b" wins over "a"; "origin" stays
+    // recognized even when unconfigured because candidates conventionally use it.
+    const prefixRemoteNames = [...new Set([...remoteNames, "origin"])].toSorted(
+      (a, b) => b.length - a.length,
+    );
+    // A remote head like origin/feature shares base config and identity with
+    // its local branch, so resolution works on the stripped name. A local
+    // branch that literally shadows a remote name keeps its own identity,
+    // matching git's local-first revision resolution.
+    const stripRemotePrefix = (ref: string) =>
+      parseRemoteRefWithRemoteNames(ref, prefixRemoteNames)?.branchName ?? ref;
+    const parsedRefName = parseRemoteRefWithRemoteNames(refName, prefixRemoteNames);
+    const normalizedRefName =
+      parsedRefName === null || (yield* branchExists(cwd, refName))
+        ? refName
+        : parsedRefName.branchName;
+
+    const configuredBaseBranch = yield* runGitStdout(
+      "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
+      cwd,
+      ["config", "--get", `branch.${normalizedRefName}.gh-merge-base`],
+      true,
+    ).pipe(Effect.map((stdout) => stdout.trim()));
+
     const defaultBranch =
       primaryRemoteName === null ? null : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
     const candidates = [
@@ -1397,14 +1415,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         continue;
       }
 
-      const remotePrefix =
-        primaryRemoteName && primaryRemoteName !== "origin" ? `${primaryRemoteName}/` : null;
-      const normalizedCandidate = candidate.startsWith("origin/")
-        ? candidate.slice("origin/".length)
-        : remotePrefix && candidate.startsWith(remotePrefix)
-          ? candidate.slice(remotePrefix.length)
-          : candidate;
-      if (normalizedCandidate.length === 0 || normalizedCandidate === refName) {
+      const normalizedCandidate = stripRemotePrefix(candidate);
+      if (normalizedCandidate.length === 0 || normalizedCandidate === normalizedRefName) {
         continue;
       }
 
@@ -2422,10 +2434,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
 
     const branch = details.branch;
+    const effectiveHead = input.headRef ?? null;
+    const headForBaseResolution = effectiveHead ?? branch;
     const baseRef =
       input.baseRef ??
-      (branch
-        ? yield* resolveBaseBranchForNoUpstream(input.cwd, branch).pipe(
+      (headForBaseResolution
+        ? yield* resolveBaseBranchForNoUpstream(input.cwd, headForBaseResolution).pipe(
             Effect.orElseSucceed(() => null),
           )
         : null);
@@ -2465,7 +2479,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       .join("\n");
 
     const baseResult =
-      baseRef && branch
+      baseRef && (branch || effectiveHead)
         ? yield* executeGit(
             "GitVcsDriver.getReviewDiffPreview.base",
             input.cwd,
@@ -2477,7 +2491,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               "--no-textconv",
               "--minimal",
               ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
-              `${baseRef}...HEAD`,
+              `${baseRef}...${effectiveHead ?? "HEAD"}`,
             ],
             {
               maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
@@ -2529,7 +2543,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         kind: "branch-range",
         title: baseRef ? `Against ${baseRef}` : "Against base branch",
         baseRef,
-        headRef: branch ?? "HEAD",
+        headRef: effectiveHead ?? branch ?? "HEAD",
         diff: baseDiff,
         diffHash: baseDiffHash,
         truncated: baseResult?.stdoutTruncated ?? false,
