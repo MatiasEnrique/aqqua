@@ -1,6 +1,7 @@
-import { EventId, type OrchestrationCard } from "@aqqua/contracts";
+import { EventId, type OrchestrationCard, type OrchestrationEvent } from "@aqqua/contracts";
 
-import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
+import type { BoardReactorEvent } from "./BoardReactorEvent.ts";
+import { currentStepRootThreadId } from "./BoardReactorState.ts";
 
 /**
  * Rebuilds the hot events for durable in-flight operations after restart.
@@ -143,6 +144,51 @@ export function makeBoardReconciliationEvents(
         } as BoardReactorEvent);
         break;
     }
+  }
+  return events;
+}
+
+export function makeBoardMissingCurrentRootRecoveryEvents(
+  cards: ReadonlyArray<OrchestrationCard>,
+  knownThreadIds: ReadonlySet<string>,
+): ReadonlyArray<Extract<OrchestrationEvent, { type: "thread.deleted" }>> {
+  const events: Array<Extract<OrchestrationEvent, { type: "thread.deleted" }>> = [];
+  for (const card of cards) {
+    if (card.archivedAt !== null) {
+      continue;
+    }
+    if (card.operation !== null) {
+      continue;
+    }
+    if (card.status === "deleting") {
+      continue;
+    }
+    if (card.status === "failed") {
+      continue;
+    }
+    const root = currentStepRootThreadId(card);
+    if (root === null) {
+      continue;
+    }
+    if (knownThreadIds.has(String(root))) {
+      continue;
+    }
+    events.push({
+      type: "thread.deleted",
+      eventId: EventId.make(`board-reconcile-missing-root-${card.id}`),
+      aggregateKind: "thread",
+      aggregateId: root,
+      sequence: 0,
+      occurredAt: card.updatedAt,
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      payload: {
+        threadId: root,
+        deletedAt: card.updatedAt,
+      },
+    });
   }
   return events;
 }

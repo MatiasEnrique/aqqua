@@ -30,6 +30,8 @@ import {
   cardStepThreadId,
   countCardsNeedingYou,
   createEnvironmentBoardAtoms,
+  createFlowThreadOwnership,
+  findFlowOwnedThread,
   groupBoardCards,
   isCardDeleting,
   isCardStarting,
@@ -754,5 +756,48 @@ describe("card status affordances", () => {
     ).toBe(false);
     expect(canDeleteCard(card({ archivedAt: "2026-04-02T00:00:00.000Z" }))).toBe(false);
     expect(canDeleteCard(card({ status: "deleting" }))).toBe(false);
+  });
+});
+
+describe("flow thread ownership", () => {
+  const flowCard = card({
+    position: { kind: "step", stepIndex: 1 },
+    status: "running",
+    stepThreads: [
+      { stepIndex: 0, threadId: ThreadId.make("thread-plan"), spawnedAt: "2026-04-01T00:00:00Z" },
+      {
+        stepIndex: 1,
+        threadId: ThreadId.make("thread-implement"),
+        spawnedAt: "2026-04-01T00:30:00Z",
+      },
+    ],
+  });
+  const threads = [
+    { id: ThreadId.make("thread-plan") },
+    { id: ThreadId.make("thread-implement") },
+    { id: ThreadId.make("thread-sub"), parentThreadId: ThreadId.make("thread-implement") },
+    { id: ThreadId.make("thread-sub-sub"), parentThreadId: ThreadId.make("thread-sub") },
+    { id: ThreadId.make("thread-loose"), parentThreadId: null },
+  ];
+
+  it("owns every step root and descendant, but not unrelated conversations", () => {
+    const ownership = createFlowThreadOwnership({ cards: [flowCard], threads });
+    expect(
+      ["thread-plan", "thread-implement", "thread-sub", "thread-sub-sub", "thread-loose"].map(
+        (id) => ownership.isFlowOwned(ThreadId.make(id)),
+      ),
+    ).toEqual([true, true, true, true, false]);
+  });
+
+  it("blocks a mixed delete selection until the card is archived", () => {
+    const targets = [{ id: ThreadId.make("thread-loose") }, { id: ThreadId.make("thread-sub") }];
+    expect(findFlowOwnedThread({ targets, cards: [flowCard], threads })?.id).toBe("thread-sub");
+    expect(
+      findFlowOwnedThread({
+        targets,
+        cards: [{ ...flowCard, archivedAt: "2026-04-02T00:00:00.000Z" }],
+        threads,
+      }),
+    ).toBeNull();
   });
 });

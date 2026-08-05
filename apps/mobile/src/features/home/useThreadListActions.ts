@@ -1,3 +1,4 @@
+import { createFlowThreadOwnership } from "@aqqua/client-runtime/state/boards";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/shell";
 import { canSettle } from "@aqqua/client-runtime/state/thread-settled";
 import * as Cause from "effect/Cause";
@@ -9,7 +10,9 @@ import { showConfirmDialog } from "../../components/ConfirmDialogHost";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { refreshArchivedThreadsForEnvironment } from "../archive/useArchivedThreadSnapshots";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentBoards } from "../../state/boards";
 import { environmentServerConfigsAtom } from "../../state/server";
+import { environmentThreadShells } from "../../state/threads";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -20,6 +23,15 @@ function environmentSupportsSettlement(environmentId: EnvironmentThreadShell["en
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadSettlement === true
   );
+}
+
+function isFlowOwnedThread(thread: EnvironmentThreadShell): boolean {
+  const cards = appAtomRegistry.get(environmentBoards.environmentCardsAtom(thread.environmentId));
+  if (cards.length === 0) return false;
+  const threads = appAtomRegistry
+    .get(environmentThreadShells.threadShellsAtom)
+    .filter((shell) => shell.environmentId === thread.environmentId);
+  return createFlowThreadOwnership({ cards, threads }).isFlowOwned(thread.id);
 }
 
 type ThreadListAction = "archive" | "unarchive" | "delete" | "settle" | "unsettle";
@@ -93,6 +105,13 @@ function useThreadActionExecutor(
           );
           return false;
         }
+        if (action === "delete" && isFlowOwnedThread(thread)) {
+          Alert.alert(
+            actionFailureTitle(action),
+            "This conversation belongs to a flow card. Delete the card from the flow instead, or settle the conversation to file it away.",
+          );
+          return false;
+        }
         // Archive keeps its original, narrower guard: never interrupt a
         // thread mid-turn.
         if (
@@ -159,6 +178,13 @@ function useConfirmDeleteThread(
 ) {
   return useCallback(
     (thread: EnvironmentThreadShell) => {
+      if (isFlowOwnedThread(thread)) {
+        Alert.alert(
+          "Could not delete thread",
+          "This conversation belongs to a flow card. Delete the card from the flow instead, or settle the conversation to file it away.",
+        );
+        return;
+      }
       const title = "Delete thread?";
       const message = `“${thread.title}” will be permanently deleted, including its terminal history.`;
       if (process.env.EXPO_OS === "ios") {

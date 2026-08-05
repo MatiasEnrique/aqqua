@@ -39,14 +39,22 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { WorktreePathCoordination } from "../Services/WorktreePathCoordination.ts";
 import { makeBoardCardResourceSaga } from "./BoardCardResourceSaga.ts";
 import { makeBoardHandlerDefectRecovery } from "./BoardHandlerDefectRecovery.ts";
-import { BoardReactorHandlerDefectInjection, isBoardReactorEvent } from "./BoardReactorEvent.ts";
+import {
+  type BoardReactorEvent,
+  BoardReactorHandlerDefectInjection,
+  isBoardReactorEvent,
+} from "./BoardReactorEvent.ts";
 import {
   cardOperationMatches,
   collectThreadLineage,
   currentStepRootThreadId,
 } from "./BoardReactorState.ts";
-import { makeBoardReconciliationEvents } from "./BoardReconciliation.ts";
-import { type BoardReactorEvent, makeBoardStepEntrySaga } from "./BoardStepEntrySaga.ts";
+import {
+  makeBoardMissingCurrentRootRecoveryEvents,
+  makeBoardReconciliationEvents,
+} from "./BoardReconciliation.ts";
+import { makeBoardStepEntrySaga } from "./BoardStepEntrySaga.ts";
+import type { BoardReactorEvent as BoardReactorCoreEvent } from "./BoardStepEntrySaga.ts";
 
 // Re-export pure helpers for tests that imported them from this module.
 export {
@@ -820,6 +828,27 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const processCurrentStepThreadUnavailable = Effect.fn(
+    "BoardReactor.processCurrentStepThreadUnavailable",
+  )(function* (event: Extract<BoardReactorEvent, { type: "thread.deleted" | "thread.archived" }>) {
+    const cards = yield* listCards();
+    const card = findCardForCurrentStepThread(cards, event.payload.threadId);
+    if (card === null) {
+      return;
+    }
+    if (card.operation !== null) {
+      return;
+    }
+    if (card.status === "failed") {
+      return;
+    }
+    const reason =
+      event.type === "thread.deleted"
+        ? "current step conversation was deleted"
+        : "current step conversation was archived";
+    yield* setCardFailed(card.id, reason);
+  });
+
   const { processCardCreated, processCardDeleteRequested } = yield* makeBoardCardResourceSaga;
 
   const processEvent = Effect.fn("BoardReactor.processEvent")(function* (event: BoardReactorEvent) {
@@ -854,6 +883,9 @@ const make = Effect.gen(function* () {
         return yield* processTurnInterruptRequested(event);
       case "thread.turn-start-requested":
         return yield* processTurnStartRequested(event);
+      case "thread.deleted":
+      case "thread.archived":
+        return yield* processCurrentStepThreadUnavailable(event);
     }
   });
 
@@ -871,7 +903,9 @@ const make = Effect.gen(function* () {
           });
           // Unexpected handler failures must not strand a durable claim —
           // including thread receipt handlers (session-set / activity / turn-start).
-          yield* failMatchingClaimsAfterHandlerDefect(event, cause);
+          if (event.type !== "thread.deleted" && event.type !== "thread.archived") {
+            yield* failMatchingClaimsAfterHandlerDefect(event as BoardReactorCoreEvent, cause);
+          }
         });
       }),
     );
@@ -882,6 +916,15 @@ const make = Effect.gen(function* () {
     function* () {
       const cards = yield* listCards();
       for (const event of makeBoardReconciliationEvents(cards)) {
+        yield* worker.enqueue(event);
+      }
+      const allThreads = yield* loadAllThreadShells();
+      const knownThreadIds = new Set(
+        allThreads
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => String(thread.id)),
+      );
+      for (const event of makeBoardMissingCurrentRootRecoveryEvents(cards, knownThreadIds)) {
         yield* worker.enqueue(event);
       }
     },

@@ -68,6 +68,7 @@ const baseProps = {
   variant: "card",
   variantAction: "settle",
   settlementSupported: false,
+  deletable: true,
   snoozeSupported: false,
   snoozeWakeLabelText: null,
   wokeAt: null,
@@ -156,6 +157,7 @@ describe("SidebarConversationRow", () => {
           variant={variant}
           variantAction={variantAction}
           settlementSupported
+          deletable
           snoozeSupported
           childCount={1}
           depth={variant === "sub" ? 1 : 0}
@@ -173,5 +175,24 @@ describe("SidebarConversationRow", () => {
           : `data-testid="sidebar-v2-subagent-toggle-${thread.id}"`,
       );
     }
+  });
+
+  it("keeps Un-settle but drops Delete on a settled conversation a flow owns", () => {
+    const settledRow = (deletable: boolean) =>
+      renderToStaticMarkup(
+        <SidebarConversationRow
+          {...baseProps}
+          variant="slim"
+          variantAction="unsettle"
+          settlementSupported
+          deletable={deletable}
+        />,
+      );
+
+    expect(settledRow(true)).toContain('aria-label="Delete thread"');
+
+    const owned = settledRow(false);
+    expect(owned).not.toContain('aria-label="Delete thread"');
+    expect(owned).toContain('aria-label="Un-settle thread"');
   });
 });

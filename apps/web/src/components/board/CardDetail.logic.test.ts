@@ -18,6 +18,7 @@ import {
   artifactVisibilityRevision,
   buildCardTree,
   cardComposerOperation,
+  cardThreadRecovery,
   defaultCardSelection,
   isPendingOperationResolved,
   type PendingCardOperation,
@@ -26,6 +27,7 @@ import {
   formatDiffFilesLabel,
   parseCardSelection,
   resolveCardSelection,
+  resolveCardThreadPresence,
   selectionThreadId,
   type CardTreeThread,
 } from "./CardDetail.logic";
@@ -383,5 +385,55 @@ describe("the composer's pending-operation guard", () => {
   it("releases the guard when the card leaves the board entirely", () => {
     expect(isPendingOperationResolved(pending, null)).toBe(true);
     expect(cardComposerOperation(null, pending)).toBeNull();
+  });
+});
+
+describe("missing card conversations", () => {
+  const selection = { kind: "step", stepIndex: 1 } as const;
+
+  it("distinguishes a removed conversation from a real transition", () => {
+    expect(
+      resolveCardThreadPresence({
+        card: card(),
+        selection,
+        threadId: ThreadId.make("thread-implement"),
+        threadShellExists: false,
+      }),
+    ).toBe("unavailable");
+
+    const advancing = card({
+      stepThreads: [],
+      operation: {
+        kind: "advancing",
+        operationId: CardOperationId.make("operation-1"),
+        requestedAt: "2026-04-01T00:40:00.000Z",
+        threadId: null,
+        toStepIndex: 1,
+      },
+    });
+    expect(
+      resolveCardThreadPresence({
+        card: advancing,
+        selection,
+        threadId: null,
+        threadShellExists: false,
+      }),
+    ).toBe("preparing");
+  });
+
+  it("offers recovery only for the current step", () => {
+    const failed = card({ status: "failed" });
+    expect(cardThreadRecovery({ card: failed, selection })).toEqual({
+      canRetryStep: true,
+      canMarkDone: true,
+      canReset: true,
+      canDelete: true,
+    });
+    expect(
+      cardThreadRecovery({
+        card: failed,
+        selection: { kind: "step", stepIndex: 0 },
+      }),
+    ).toEqual({ canRetryStep: false, canMarkDone: false, canReset: false, canDelete: false });
   });
 });

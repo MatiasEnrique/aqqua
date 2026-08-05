@@ -67,6 +67,10 @@ export type {
 
 const EMPTY_BOARDS: ReadonlyArray<OrchestrationBoard> = Object.freeze([]);
 const EMPTY_CARDS: ReadonlyArray<OrchestrationCard> = Object.freeze([]);
+const EMPTY_CARDS_BY_ENVIRONMENT: ReadonlyMap<
+  EnvironmentId,
+  ReadonlyArray<OrchestrationCard>
+> = new Map();
 
 // ── Pure selectors ─────────────────────────────────────────────
 
@@ -304,8 +308,8 @@ export function selectCardSteps(
 /** Minimal thread shape the tree needs — keeps the selector app-agnostic. */
 export interface ThreadParentRef {
   readonly id: ThreadId;
-  readonly parentThreadId?: ThreadId | null;
-  readonly createdAt?: string;
+  readonly parentThreadId?: ThreadId | null | undefined;
+  readonly createdAt?: string | undefined;
 }
 
 /**
@@ -321,6 +325,70 @@ export function selectSubAgentThreads<T extends ThreadParentRef>(
   }
   const matches = threads.filter((thread) => (thread.parentThreadId ?? null) === parentThreadId);
   return matches.sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""));
+}
+
+function selectFlowStepRootThreadIds(cards: ReadonlyArray<OrchestrationCard>): ReadonlySet<string> {
+  const roots = new Set<string>();
+  for (const card of cards) {
+    if (card.archivedAt !== null) continue;
+    for (const entry of card.stepThreads) {
+      roots.add(entry.threadId as string);
+    }
+  }
+  return roots;
+}
+
+export interface FlowThreadOwnership {
+  readonly isFlowOwned: (threadId: ThreadId) => boolean;
+}
+
+export function createFlowThreadOwnership(input: {
+  readonly cards: ReadonlyArray<OrchestrationCard>;
+  readonly threads: ReadonlyArray<ThreadParentRef>;
+}): FlowThreadOwnership {
+  const roots = selectFlowStepRootThreadIds(input.cards);
+  const parentById = new Map<string, string | null>();
+  for (const thread of input.threads) {
+    parentById.set(thread.id as string, (thread.parentThreadId as string | null) ?? null);
+  }
+  const resolved = new Map<string, boolean>();
+
+  const isFlowOwned = (threadId: ThreadId): boolean => {
+    if (roots.size === 0) return false;
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null = threadId as string;
+    let owned = false;
+    while (cursor !== null && !seen.has(cursor)) {
+      const cached = resolved.get(cursor);
+      if (cached !== undefined) {
+        owned = cached;
+        break;
+      }
+      if (roots.has(cursor)) {
+        owned = true;
+        break;
+      }
+      seen.add(cursor);
+      chain.push(cursor);
+      cursor = parentById.get(cursor) ?? null;
+    }
+    for (const id of chain) {
+      resolved.set(id, owned);
+    }
+    return owned;
+  };
+
+  return { isFlowOwned };
+}
+
+export function findFlowOwnedThread<T extends { readonly id: ThreadId }>(input: {
+  readonly targets: ReadonlyArray<T>;
+  readonly cards: ReadonlyArray<OrchestrationCard>;
+  readonly threads: ReadonlyArray<ThreadParentRef>;
+}): T | null {
+  const ownership = createFlowThreadOwnership(input);
+  return input.targets.find((target) => ownership.isFlowOwned(target.id)) ?? null;
 }
 
 /**
@@ -540,6 +608,28 @@ export function createEnvironmentBoardAtoms(input: {
     }).pipe(Atom.withLabel(`environment-boards-many:${key}`));
   });
 
+  const environmentsCardsAtomFamily = Atom.family((key: string) => {
+    const environmentIds = (JSON.parse(key) as ReadonlyArray<string>).map((id) =>
+      EnvironmentId.make(id),
+    );
+    let previous: ReadonlyMap<
+      EnvironmentId,
+      ReadonlyArray<OrchestrationCard>
+    > = EMPTY_CARDS_BY_ENVIRONMENT;
+    return Atom.make((get) => {
+      const next = new Map<EnvironmentId, ReadonlyArray<OrchestrationCard>>();
+      for (const environmentId of environmentIds) {
+        next.set(environmentId, get(environmentCardsAtom(environmentId)));
+      }
+      const unchanged =
+        previous.size === next.size &&
+        [...next].every(([environmentId, cards]) => previous.get(environmentId) === cards);
+      if (unchanged) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-cards-many:${key}`));
+  });
+
   const projectBoardsAtomFamily = Atom.family((key: string) => {
     const ref = parseProjectKey(key);
     let previous: ReadonlyArray<OrchestrationBoard> = EMPTY_BOARDS;
@@ -589,6 +679,8 @@ export function createEnvironmentBoardAtoms(input: {
     environmentsBoardsAtom: (environmentIds: ReadonlyArray<EnvironmentId>) =>
       environmentsBoardsAtomFamily(JSON.stringify(environmentIds)),
     environmentCardsAtom,
+    environmentsCardsAtom: (environmentIds: ReadonlyArray<EnvironmentId>) =>
+      environmentsCardsAtomFamily(JSON.stringify(environmentIds)),
     projectBoardsAtom: (ref: ScopedProjectRef) => projectBoardsAtomFamily(projectKey(ref)),
     projectBoardAtom: (ref: ScopedProjectRef) => projectBoardAtomFamily(projectKey(ref)),
     projectCardsAtom: (ref: ScopedProjectRef) => projectCardsAtomFamily(projectKey(ref)),

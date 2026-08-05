@@ -66,6 +66,51 @@ export function listThreadsByParentThreadId(
   );
 }
 
+export function listActiveDescendantDeletionRoots(
+  readModel: OrchestrationReadModel,
+  parentThreadId: ThreadId,
+): ReadonlyArray<OrchestrationThread> {
+  const roots: OrchestrationThread[] = [];
+  const visited = new Set<ThreadId>([parentThreadId]);
+
+  const visitChildren = (threadId: ThreadId): void => {
+    for (const child of listThreadsByParentThreadId(readModel, threadId)) {
+      if (visited.has(child.id)) {
+        continue;
+      }
+      visited.add(child.id);
+      if (child.deletedAt === null) {
+        roots.push(child);
+      } else {
+        visitChildren(child.id);
+      }
+    }
+  };
+
+  visitChildren(parentThreadId);
+  return roots;
+}
+
+export function listUnarchivedCardsOwningThread(
+  readModel: OrchestrationReadModel,
+  threadId: ThreadId,
+): ReadonlyArray<OrchestrationCard> {
+  const threadsById = new Map(readModel.threads.map((thread) => [thread.id, thread]));
+  const lineage = new Set<ThreadId>();
+  let currentThreadId: ThreadId | null = threadId;
+
+  while (currentThreadId !== null && !lineage.has(currentThreadId)) {
+    lineage.add(currentThreadId);
+    currentThreadId = threadsById.get(currentThreadId)?.parentThreadId ?? null;
+  }
+
+  return (readModel.cards ?? []).filter(
+    (card) =>
+      card.archivedAt === null &&
+      card.stepThreads.some((stepThread) => lineage.has(stepThread.threadId)),
+  );
+}
+
 export function requireProject(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;

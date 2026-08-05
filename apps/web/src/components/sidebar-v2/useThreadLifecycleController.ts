@@ -42,6 +42,7 @@ export function useThreadLifecycleController(input: {
     settledThreadKeysRef,
     snoozedThreadKeysRef,
     threadByKeyRef,
+    flowOwnedThreadKeysRef,
     selectedSettledThreads,
     setThreadExpanded,
     serverConfigs,
@@ -65,6 +66,16 @@ export function useThreadLifecycleController(input: {
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const [deletingSettledSelection, setDeletingSettledSelection] = useState(false);
+
+  const isFlowOwnedKey = useCallback(
+    (threadKey: string) => flowOwnedThreadKeysRef.current.has(threadKey),
+    [],
+  );
+  const isFlowOwnedThread = useCallback(
+    (thread: EnvironmentThreadShell) =>
+      isFlowOwnedKey(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    [isFlowOwnedKey],
+  );
 
   const toggleThreadExpanded = useCallback(
     (threadRef: ScopedThreadRef, expanded: boolean) => {
@@ -294,6 +305,7 @@ export function useThreadLifecycleController(input: {
   const deleteThreadSelection = useCallback(
     async (selectedThreads: readonly EnvironmentThreadShell[]) => {
       if (selectedThreads.length === 0) return;
+      if (selectedThreads.some(isFlowOwnedThread)) return;
       const threadKeys = selectedThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       );
@@ -313,10 +325,11 @@ export function useThreadLifecycleController(input: {
       }
       if (deletionResult.value !== null) removeFromSelection(threadKeys);
     },
-    [deleteThreads, removeFromSelection],
+    [deleteThreads, isFlowOwnedThread, removeFromSelection],
   );
   const deleteSelectedSettledThreads = useCallback(() => {
     if (deletingSettledSelection || selectedSettledThreads.length === 0) return;
+    if (selectedSettledThreads.some(isFlowOwnedThread)) return;
     void (async () => {
       setDeletingSettledSelection(true);
       try {
@@ -325,7 +338,7 @@ export function useThreadLifecycleController(input: {
         setDeletingSettledSelection(false);
       }
     })();
-  }, [deleteThreadSelection, deletingSettledSelection, selectedSettledThreads]);
+  }, [deleteThreadSelection, deletingSettledSelection, isFlowOwnedThread, selectedSettledThreads]);
   const handleMultiSelectContextMenu = useCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -369,7 +382,9 @@ export function useThreadLifecycleController(input: {
                 ]
               : []),
             { id: "mark-unread", label: `Mark unread (${count})` },
-            { id: "delete", label: `Delete (${count})`, destructive: true },
+            ...(threadKeys.some(isFlowOwnedKey)
+              ? []
+              : [{ id: "delete", label: `Delete (${count})`, destructive: true }]),
           ],
           position,
         ),
@@ -426,6 +441,7 @@ export function useThreadLifecycleController(input: {
       attemptSnooze,
       clearSelection,
       deleteThreadSelection,
+      isFlowOwnedKey,
       markThreadUnread,
       serverConfigs,
     ],
@@ -440,6 +456,7 @@ export function useThreadLifecycleController(input: {
         const threadKey = scopedThreadKey(threadRef);
         const thread = threadByKeyRef.current.get(threadKey);
         if (!thread) return;
+        if (isFlowOwnedKey(threadKey)) return;
         const result = await deleteThreads([thread]);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
@@ -453,7 +470,7 @@ export function useThreadLifecycleController(input: {
         }
       })();
     },
-    [deleteThreads],
+    [deleteThreads, isFlowOwnedKey],
   );
 
   const handleThreadContextMenu = useCallback(
@@ -517,7 +534,9 @@ export function useThreadLifecycleController(input: {
                 : []),
               { id: "rename", label: "Rename thread" },
               { id: "mark-unread", label: "Mark unread" },
-              { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+              ...(isFlowOwnedKey(threadKey)
+                ? []
+                : [{ id: "delete", label: "Delete", destructive: true, icon: "trash" }]),
             ],
             position,
           ),
@@ -584,6 +603,7 @@ export function useThreadLifecycleController(input: {
       attemptUnsettle,
       attemptUnsnooze,
       handleMultiSelectContextMenu,
+      isFlowOwnedKey,
       markThreadUnread,
       serverConfigs,
       startThreadRename,

@@ -6,7 +6,6 @@ import {
   cardArtifactProvenance,
   cardStepThreadId,
   isCardDeleting,
-  isCardStarting,
   selectSubAgentThreads,
 } from "@aqqua/client-runtime/state/boards";
 import {
@@ -54,11 +53,13 @@ import {
   type CardTreeDiffStat,
   type CardTreeThread,
   cardComposerOperation,
+  cardThreadRecovery,
   formatCardSelection,
   isPendingOperationResolved,
   type PendingCardOperation,
   parseCardSelection,
   resolveCardSelection,
+  resolveCardThreadPresence,
   selectionThreadId,
 } from "./CardDetail.logic";
 import { CardTree } from "./CardTree";
@@ -72,15 +73,23 @@ export interface CardDetailViewProps {
   readonly onSelectionChange: (next: string) => void;
 }
 
-type PendingConfirmation = "retry" | "reset" | null;
+type PendingConfirmation = "retry" | "reset" | "delete" | null;
 
 /** The card command a composer action sends, and the operation it starts. */
-type CardCommandKind = "continue" | "retry" | "reset";
+type CardCommandKind = "continue" | "retry" | "reset" | "delete";
 
 const COMMAND_OPERATIONS: Record<CardCommandKind, CardOperationKind> = {
   continue: "advancing",
   retry: "retrying",
   reset: "resetting",
+  delete: "deleting",
+};
+
+const COMMAND_FAILURE_TITLES: Record<CardCommandKind, string> = {
+  continue: "Could not continue card",
+  retry: "Could not retry card",
+  reset: "Could not reset card",
+  delete: "Could not delete card",
 };
 
 /** Why a card is parked, in the composer's own banner stack. */
@@ -317,7 +326,14 @@ export function CardDetailView({
   const runCardCommand = useCallback(
     (kind: CardCommandKind) => {
       if (card === null) return;
-      const command = kind === "continue" ? continueCard : kind === "retry" ? retryCard : resetCard;
+      const command =
+        kind === "continue"
+          ? continueCard
+          : kind === "retry"
+            ? retryCard
+            : kind === "reset"
+              ? resetCard
+              : deleteCard;
       setPendingOperation({
         kind: COMMAND_OPERATIONS[kind],
         cardUpdatedAt: card.updatedAt,
@@ -330,18 +346,13 @@ export function CardDetailView({
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title:
-              kind === "reset"
-                ? "Could not reset card"
-                : kind === "retry"
-                  ? "Could not retry card"
-                  : "Could not continue card",
+            title: COMMAND_FAILURE_TITLES[kind],
             description: error instanceof Error ? error.message : "The card command failed.",
           }),
         );
       });
     },
-    [card, cardId, continueCard, environmentId, resetCard, retryCard],
+    [card, cardId, continueCard, deleteCard, environmentId, resetCard, retryCard],
   );
 
   const retryCleanup = useCallback(() => {
@@ -513,18 +524,24 @@ export function CardDetailView({
         <AlertDialogPopup>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingConfirmation === "retry" ? "Retry this step?" : `Reset '${card.title}'?`}
+              {pendingConfirmation === "retry"
+                ? "Retry this step?"
+                : pendingConfirmation === "delete"
+                  ? `Delete '${card.title}'?`
+                  : `Reset '${card.title}'?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingConfirmation === "retry"
                 ? "The step's thread is discarded and a fresh one runs the same prompt again. The worktree keeps whatever the previous attempt changed."
-                : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest flow configuration and keeps the existing worktree changes."}
+                : pendingConfirmation === "delete"
+                  ? "This removes the card from the flow along with its conversations, worktree, and artifacts. It cannot be undone."
+                  : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest flow configuration and keeps the existing worktree changes."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Keep going</AlertDialogClose>
             <Button
-              variant={pendingConfirmation === "reset" ? "destructive" : "default"}
+              variant={pendingConfirmation === "retry" ? "default" : "destructive"}
               onClick={() => {
                 const kind = pendingConfirmation;
                 setPendingConfirmation(null);
@@ -532,7 +549,11 @@ export function CardDetailView({
                 runCardCommand(kind);
               }}
             >
-              {pendingConfirmation === "retry" ? "Retry step" : "Reset card"}
+              {pendingConfirmation === "retry"
+                ? "Retry step"
+                : pendingConfirmation === "delete"
+                  ? "Delete card"
+                  : "Reset card"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -591,26 +612,91 @@ export function CardDetailView({
     );
   }
 
-  if (threadRef === null || threadShell === null) {
+  const presence = resolveCardThreadPresence({
+    card,
+    selection,
+    threadId,
+    threadShellExists: threadShell !== null,
+  });
+
+  if (presence !== "linked" || threadRef === null) {
+    if (presence === "unavailable") {
+      const recovery = cardThreadRecovery({
+        card,
+        selection,
+        resetSupported: serverConfig?.environment.capabilities.boardCardReset === true,
+      });
+      const isCurrentStep =
+        card.position.kind === "step" &&
+        selection.kind === "step" &&
+        selection.stepIndex === card.position.stepIndex;
+      const busy = cardOperationInFlight !== null;
+      const actions = [
+        recovery.canRetryStep
+          ? { key: "retry", label: "Retry step", run: () => setPendingConfirmation("retry") }
+          : null,
+        recovery.canMarkDone
+          ? {
+              key: "continue",
+              label: isLastStep ? "Mark step done" : "Continue",
+              run: () => runCardCommand("continue"),
+            }
+          : null,
+        recovery.canReset
+          ? { key: "reset", label: "Reset card", run: () => setPendingConfirmation("reset") }
+          : null,
+        recovery.canDelete
+          ? { key: "delete", label: "Delete card", run: () => setPendingConfirmation("delete") }
+          : null,
+      ].flatMap((action) => (action === null ? [] : [action]));
+      return (
+        <div className="flex h-full min-h-0">
+          {rail}
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+            <InfoIcon aria-hidden className="size-5 text-muted-foreground" />
+            <span className="font-medium text-foreground">This flow conversation was removed.</span>
+            <span className="max-w-md text-muted-foreground">
+              {isCurrentStep
+                ? "The card still points at this step, but its conversation no longer exists. Pick it up again from here, or clear the card."
+                : "This conversation is no longer available, so its history cannot be shown."}
+            </span>
+            {actions.length === 0 ? null : (
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                {actions.map((action) => (
+                  <Button
+                    key={action.key}
+                    size="sm"
+                    variant={action.key === "delete" ? "destructive" : "outline"}
+                    disabled={busy}
+                    onClick={action.run}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+          {confirmation}
+        </div>
+      );
+    }
     // Between Start and the first step thread the server is doing real work
     // (worktree, checkout, setup script) — show that instead of a dead pane.
-    const starting = isCardStarting(card);
-    const preparingStep = card.position.kind === "step";
     return (
       <div className="flex h-full min-h-0">
         {rail}
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
-          {starting || preparingStep ? (
+          {presence === "unreleased" ? (
+            "This card has not been released yet — start it from the flow."
+          ) : (
             <>
               <Spinner className="size-4" />
               <span>
-                {starting
+                {presence === "starting"
                   ? "Starting this card — creating its worktree and checking out the branch…"
                   : "Preparing this step's thread…"}
               </span>
             </>
-          ) : (
-            "This card has not been released yet — start it from the flow."
           )}
         </div>
         {confirmation}

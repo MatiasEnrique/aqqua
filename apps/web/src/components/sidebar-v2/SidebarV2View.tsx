@@ -100,6 +100,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     visibleSnoozedThreads,
     renderedSettledThreads,
     selectedSettledThreads,
+    flowOwnedThreadKeys,
     activeTreeMetaByKey,
     activeFamilyBandByKey,
     activeSubAgentStateCountsByKey,
@@ -477,6 +478,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                           serverConfigs.get(thread.environmentId)?.environment.capabilities
                             .threadSnooze === true
                         }
+                        deletable={!flowOwnedThreadKeys.has(threadKey)}
                         snoozeWakeLabelText={
                           section === "snoozed" && thread.snoozedUntil != null
                             ? snoozeWakeLabel(thread.snoozedUntil, new Date())
@@ -889,7 +891,12 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                               )}
                             />
                           </button>
-                          {selectedSettledThreads.length > 0 ? (
+                          {selectedSettledThreads.length > 0 &&
+                          !selectedSettledThreads.some((thread) =>
+                            flowOwnedThreadKeys.has(
+                              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                            ),
+                          ) ? (
                             <button
                               type="button"
                               disabled={deletingSettledSelection}
