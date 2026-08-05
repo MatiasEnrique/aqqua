@@ -3,10 +3,27 @@ import { CircleCheckIcon, CircleXIcon, Clock3Icon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
-import { aggregateChecksPresentation } from "./PullRequestPanel.logic";
+import { aggregateChecksPresentation, type StatusPresentation } from "./PullRequestPanel.logic";
 import { Badge } from "./ui/badge";
 
 type ChangeRequestChecksStatus = NonNullable<VcsStatusResult["pr"]>["checksStatus"];
+
+export function ChangeRequestStatusIcon({
+  presentation,
+  className,
+}: {
+  readonly presentation: StatusPresentation;
+  readonly className?: string;
+}) {
+  const Icon =
+    presentation.icon === "check"
+      ? CircleCheckIcon
+      : presentation.icon === "x"
+        ? CircleXIcon
+        : Clock3Icon;
+
+  return <Icon aria-hidden className={cn("size-4 shrink-0", className)} />;
+}
 
 export function ChangeRequestChecksBadge({
   status,
@@ -16,12 +33,6 @@ export function ChangeRequestChecksBadge({
   readonly className?: string;
 }) {
   const presentation = aggregateChecksPresentation(status);
-  const Icon =
-    presentation.icon === "check"
-      ? CircleCheckIcon
-      : presentation.icon === "x"
-        ? CircleXIcon
-        : Clock3Icon;
   const variant =
     presentation.tone === "success"
       ? "success"
@@ -38,7 +49,7 @@ export function ChangeRequestChecksBadge({
       size="sm"
       variant={variant}
     >
-      <Icon aria-hidden />
+      <ChangeRequestStatusIcon presentation={presentation} />
       {presentation.label}
     </Badge>
   );

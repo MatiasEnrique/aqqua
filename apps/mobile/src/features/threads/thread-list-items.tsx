@@ -518,6 +518,15 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
             >
               {pr.label}
             </Text>
+            {pr.checksLabel ? (
+              <Text
+                className={`${compact ? "text-sm" : "text-xs"} font-aqqua-medium ${
+                  selected ? "text-white" : pr.checksTextClassName
+                }`}
+              >
+                · {pr.checksLabel}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </View>

@@ -1,12 +1,5 @@
 import type { EnvironmentId, ScopedThreadRef, VcsStatusResult } from "@aqqua/contracts";
-import {
-  CircleCheckIcon,
-  CircleXIcon,
-  Clock3Icon,
-  ExternalLinkIcon,
-  GitPullRequestIcon,
-  RefreshCwIcon,
-} from "lucide-react";
+import { Clock3Icon, ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
@@ -20,9 +13,8 @@ import {
   changeRequestStatePresentation,
   checkPresentation,
   shouldRefetchChecks,
-  type StatusPresentation,
 } from "./PullRequestPanel.logic";
-import { ChangeRequestChecksBadge } from "./ChangeRequestChecksBadge";
+import { ChangeRequestChecksBadge, ChangeRequestStatusIcon } from "./ChangeRequestChecksBadge";
 import { ManagePullRequestDialog } from "./ManagePullRequestDialog";
 import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
 import { Badge } from "./ui/badge";
@@ -44,16 +36,6 @@ const toneClasses = {
   failure: "text-destructive-foreground",
   info: "text-info-foreground",
 } as const;
-
-function StatusIcon({ presentation }: { presentation: StatusPresentation }) {
-  const Icon =
-    presentation.icon === "check"
-      ? CircleCheckIcon
-      : presentation.icon === "x"
-        ? CircleXIcon
-        : Clock3Icon;
-  return <Icon aria-hidden className={cn("size-4 shrink-0", toneClasses[presentation.tone])} />;
-}
 
 export function PullRequestPanel({
   environmentId,
@@ -224,7 +206,10 @@ export function PullRequestPanel({
                   key={check.name}
                   className="flex min-h-10 items-center gap-3 border-b border-border/60 px-4 py-2 last:border-b-0"
                 >
-                  <StatusIcon presentation={presentation} />
+                  <ChangeRequestStatusIcon
+                    presentation={presentation}
+                    className={toneClasses[presentation.tone]}
+                  />
                   <span className="min-w-0 flex-1 truncate text-sm" title={check.name}>
                     {check.name}
                   </span>

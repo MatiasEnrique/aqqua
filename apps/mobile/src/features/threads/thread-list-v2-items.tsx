@@ -423,6 +423,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             style={{ fontFamily: MONO_FONT }}
           >
             #{pr.label}
+            {pr.checksLabel ? (
+              <Text className={selected ? "text-white" : (pr.checksTextClassName ?? undefined)}>
+                {" · "}
+                {pr.checksLabel}
+              </Text>
+            ) : null}
           </Text>
         ) : null}
         {props.providerDriver ? (
