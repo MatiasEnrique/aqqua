@@ -24,6 +24,7 @@
 import {
   CodexSettings,
   ProviderDriverKind,
+  ProviderListSessionsError,
   ProviderListSkillsError,
   type ProviderInstanceId,
   type ServerProvider,
@@ -44,8 +45,11 @@ import { ProviderDriverError } from "../Errors.ts";
 import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
 import {
   checkCodexProviderStatus,
+  listCodexSessions,
   listCodexSkills,
   makePendingCodexProvider,
+  matchesCodexResumeCursor,
+  readCodexSession,
 } from "../Layers/CodexProvider.ts";
 import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
@@ -155,6 +159,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const httpClient = yield* HttpClient.HttpClient;
+      const serverConfig = yield* ServerConfig;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
@@ -251,6 +256,56 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
           Effect.mapError((cause) => toCodexListSkillsError(instanceId, cause)),
         );
 
+      const toSessionError = (operation: string, cause: unknown) =>
+        new ProviderListSessionsError({
+          instanceId,
+          reason: `Codex ${operation} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        });
+      const launchArgs = resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv);
+      const listSessions: ProviderInstance["listSessions"] = Effect.fn("CodexDriver.listSessions")(
+        function* (cwds) {
+          const sessions = yield* listCodexSessions({
+            binaryPath: effectiveConfig.binaryPath,
+            homePath: effectiveConfig.homePath,
+            launchArgs,
+            cwds,
+            environment: processEnv,
+          }).pipe(
+            Effect.scoped,
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.mapError((cause) => toSessionError("thread/list", cause)),
+          );
+          return { sessions, supported: true };
+        },
+      );
+      const readSession: ProviderInstance["readSession"] = Effect.fn("CodexDriver.readSession")(
+        function* (sessionId, cwd, boundaryUuid) {
+          return yield* readCodexSession({
+            binaryPath: effectiveConfig.binaryPath,
+            homePath: effectiveConfig.homePath,
+            launchArgs,
+            // Read as the workspace that owns the transcript. The app-server
+            // resolves config and trust from its cwd, so the server's own
+            // directory would apply the wrong project settings.
+            cwd: cwd || serverConfig.cwd,
+            sessionId,
+            ...(boundaryUuid ? { boundaryUuid } : {}),
+            environment: processEnv,
+          }).pipe(
+            Effect.scoped,
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.mapError((cause) => toSessionError("thread/read", cause)),
+          );
+        },
+      );
+      const makeResumeCursor: ProviderInstance["makeResumeCursor"] = (sessionId) => ({
+        threadId: sessionId,
+      });
+      const matchesResumeCursor: ProviderInstance["matchesResumeCursor"] = (sessionId, cursor) => {
+        return matchesCodexResumeCursor(sessionId, cursor);
+      };
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -262,6 +317,10 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         adapter,
         textGeneration,
         listSkills,
+        listSessions,
+        readSession,
+        makeResumeCursor,
+        matchesResumeCursor,
       } satisfies ProviderInstance;
     }),
 };

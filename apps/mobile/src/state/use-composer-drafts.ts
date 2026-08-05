@@ -4,8 +4,12 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderInteractionMode as ProviderInteractionModeSchema,
   RuntimeMode as RuntimeModeSchema,
+  ProviderExternalSession as ProviderExternalSessionSchema,
+  ProviderInstanceId as ProviderInstanceIdSchema,
   type EnvironmentId,
   type ModelSelection,
+  type ProviderExternalSession,
+  type ProviderInstanceId,
   type ProviderInteractionMode,
   type RuntimeMode,
 } from "@aqqua/contracts";
@@ -45,6 +49,12 @@ export interface ComposerDraft {
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
   readonly workspaceSelection?: ComposerDraftWorkspaceSelection;
+  readonly resumeSession?: ComposerDraftResumeSessionSelection;
+}
+
+export interface ComposerDraftResumeSessionSelection {
+  readonly instanceId: ProviderInstanceId;
+  readonly session: ProviderExternalSession;
 }
 
 export interface ComposerDraftContent {
@@ -62,7 +72,7 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection"
+  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "resumeSession"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -80,6 +90,12 @@ const ComposerDraftSchema = Schema.Struct({
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
   workspaceSelection: Schema.optional(ComposerDraftWorkspaceSelectionSchema),
+  resumeSession: Schema.optional(
+    Schema.Struct({
+      instanceId: ProviderInstanceIdSchema,
+      session: ProviderExternalSessionSchema,
+    }),
+  ),
 });
 
 const PersistedComposerDraftsSchema = Schema.Struct({
@@ -131,7 +147,8 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
-    draft.workspaceSelection === undefined
+    draft.workspaceSelection === undefined &&
+    draft.resumeSession === undefined
   );
 }
 
@@ -377,7 +394,11 @@ export function clearComposerDraftContentState(
   if (!existing) {
     return current;
   }
-  const { importedShareIds: _importedShareIds, ...retained } = existing;
+  const {
+    importedShareIds: _importedShareIds,
+    resumeSession: _resumeSession,
+    ...retained
+  } = existing;
   const draft = {
     ...retained,
     text: "",

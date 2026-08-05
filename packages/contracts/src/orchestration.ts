@@ -751,9 +751,15 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   startFromOrigin: Schema.optional(Schema.Boolean),
 });
 
+const ThreadTurnStartBootstrapResumeSession = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+});
+
 const ThreadTurnStartBootstrap = Schema.Struct({
   createThread: Schema.optional(ThreadTurnStartBootstrapCreateThread),
   prepareWorktree: Schema.optional(ThreadTurnStartBootstrapPrepareWorktree),
+  resumeSession: Schema.optional(ThreadTurnStartBootstrapResumeSession),
   runSetupScript: Schema.optional(Schema.Boolean),
   /**
    * Per-thread override for which project script runs after the worktree is

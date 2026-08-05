@@ -8,6 +8,7 @@ import {
   type ModelSelection,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type ProviderInstanceId,
 } from "@aqqua/contracts";
 import { buildTemporaryWorktreeBranchName } from "@aqqua/shared/git";
 import * as Cause from "effect/Cause";
@@ -39,6 +40,10 @@ export function useCreateProjectThread() {
       readonly initialAttachments: ReadonlyArray<DraftComposerImageAttachment>;
       /** Reuse identifiers from a queued pending task instead of minting new ones. */
       readonly turnMetadata?: TurnCommandMetadata;
+      readonly resumeSession?: {
+        readonly instanceId: ProviderInstanceId;
+        readonly sessionId: string;
+      };
     }) => {
       const metadata = input.turnMetadata ?? makeTurnCommandMetadata();
       const threadId = ThreadId.make(metadata.threadId);
@@ -75,6 +80,7 @@ export function useCreateProjectThread() {
           worktreePath: input.worktreePath,
           startFromOrigin: input.startFromOrigin ?? false,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
+          ...(input.resumeSession ? { resumeSession: input.resumeSession } : {}),
         }),
       });
       if (AsyncResult.isFailure(result)) {

@@ -119,6 +119,33 @@ describe("mobile composer drafts", () => {
     });
   });
 
+  it("persists an adopted session and clears it after the one-shot start", () => {
+    const draftKey = "new-task:environment-1:project-1";
+    const resumeSession = {
+      instanceId: ProviderInstanceId.make("codex"),
+      session: {
+        sessionId: "external-thread-1",
+        title: "Earlier CLI work",
+        cwd: "/repo/worktree",
+        updatedAt: "2026-08-04T12:00:00.000Z",
+        messageCount: 12,
+      },
+    };
+    const decoded = decodePersistedComposerDrafts({
+      schemaVersion: 1,
+      drafts: {
+        [draftKey]: {
+          text: "Continue",
+          attachments: [],
+          resumeSession,
+        },
+      },
+    });
+
+    expect(decoded[draftKey]?.resumeSession).toEqual(resumeSession);
+    expect(clearComposerDraftContentState(decoded, draftKey)).toEqual({});
+  });
+
   it("reads the latest selector state synchronously for send", () => {
     const draftKey = "environment-1:thread-1";
     const selectedDraft: ComposerDraft = {

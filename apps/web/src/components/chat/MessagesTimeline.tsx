@@ -1,11 +1,14 @@
 import {
   type EnvironmentId,
-  type MessageId,
+  MessageId,
+  type OrchestrationThreadActivity,
+  type ProviderInstanceId,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
 } from "@aqqua/contracts";
 import { parseScopedThreadKey } from "@aqqua/client-runtime/environment";
+import { adoptedSessionReference } from "@aqqua/client-runtime/state/provider-sessions";
 import { resolveChatListAnchoredEndSpace } from "@aqqua/shared/chatList";
 import {
   createContext,
@@ -100,6 +103,8 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@aqqua/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
+import { useEnvironmentQuery } from "../../state/query";
+import { providerSessionsEnvironment } from "../../state/providerSessions";
 
 import {
   buildInlineTerminalContextText,
@@ -185,6 +190,8 @@ interface MessagesTimelineProps {
   onManualNavigation: () => void;
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
+  resumedSessionActivity?: OrchestrationThreadActivity | null;
+  providerInstanceId?: ProviderInstanceId | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +227,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onManualNavigation,
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
+  resumedSessionActivity = null,
+  providerInstanceId = null,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -516,7 +525,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
               topFadeEnabled && "chat-timeline-scroll-fade",
             )}
-            ListHeaderComponent={topFadeEnabled ? TIMELINE_LIST_FADE_HEADER : TIMELINE_LIST_HEADER}
+            ListHeaderComponent={
+              <TimelineListHeader
+                faded={topFadeEnabled}
+                activity={resumedSessionActivity}
+                environmentId={activeThreadEnvironmentId}
+                instanceId={providerInstanceId}
+                markdownCwd={markdownCwd}
+                threadRef={parseScopedThreadKey(routeThreadKey)}
+              />
+            }
             ListFooterComponent={TIMELINE_LIST_FOOTER}
           />
           <TimelineMinimap
@@ -539,6 +557,94 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     </TimelineRowCtx>
   );
 });
+
+function TimelineListHeader(props: {
+  readonly faded: boolean;
+  readonly activity: OrchestrationThreadActivity | null;
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId | null;
+  readonly markdownCwd: string | undefined;
+  readonly threadRef: ScopedThreadRef | null;
+}) {
+  const [visibleMessageCount, setVisibleMessageCount] = useState(100);
+  const reference = adoptedSessionReference(props.activity);
+  const sessionId = reference?.sessionId ?? null;
+  const boundaryUuid = reference?.boundaryUuid ?? null;
+  const query = useEnvironmentQuery(
+    props.instanceId && sessionId && boundaryUuid && props.markdownCwd
+      ? providerSessionsEnvironment.readSession({
+          environmentId: props.environmentId,
+          input: {
+            instanceId: props.instanceId,
+            sessionId,
+            cwd: props.markdownCwd,
+            boundaryUuid,
+          },
+        })
+      : null,
+  );
+
+  // Adopted messages render through the ordinary timeline rows so a resumed
+  // thread reads as one conversation. They carry no turn, so the affordances
+  // that need one — assistant meta, copy, turn diff, revert — stay off.
+  const adoptionCreatedAt = props.activity?.createdAt;
+  const adoptedRows = useMemo<ReadonlyArray<MessagesTimelineRow>>(() => {
+    if (!query.data || !adoptionCreatedAt) return [];
+    // Window from the end. The messages that matter are the ones the live
+    // thread continues from, so a capped view keeps the tail and reveals
+    // earlier messages on demand.
+    return query.data.messages.slice(-visibleMessageCount).map((message) => {
+      // The adoption marker's timestamp stands in when the provider transcript
+      // carries none, so ordering stays stable ahead of the first aqqua turn.
+      const createdAt = message.createdAt ?? adoptionCreatedAt;
+      return {
+        kind: "message" as const,
+        id: `adopted:${message.messageId}`,
+        createdAt,
+        message: {
+          id: MessageId.make(`adopted:${message.messageId}`),
+          role: message.role,
+          text: message.text,
+          turnId: null,
+          streaming: false,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        durationStart: createdAt,
+        showAssistantMeta: false,
+        showAssistantCopyButton: false,
+        assistantCopyStreaming: false,
+      };
+    });
+  }, [adoptionCreatedAt, query.data, visibleMessageCount]);
+
+  return (
+    <>
+      {props.faded ? TIMELINE_LIST_FADE_HEADER : TIMELINE_LIST_HEADER}
+      {props.activity && sessionId ? (
+        <div className="mx-auto w-full min-w-0 max-w-3xl px-1" data-session-resumed>
+          {query.isPending ? (
+            <p className="pb-4 text-sm text-muted-foreground">Loading earlier conversation…</p>
+          ) : query.error ? (
+            <p className="pb-4 text-sm text-destructive">{query.error}</p>
+          ) : null}
+          {query.data && query.data.messages.length > visibleMessageCount ? (
+            <button
+              type="button"
+              className="mb-4 w-full rounded-lg border border-border/60 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/40"
+              onClick={() => setVisibleMessageCount((count) => count + 100)}
+            >
+              Show earlier messages
+            </button>
+          ) : null}
+          {adoptedRows.map((row) => (
+            <TimelineRowContent key={row.id} row={row} />
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 function keyExtractor(item: MessagesTimelineRow) {
   return item.id;

@@ -18,6 +18,15 @@ import type { ProviderInstance } from "./ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "./Services/ProviderInstanceRegistry.ts";
 
 const isProviderListSkillsError = Schema.is(ProviderListSkillsError);
+const unsupportedSessionCapabilities = {
+  listSessions: () => Effect.succeed({ sessions: [], supported: false }),
+  readSession: (() =>
+    Effect.die(
+      new Error("unused external-session test capability"),
+    )) as ProviderInstance["readSession"],
+  makeResumeCursor: (_sessionId: string) => undefined,
+  matchesResumeCursor: (_sessionId: string, _cursor: unknown) => false,
+};
 
 /**
  * Mirrors the `provider.listSkills` RPC handler: look up a live instance and
@@ -56,6 +65,7 @@ const makeStubInstance = (input: {
     adapter: {} as ProviderInstance["adapter"],
     textGeneration: {} as ProviderInstance["textGeneration"],
     listSkills: input.listSkills,
+    ...unsupportedSessionCapabilities,
   }) satisfies ProviderInstance;
 
 const makeStubRegistry = (

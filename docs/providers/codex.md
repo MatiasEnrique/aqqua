@@ -9,6 +9,19 @@ Common reasons:
 - switch to another account when one account hits limits
 - keep one shared Codex history instead of maintaining two separate Codex setups
 
+## Resuming Codex CLI conversations
+
+The new-thread `/resume` picker asks Codex app-server for conversations in the configured `CODEX_HOME` store. Discovery uses `thread/list` with the recorded working directory plus these filters:
+
+```text
+sourceKinds: ["cli"]
+useStateDbOnly: true
+```
+
+The cwd filter limits results to the active project's workspace root and aqqua-managed worktrees. `sourceKinds: ["cli"]` excludes Codex IDE, app-server, subagent, and other non-TUI sessions. State-database-only listing keeps the picker paged and avoids rescanning JSONL history.
+
+The selected thread is resumed through Codex app-server in its original cwd. aqqua adopts it only on the new thread's first turn and fetches its earlier messages lazily when the timeline block is expanded.
+
 ## I Only Use One Codex Account
 
 Use the default provider.

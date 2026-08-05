@@ -151,6 +151,11 @@ import {
   ProviderListSkillsError,
   ProviderListSkillsInput,
   ProviderListSkillsResult,
+  ProviderListSessionsError,
+  ProviderListSessionsInput,
+  ProviderListSessionsResult,
+  ProviderReadSessionInput,
+  ProviderReadSessionResult,
   ServerProviderUpdateError,
   ServerProviderUpdateInput,
   ServerLifecycleStreamEvent,
@@ -287,6 +292,8 @@ export const WS_METHODS = {
 
   // Provider instance methods
   providerListSkills: "provider.listSkills",
+  providerListSessions: "provider.listSessions",
+  providerReadSession: "provider.readSession",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -357,6 +364,18 @@ export const WsProviderListSkillsRpc = Rpc.make(WS_METHODS.providerListSkills, {
   payload: ProviderListSkillsInput,
   success: ProviderListSkillsResult,
   error: Schema.Union([ProviderListSkillsError, EnvironmentAuthorizationError]),
+});
+
+export const WsProviderListSessionsRpc = Rpc.make(WS_METHODS.providerListSessions, {
+  payload: ProviderListSessionsInput,
+  success: ProviderListSessionsResult,
+  error: Schema.Union([ProviderListSessionsError, EnvironmentAuthorizationError]),
+});
+
+export const WsProviderReadSessionRpc = Rpc.make(WS_METHODS.providerReadSession, {
+  payload: ProviderReadSessionInput,
+  success: ProviderReadSessionResult,
+  error: Schema.Union([ProviderListSessionsError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
@@ -926,6 +945,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsProviderListSkillsRpc,
+  WsProviderListSessionsRpc,
+  WsProviderReadSessionRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
   WsServerUpsertKeybindingRpc,

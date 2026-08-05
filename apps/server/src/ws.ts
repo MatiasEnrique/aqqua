@@ -57,6 +57,7 @@ import {
   RpcClientId,
   EnvironmentAuthorizationError,
   ProviderListSkillsError,
+  ProviderListSessionsError,
   ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalError,
@@ -90,7 +91,9 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
+import { excludeOwnedProviderSessions } from "./provider/providerSessions.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -416,6 +419,7 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerInstanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+      const providerSessionDirectory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -472,6 +476,36 @@ const makeWsRpcLayer = (
           })),
         );
       };
+      /** Resolve and follow symlinks, falling back to the resolved path when the
+          directory is gone. Provider transcripts record the cwd as the provider
+          process observed it, which may traverse a link the stored project or
+          worktree path does not (`/tmp` vs `/private/tmp` on macOS). */
+      const canonicalPath = (value: string): Effect.Effect<string> => {
+        const resolved = path.resolve(value);
+        return fileSystem.realPath(resolved).pipe(Effect.orElseSucceed(() => resolved));
+      };
+
+      /**
+       * The directories a client may read provider transcripts from: a project's
+       * workspace root and the worktrees aqqua manages for it. Session
+       * transcripts carry full conversation history, so discovery is confined to
+       * workspaces this environment already owns rather than any path a client
+       * asks for.
+       */
+      const authorizedSessionCwds = Effect.fn("authorizedSessionCwds")(function* () {
+        const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+        const allowed = new Set<string>();
+        for (const project of shell.projects) {
+          allowed.add(yield* canonicalPath(project.workspaceRoot));
+        }
+        for (const thread of shell.threads) {
+          if (thread.worktreePath !== null) {
+            allowed.add(yield* canonicalPath(thread.worktreePath));
+          }
+        }
+        return allowed;
+      });
+
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
@@ -923,12 +957,21 @@ const makeWsRpcLayer = (
           const bootstrap = command.bootstrap;
           const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
           let createdThread = false;
+          let seededResumeBinding = false;
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
 
-          const cleanupCreatedThread = () =>
-            createdThread
+          const deleteResumeBinding = Effect.suspend(() =>
+            seededResumeBinding
+              ? providerSessionDirectory
+                  .deleteBinding(command.threadId)
+                  .pipe(Effect.ignoreCause({ log: true }))
+              : Effect.void,
+          );
+
+          const cleanupCreatedThread = Effect.fn("cleanupCreatedThread")(() => {
+            const deleteThread = createdThread
               ? serverCommandId("bootstrap-thread-delete").pipe(
                   Effect.flatMap((commandId) =>
                     orchestrationEngine.dispatch({
@@ -940,6 +983,11 @@ const makeWsRpcLayer = (
                   Effect.ignoreCause({ log: true }),
                 )
               : Effect.void;
+            // Remove the seed before publishing thread.deleted. Its reactor
+            // otherwise sees the stopped binding and persists it again while
+            // trying to stop the provider session.
+            return deleteResumeBinding.pipe(Effect.andThen(deleteThread));
+          });
 
           const recordSetupScriptLaunchFailure = (input: {
             readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
@@ -1075,6 +1123,130 @@ const makeWsRpcLayer = (
               createdThread = true;
             }
 
+            if (bootstrap?.resumeSession) {
+              const resumeSession = bootstrap.resumeSession;
+              if (!bootstrap.createThread) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "External sessions can only be adopted while creating a draft thread.",
+                });
+              }
+              if (bootstrap.prepareWorktree) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "A resumed session cannot create a different worktree.",
+                });
+              }
+              if (bootstrap.createThread.modelSelection.instanceId !== resumeSession.instanceId) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "The resumed session must use the draft's selected provider instance.",
+                });
+              }
+
+              const instance = yield* providerInstanceRegistry.getInstance(
+                resumeSession.instanceId,
+              );
+              if (instance === undefined) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `No provider instance bound to id '${resumeSession.instanceId}'.`,
+                });
+              }
+
+              // Resolve the project before reading: the read is performed as
+              // that workspace, and an unavailable project must not reach the
+              // provider at all.
+              const project = yield* projectionSnapshotQuery.getProjectShellById(
+                bootstrap.createThread.projectId,
+              );
+              if (Option.isNone(project)) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Project '${bootstrap.createThread.projectId}' is unavailable.`,
+                });
+              }
+
+              const transcript = yield* instance.readSession(
+                resumeSession.sessionId,
+                project.value.workspaceRoot,
+                undefined,
+              );
+              const existingBindings = yield* providerSessionDirectory.listBindings();
+              if (
+                existingBindings.some(
+                  (binding) =>
+                    binding.providerInstanceId === instance.instanceId &&
+                    instance.matchesResumeCursor(resumeSession.sessionId, binding.resumeCursor),
+                )
+              ) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "That provider session is already owned by an aqqua thread.",
+                });
+              }
+
+              const workspaceRoot = yield* canonicalPath(project.value.workspaceRoot);
+              const sessionCwd = yield* canonicalPath(transcript.session.cwd);
+              const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+              const isProjectRoot = sessionCwd === workspaceRoot;
+              let isManagedWorktree = false;
+              for (const thread of shell.threads) {
+                if (
+                  thread.projectId === bootstrap.createThread.projectId &&
+                  thread.worktreePath !== null &&
+                  (yield* canonicalPath(thread.worktreePath)) === sessionCwd
+                ) {
+                  isManagedWorktree = true;
+                  break;
+                }
+              }
+              if (!isProjectRoot && !isManagedWorktree) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Session cwd '${transcript.session.cwd}' is not the project root or an aqqua-managed worktree.`,
+                });
+              }
+
+              const resumedWorktreePath = isProjectRoot ? null : transcript.session.cwd;
+              if (targetWorktreePath !== resumedWorktreePath) {
+                yield* orchestrationEngine.dispatch({
+                  type: "thread.meta.update",
+                  commandId: yield* serverCommandId("bootstrap-thread-resume-cwd"),
+                  threadId: command.threadId,
+                  worktreePath: resumedWorktreePath,
+                  ...(transcript.session.gitBranch ? { branch: transcript.session.gitBranch } : {}),
+                });
+                targetWorktreePath = resumedWorktreePath;
+              }
+
+              yield* providerSessionDirectory.upsert({
+                threadId: command.threadId,
+                provider: instance.driverKind,
+                providerInstanceId: instance.instanceId,
+                status: "stopped",
+                resumeCursor: instance.makeResumeCursor(resumeSession.sessionId),
+                runtimePayload: { cwd: transcript.session.cwd },
+                runtimeMode: bootstrap.createThread.runtimeMode,
+              });
+              seededResumeBinding = true;
+
+              const resumedAt = yield* nowIso;
+              yield* orchestrationEngine.dispatch({
+                type: "thread.activity.append",
+                commandId: yield* serverCommandId("bootstrap-session-resumed"),
+                threadId: command.threadId,
+                activity: {
+                  id: yield* serverEventId,
+                  tone: "info",
+                  kind: "session.resumed",
+                  summary: "Earlier conversation resumed",
+                  payload: {
+                    provider: instance.driverKind,
+                    sessionId: transcript.session.sessionId,
+                    messageCount: transcript.session.messageCount,
+                    boundaryUuid: transcript.boundaryUuid,
+                  },
+                  turnId: null,
+                  createdAt: resumedAt,
+                },
+                createdAt: resumedAt,
+              });
+            }
+
             if (bootstrap?.prepareWorktree) {
               let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
               if (bootstrap.prepareWorktree.startFromOrigin) {
@@ -1116,7 +1288,14 @@ const makeWsRpcLayer = (
             Effect.catchCause((cause) => {
               const dispatchError = toBootstrapDispatchCommandCauseError(cause);
               if (Cause.hasInterruptsOnly(cause)) {
-                return Effect.fail(dispatchError);
+                // A seeded binding outlives interruption and nothing else clears
+                // it: adoption of that session would be refused forever and the
+                // session would stay hidden from the picker. Drop it
+                // uninterruptibly, but leave the thread row to the normal path.
+                return deleteResumeBinding.pipe(
+                  Effect.uninterruptible,
+                  Effect.flatMap(() => Effect.fail(dispatchError)),
+                );
               }
               return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(dispatchError)));
             }),
@@ -1551,6 +1730,100 @@ const makeWsRpcLayer = (
               }
               const skills = yield* instance.listSkills(input.cwd);
               return { skills };
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerListSessions]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerListSessions,
+            Effect.gen(function* () {
+              const instance = yield* providerInstanceRegistry.getInstance(input.instanceId);
+              if (instance === undefined) {
+                return yield* new ProviderListSessionsError({
+                  instanceId: input.instanceId,
+                  reason: `No provider instance bound to id '${input.instanceId}'`,
+                });
+              }
+              const allowedCwds = yield* authorizedSessionCwds().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderListSessionsError({
+                      instanceId: input.instanceId,
+                      reason: "Failed to resolve authorized workspaces",
+                      cause,
+                    }),
+                ),
+              );
+              const requestedCwds: Array<string> = [];
+              for (const cwd of input.cwds) {
+                const canonical = yield* canonicalPath(cwd);
+                if (allowedCwds.has(canonical)) {
+                  requestedCwds.push(canonical);
+                }
+              }
+              const [result, bindings] = yield* Effect.all([
+                instance.listSessions(requestedCwds),
+                providerSessionDirectory.listBindings().pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderListSessionsError({
+                        instanceId: input.instanceId,
+                        reason: "Failed to exclude sessions already owned by aqqua",
+                        cause,
+                      }),
+                  ),
+                ),
+              ]);
+              return {
+                ...result,
+                sessions: excludeOwnedProviderSessions(result.sessions, instance, bindings),
+              };
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerReadSession]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerReadSession,
+            Effect.gen(function* () {
+              const instance = yield* providerInstanceRegistry.getInstance(input.instanceId);
+              if (instance === undefined) {
+                return yield* new ProviderListSessionsError({
+                  instanceId: input.instanceId,
+                  reason: `No provider instance bound to id '${input.instanceId}'`,
+                });
+              }
+              // Authorize the workspace before the provider reads anything: the
+              // transcript is the sensitive payload, so a client-supplied cwd
+              // must name a workspace this environment owns.
+              const requestedCwd = yield* canonicalPath(input.cwd);
+              const allowedCwds = yield* authorizedSessionCwds().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderListSessionsError({
+                      instanceId: input.instanceId,
+                      reason: "Failed to resolve authorized workspaces",
+                      cause,
+                    }),
+                ),
+              );
+              if (!allowedCwds.has(requestedCwd)) {
+                return yield* new ProviderListSessionsError({
+                  instanceId: input.instanceId,
+                  reason: `Cwd '${input.cwd}' is not a project root or aqqua-managed worktree`,
+                });
+              }
+              const result = yield* instance.readSession(
+                input.sessionId,
+                requestedCwd,
+                input.boundaryUuid,
+              );
+              if ((yield* canonicalPath(result.session.cwd)) !== requestedCwd) {
+                return yield* new ProviderListSessionsError({
+                  instanceId: input.instanceId,
+                  reason: `Session '${input.sessionId}' does not belong to cwd '${input.cwd}'`,
+                });
+              }
+              return result;
             }),
             { "rpc.aggregate": "provider" },
           ),

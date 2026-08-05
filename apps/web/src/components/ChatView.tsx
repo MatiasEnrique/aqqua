@@ -152,6 +152,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   GitBranchIcon,
+  HistoryIcon,
   TriangleAlertIcon,
   WifiOffIcon,
 } from "lucide-react";
@@ -223,6 +224,7 @@ import {
   useThread,
   useThreadProposedPlans,
   useThreadRefs,
+  useThreadShellsForProjectRefs,
   useThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
@@ -233,6 +235,7 @@ import {
   type ComposerIdlePrimaryActionRenderer,
 } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { resumeSessionDraftContext } from "./chat/composerResumeSelection";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -1283,6 +1286,9 @@ function ChatViewContent(props: ChatViewProps) {
   const composerActiveProvider = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
+  const composerResumeSession = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.resumeSession ?? null,
+  );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -1296,6 +1302,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerResumeSession = useComposerDraftStore((store) => store.setResumeSession);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -1560,11 +1567,34 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const activeProjectRef = activeThread
-    ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
-    : null;
+  const activeProjectRef = useMemo(
+    () =>
+      activeThread ? scopeProjectRef(activeThread.environmentId, activeThread.projectId) : null,
+    [activeThread?.environmentId, activeThread?.projectId],
+  );
+  const activeProjectRefs = useMemo(
+    () => (activeProjectRef ? [activeProjectRef] : []),
+    [activeProjectRef],
+  );
+  const projectThreadShells = useThreadShellsForProjectRefs(activeProjectRefs);
   const activeProject = useProject(activeProjectRef);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const providerSessionCwds = useMemo(() => {
+    if (!activeProject) return [];
+    const cwds = new Set<string>([activeProject.workspaceRoot]);
+    // The composer's own thread comes first: a draft has no persisted shell yet,
+    // so deriving worktrees from shells alone hides the one directory the thread
+    // is actually pointed at. Mirrors the server's `worktreePath ?? workspaceRoot`.
+    if (activeThread?.worktreePath) {
+      cwds.add(activeThread.worktreePath);
+    }
+    for (const thread of projectThreadShells) {
+      if (thread.worktreePath) {
+        cwds.add(thread.worktreePath);
+      }
+    }
+    return [...cwds];
+  }, [activeProject, activeThread?.worktreePath, projectThreadShells]);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspacePanelRef = useMemo(
     () =>
@@ -2102,7 +2132,18 @@ function ChatViewContent(props: ChatViewProps) {
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
-  const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const resumedSessionActivity = useMemo(
+    () =>
+      threadActivities.toReversed().find((activity) => activity.kind === "session.resumed") ?? null,
+    [threadActivities],
+  );
+  const workLogEntries = useMemo(
+    () =>
+      deriveWorkLogEntries(
+        threadActivities.filter((activity) => activity.kind !== "session.resumed"),
+      ),
+    [threadActivities],
+  );
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
@@ -4473,11 +4514,46 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void handleSwitchCheckoutToThread();
   }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
+  const resumeSessionBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+    if (!isLocalDraftThread || !composerResumeSession) return null;
+    return {
+      id: `resume-session:${composerResumeSession.session.sessionId}`,
+      variant: "info",
+      icon: <HistoryIcon />,
+      title: "Continuing an earlier conversation",
+      description: composerResumeSession.session.title,
+      dismissLabel: "Remove earlier conversation",
+      onDismiss: () => {
+        setComposerResumeSession(composerDraftTarget, null);
+        if (activeProject) {
+          setDraftThreadContext(
+            composerDraftTarget,
+            resumeSessionDraftContext(activeProject.workspaceRoot, {
+              cwd: activeProject.workspaceRoot,
+            }),
+          );
+        }
+      },
+    };
+  }, [
+    activeProject,
+    composerDraftTarget,
+    composerResumeSession,
+    isLocalDraftThread,
+    setComposerResumeSession,
+    setDraftThreadContext,
+  ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
+    const resumeSessionItems = resumeSessionBannerItem === null ? [] : [resumeSessionBannerItem];
     const ownerItems = composerBanners === undefined ? [] : [...composerBanners];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
-      return [...systemComposerBannerItems, ...ownerItems, ...parkedThreadItems];
+      return [
+        ...systemComposerBannerItems,
+        ...ownerItems,
+        ...resumeSessionItems,
+        ...parkedThreadItems,
+      ];
     }
     return [
       ...ownerItems,
@@ -4521,6 +4597,7 @@ function ChatViewContent(props: ChatViewProps) {
           setBranchMismatchDismissTick((tick) => tick + 1);
         },
       },
+      ...resumeSessionItems,
       ...parkedThreadItems,
     ];
   }, [
@@ -4530,6 +4607,7 @@ function ChatViewContent(props: ChatViewProps) {
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
+    resumeSessionBannerItem,
     showBranchMismatchBanner,
     systemComposerBannerItems,
   ]);
@@ -4954,6 +5032,10 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const resumeSessionSnapshot = isLocalDraftThread
+      ? (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.resumeSession ??
+        null)
+      : null;
     const messageTextWithContexts = appendElementContextsToPrompt(
       appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
@@ -5035,6 +5117,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
+    setComposerResumeSession(composerDraftTarget, null);
     composerRef.current?.resetCursorState();
 
     let firstComposerImageName: string | null = null;
@@ -5134,6 +5217,14 @@ function ChatViewContent(props: ChatViewProps) {
                       : {}),
                   }
                 : {}),
+              ...(resumeSessionSnapshot
+                ? {
+                    resumeSession: {
+                      instanceId: resumeSessionSnapshot.instanceId,
+                      sessionId: resumeSessionSnapshot.session.sessionId,
+                    },
+                  }
+                : {}),
             }
           : undefined;
       beginLocalDispatch({ preparingWorktree: false });
@@ -5192,6 +5283,13 @@ function ChatViewContent(props: ChatViewProps) {
         setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
+        setComposerResumeSession(composerDraftTarget, resumeSessionSnapshot);
+        if (resumeSessionSnapshot && activeProject) {
+          setDraftThreadContext(
+            composerDraftTarget,
+            resumeSessionDraftContext(activeProject.workspaceRoot, resumeSessionSnapshot.session),
+          );
+        }
         composerRef.current?.resetCursorState({
           cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
           prompt: promptForSend,
@@ -5800,6 +5898,18 @@ function ChatViewContent(props: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
+      if (
+        composerResumeSession &&
+        composerResumeSession.instanceId !== instanceId &&
+        activeProject
+      ) {
+        setDraftThreadContext(
+          composerDraftTarget,
+          resumeSessionDraftContext(activeProject.workspaceRoot, {
+            cwd: activeProject.workspaceRoot,
+          }),
+        );
+      }
       setComposerDraftModelSelection(
         scopeThreadRef(activeThread.environmentId, activeThread.id),
         nextModelSelection,
@@ -5809,10 +5919,14 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeThread,
+      activeProject,
+      composerDraftTarget,
+      composerResumeSession,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,
       setStickyComposerModelSelection,
+      setDraftThreadContext,
       providerStatuses,
       settings,
     ],
@@ -6172,6 +6286,12 @@ function ChatViewContent(props: ChatViewProps) {
                     onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                     hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                     topFadeEnabled={!hasTimelineTopBanner}
+                    resumedSessionActivity={resumedSessionActivity}
+                    providerInstanceId={
+                      activeThread.session?.providerInstanceId ??
+                      activeThread.modelSelection?.instanceId ??
+                      null
+                    }
                   />
 
                   {/* scroll to end pill — shown when user has scrolled away from the live edge */}
@@ -6306,6 +6426,8 @@ function ChatViewContent(props: ChatViewProps) {
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}
+                            projectWorkspaceRoot={activeProject?.workspaceRoot ?? null}
+                            providerSessionCwds={providerSessionCwds}
                             promptRef={promptRef}
                             composerImagesRef={composerImagesRef}
                             composerTerminalContextsRef={composerTerminalContextsRef}

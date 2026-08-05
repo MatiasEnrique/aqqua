@@ -41,6 +41,10 @@ const makeStubInstance = (
     adapter: {} as ProviderInstance["adapter"],
     textGeneration,
     listSkills: () => Effect.succeed([]),
+    listSessions: () => Effect.succeed({ sessions: [], supported: false }),
+    readSession: () => Effect.die("readSession stub not configured for this test"),
+    makeResumeCursor: () => undefined,
+    matchesResumeCursor: () => false,
   }) satisfies ProviderInstance;
 
 const makeStubRegistry = (

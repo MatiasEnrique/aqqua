@@ -51,6 +51,15 @@ import type { ProviderInstance } from "../ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+const unsupportedSessionCapabilities = {
+  listSessions: () => Effect.succeed({ sessions: [], supported: false }),
+  readSession: (() =>
+    Effect.die(
+      new Error("unused external-session test capability"),
+    )) as ProviderInstance["readSession"],
+  makeResumeCursor: (_sessionId: string) => undefined,
+  matchesResumeCursor: (_sessionId: string, _cursor: unknown) => false,
+};
 const decodeServerSettings = Schema.decodeSync(ServerSettings);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const encodedDefaultServerSettings = encodeServerSettings(DEFAULT_SERVER_SETTINGS);
@@ -975,6 +984,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
             listSkills: () => Effect.succeed([]),
+            ...unsupportedSessionCapabilities,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1129,6 +1139,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
             listSkills: () => Effect.succeed([]),
+            ...unsupportedSessionCapabilities,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1259,6 +1270,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               adapter: {} as ProviderInstance["adapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
               listSkills: () => Effect.succeed([]),
+              ...unsupportedSessionCapabilities,
             } satisfies ProviderInstance;
             const instanceRegistryLayer = Layer.succeed(
               ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1367,6 +1379,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
             listSkills: () => Effect.succeed([]),
+            ...unsupportedSessionCapabilities,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1461,6 +1474,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
             listSkills: () => Effect.succeed([]),
+            ...unsupportedSessionCapabilities,
           });
           const codexInstance = makeInstance(codexProvider);
           const claudeInstance = makeInstance(claudeProvider);

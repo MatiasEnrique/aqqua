@@ -1,7 +1,7 @@
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, usePreventRemove } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, InteractionManager, Platform, View, useColorScheme } from "react-native";
+import { Alert, InteractionManager, Platform, Pressable, View, useColorScheme } from "react-native";
 import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -9,11 +9,21 @@ import { useFontFamily } from "../../lib/useFontFamily";
 
 import { EnvironmentId } from "@aqqua/contracts";
 import {
+  detectComposerTrigger,
+  replaceTextRange,
+  type ComposerTrigger,
+} from "@aqqua/shared/composerTrigger";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 
-import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
+import {
+  ComposerEditor,
+  type ComposerEditorHandle,
+  type ComposerEditorSelection,
+} from "../../components/ComposerEditor";
+import { AppText as Text } from "../../components/AppText";
 import {
   ComposerToolbarButton,
   ComposerToolbarRow,
@@ -25,6 +35,7 @@ import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStri
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { ComposerSurface } from "./ThreadComposer";
+import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
@@ -98,6 +109,7 @@ export function NewTaskDraftScreen(props: {
   const promptInputRef = useRef<ComposerEditorHandle>(null);
   const loadedBranchesProjectKeyRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [composerSelection, setComposerSelection] = useState(() => ({ start: 0, end: 0 }));
   const [importingShareKey, setImportingShareKey] = useState<string | null>(null);
   const [isCancellingShareImport, setIsCancellingShareImport] = useState(false);
   const [cancelledIncomingShareId, setCancelledIncomingShareId] = useState<string | null>(null);
@@ -115,6 +127,26 @@ export function NewTaskDraftScreen(props: {
   const isImportingShare = importingShareKey !== null;
   const alertedUnavailableIncomingShareIdRef = useRef<string | null>(null);
   const incomingShare = props.incomingShareId ? getShare(props.incomingShareId) : null;
+  const composerTrigger = useMemo<ComposerTrigger | null>(() => {
+    if (props.pendingTaskId || composerSelection.start !== composerSelection.end) {
+      return null;
+    }
+    return detectComposerTrigger(flow.prompt, composerSelection.end);
+  }, [composerSelection, flow.prompt, props.pendingTaskId]);
+  const resumeCommandItems = useMemo<ReadonlyArray<ComposerCommandItem>>(() => {
+    if (composerTrigger?.kind !== "slash-command") return [];
+    return "resume".includes(composerTrigger.query.toLocaleLowerCase())
+      ? [
+          {
+            id: "cmd:resume",
+            type: "slash-command",
+            command: "resume",
+            label: "/resume",
+            description: "Continue a CLI conversation",
+          },
+        ]
+      : [];
+  }, [composerTrigger]);
   const requestedInitialProjectAvailable = Boolean(
     props.initialProjectRef?.environmentId &&
     props.initialProjectRef.projectId &&
@@ -739,7 +771,7 @@ export function NewTaskDraftScreen(props: {
   }
 
   function handleWorkspaceMenuAction(event: string) {
-    if (isIncomingShareTransferPending) {
+    if (isIncomingShareTransferPending || flow.resumeSession) {
       return;
     }
     if (event.startsWith("workspace:mode:")) {
@@ -803,6 +835,7 @@ export function NewTaskDraftScreen(props: {
     const startFromOrigin = draft.workspaceSelection?.startFromOrigin ?? flow.startFromOrigin;
     const runtimeMode = draft.runtimeMode ?? flow.runtimeMode;
     const interactionMode = draft.interactionMode ?? flow.interactionMode;
+    const resumeSession = draft.resumeSession;
     const initialMessageText = draft.text.trim();
 
     if (
@@ -814,7 +847,31 @@ export function NewTaskDraftScreen(props: {
       return;
     }
 
+    if (resumeSession && resumeSession.instanceId !== modelSelection.instanceId) {
+      Alert.alert(
+        "Choose the original provider",
+        "The selected conversation can only resume with the provider instance it came from.",
+      );
+      return;
+    }
+    const targetCwd = selectedWorktreePath ?? selectedProject.workspaceRoot;
+    if (resumeSession && (workspaceMode !== "local" || targetCwd !== resumeSession.session.cwd)) {
+      Alert.alert(
+        "Conversation workspace changed",
+        "Remove and reselect the earlier conversation so it resumes in its original workspace.",
+      );
+      return;
+    }
+
     const editingPendingTask = flow.editingPendingTask;
+
+    if (!environmentConnected && resumeSession) {
+      Alert.alert(
+        "Reconnect to resume",
+        "Adopting an earlier conversation requires a live connection and cannot be queued offline.",
+      );
+      return;
+    }
 
     if (!environmentConnected) {
       // Offline: park the task in the outbox; the drain sends it when the
@@ -873,6 +930,14 @@ export function NewTaskDraftScreen(props: {
       interactionMode,
       initialMessageText,
       initialAttachments: draft.attachments,
+      ...(resumeSession
+        ? {
+            resumeSession: {
+              instanceId: resumeSession.instanceId,
+              sessionId: resumeSession.session.sessionId,
+            },
+          }
+        : {}),
       ...(editingPendingTask
         ? {
             turnMetadata: {
@@ -943,6 +1008,46 @@ export function NewTaskDraftScreen(props: {
     !isImportingShare &&
     !flow.submitting &&
     !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+  const canStartWithResume = canStart && (!flow.resumeSession || environmentConnected);
+  function handleComposerSelectionChange(selection: ComposerEditorSelection) {
+    setComposerSelection(selection);
+  }
+  function handleResumeCommandSelect(item: ComposerCommandItem) {
+    if (item.type !== "slash-command" || item.command !== "resume" || !composerTrigger) return;
+    const result = replaceTextRange(
+      flow.prompt,
+      composerTrigger.rangeStart,
+      composerTrigger.rangeEnd,
+      "",
+    );
+    flow.setPrompt(result.text);
+    setComposerSelection({ start: result.cursor, end: result.cursor });
+    navigation.navigate("NewTaskResumePicker" as never);
+  }
+  const resumeCommandPopover =
+    composerTrigger?.kind === "slash-command" && resumeCommandItems.length > 0 ? (
+      <ComposerCommandPopover
+        items={resumeCommandItems}
+        triggerKind="slash-command"
+        isLoading={false}
+        onSelect={handleResumeCommandSelect}
+      />
+    ) : null;
+  const resumeSessionChip = flow.resumeSession ? (
+    <Pressable
+      accessibilityLabel={`Remove earlier conversation ${flow.resumeSession.session.title}`}
+      accessibilityRole="button"
+      className="mb-2 self-start rounded-xl bg-subtle px-3 py-2 active:opacity-65"
+      onPress={() => flow.setResumeSession(null)}
+    >
+      <Text className="text-sm font-aqqua-bold text-foreground" numberOfLines={1}>
+        Earlier conversation · {flow.resumeSession.session.title} ×
+      </Text>
+      <Text className="mt-0.5 text-xs text-foreground-muted" numberOfLines={1}>
+        {environmentConnected ? flow.resumeSession.session.cwd : "Reconnect to resume"}
+      </Text>
+    </Pressable>
+  ) : null;
   const promptEditor = (
     <ComposerEditor
       ref={promptInputRef}
@@ -952,7 +1057,9 @@ export function NewTaskDraftScreen(props: {
       scrollEnabled={isExpanded}
       value={flow.prompt}
       skills={flow.selectedProviderSkills}
+      selection={composerSelection}
       onChangeText={flow.setPrompt}
+      onSelectionChange={handleComposerSelectionChange}
       onFocus={() => setIsComposerFocused(true)}
       onBlur={() => setIsComposerFocused(false)}
       onPasteImages={(uris) => void handleNativePasteImages(uris)}
@@ -1023,7 +1130,7 @@ export function NewTaskDraftScreen(props: {
       >
         <ComposerToolbarTrigger
           accessibilityLabel="Workspace"
-          disabled={isIncomingShareTransferPending}
+          disabled={isIncomingShareTransferPending || Boolean(flow.resumeSession)}
           icon="point.topleft.down.curvedto.point.bottomright.up"
           label={workspaceLabel}
         />
@@ -1034,13 +1141,19 @@ export function NewTaskDraftScreen(props: {
   const startButton = (
     <ComposerToolbarButton
       accessibilityLabel={
-        flow.submitting ? "Starting task" : environmentConnected ? "Start task" : "Queue task"
+        flow.submitting
+          ? "Starting task"
+          : flow.resumeSession && !environmentConnected
+            ? "Reconnect to resume conversation"
+            : environmentConnected
+              ? "Start task"
+              : "Queue task"
       }
       icon={environmentConnected ? "arrow.up" : "tray.and.arrow.up"}
       onPress={() => void handleStart()}
       variant="primary"
       showChevron={false}
-      disabled={!canStart}
+      disabled={!canStartWithResume}
     />
   );
 
@@ -1057,7 +1170,7 @@ export function NewTaskDraftScreen(props: {
           <View className="flex-1" />
 
           <View
-            className="px-4 pt-2"
+            className="relative px-4 pt-2"
             style={{
               paddingBottom: controlsBottomPadding,
               experimental_backgroundImage: isDarkMode
@@ -1065,6 +1178,11 @@ export function NewTaskDraftScreen(props: {
                 : "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,0.95) 100%)",
             }}
           >
+            {resumeCommandPopover ? (
+              <View className="absolute inset-x-4 bottom-full z-20 mb-2">
+                {resumeCommandPopover}
+              </View>
+            ) : null}
             <ComposerSurface
               isDarkMode={isDarkMode}
               style={
@@ -1086,6 +1204,7 @@ export function NewTaskDraftScreen(props: {
                     }
               }
             >
+              {isExpanded ? resumeSessionChip : null}
               {isExpanded && flow.attachments.length > 0 ? (
                 <View className="pb-2.5">
                   <ComposerAttachmentStrip
@@ -1101,7 +1220,7 @@ export function NewTaskDraftScreen(props: {
                 <ControlPill
                   icon="arrow.up"
                   variant="primary"
-                  disabled={!canStart}
+                  disabled={!canStartWithResume}
                   onPress={() => void handleStart()}
                 />
               ) : null}
@@ -1129,7 +1248,13 @@ export function NewTaskDraftScreen(props: {
       <NativeStackScreenOptions options={{ title: selectedProject.title }} />
 
       <KeyboardAvoidingView automaticOffset behavior="padding" className="flex-1">
-        <View className="min-h-0 flex-1 px-5 pt-2">{promptEditor}</View>
+        <View className="relative min-h-0 flex-1 px-5 pt-2">
+          {resumeCommandPopover ? (
+            <View className="absolute inset-x-5 bottom-2 z-20">{resumeCommandPopover}</View>
+          ) : null}
+          {resumeSessionChip}
+          {promptEditor}
+        </View>
 
         <View className="border-t border-border" style={{ paddingBottom: controlsBottomPadding }}>
           {flow.attachments.length > 0 ? (

@@ -182,12 +182,25 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
+  const deleteBinding: ProviderSessionDirectoryShape["deleteBinding"] = Effect.fn(
+    "ProviderSessionDirectory.deleteBinding",
+  )((threadId) =>
+    repository
+      .deleteByThreadId({ threadId })
+      .pipe(
+        Effect.mapError(
+          toPersistenceError("ProviderSessionDirectory.deleteBinding:deleteByThreadId"),
+        ),
+      ),
+  );
+
   return {
     upsert,
     getProvider,
     getBinding,
     listThreadIds,
     listBindings,
+    deleteBinding,
   } satisfies ProviderSessionDirectoryShape;
 });
 

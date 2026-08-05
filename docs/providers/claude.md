@@ -9,6 +9,18 @@ Common reasons:
 - run Claude through a router such as Claude Code Router
 - use external providers exposed through a Claude-compatible workflow
 
+## Resuming Claude Code CLI conversations
+
+The new-thread `/resume` picker reads Claude Code session files from the configured Claude home. For a working directory such as `/work/project`, Claude stores them below:
+
+```text
+<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<slugified-working-directory>/*.jsonl
+```
+
+aqqua checks only the active project's workspace root and its aqqua-managed worktrees. A session is shown only when its filename is a UUID and its user or assistant records carry `entrypoint: "cli"`; SDK-created sessions (`entrypoint: "sdk-ts"`) and sidechain/subagent records (`isSidechain: true`) are excluded. The UUID check matches Claude's resume contract, which rejects other cursor ids. Unreadable directories, malformed JSONL, and records without a recognized entrypoint are skipped without breaking the picker.
+
+The selected session must resume in its recorded working directory. aqqua adopts the provider session on the first turn and loads the earlier transcript only when its collapsed timeline block is expanded.
+
 ## I Only Use One Claude Account
 
 Use the default provider.

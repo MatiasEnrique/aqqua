@@ -1,8 +1,16 @@
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
-import type { EnvironmentId, MessageId, ThreadId, TurnId } from "@aqqua/contracts";
+import type {
+  EnvironmentId,
+  MessageId,
+  OrchestrationThreadActivity,
+  ProviderInstanceId,
+  ThreadId,
+  TurnId,
+} from "@aqqua/contracts";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@aqqua/shared/chatList";
+import { adoptedSessionReference } from "@aqqua/client-runtime/state/provider-sessions";
 import { formatElapsed } from "@aqqua/shared/orchestrationTiming";
 import { SymbolView } from "../../components/AppSymbol";
 import { HeaderHeightContext } from "@react-navigation/elements";
@@ -94,6 +102,8 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { ThreadWorkGroupToggle, ThreadWorkLog } from "./thread-work-log";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl } from "../../state/assets";
+import { useEnvironmentQuery } from "../../state/query";
+import { providerSessionsEnvironment } from "../../state/providerSessions";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
 
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -125,6 +135,8 @@ export interface ThreadFeedProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly workspaceRoot?: string | null;
+  readonly resumedSessionActivity?: OrchestrationThreadActivity | null;
+  readonly providerInstanceId?: ProviderInstanceId | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly contentPresentation: ThreadContentPresentation;
   readonly agentLabel: string;
@@ -141,6 +153,115 @@ export interface ThreadFeedProps {
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+}
+
+function EarlierConversationHeader(props: {
+  readonly activity: OrchestrationThreadActivity | null;
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId | null;
+  readonly cwd: string | null;
+  readonly markdownStyles: MarkdownStyleSets;
+  readonly userBubbleColor: ColorValue;
+  readonly userBubbleMaxWidth: number;
+  readonly onLinkPress: (href: string) => void;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+}) {
+  const [visibleMessageCount, setVisibleMessageCount] = useState(50);
+  const reference = adoptedSessionReference(props.activity);
+  const sessionId = reference?.sessionId ?? null;
+  const boundaryUuid = reference?.boundaryUuid ?? null;
+  const query = useEnvironmentQuery(
+    props.instanceId && props.cwd && sessionId && boundaryUuid
+      ? providerSessionsEnvironment.readSession({
+          environmentId: props.environmentId,
+          input: {
+            instanceId: props.instanceId,
+            sessionId,
+            cwd: props.cwd,
+            boundaryUuid,
+          },
+        })
+      : null,
+  );
+
+  if (!props.activity || !sessionId) return null;
+
+  // Adopted messages render inline, in the feed's own message shapes, so a
+  // resumed thread reads as one conversation rather than a foreign panel.
+  return (
+    <View>
+      {query.isPending ? <ActivityIndicator className="mb-5" /> : null}
+      {query.error ? (
+        <Text className="mb-5 text-sm text-danger-foreground">{query.error}</Text>
+      ) : null}
+      {query.data && query.data.messages.length > visibleMessageCount ? (
+        <Pressable
+          accessibilityRole="button"
+          className="mb-5 items-center rounded-xl border border-border px-3 py-2 active:opacity-65"
+          onPress={() => setVisibleMessageCount((count) => count + 50)}
+        >
+          <Text className="text-sm text-foreground-secondary">Show earlier messages</Text>
+        </Pressable>
+      ) : null}
+      {query.data?.messages.slice(-visibleMessageCount).map((message) =>
+        message.role === "user" ? (
+          <View key={message.messageId} className="mb-5 items-end">
+            <View
+              className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+              style={{
+                backgroundColor: props.userBubbleColor,
+                maxWidth: props.userBubbleMaxWidth,
+              }}
+            >
+              <AdoptedMessageMarkdown
+                text={message.text}
+                markdownStyles={props.markdownStyles.user}
+                onLinkPress={props.onLinkPress}
+                skills={props.skills}
+              />
+            </View>
+          </View>
+        ) : (
+          <View key={message.messageId} className="mb-5">
+            <AdoptedMessageMarkdown
+              text={message.text}
+              markdownStyles={props.markdownStyles.assistant}
+              onLinkPress={props.onLinkPress}
+              skills={props.skills}
+            />
+          </View>
+        ),
+      )}
+    </View>
+  );
+}
+
+function AdoptedMessageMarkdown(props: {
+  readonly text: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly onLinkPress: (href: string) => void;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+}) {
+  if (hasNativeSelectableMarkdownText()) {
+    return (
+      <SelectableMarkdownText
+        markdown={props.text}
+        skills={props.skills}
+        textStyle={props.markdownStyles.nativeTextStyle}
+        onLinkPress={props.onLinkPress}
+      />
+    );
+  }
+  return (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={props.markdownStyles.renderers}
+      styles={props.markdownStyles.styles}
+      theme={props.markdownStyles.theme}
+    >
+      {props.text}
+    </Markdown>
+  );
 }
 
 function MessageAttachmentImage(props: {
@@ -1792,7 +1913,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onScroll={handleScroll}
             scrollEventThrottle={16}
             ListHeaderComponent={
-              usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />
+              <>
+                {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                <EarlierConversationHeader
+                  activity={props.resumedSessionActivity ?? null}
+                  environmentId={props.environmentId}
+                  instanceId={props.providerInstanceId ?? null}
+                  cwd={props.workspaceRoot ?? null}
+                  markdownStyles={markdownStyles}
+                  userBubbleColor={userBubbleColor}
+                  userBubbleMaxWidth={userBubbleMaxWidth}
+                  onLinkPress={onMarkdownLinkPress}
+                  skills={props.skills}
+                />
+              </>
             }
             contentContainerStyle={{
               paddingTop: 12,

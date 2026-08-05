@@ -1160,6 +1160,39 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("starts the first adopted turn from a stopped seeded binding", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-adopted-codex");
+      const resumeCursor = { threadId: "external-codex-thread" };
+
+      yield* directory.upsert({
+        threadId,
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        status: "stopped",
+        resumeCursor,
+        runtimePayload: { cwd: "/tmp/adopted-codex-worktree" },
+        runtimeMode: "full-access",
+      });
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId,
+        input: "continue the adopted conversation",
+        attachments: [],
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const startInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.deepEqual(startInput?.resumeCursor, resumeCursor);
+      assert.equal(startInput?.cwd, "/tmp/adopted-codex-worktree");
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
   it.effect("recovers stale claudeAgent sessions for sendTurn using persisted cwd", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

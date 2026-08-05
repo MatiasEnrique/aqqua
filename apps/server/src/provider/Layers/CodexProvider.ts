@@ -19,6 +19,9 @@ import type {
   ServerProviderState,
   ModelCapabilities,
   ProviderOptionDescriptor,
+  ProviderExternalSession,
+  ProviderExternalSessionMessage,
+  ProviderReadSessionResult,
   ServerProviderModel,
   ServerProviderSkill,
 } from "@aqqua/contracts";
@@ -454,6 +457,190 @@ export const listCodexSkills = Effect.fn("listCodexSkills")(function* (input: {
     cwds: [input.cwd],
   });
   return parseCodexSkillsListResponse(skillsResponse, input.cwd);
+});
+
+const CODEX_EXTERNAL_SESSION_LIMIT = 100;
+
+/** Kept pure/exported so the CLI-only and exact-cwd discovery contract is pinned by tests. */
+export function buildCodexThreadListParams(
+  cwds: ReadonlyArray<string>,
+): CodexSchema.V2ThreadListParams {
+  return {
+    cwd: [...cwds],
+    sourceKinds: ["cli"],
+    useStateDbOnly: true,
+    limit: CODEX_EXTERNAL_SESSION_LIMIT,
+  };
+}
+
+const CodexResumeCursor = Schema.Struct({ threadId: Schema.String });
+const isCodexResumeCursor = Schema.is(CodexResumeCursor);
+
+export function matchesCodexResumeCursor(sessionId: string, cursor: unknown): boolean {
+  return isCodexResumeCursor(cursor) && cursor.threadId === sessionId;
+}
+
+function codexExternalSession(
+  thread: CodexSchema.V2ThreadListResponse__Thread,
+): ProviderExternalSession {
+  const title = thread.name?.trim() || thread.preview.trim() || "Untitled conversation";
+  return {
+    sessionId: thread.id,
+    title,
+    cwd: thread.cwd,
+    updatedAt: DateTime.formatIso(DateTime.makeUnsafe(thread.updatedAt * 1_000)),
+    // thread/list deliberately reads the state DB only and does not hydrate
+    // rollout turns. The accurate count is filled by the lazy thread/read.
+    messageCount: 0,
+    ...(thread.gitInfo?.branch?.trim() ? { gitBranch: thread.gitInfo.branch.trim() } : {}),
+  };
+}
+
+/** One cheap, state-DB-only app-server request for all allowed cwd roots. */
+export const listCodexSessions = Effect.fn("listCodexSessions")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwds: ReadonlyArray<string>;
+  readonly environment?: NodeJS.ProcessEnv;
+}): Effect.fn.Return<
+  ReadonlyArray<ProviderExternalSession>,
+  CodexErrors.CodexAppServerError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> {
+  if (input.cwds.length === 0) return [];
+  const { client } = yield* withCodexAppServerClient({
+    binaryPath: input.binaryPath,
+    cwd: input.cwds[0]!,
+    ...(input.homePath !== undefined ? { homePath: input.homePath } : {}),
+    ...(input.launchArgs !== undefined ? { launchArgs: input.launchArgs } : {}),
+    ...(input.environment !== undefined ? { environment: input.environment } : {}),
+  });
+  const response = yield* client.request("thread/list", buildCodexThreadListParams(input.cwds));
+  return response.data.filter((thread) => thread.source === "cli").map(codexExternalSession);
+});
+
+export class CodexExternalSessionError extends Schema.TaggedErrorClass<CodexExternalSessionError>()(
+  "CodexExternalSessionError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
+  }
+}
+const isCodexExternalSessionError = Schema.is(CodexExternalSessionError);
+
+function codexMessageText(item: CodexSchema.V2ThreadReadResponse__ThreadItem): string | undefined {
+  if (item.type === "agentMessage") {
+    const text = item.text.trim();
+    return text.length > 0 ? text : undefined;
+  }
+  if (item.type !== "userMessage") return undefined;
+  const text = item.content
+    .filter((content) => content.type === "text")
+    .map((content) => content.text)
+    .join("\n")
+    .trim();
+  return text.length > 0 ? text : undefined;
+}
+
+export function parseCodexReadSession(
+  response: CodexSchema.V2ThreadReadResponse,
+  boundaryUuid?: string,
+): ProviderReadSessionResult {
+  const thread = response.thread;
+  if (thread.source !== "cli") {
+    throw new CodexExternalSessionError({
+      reason: `Codex thread '${thread.id}' is not CLI-originated`,
+    });
+  }
+
+  const messages: Array<ProviderExternalSessionMessage> = [];
+  // A thread that held no visible messages at adoption time recorded its own
+  // id as the boundary; no item will ever carry that id, so treat it as
+  // already satisfied rather than reporting the history as lost.
+  let boundaryFound = boundaryUuid === undefined || boundaryUuid === thread.id;
+  let resolvedBoundary: string | undefined;
+  outer: for (const turn of thread.turns) {
+    for (const item of turn.items) {
+      const text = codexMessageText(item);
+      // Match the boundary before the visibility filter: an item that was
+      // emitted at adoption time may no longer render as text, and skipping
+      // it here would report an intact transcript as truncated.
+      if (boundaryUuid !== undefined && item.id === boundaryUuid) {
+        boundaryFound = true;
+        if (text === undefined || (item.type !== "userMessage" && item.type !== "agentMessage")) {
+          break outer;
+        }
+      }
+      if (text === undefined || (item.type !== "userMessage" && item.type !== "agentMessage")) {
+        continue;
+      }
+      messages.push({
+        messageId: item.id,
+        role: item.type === "userMessage" ? "user" : "assistant",
+        text,
+        ...(turn.startedAt !== undefined && turn.startedAt !== null
+          ? { createdAt: DateTime.formatIso(DateTime.makeUnsafe(turn.startedAt * 1_000)) }
+          : {}),
+      });
+      resolvedBoundary = item.id;
+      if (boundaryUuid !== undefined && item.id === boundaryUuid) {
+        boundaryFound = true;
+        break outer;
+      }
+    }
+  }
+
+  if (!boundaryFound) {
+    throw new CodexExternalSessionError({
+      reason: `Codex thread '${thread.id}' no longer contains boundary '${boundaryUuid}'`,
+    });
+  }
+  // Empty threads are unusual but valid. Use the thread id as a stable
+  // boundary so the wire contract remains non-empty and later reads stay fixed.
+  const finalBoundary = resolvedBoundary ?? thread.id;
+  const title = thread.name?.trim() || thread.preview.trim() || "Untitled conversation";
+  return {
+    session: {
+      sessionId: thread.id,
+      title,
+      cwd: thread.cwd,
+      updatedAt: DateTime.formatIso(DateTime.makeUnsafe(thread.updatedAt * 1_000)),
+      messageCount: messages.length,
+      ...(thread.gitInfo?.branch?.trim() ? { gitBranch: thread.gitInfo.branch.trim() } : {}),
+    },
+    messages,
+    boundaryUuid: finalBoundary,
+  };
+}
+
+/** Lazy transcript load; failures stay declared so the driver can map them to the wire error. */
+export const readCodexSession = Effect.fn("readCodexSession")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly boundaryUuid?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+}): Effect.fn.Return<
+  ProviderReadSessionResult,
+  CodexErrors.CodexAppServerError | CodexExternalSessionError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> {
+  const { client } = yield* withCodexAppServerClient(input);
+  const response = yield* client.request("thread/read", {
+    threadId: input.sessionId,
+    includeTurns: true,
+  });
+  return yield* Effect.try({
+    try: () => parseCodexReadSession(response, input.boundaryUuid),
+    catch: (cause) =>
+      isCodexExternalSessionError(cause)
+        ? cause
+        : new CodexExternalSessionError({ reason: String(cause) }),
+  });
 });
 
 const emptyCodexModelsFromSettings = (codexSettings: CodexSettings): ServerProvider["models"] => {

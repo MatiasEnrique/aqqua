@@ -7,8 +7,10 @@ import type {
   EnvironmentId,
   MessageId,
   ModelSelection,
+  OrchestrationThreadActivity,
   OrchestrationThreadShell,
   ProviderApprovalDecision,
+  ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
   ServerConfig as AqquaServerConfig,
@@ -50,6 +52,14 @@ export interface ThreadDetailScreenProps {
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  readonly resumedSessionActivity: OrchestrationThreadActivity | null;
+  /**
+   * The thread's own persisted instance, not the composer draft's. An adopted
+   * thread holds a stopped binding, so `session` is null exactly when resumed
+   * history renders; falling back to the draft would read the transcript from
+   * whichever provider the composer happens to be pointed at.
+   */
+  readonly threadProviderInstanceId: ProviderInstanceId | null;
   readonly activeWorkStartedAt: string | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
@@ -364,6 +374,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             environmentId={props.environmentId}
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
+            resumedSessionActivity={props.resumedSessionActivity}
+            providerInstanceId={
+              props.selectedThread.session?.providerInstanceId ??
+              props.threadProviderInstanceId ??
+              props.selectedThread.modelSelection.instanceId
+            }
             feed={props.selectedThreadFeed}
             contentPresentation={props.contentPresentation}
             agentLabel={agentLabel}

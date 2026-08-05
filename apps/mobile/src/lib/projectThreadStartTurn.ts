@@ -5,6 +5,7 @@ import {
   type ModelSelection,
   type ProjectId,
   type ProviderInteractionMode,
+  type ProviderInstanceId,
   type RuntimeMode,
 } from "@aqqua/contracts";
 
@@ -38,6 +39,10 @@ export interface ProjectThreadStartTurnSpec {
   readonly startFromOrigin: boolean;
   /** Generated temp branch for worktree mode; unused for local mode. */
   readonly worktreeBranchName: string;
+  readonly resumeSession?: {
+    readonly instanceId: ProviderInstanceId;
+    readonly sessionId: string;
+  };
 }
 
 /**
@@ -83,6 +88,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
             runSetupScript: true,
           }
         : {}),
+      ...(spec.resumeSession ? { resumeSession: spec.resumeSession } : {}),
     },
     createdAt: spec.createdAt,
   };

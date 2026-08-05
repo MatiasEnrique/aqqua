@@ -612,6 +612,71 @@ export class ProviderListSkillsError extends Schema.TaggedErrorClass<ProviderLis
   }
 }
 
+/** A resumable conversation created by a provider's command-line UI. */
+export const ProviderExternalSession = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+  messageCount: NonNegativeInt,
+  gitBranch: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ProviderExternalSession = typeof ProviderExternalSession.Type;
+
+/**
+ * Lists CLI-originated sessions for one provider instance, restricted to the
+ * active project's workspace root and aqqua-managed worktrees.
+ */
+export const ProviderListSessionsInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwds: Schema.Array(TrimmedNonEmptyString),
+});
+export type ProviderListSessionsInput = typeof ProviderListSessionsInput.Type;
+
+export const ProviderListSessionsResult = Schema.Struct({
+  sessions: Schema.Array(ProviderExternalSession),
+  supported: Schema.Boolean,
+});
+export type ProviderListSessionsResult = typeof ProviderListSessionsResult.Type;
+
+export const ProviderExternalSessionMessage = Schema.Struct({
+  messageId: TrimmedNonEmptyString,
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  createdAt: Schema.optionalKey(IsoDateTime),
+});
+export type ProviderExternalSessionMessage = typeof ProviderExternalSessionMessage.Type;
+
+/** Reads the transcript lazily, optionally stopping at the adoption boundary. */
+export const ProviderReadSessionInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  boundaryUuid: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ProviderReadSessionInput = typeof ProviderReadSessionInput.Type;
+
+export const ProviderReadSessionResult = Schema.Struct({
+  session: ProviderExternalSession,
+  messages: Schema.Array(ProviderExternalSessionMessage),
+  boundaryUuid: TrimmedNonEmptyString,
+});
+export type ProviderReadSessionResult = typeof ProviderReadSessionResult.Type;
+
+/** Wire error for external-session discovery and lazy transcript reads. */
+export class ProviderListSessionsError extends Schema.TaggedErrorClass<ProviderListSessionsError>()(
+  "ProviderListSessionsError",
+  {
+    instanceId: ProviderInstanceId,
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Failed to access sessions for provider instance '${this.instanceId}': ${this.reason}`;
+  }
+}
+
 export const ServerSelfUpdateInput = Schema.Struct({
   /** Exact npm version of the `aqqua` package to install (never a dist-tag, so
       the server and the acknowledging client agree on what was requested). */

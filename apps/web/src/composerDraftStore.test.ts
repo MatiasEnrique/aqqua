@@ -10,6 +10,7 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderDriverKind,
+  ProviderExternalSession,
   ProviderInstanceId,
   ThreadId,
   type ModelSelection,
@@ -1506,6 +1507,50 @@ describe("composerDraftStore setModelSelection", () => {
     expect(
       draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
     ).toEqual(modelSelection(CODEX_DRIVER, "gpt-5.3-codex"));
+  });
+});
+
+const externalResumeSession = Schema.decodeUnknownSync(ProviderExternalSession)({
+  sessionId: "external-session-1",
+  title: "Investigate the flaky test",
+  cwd: "/tmp/project",
+  updatedAt: "2026-08-04T12:00:00.000Z",
+  messageCount: 12,
+});
+
+describe("composerDraftStore resumeSession", () => {
+  const threadId = ThreadId.make("thread-resume-session");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("stores and removes the selected external session", () => {
+    const store = useComposerDraftStore.getState();
+    store.setResumeSession(threadRef, {
+      instanceId: CODEX_INSTANCE,
+      session: externalResumeSession,
+    });
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.resumeSession).toEqual({
+      instanceId: CODEX_INSTANCE,
+      session: externalResumeSession,
+    });
+
+    useComposerDraftStore.getState().setResumeSession(threadRef, null);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("clears the selection when the provider instance changes", () => {
+    const store = useComposerDraftStore.getState();
+    store.setResumeSession(threadRef, {
+      instanceId: CODEX_INSTANCE,
+      session: externalResumeSession,
+    });
+    store.setModelSelection(threadRef, modelSelection(CLAUDE_AGENT_DRIVER, "claude-opus-4-6"));
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.resumeSession).toBeNull();
   });
 });
 

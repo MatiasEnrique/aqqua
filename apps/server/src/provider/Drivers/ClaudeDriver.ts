@@ -61,6 +61,12 @@ import {
 } from "../providerUpdateSettings.ts";
 import { makeClaudeCapabilitiesCacheKey, makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
 import { discoverClaudeSkills } from "./ClaudeSkills.ts";
+import {
+  discoverClaudeSessions,
+  matchesClaudeResumeCursor,
+  readClaudeSession,
+  type ClaudeSessionResumeMetadata,
+} from "./ClaudeSessions.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
@@ -215,6 +221,55 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           Effect.provideService(Path.Path, path),
         ) satisfies Effect.Effect<ReadonlyArray<ServerProviderSkill>>;
 
+      const resumeMetadata = new Map<string, ClaudeSessionResumeMetadata>();
+      const sessionCwds = new Map<string, string>();
+      const listSessions: ProviderInstance["listSessions"] = Effect.fn("ClaudeDriver.listSessions")(
+        function* (cwds) {
+          const sessions = yield* discoverClaudeSessions({
+            config: effectiveConfig,
+            cwds,
+            environment: processEnv,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+          for (const session of sessions) sessionCwds.set(session.sessionId, session.cwd);
+          return { sessions, supported: true };
+        },
+      );
+      const readSession: ProviderInstance["readSession"] = Effect.fn("ClaudeDriver.readSession")(
+        function* (sessionId, cwd, boundaryUuid) {
+          // The caller's workspace is authoritative; the cache only covers a
+          // caller that has no cwd to offer.
+          const cwdHint = cwd || sessionCwds.get(sessionId);
+          const loaded = yield* readClaudeSession({
+            instanceId,
+            config: effectiveConfig,
+            sessionId,
+            ...(boundaryUuid ? { boundaryUuid } : {}),
+            ...(cwdHint ? { cwdHint } : {}),
+            environment: processEnv,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+          resumeMetadata.set(sessionId, loaded.resume);
+          sessionCwds.set(sessionId, loaded.result.session.cwd);
+          return loaded.result;
+        },
+      );
+      const makeResumeCursor: ProviderInstance["makeResumeCursor"] = (sessionId) => {
+        const metadata = resumeMetadata.get(sessionId);
+        return {
+          resume: sessionId,
+          ...(metadata?.resumeSessionAt ? { resumeSessionAt: metadata.resumeSessionAt } : {}),
+          turnCount: metadata?.turnCount ?? 0,
+        };
+      };
+      const matchesResumeCursor: ProviderInstance["matchesResumeCursor"] = (sessionId, cursor) => {
+        return matchesClaudeResumeCursor(sessionId, cursor);
+      };
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -229,6 +284,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         adapter,
         textGeneration,
         listSkills,
+        listSessions,
+        readSession,
+        makeResumeCursor,
+        matchesResumeCursor,
       } satisfies ProviderInstance;
     }),
 };
