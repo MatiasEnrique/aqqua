@@ -1374,16 +1374,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     cwd: string,
     refName: string,
   ) {
-    const configuredBaseBranch = yield* runGitStdout(
-      "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
-      cwd,
-      ["config", "--get", `branch.${refName}.gh-merge-base`],
-      true,
-    ).pipe(Effect.map((stdout) => stdout.trim()));
-
     const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
       Effect.orElseSucceed(() => null),
     );
+    const remotePrefix =
+      primaryRemoteName && primaryRemoteName !== "origin" ? `${primaryRemoteName}/` : null;
+    const stripRemotePrefix = (ref: string) =>
+      ref.startsWith("origin/")
+        ? ref.slice("origin/".length)
+        : remotePrefix && ref.startsWith(remotePrefix)
+          ? ref.slice(remotePrefix.length)
+          : ref;
+    // A remote head like origin/feature shares base config and identity with
+    // its local branch, so resolution works on the stripped name.
+    const normalizedRefName = stripRemotePrefix(refName);
+
+    const configuredBaseBranch = yield* runGitStdout(
+      "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
+      cwd,
+      ["config", "--get", `branch.${normalizedRefName}.gh-merge-base`],
+      true,
+    ).pipe(Effect.map((stdout) => stdout.trim()));
+
     const defaultBranch =
       primaryRemoteName === null ? null : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
     const candidates = [
@@ -1397,14 +1409,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         continue;
       }
 
-      const remotePrefix =
-        primaryRemoteName && primaryRemoteName !== "origin" ? `${primaryRemoteName}/` : null;
-      const normalizedCandidate = candidate.startsWith("origin/")
-        ? candidate.slice("origin/".length)
-        : remotePrefix && candidate.startsWith(remotePrefix)
-          ? candidate.slice(remotePrefix.length)
-          : candidate;
-      if (normalizedCandidate.length === 0 || normalizedCandidate === refName) {
+      const normalizedCandidate = stripRemotePrefix(candidate);
+      if (normalizedCandidate.length === 0 || normalizedCandidate === normalizedRefName) {
         continue;
       }
 

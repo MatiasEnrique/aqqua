@@ -31,7 +31,8 @@ import { resolveDiffPanelCwd } from "./diffPanelGitTarget";
 import { EMPTY_COLLAPSED_DIFF_FILE_KEYS } from "./diffPanelViewConfig";
 
 export const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
-export const CURRENT_BRANCH_HEAD_REF = "__current_branch_head_ref__";
+// Contains ".." so it can never collide with a real branch name.
+export const CURRENT_BRANCH_HEAD_REF = "..current-branch-head-ref..";
 
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;

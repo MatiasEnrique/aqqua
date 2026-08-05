@@ -841,6 +841,48 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         );
       }),
     );
+
+    it.effect("resolves the configured merge base for a remote head ref", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "develop"]);
+        yield* writeTextFile(cwd, "develop.txt", "develop\n");
+        yield* git(cwd, ["add", "develop.txt"]);
+        yield* git(cwd, ["commit", "-m", "develop commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "develop"]);
+        yield* git(cwd, ["checkout", "-b", "feature/remote-head"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature/remote-head"]);
+        yield* git(cwd, ["config", "branch.feature/remote-head.gh-merge-base", "develop"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+
+        const preview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: "origin/feature/remote-head",
+        });
+
+        const branchRange = preview.sources.find((source) => source.kind === "branch-range");
+        assert.equal(branchRange?.headRef, "origin/feature/remote-head");
+        assert.equal(branchRange?.baseRef, "origin/develop");
+        assert.include(branchRange?.diff, "feature.txt");
+        assert.notInclude(branchRange?.diff, "develop.txt");
+
+        const selfPreview = yield* driver.getReviewDiffPreview({
+          cwd,
+          headRef: `origin/${initialBranch}`,
+        });
+        const selfRange = selfPreview.sources.find((source) => source.kind === "branch-range");
+        assert.notEqual(selfRange?.baseRef, `origin/${initialBranch}`);
+      }),
+    );
   });
 
   describe("repository status", () => {
