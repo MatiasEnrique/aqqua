@@ -362,18 +362,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const attachments = selectedProjectDraft.attachments;
   const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? "local";
   const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
-  const managedWorktrees = useMemo(
-    () =>
-      threads.flatMap((thread) =>
-        selectedProject &&
-        thread.environmentId === selectedProject.environmentId &&
-        thread.projectId === selectedProject.id &&
-        thread.worktreePath
-          ? [{ name: thread.branch, worktreePath: thread.worktreePath }]
-          : [],
-      ),
-    [selectedProject, threads],
-  );
   const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
@@ -535,6 +523,37 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       ),
     [allBranchRefs],
   );
+
+  /**
+   * Worktrees the resume picker may scope to. Thread shells alone miss any
+   * worktree without a loaded thread — still synchronizing, or whose owning
+   * thread was deleted — so local branch refs fill the gaps.
+   */
+  const managedWorktrees = useMemo(() => {
+    if (!selectedProject) return [];
+    const byPath = new Map<string, ResumeSessionWorkspaceBranch>();
+    for (const thread of threads) {
+      if (
+        thread.environmentId === selectedProject.environmentId &&
+        thread.projectId === selectedProject.id &&
+        thread.worktreePath
+      ) {
+        byPath.set(thread.worktreePath, {
+          name: thread.branch,
+          worktreePath: thread.worktreePath,
+        });
+      }
+    }
+    for (const branch of availableBranches) {
+      if (branch.worktreePath && !byPath.has(branch.worktreePath)) {
+        byPath.set(branch.worktreePath, {
+          name: branch.name,
+          worktreePath: branch.worktreePath,
+        });
+      }
+    }
+    return [...byPath.values()];
+  }, [availableBranches, selectedProject, threads]);
 
   const filteredBranches = useMemo(() => {
     const query = branchQuery.trim().toLowerCase();

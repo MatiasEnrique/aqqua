@@ -243,4 +243,48 @@ it.layer(NodeServices.layer)("ClaudeSessions", (it) => {
       assert.deepEqual(loaded.resume, { resumeSessionAt: "a1", turnCount: 1 });
     }),
   );
+
+  it.effect("omits SDK-authored turns interleaved before the boundary", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "aqqua-claude-sessions-" });
+      const configDir = path.join(root, "claude");
+      const cwd = path.join(root, "workspace");
+      const sessionId = RESUME_SESSION_ID;
+      // Resuming an adopted session through the SDK appends to the same file,
+      // so CLI and SDK turns interleave. Only the CLI conversation is adopted.
+      yield* writeSession(configDir, cwd, sessionId, [
+        record({ type: "user", uuid: "u1", sessionId, cwd, entrypoint: "cli", text: "Question" }),
+        record({
+          type: "assistant",
+          uuid: "sdk1",
+          sessionId,
+          cwd,
+          entrypoint: "sdk-ts",
+          text: "aqqua answer",
+        }),
+        record({
+          type: "assistant",
+          uuid: "a1",
+          sessionId,
+          cwd,
+          entrypoint: "cli",
+          text: "Answer",
+        }),
+      ]);
+
+      const loaded = yield* readClaudeSession({
+        instanceId: ProviderInstanceId.make("claude"),
+        config: { homePath: configDir },
+        sessionId,
+        boundaryUuid: "a1",
+      });
+
+      assert.deepEqual(
+        loaded.result.messages.map((message) => message.messageId),
+        ["u1", "a1"],
+      );
+    }),
+  );
 });

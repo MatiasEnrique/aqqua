@@ -160,7 +160,7 @@ function EarlierConversationHeader(props: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId | null;
   readonly cwd: string | null;
-  readonly markdownStyles: MarkdownStyleSet;
+  readonly markdownStyles: MarkdownStyleSets;
   readonly userBubbleColor: ColorValue;
   readonly userBubbleMaxWidth: number;
   readonly onLinkPress: (href: string) => void;
@@ -203,7 +203,7 @@ function EarlierConversationHeader(props: {
           <Text className="text-sm text-foreground-secondary">Show earlier messages</Text>
         </Pressable>
       ) : null}
-      {query.data?.messages.slice(0, visibleMessageCount).map((message) =>
+      {query.data?.messages.slice(-visibleMessageCount).map((message) =>
         message.role === "user" ? (
           <View key={message.messageId} className="mb-5 items-end">
             <View
@@ -215,7 +215,7 @@ function EarlierConversationHeader(props: {
             >
               <AdoptedMessageMarkdown
                 text={message.text}
-                markdownStyles={props.markdownStyles}
+                markdownStyles={props.markdownStyles.user}
                 onLinkPress={props.onLinkPress}
                 skills={props.skills}
               />
@@ -225,7 +225,7 @@ function EarlierConversationHeader(props: {
           <View key={message.messageId} className="mb-5">
             <AdoptedMessageMarkdown
               text={message.text}
-              markdownStyles={props.markdownStyles}
+              markdownStyles={props.markdownStyles.assistant}
               onLinkPress={props.onLinkPress}
               skills={props.skills}
             />
@@ -1920,7 +1920,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   environmentId={props.environmentId}
                   instanceId={props.providerInstanceId ?? null}
                   cwd={props.workspaceRoot ?? null}
-                  markdownStyles={markdownStyles.assistant}
+                  markdownStyles={markdownStyles}
                   userBubbleColor={userBubbleColor}
                   userBubbleMaxWidth={userBubbleMaxWidth}
                   onLinkPress={onMarkdownLinkPress}

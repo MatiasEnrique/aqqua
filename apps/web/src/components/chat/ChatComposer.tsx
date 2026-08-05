@@ -1128,7 +1128,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }));
     }
     if (composerTrigger.kind === "slash-command") {
-      const builtInSlashCommandItems = buildComposerBuiltInSlashCommands(isLocalDraftThread);
+      const builtInSlashCommandItems = buildComposerBuiltInSlashCommands(
+        isLocalDraftThread,
+        projectWorkspaceRoot !== null,
+      );
       const builtInCommandNames = builtInComposerCommandNames(builtInSlashCommandItems);
       const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? [])
         .filter((command) => !builtInCommandNames.has(command.name))
@@ -1164,6 +1167,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, [
     composerTrigger,
     isLocalDraftThread,
+    projectWorkspaceRoot,
     selectedProvider,
     selectedProviderStatus,
     workspaceEntries.entries,

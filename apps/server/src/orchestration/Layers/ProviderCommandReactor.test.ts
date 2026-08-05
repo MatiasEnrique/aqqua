@@ -382,7 +382,13 @@ describe("ProviderCommandReactor", () => {
       },
       listThreadIds: () => Effect.succeed(providerBindings.map((binding) => binding.threadId)),
       listBindings: () => Effect.succeed(providerBindings),
-      deleteBinding: () => Effect.void,
+      // Delete for real: a double that keeps returning a removed binding hides
+      // exactly the cleanup and recovery defects these tests exist to catch.
+      deleteBinding: (threadId) =>
+        Effect.sync(() => {
+          const index = providerBindings.findIndex((binding) => binding.threadId === threadId);
+          if (index >= 0) providerBindings.splice(index, 1);
+        }),
     });
 
     const layer = ProviderCommandReactorLive.pipe(

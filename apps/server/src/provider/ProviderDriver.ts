@@ -96,9 +96,15 @@ export interface ProviderInstance {
   readonly listSessions: (
     cwds: ReadonlyArray<string>,
   ) => Effect.Effect<ProviderListSessionsResult, ProviderListSessionsError>;
-  /** Lazily read one provider-native transcript, optionally through a fixed boundary. */
+  /**
+   * Lazily read one provider-native transcript, optionally through a fixed
+   * boundary. `cwd` is the workspace the transcript belongs to: providers that
+   * resolve configuration or trust per directory must read as that workspace,
+   * not as wherever the server happens to be running.
+   */
   readonly readSession: (
     sessionId: string,
+    cwd: string,
     boundaryUuid?: string,
   ) => Effect.Effect<ProviderReadSessionResult, ProviderListSessionsError>;
   /** Construct the provider-native cursor without leaking its shape past this boundary. */
@@ -129,6 +135,7 @@ export const unsupportedProviderSessions = {
   readSession: (instanceId: ProviderInstanceId, driverKind: ProviderDriverKind) =>
     Effect.fn("unsupportedProviderReadSession")(function* (
       _sessionId: string,
+      _cwd: string,
       _boundaryUuid?: string,
     ) {
       return yield* new ProviderListSessionsError({

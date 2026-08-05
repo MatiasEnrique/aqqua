@@ -556,11 +556,23 @@ export function parseCodexReadSession(
   }
 
   const messages: Array<ProviderExternalSessionMessage> = [];
-  let boundaryFound = boundaryUuid === undefined;
+  // A thread that held no visible messages at adoption time recorded its own
+  // id as the boundary; no item will ever carry that id, so treat it as
+  // already satisfied rather than reporting the history as lost.
+  let boundaryFound = boundaryUuid === undefined || boundaryUuid === thread.id;
   let resolvedBoundary: string | undefined;
   outer: for (const turn of thread.turns) {
     for (const item of turn.items) {
       const text = codexMessageText(item);
+      // Match the boundary before the visibility filter: an item that was
+      // emitted at adoption time may no longer render as text, and skipping
+      // it here would report an intact transcript as truncated.
+      if (boundaryUuid !== undefined && item.id === boundaryUuid) {
+        boundaryFound = true;
+        if (text === undefined || (item.type !== "userMessage" && item.type !== "agentMessage")) {
+          break outer;
+        }
+      }
       if (text === undefined || (item.type !== "userMessage" && item.type !== "agentMessage")) {
         continue;
       }

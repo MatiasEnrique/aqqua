@@ -280,12 +280,15 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         },
       );
       const readSession: ProviderInstance["readSession"] = Effect.fn("CodexDriver.readSession")(
-        function* (sessionId, boundaryUuid) {
+        function* (sessionId, cwd, boundaryUuid) {
           return yield* readCodexSession({
             binaryPath: effectiveConfig.binaryPath,
             homePath: effectiveConfig.homePath,
             launchArgs,
-            cwd: serverConfig.cwd,
+            // Read as the workspace that owns the transcript. The app-server
+            // resolves config and trust from its cwd, so the server's own
+            // directory would apply the wrong project settings.
+            cwd: cwd || serverConfig.cwd,
             sessionId,
             ...(boundaryUuid ? { boundaryUuid } : {}),
             environment: processEnv,

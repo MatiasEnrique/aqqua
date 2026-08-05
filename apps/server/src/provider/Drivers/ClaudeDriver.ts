@@ -238,8 +238,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         },
       );
       const readSession: ProviderInstance["readSession"] = Effect.fn("ClaudeDriver.readSession")(
-        function* (sessionId, boundaryUuid) {
-          const cwdHint = sessionCwds.get(sessionId);
+        function* (sessionId, cwd, boundaryUuid) {
+          // The caller's workspace is authoritative; the cache only covers a
+          // caller that has no cwd to offer.
+          const cwdHint = cwd || sessionCwds.get(sessionId);
           const loaded = yield* readClaudeSession({
             instanceId,
             config: effectiveConfig,

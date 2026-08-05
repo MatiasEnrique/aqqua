@@ -7581,6 +7581,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             session: {
               sessionId: "wrong-cwd-cli-thread",
               title: "Wrong project",
+              // Outside the project root and every managed worktree, so
+              // adoption must stop at the cwd rule.
               cwd: "/tmp/unrelated-project",
               updatedAt: "2026-01-01T00:00:00.000Z",
               messageCount: 2,
@@ -7598,6 +7600,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         matchesResumeCursor: () => false,
       } as unknown as ProviderInstance;
 
+      const projectShell = {
+        id: defaultProjectId,
+        title: "Default Project",
+        workspaceRoot: "/tmp/default-project",
+        defaultModelSelection,
+        scripts: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
       yield* buildAppUnderTest({
         layers: {
           providerInstanceRegistry: {
@@ -7606,6 +7618,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           providerSessionDirectory: {
             upsert,
             listBindings: () => Effect.succeed([]),
+          },
+          // Resolve the project so adoption reaches the cwd comparison instead
+          // of exiting early on an unavailable project.
+          projectionSnapshotQuery: {
+            getProjectShellById: () => Effect.succeed(Option.some(projectShell)),
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [projectShell],
+                threads: [makeDefaultOrchestrationThreadShell()],
+                boards: [],
+                cards: [],
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              }),
           },
           orchestrationEngine: {
             dispatch: (command) =>
@@ -7648,7 +7674,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               },
               resumeSession: {
                 instanceId: ProviderInstanceId.make("codex"),
-                sessionId: "missing-cli-thread",
+                sessionId: "wrong-cwd-cli-thread",
               },
             },
             createdAt,
@@ -7657,6 +7683,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertTrue(result._tag === "Failure");
+      // Pin the cwd rule itself: every earlier exit also fails with the thread
+      // rolled back, so the message is what separates this from those.
+      assertTrue(
+        String(result.cause).includes("is not the project root or an aqqua-managed worktree"),
+      );
       assert.deepEqual(
         dispatchedCommands.map((command) => command.type),
         ["thread.create", "thread.delete"],

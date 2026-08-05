@@ -2,8 +2,14 @@ import type { ComposerCommandItem } from "./ComposerCommandMenu";
 
 type BuiltInCommandItem = Extract<ComposerCommandItem, { type: "slash-command" }>;
 
+/**
+ * `canResumeSession` must track the picker's own render condition. Offering
+ * `/resume` without a workspace to scope it to accepts the command, clears the
+ * trigger, and then renders nothing.
+ */
 export function buildComposerBuiltInSlashCommands(
   isLocalDraftThread: boolean,
+  canResumeSession = true,
 ): BuiltInCommandItem[] {
   return [
     {
@@ -27,7 +33,7 @@ export function buildComposerBuiltInSlashCommands(
       label: "/default",
       description: "Switch this thread back to normal build mode",
     },
-    ...(isLocalDraftThread
+    ...(isLocalDraftThread && canResumeSession
       ? [
           {
             id: "slash:resume",

@@ -590,7 +590,10 @@ function TimelineListHeader(props: {
   const adoptionCreatedAt = props.activity?.createdAt;
   const adoptedRows = useMemo<ReadonlyArray<MessagesTimelineRow>>(() => {
     if (!query.data || !adoptionCreatedAt) return [];
-    return query.data.messages.slice(0, visibleMessageCount).map((message) => {
+    // Window from the end. The messages that matter are the ones the live
+    // thread continues from, so a capped view keeps the tail and reveals
+    // earlier messages on demand.
+    return query.data.messages.slice(-visibleMessageCount).map((message) => {
       // The adoption marker's timestamp stands in when the provider transcript
       // carries none, so ordering stays stable ahead of the first aqqua turn.
       const createdAt = message.createdAt ?? adoptionCreatedAt;

@@ -108,6 +108,8 @@ function parseRecords(contents: string): ReadonlyArray<ClaudeSessionRecord> {
 
 const DISCOVERY_HEAD_BYTES = 64 * 1024;
 const DISCOVERY_TAIL_BYTES = 64 * 1024;
+/** Matches `CODEX_EXTERNAL_SESSION_LIMIT` so both pickers page the same way. */
+const CLAUDE_EXTERNAL_SESSION_LIMIT = 100;
 
 const readClaudeSessionHeadAndTail = Effect.fn("readClaudeSessionHeadAndTail")(function* (
   filePath: string,
@@ -156,7 +158,14 @@ function visibleMessages(
   let boundaryFound = boundaryUuid === undefined;
 
   for (const record of records) {
-    if (record.isSidechain === true || (record.type !== "user" && record.type !== "assistant")) {
+    // Adopting a CLI session and then resuming it through the SDK appends
+    // `sdk-*` records to the same JSONL, so a transcript is routinely mixed.
+    // Only CLI-authored turns belong to the conversation being adopted.
+    if (
+      record.entrypoint !== "cli" ||
+      record.isSidechain === true ||
+      (record.type !== "user" && record.type !== "assistant")
+    ) {
       continue;
     }
     const messageId = record.uuid?.trim();
@@ -275,7 +284,11 @@ export const discoverClaudeSessions = Effect.fn("discoverClaudeSessions")(functi
     }
   }
 
-  return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  // Cap like the Codex path does. A long-lived project accumulates hundreds of
+  // transcripts, and the picker only ever shows the most recent ones.
+  return sessions
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, CLAUDE_EXTERNAL_SESSION_LIMIT);
 });
 
 function sessionAccessError(

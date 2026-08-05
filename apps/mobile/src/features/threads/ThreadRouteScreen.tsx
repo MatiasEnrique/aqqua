@@ -760,6 +760,7 @@ function ThreadRouteContent(
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
           selectedThreadFeed={composer.selectedThreadFeed}
           resumedSessionActivity={resumedSessionActivity}
+          threadProviderInstanceId={selectedThread?.modelSelection.instanceId ?? null}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           activePendingApproval={requests.activePendingApproval}
           respondingApprovalId={requests.respondingApprovalId}

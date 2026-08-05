@@ -18,8 +18,9 @@ conversations rooted in the active project only.
 ## Decisions already made (do not relitigate)
 
 1. **History display** — reference + lazy transcript. One marker activity on the
-   thread, plus a collapsed "Earlier conversation" block the client fetches on demand.
-   No bulk transcript over the websocket, no synthetic turns in the event log.
+   thread; the client fetches the transcript on demand and renders it through the
+   ordinary message rows, so a resumed thread reads as one conversation. No bulk
+   transcript over the websocket, no synthetic turns in the event log.
 2. **Scope** — sessions whose cwd is the active project's workspace root or one of its
    aqqua-managed worktrees.
 3. **Entry point** — draft (not-yet-created) threads only. An existing thread with a
@@ -105,7 +106,7 @@ Schema only, no runtime logic.
 `src/server.ts`, next to the existing `ProviderListSkills*` block (line ~585, which is
 the template to copy including the doc comment style and the tagged error):
 
-```
+```text
 ProviderExternalSession   { sessionId, title, cwd, updatedAt, messageCount, gitBranch? }
 ProviderListSessionsInput { instanceId, cwds }        // array: root + worktrees
 ProviderListSessionsResult { sessions, supported }
