@@ -49,6 +49,7 @@ export function AndroidScreenHeader(props: {
   readonly title: string;
   readonly subtitle?: string | null;
   readonly actions?: ReadonlyArray<AndroidHeaderAction>;
+  readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
   readonly onBack?: () => void;
   readonly embedded?: boolean;
@@ -81,7 +82,9 @@ export function AndroidScreenHeader(props: {
           </Pressable>
         ) : null}
 
-        <View className={cn("min-w-0 flex-1", !props.onBack && "pl-1")}>
+        {props.leading}
+
+        <View className={cn("min-w-0 flex-1", !props.onBack && !props.leading && "pl-1")}>
           <Text numberOfLines={1} className="text-lg font-aqqua-bold text-foreground">
             {props.title}
           </Text>

@@ -6,11 +6,17 @@ import type { EnvironmentId } from "@aqqua/contracts";
 import { isProjectFaviconFallbackUrl } from "@aqqua/shared/projectFavicon";
 import { useThemeColor } from "../lib/useThemeColor";
 import { useAssetUrl } from "../state/assets";
+import { useProjectIcon } from "../state/entities";
+import { ProjectAvatar } from "./ProjectAvatar";
 
 /* ─── Favicon cache (matches web pattern) ────────────────────────────── */
 const loadedFaviconUrls = new Set<string>();
 
 /* ─── Component ──────────────────────────────────────────────────────── */
+/**
+ * A project's icon: the avatar its owner chose, else the favicon discovered in
+ * its workspace, else a folder glyph.
+ */
 export function ProjectFavicon(props: {
   readonly environmentId: EnvironmentId;
   readonly open?: boolean;
@@ -19,6 +25,32 @@ export function ProjectFavicon(props: {
   readonly workspaceRoot?: string | null;
 }) {
   const size = props.size ?? 42;
+  const icon = useProjectIcon(props.environmentId, props.workspaceRoot);
+
+  // A chosen avatar draws from the read model alone, so it never asks for a
+  // signed asset URL.
+  if (icon !== null) {
+    return <ProjectAvatar icon={icon} projectTitle={props.projectTitle} size={size} />;
+  }
+
+  return (
+    <ProjectFaviconFromWorkspace
+      environmentId={props.environmentId}
+      open={props.open}
+      projectTitle={props.projectTitle}
+      size={size}
+      workspaceRoot={props.workspaceRoot}
+    />
+  );
+}
+
+function ProjectFaviconFromWorkspace(props: {
+  readonly environmentId: EnvironmentId;
+  readonly open?: boolean;
+  readonly size: number;
+  readonly projectTitle: string;
+  readonly workspaceRoot?: string | null;
+}) {
   const faviconUrl = useAssetUrl(
     props.environmentId,
     props.workspaceRoot === null || props.workspaceRoot === undefined
@@ -33,7 +65,7 @@ export function ProjectFavicon(props: {
       faviconUrl={renderableFaviconUrl}
       open={props.open}
       projectTitle={props.projectTitle}
-      size={size}
+      size={props.size}
     />
   );
 }

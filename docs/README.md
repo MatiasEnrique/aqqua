@@ -10,6 +10,7 @@
   - [Background service](./user/background-service.md)
   - [Git history](./user/git-history.md)
   - [Sidebar conversations and worktrees](./user/sidebar.md)
+  - [Project icons](./user/project-icons.md)
   - [Remote access](./user/remote-access.md)
   - [Keeping aqqua in sync](./user/server-updates.md)
   - [Keybindings](./user/keybindings.md)

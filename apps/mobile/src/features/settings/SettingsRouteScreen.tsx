@@ -548,6 +548,7 @@ function GeneralSettingsSection() {
         value={projectGroupingEnabled}
         onValueChange={(value) => savePreferences({ projectGroupingEnabled: value })}
       />
+      <SettingsRow icon="person.crop.circle" label="Project Icons" target="SettingsProjectIcons" />
     </SettingsSection>
   );
 }

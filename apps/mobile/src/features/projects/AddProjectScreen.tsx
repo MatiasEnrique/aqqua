@@ -21,7 +21,8 @@ import {
   ensureBrowseDirectoryPath,
   inferProjectTitleFromPath,
 } from "@aqqua/client-runtime/state/projects";
-import { CommandId, type EnvironmentId, ProjectId } from "@aqqua/contracts";
+import { CommandId, type EnvironmentId, type ProjectIcon, ProjectId } from "@aqqua/contracts";
+import { remapProjectAvatarSeed } from "@aqqua/shared/projectAvatar";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -40,6 +41,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { ProjectIconPicker } from "../../components/ProjectIconPicker";
 import { SourceControlIcon } from "../../components/SourceControlIcon";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { uuidv4 } from "../../lib/uuid";
@@ -493,15 +495,13 @@ export function AddProjectSourceScreen() {
   );
 }
 
-function useCreateProject(environment: EnvironmentOption | null) {
+function useOpenExistingProject(environment: EnvironmentOption | null) {
   const navigation = useNavigation();
-  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const projects = useProjects();
 
   return useCallback(
-    async (workspaceRoot: string) => {
-      if (!environment) return;
-
+    (workspaceRoot: string): boolean => {
+      if (!environment) return false;
       const existing = findExistingAddProject({
         projects,
         environmentId: environment.environmentId,
@@ -516,8 +516,22 @@ function useCreateProject(environment: EnvironmentOption | null) {
             title: existing.title,
           }),
         );
-        return;
+        return true;
       }
+      return false;
+    },
+    [environment, navigation, projects],
+  );
+}
+
+function useCreateProject(environment: EnvironmentOption | null) {
+  const navigation = useNavigation();
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const openExistingProject = useOpenExistingProject(environment);
+
+  return useCallback(
+    async (workspaceRoot: string, icon: ProjectIcon | null) => {
+      if (!environment || openExistingProject(workspaceRoot)) return;
 
       const projectId = ProjectId.make(uuidv4());
       const command = buildProjectCreateCommand({
@@ -525,6 +539,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
         projectId,
         workspaceRoot,
         createdAt: new Date().toISOString(),
+        icon,
       });
       const result = await createProject({
         environmentId: environment.environmentId,
@@ -542,7 +557,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       );
       return result;
     },
-    [createProject, environment, projects, navigation],
+    [createProject, environment, navigation, openExistingProject],
   );
 }
 
@@ -723,15 +738,15 @@ function FolderBrowser(props: {
 }
 
 export function AddProjectLocalFolderScreen(props: { readonly environmentId?: string | string[] }) {
+  const navigation = useNavigation();
   const environment = useEnvironmentFromParam(props.environmentId);
-  const createProject = useCreateProject(environment);
+  const openExistingProject = useOpenExistingProject(environment);
   const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
     useBrowsePathInput(environment);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submitPath = useCallback(async () => {
-    if (!environment || isBrowseNavigating || isSubmitting) return;
+  const submitPath = useCallback(() => {
+    if (!environment || isBrowseNavigating) return;
     setError(null);
     const resolved = resolveAddProjectPath({
       rawPath: pathInput,
@@ -743,13 +758,15 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
       return;
     }
 
-    setIsSubmitting(true);
-    const result = await createProject(resolved.path);
-    if (result && AsyncResult.isFailure(result)) {
-      setError(errorMessage(Cause.squash(result.cause)));
-    }
-    setIsSubmitting(false);
-  }, [createProject, environment, isBrowseNavigating, isSubmitting, pathInput]);
+    if (openExistingProject(resolved.path)) return;
+    navigation.navigate("NewTaskSheet", {
+      screen: "AddProjectIcon",
+      params: {
+        environmentId: environment.environmentId,
+        workspaceRoot: resolved.path,
+      },
+    });
+  }, [environment, isBrowseNavigating, navigation, openExistingProject, pathInput]);
 
   return (
     <AddProjectShell>
@@ -763,9 +780,8 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
           />
           <PrimaryActionButton
             label="Add project"
-            disabled={isBrowseNavigating || isSubmitting}
-            onPress={() => void submitPath()}
-            loading={isSubmitting}
+            disabled={isBrowseNavigating}
+            onPress={submitPath}
           />
           <FolderBrowser
             environment={environment}
@@ -786,20 +802,17 @@ export function AddProjectDestinationScreen(props: {
   readonly remoteUrl?: string | string[];
   readonly repositoryTitle?: string | string[];
 }) {
-  const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
-    reportFailure: false,
-  });
+  const navigation = useNavigation();
   const environment = useEnvironmentFromParam(props.environmentId);
-  const createProject = useCreateProject(environment);
+  const openExistingProject = useOpenExistingProject(environment);
   const remoteUrl = stringParam(props.remoteUrl);
   const repositoryTitle = stringParam(props.repositoryTitle);
   const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
     useBrowsePathInput(environment);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submitPath = useCallback(async () => {
-    if (!environment || !remoteUrl || isBrowseNavigating || isSubmitting) return;
+  const submitPath = useCallback(() => {
+    if (!environment || !remoteUrl || isBrowseNavigating) return;
     setError(null);
     const resolved = resolveAddProjectPath({
       rawPath: pathInput,
@@ -811,32 +824,16 @@ export function AddProjectDestinationScreen(props: {
       return;
     }
 
-    setIsSubmitting(true);
-    const cloneResult = await cloneRepository({
-      environmentId: environment.environmentId,
-      input: {
+    if (openExistingProject(resolved.path)) return;
+    navigation.navigate("NewTaskSheet", {
+      screen: "AddProjectIcon",
+      params: {
+        environmentId: environment.environmentId,
+        workspaceRoot: resolved.path,
         remoteUrl,
-        destinationPath: resolved.path,
       },
     });
-    if (AsyncResult.isFailure(cloneResult)) {
-      setError(errorMessage(Cause.squash(cloneResult.cause)));
-    } else {
-      const createResult = await createProject(cloneResult.value.cwd);
-      if (createResult && AsyncResult.isFailure(createResult)) {
-        setError(errorMessage(Cause.squash(createResult.cause)));
-      }
-    }
-    setIsSubmitting(false);
-  }, [
-    cloneRepository,
-    createProject,
-    environment,
-    isBrowseNavigating,
-    isSubmitting,
-    pathInput,
-    remoteUrl,
-  ]);
+  }, [environment, isBrowseNavigating, navigation, openExistingProject, pathInput, remoteUrl]);
 
   return (
     <AddProjectShell>
@@ -858,15 +855,112 @@ export function AddProjectDestinationScreen(props: {
           />
           <PrimaryActionButton
             label="Clone project"
-            disabled={isBrowseNavigating || isSubmitting || !remoteUrl}
-            onPress={() => void submitPath()}
-            loading={isSubmitting}
+            disabled={isBrowseNavigating || !remoteUrl}
+            onPress={submitPath}
           />
           <FolderBrowser
             environment={environment}
             navigateToBrowsePath={navigateToBrowsePath}
             pathInput={pathInput}
             setPathInput={setPathInput}
+          />
+        </>
+      ) : (
+        <EmptyEnvironmentState />
+      )}
+    </AddProjectShell>
+  );
+}
+
+export function AddProjectIconScreen(props: {
+  readonly environmentId?: string | string[];
+  readonly workspaceRoot?: string | string[];
+  readonly remoteUrl?: string | string[];
+}) {
+  const environment = useEnvironmentFromParam(props.environmentId);
+  const workspaceRoot = stringParam(props.workspaceRoot);
+  const remoteUrl = stringParam(props.remoteUrl);
+  const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
+    reportFailure: false,
+  });
+  const createProject = useCreateProject(environment);
+  const [icon, setIcon] = useState<ProjectIcon | null>(null);
+  const [clonedProjectRoot, setClonedProjectRoot] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useCallback(async () => {
+    if (!environment || !workspaceRoot || isSubmitting) return;
+    setError(null);
+    setIsSubmitting(true);
+
+    let projectRoot = clonedProjectRoot ?? workspaceRoot;
+    let projectIcon = icon;
+    if (remoteUrl !== null && clonedProjectRoot === null) {
+      const cloneResult = await cloneRepository({
+        environmentId: environment.environmentId,
+        input: { remoteUrl, destinationPath: workspaceRoot },
+      });
+      if (AsyncResult.isFailure(cloneResult)) {
+        setError(errorMessage(Cause.squash(cloneResult.cause)));
+        setIsSubmitting(false);
+        return;
+      }
+      projectRoot = cloneResult.value.cwd;
+      if (projectIcon !== null) {
+        projectIcon = {
+          ...projectIcon,
+          seed: remapProjectAvatarSeed(projectIcon.seed, workspaceRoot, projectRoot),
+        };
+        setIcon(projectIcon);
+      }
+      setClonedProjectRoot(projectRoot);
+    }
+
+    const createResult = await createProject(projectRoot, projectIcon);
+    if (createResult && AsyncResult.isFailure(createResult)) {
+      setError(errorMessage(Cause.squash(createResult.cause)));
+    }
+    setIsSubmitting(false);
+  }, [
+    cloneRepository,
+    clonedProjectRoot,
+    createProject,
+    environment,
+    icon,
+    isSubmitting,
+    remoteUrl,
+    workspaceRoot,
+  ]);
+
+  return (
+    <AddProjectShell>
+      {error ? <ErrorBanner message={error} /> : null}
+      {environment && workspaceRoot ? (
+        <>
+          <View className="rounded-[24px] bg-card px-4 py-3">
+            <Text className="text-base font-aqqua-bold">
+              {inferProjectTitleFromPath(workspaceRoot)}
+            </Text>
+            <Text className="mt-0.5 text-xs text-foreground-muted" numberOfLines={2}>
+              {workspaceRoot}
+            </Text>
+          </View>
+          <View className="gap-3 rounded-[24px] bg-card p-4">
+            <SectionTitle>Project icon</SectionTitle>
+            <ProjectIconPicker
+              title={inferProjectTitleFromPath(workspaceRoot)}
+              workspaceRoot={workspaceRoot}
+              value={icon}
+              disabled={isSubmitting}
+              onChange={setIcon}
+            />
+          </View>
+          <PrimaryActionButton
+            label={remoteUrl === null ? "Add project" : "Clone and add project"}
+            disabled={isSubmitting}
+            loading={isSubmitting}
+            onPress={() => void submit()}
           />
         </>
       ) : (

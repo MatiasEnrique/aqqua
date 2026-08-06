@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   OrchestrationProjectShell,
   OrchestrationShellSnapshot,
+  ProjectIcon,
   ProjectId,
   ScopedProjectRef,
 } from "@aqqua/contracts";
@@ -14,6 +15,23 @@ import { arrayElementsEqual, parseProjectKey, projectKey, projectRefsEqual } fro
 
 const EMPTY_PROJECTS: ReadonlyArray<OrchestrationProjectShell> = Object.freeze([]);
 const EMPTY_PROJECT_INDEX: ReadonlyMap<ProjectId, OrchestrationProjectShell> = new Map();
+const EMPTY_PROJECT_ICONS: ReadonlyMap<string, ProjectIcon> = new Map();
+
+/**
+ * A project's workspace root, which is how icon consumers address it.
+ *
+ * Rows that render a project icon (sidebar entries, thread rows, chat headers)
+ * hold a workspace root rather than a project id, and it is already the key
+ * they pass to the favicon asset resource.
+ */
+export interface ScopedWorkspaceRootRef {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string;
+}
+
+function projectIconsEqual(left: ProjectIcon, right: ProjectIcon): boolean {
+  return left.seed === right.seed && left.text === right.text;
+}
 
 export function createEnvironmentProjectAtoms(input: {
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
@@ -36,6 +54,46 @@ export function createEnvironmentProjectAtoms(input: {
       }
       return new Map(projects.map((project) => [project.id, project] as const));
     }).pipe(Atom.withLabel(`environment-project-index:${environmentId}`)),
+  );
+
+  /**
+   * Chosen icons for one environment, keyed by workspace root.
+   *
+   * Rebuilt whenever the environment's projects change, but entry and map
+   * identity survive when the icons themselves did not, so the rows reading
+   * this do not repaint on unrelated project updates.
+   */
+  const environmentProjectIconsAtom = Atom.family((environmentId: EnvironmentId) => {
+    let previous: ReadonlyMap<string, ProjectIcon> = EMPTY_PROJECT_ICONS;
+    return Atom.make((get): ReadonlyMap<string, ProjectIcon> => {
+      const next = new Map<string, ProjectIcon>();
+      for (const project of get(environmentProjectsAtom(environmentId))) {
+        const icon = project.icon;
+        if (icon === undefined || icon === null) continue;
+        const before = previous.get(project.workspaceRoot);
+        next.set(
+          project.workspaceRoot,
+          before !== undefined && projectIconsEqual(before, icon) ? before : icon,
+        );
+      }
+      if (
+        next.size === previous.size &&
+        Array.from(next).every(([root, icon]) => previous.get(root) === icon)
+      ) {
+        return previous;
+      }
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-project-icons:${environmentId}`));
+  });
+
+  const projectIconAtomFamily = Atom.family((environmentId: EnvironmentId) =>
+    Atom.family((workspaceRoot: string) =>
+      Atom.make(
+        (get): ProjectIcon | null =>
+          get(environmentProjectIconsAtom(environmentId)).get(workspaceRoot) ?? null,
+      ).pipe(Atom.withLabel(`project-icon:${environmentId}:${workspaceRoot}`)),
+    ),
   );
 
   const environmentProjectRefsAtom = Atom.family((environmentId: EnvironmentId) => {
@@ -101,5 +159,7 @@ export function createEnvironmentProjectAtoms(input: {
     projectRefsAtom,
     projectsAtom,
     projectAtom: (ref: ScopedProjectRef) => projectAtomFamily(projectKey(ref)),
+    projectIconAtom: (ref: ScopedWorkspaceRootRef) =>
+      projectIconAtomFamily(ref.environmentId)(ref.workspaceRoot),
   };
 }

@@ -34,6 +34,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           model: "gpt-5.4",
         },
         scripts: [],
+        icon: null,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -131,6 +132,42 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
       });
+    }),
+  );
+
+  it.effect("round-trips a non-null project icon through its SQL row", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectionProjectRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const icon = {
+        _tag: "avatar" as const,
+        seed: "project-icon-seed",
+        text: "AQ",
+      };
+
+      yield* projects.upsert({
+        projectId: ProjectId.make("project-with-icon"),
+        title: "Project with icon",
+        workspaceRoot: "/tmp/project-with-icon",
+        defaultModelSelection: null,
+        scripts: [],
+        icon,
+        createdAt: "2026-08-06T00:00:00.000Z",
+        updatedAt: "2026-08-06T00:00:00.000Z",
+        deletedAt: null,
+      });
+
+      const rows = yield* sql<{ readonly icon: string | null }>`
+        SELECT icon_json AS "icon"
+        FROM projection_projects
+        WHERE project_id = 'project-with-icon'
+      `;
+      assert.strictEqual(rows[0]?.icon, JSON.stringify(icon));
+
+      const persisted = yield* projects.getById({
+        projectId: ProjectId.make("project-with-icon"),
+      });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.icon, icon);
     }),
   );
 

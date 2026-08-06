@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import { scopeProjectRef } from "@aqqua/client-runtime/environment";
-import type { SidebarProjectGroupingMode } from "@aqqua/contracts";
+import type { ProjectIcon, SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { deriveProjectGroupingOverrideKey } from "../../logicalProject";
 import type {
@@ -164,6 +164,26 @@ export function useProjectActionsController(input: {
     [updateProject],
   );
 
+  const updateProjectMemberIcon = useCallback(
+    async (member: SidebarProjectGroupMember, icon: ProjectIcon | null) => {
+      const result = await updateProject({
+        environmentId: member.environmentId,
+        input: { projectId: member.id, icon },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to update project icon",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [updateProject],
+  );
+
   const updateProjectGroupingPreference = useCallback(
     (member: SidebarProjectGroupMember, selection: SidebarProjectGroupingMode | "inherit") => {
       const overrideKey = deriveProjectGroupingOverrideKey(member);
@@ -191,6 +211,7 @@ export function useProjectActionsController(input: {
   return {
     handleRemoveProjectMembers,
     renameProjectMember,
+    updateProjectMemberIcon,
     updateProjectGroupingPreference,
     handleProjectActions,
     copyProjectPath,

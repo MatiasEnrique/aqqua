@@ -16,6 +16,7 @@ import {
   type DesktopWslState,
   type EnvironmentId,
   type FilesystemBrowseResult,
+  type ProjectIcon,
   type ProjectId,
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
@@ -23,6 +24,7 @@ import {
   type ScopedProjectRef,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@aqqua/contracts";
+import { remapProjectAvatarSeed } from "@aqqua/shared/projectAvatar";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
@@ -116,6 +118,7 @@ import { NewWorktreeThreadDialog } from "./NewWorktreeThreadDialog";
 import { UsageLimitsDialog } from "./usage/UsageLimitsDialog";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { ProjectIconPicker } from "./ProjectIconPicker";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
 import { resolveDefaultProviderModelSelection } from "../providerInstances";
@@ -192,6 +195,13 @@ type AddProjectCloneFlow =
       readonly repository: SourceControlRepositoryInfo | null;
       readonly remoteUrl: string;
     };
+
+interface PendingProjectCreation {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string;
+  readonly icon: ProjectIcon | null;
+  readonly cloneRemoteUrl?: string | undefined;
+}
 
 const REMOTE_PROJECT_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "url",
@@ -603,7 +613,10 @@ function OpenCommandPaletteDialog(props: {
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
-  const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
+  const [pendingProjectCreation, setPendingProjectCreation] =
+    useState<PendingProjectCreation | null>(null);
+  const [isPendingProjectCreationSubmitting, setIsPendingProjectCreationSubmitting] =
+    useState(false);
   const projectGroupingSettings = useMemo(
     () => selectProjectGroupingSettings(clientSettings),
     [clientSettings],
@@ -1509,6 +1522,7 @@ function OpenCommandPaletteDialog(props: {
       readonly rawCwd: string;
       readonly platform: string;
       readonly currentProjectCwd: string | null;
+      readonly cloneRemoteUrl?: string | undefined;
     }) => {
       const rawCwd = input.rawCwd;
 
@@ -1574,43 +1588,85 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
-      const projectId = newProjectId();
-      const targetEnvironmentProviders =
-        environments.find((environment) => environment.environmentId === input.environmentId)
-          ?.serverConfig?.providers ??
-        (input.environmentId === primaryEnvironmentId ? providers : []);
-      const createResult = await createProject({
+      setPendingProjectCreation({
         environmentId: input.environmentId,
+        workspaceRoot: cwd,
+        icon: null,
+        ...(input.cloneRemoteUrl === undefined ? {} : { cloneRemoteUrl: input.cloneRemoteUrl }),
+      });
+    },
+    [handleNewThread, navigate, projects, setOpen, clientSettings.sidebarThreadSortOrder, threads],
+  );
+
+  const completePendingProjectCreation = useCallback(async () => {
+    if (pendingProjectCreation === null || isPendingProjectCreationSubmitting) return;
+    setIsPendingProjectCreationSubmitting(true);
+
+    let workspaceRoot = pendingProjectCreation.workspaceRoot;
+    let icon = pendingProjectCreation.icon;
+    if (pendingProjectCreation.cloneRemoteUrl !== undefined) {
+      const cloneResult = await cloneRepository({
+        environmentId: pendingProjectCreation.environmentId,
         input: {
-          projectId,
-          title: inferProjectTitleFromPath(cwd),
-          workspaceRoot: cwd,
-          createWorkspaceRootIfMissing: true,
-          defaultModelSelection: resolveDefaultProviderModelSelection(
-            targetEnvironmentProviders,
-            null,
-          ),
+          remoteUrl: pendingProjectCreation.cloneRemoteUrl,
+          destinationPath: pendingProjectCreation.workspaceRoot,
         },
       });
-      if (createResult._tag === "Failure") {
-        if (!isAtomCommandInterrupted(createResult)) {
-          const error = squashAtomCommandFailure(createResult);
+      if (cloneResult._tag === "Failure") {
+        setIsPendingProjectCreationSubmitting(false);
+        if (!isAtomCommandInterrupted(cloneResult)) {
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to add project",
-              description: error instanceof Error ? error.message : "An error occurred.",
+              title: "Clone failed",
+              description: errorMessage(squashAtomCommandFailure(cloneResult)),
             }),
           );
         }
         return;
       }
+      workspaceRoot = cloneResult.value.cwd;
+      if (icon !== null) {
+        icon = {
+          ...icon,
+          seed: remapProjectAvatarSeed(
+            icon.seed,
+            pendingProjectCreation.workspaceRoot,
+            workspaceRoot,
+          ),
+        };
+      }
+      setPendingProjectCreation({
+        environmentId: pendingProjectCreation.environmentId,
+        workspaceRoot,
+        icon,
+      });
+    }
 
-      const navigationResult = await settlePromise(() =>
-        handleNewThread(scopeProjectRef(input.environmentId, projectId)),
-      );
-      if (navigationResult._tag === "Failure") {
-        const error = squashAtomCommandFailure(navigationResult);
+    const projectId = newProjectId();
+    const targetEnvironmentProviders =
+      environments.find(
+        (environment) => environment.environmentId === pendingProjectCreation.environmentId,
+      )?.serverConfig?.providers ??
+      (pendingProjectCreation.environmentId === primaryEnvironmentId ? providers : []);
+    const createResult = await createProject({
+      environmentId: pendingProjectCreation.environmentId,
+      input: {
+        projectId,
+        title: inferProjectTitleFromPath(workspaceRoot),
+        workspaceRoot,
+        createWorkspaceRootIfMissing: true,
+        defaultModelSelection: resolveDefaultProviderModelSelection(
+          targetEnvironmentProviders,
+          null,
+        ),
+        ...(icon === null ? {} : { icon }),
+      },
+    });
+    if (createResult._tag === "Failure") {
+      setIsPendingProjectCreationSubmitting(false);
+      if (!isAtomCommandInterrupted(createResult)) {
+        const error = squashAtomCommandFailure(createResult);
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1618,23 +1674,41 @@ function OpenCommandPaletteDialog(props: {
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
-        return;
       }
+      return;
+    }
+
+    const navigationResult = await settlePromise(() =>
+      handleNewThread(scopeProjectRef(pendingProjectCreation.environmentId, projectId)),
+    );
+    if (navigationResult._tag === "Failure") {
+      const error = squashAtomCommandFailure(navigationResult);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to add project",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+      setPendingProjectCreation(null);
+      setIsPendingProjectCreationSubmitting(false);
       setOpen(false);
-    },
-    [
-      handleNewThread,
-      createProject,
-      environments,
-      navigate,
-      primaryEnvironmentId,
-      projects,
-      providers,
-      setOpen,
-      clientSettings.sidebarThreadSortOrder,
-      threads,
-    ],
-  );
+      return;
+    }
+    setPendingProjectCreation(null);
+    setIsPendingProjectCreationSubmitting(false);
+    setOpen(false);
+  }, [
+    cloneRepository,
+    createProject,
+    environments,
+    handleNewThread,
+    isPendingProjectCreationSubmitting,
+    pendingProjectCreation,
+    primaryEnvironmentId,
+    providers,
+    setOpen,
+  ]);
 
   const handleAddProject = useCallback(
     async (rawCwd: string) => {
@@ -1724,7 +1798,7 @@ function OpenCommandPaletteDialog(props: {
     }
 
     const rawDestination = (destinationPathInput ?? query).trim();
-    if (rawDestination.length === 0 || isRemoteProjectCloning) {
+    if (rawDestination.length === 0) {
       return;
     }
 
@@ -1758,28 +1832,13 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    setIsRemoteProjectCloning(true);
-    const cloneResult = await cloneRepository({
+    await handleAddProjectForEnvironment({
       environmentId: addProjectCloneFlow.environmentId,
-      input: {
-        remoteUrl: addProjectCloneFlow.remoteUrl,
-        destinationPath,
-      },
+      rawCwd: destinationPath,
+      platform: browseEnvironmentPlatform,
+      currentProjectCwd: null,
+      cloneRemoteUrl: addProjectCloneFlow.remoteUrl,
     });
-    setIsRemoteProjectCloning(false);
-    if (cloneResult._tag === "Failure") {
-      if (!isAtomCommandInterrupted(cloneResult)) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Clone failed",
-            description: errorMessage(squashAtomCommandFailure(cloneResult)),
-          }),
-        );
-      }
-      return;
-    }
-    await handleAddProject(cloneResult.value.cwd);
   }
 
   const browseTo = useCallback(
@@ -1889,11 +1948,10 @@ function OpenCommandPaletteDialog(props: {
       ? "Continue"
       : "Lookup"
     : null;
-  const isRemoteProjectPending = isRemoteProjectLookingUp || isRemoteProjectCloning;
   const canSubmitRemoteProjectFlow =
     addProjectCloneFlow?.step === "repository" &&
     query.trim().length > 0 &&
-    !isRemoteProjectPending;
+    !isRemoteProjectLookingUp;
   const fileManagerName = getLocalFileManagerName(navigator.platform);
   const canOpenProjectFromFileManager =
     isBrowsing &&
@@ -2115,6 +2173,73 @@ function OpenCommandPaletteDialog(props: {
     primaryEnvironmentId,
   ]);
 
+  if (pendingProjectCreation !== null) {
+    return (
+      <CommandDialogPopup
+        aria-label="Choose a project icon"
+        className="overflow-hidden p-0"
+        data-command-palette="true"
+        finalFocus={() => {
+          composerHandleRef?.current?.focusAtEnd();
+          return false;
+        }}
+        onBackdropPointerDown={() => {
+          if (isPendingProjectCreationSubmitting) return;
+          setOpen(false);
+        }}
+      >
+        <Command aria-label="Choose a project icon" autoHighlight={false} mode="none">
+          <div className="flex min-h-12 items-center gap-3 border-b px-3">
+            <button
+              type="button"
+              disabled={isPendingProjectCreationSubmitting}
+              className="flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-50 disabled:active:scale-100"
+              aria-label="Back"
+              onClick={() => setPendingProjectCreation(null)}
+            >
+              <ArrowLeftIcon className="size-4" />
+            </button>
+            <div className="min-w-0">
+              <div className="font-medium text-sm">Choose a project icon</div>
+              <div className="truncate text-muted-foreground text-xs">
+                {pendingProjectCreation.workspaceRoot}
+              </div>
+            </div>
+          </div>
+          <CommandPanel className="max-h-[min(28rem,70vh)] overflow-y-auto overscroll-contain p-4">
+            <ProjectIconPicker
+              title={inferProjectTitleFromPath(pendingProjectCreation.workspaceRoot)}
+              workspaceRoot={pendingProjectCreation.workspaceRoot}
+              value={pendingProjectCreation.icon}
+              onChange={(icon) =>
+                setPendingProjectCreation((current) =>
+                  current === null ? null : { ...current, icon },
+                )
+              }
+              idPrefix="create-project-icon"
+              disabled={isPendingProjectCreationSubmitting}
+            />
+          </CommandPanel>
+          <CommandFooter className="justify-end">
+            <Button
+              autoFocus
+              disabled={isPendingProjectCreationSubmitting}
+              onClick={() => void completePendingProjectCreation()}
+            >
+              {isPendingProjectCreationSubmitting
+                ? pendingProjectCreation.cloneRemoteUrl === undefined
+                  ? "Adding…"
+                  : "Cloning…"
+                : pendingProjectCreation.cloneRemoteUrl === undefined
+                  ? "Add project"
+                  : "Clone and add project"}
+            </Button>
+          </CommandFooter>
+        </Command>
+      </CommandDialogPopup>
+    );
+  }
+
   return (
     <CommandDialogPopup
       aria-label="Command palette"
@@ -2195,7 +2320,7 @@ function OpenCommandPaletteDialog(props: {
                   />
                 }
               >
-                <span>{isRemoteProjectPending ? "Working" : remoteProjectButtonLabel}</span>
+                <span>{isRemoteProjectLookingUp ? "Working" : remoteProjectButtonLabel}</span>
                 <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
                   <Kbd>Enter</Kbd>
                 </KbdGroup>
@@ -2217,10 +2342,7 @@ function OpenCommandPaletteDialog(props: {
                       hasHighlightedBrowseItem ? "gap-1" : "gap-1.5",
                     )}
                     aria-label={`${submitActionLabel} (${addShortcutLabel})`}
-                    disabled={
-                      relativePathNeedsActiveProject ||
-                      (isCloneDestinationStep && isRemoteProjectPending)
-                    }
+                    disabled={relativePathNeedsActiveProject}
                     onMouseDown={(event) => {
                       event.preventDefault();
                     }}
@@ -2237,9 +2359,7 @@ function OpenCommandPaletteDialog(props: {
                   />
                 }
               >
-                <span>
-                  {isCloneDestinationStep && isRemoteProjectPending ? "Cloning" : submitActionLabel}
-                </span>
+                <span>{submitActionLabel}</span>
                 <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
                   <Kbd>{hasHighlightedBrowseItem ? `${submitModifierLabel} Enter` : "Enter"}</Kbd>
                 </KbdGroup>

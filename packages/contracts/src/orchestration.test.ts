@@ -158,6 +158,64 @@ it.effect("decodes project.create with createWorkspaceRootIfMissing enabled", ()
   }),
 );
 
+it.effect("decodes a creation-time project avatar", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectCreateCommand({
+      type: "project.create",
+      commandId: "cmd-1",
+      projectId: "project-1",
+      title: "Project Title",
+      workspaceRoot: "/tmp/workspace",
+      icon: { _tag: "avatar", seed: " workspace~2 ", text: " PT " },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.icon, {
+      _tag: "avatar",
+      seed: "workspace~2",
+      text: "PT",
+    });
+  }),
+);
+
+it.effect("rejects project avatar text longer than three characters", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.exit(
+      decodeProjectCreateCommand({
+        type: "project.create",
+        commandId: "cmd-1",
+        projectId: "project-1",
+        title: "Project Title",
+        workspaceRoot: "/tmp/workspace",
+        icon: { _tag: "avatar", seed: "workspace~2", text: "LONG" },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("counts project avatar text by Unicode code point", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectCreateCommand({
+      type: "project.create",
+      commandId: "cmd-unicode-icon",
+      projectId: "project-unicode-icon",
+      title: "Unicode Project",
+      workspaceRoot: "/tmp/unicode-project",
+      icon: { _tag: "avatar", seed: "unicode-project", text: "𐐀𐐁𐐂" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.icon, {
+      _tag: "avatar",
+      seed: "unicode-project",
+      text: "𐐀𐐁𐐂",
+    });
+  }),
+);
+
 it.effect("decodes historical project.created payloads with a default provider", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeProjectCreatedPayload({

@@ -369,4 +369,67 @@ describe("environment entity projections", () => {
     expect(harness.registry.get(messagesAtom)).toBe(messages);
     expect(harness.registry.get(activitiesAtom)).toBe(activities);
   });
+
+  it("resolves project icons by workspace root", () => {
+    const harness = makeHarness();
+    const iconAtom = harness.projects.projectIconAtom({
+      environmentId: ENVIRONMENT_ID,
+      workspaceRoot: "/repo",
+    });
+    const otherIconAtom = harness.projects.projectIconAtom({
+      environmentId: ENVIRONMENT_ID,
+      workspaceRoot: "/other-repo",
+    });
+
+    expect(harness.registry.get(iconAtom)).toBeNull();
+
+    harness.registry.set(
+      harness.shellStateAtom,
+      AsyncResult.success(
+        shellState({
+          ...SNAPSHOT,
+          snapshotSequence: 2,
+          projects: SNAPSHOT.projects.map((project) =>
+            project.id === PROJECT_ID
+              ? { ...project, icon: { _tag: "avatar" as const, seed: "/repo~2", text: "RE" } }
+              : project,
+          ),
+        }),
+      ),
+    );
+
+    expect(harness.registry.get(iconAtom)).toEqual({
+      _tag: "avatar",
+      seed: "/repo~2",
+      text: "RE",
+    });
+    expect(harness.registry.get(otherIconAtom)).toBeNull();
+  });
+
+  it("keeps icon identity stable across unrelated project updates", () => {
+    const harness = makeHarness();
+    const iconAtom = harness.projects.projectIconAtom({
+      environmentId: ENVIRONMENT_ID,
+      workspaceRoot: "/repo",
+    });
+    const withIcon = (title: string) =>
+      AsyncResult.success(
+        shellState({
+          ...SNAPSHOT,
+          snapshotSequence: 2,
+          projects: SNAPSHOT.projects.map((project) =>
+            project.id === PROJECT_ID
+              ? { ...project, title, icon: { _tag: "avatar" as const, seed: "/repo~2" } }
+              : project,
+          ),
+        }),
+      );
+
+    harness.registry.set(harness.shellStateAtom, withIcon("Project"));
+    const icon = harness.registry.get(iconAtom);
+
+    // A rename re-creates the project object; the icon must not repaint.
+    harness.registry.set(harness.shellStateAtom, withIcon("Renamed"));
+    expect(harness.registry.get(iconAtom)).toBe(icon);
+  });
 });

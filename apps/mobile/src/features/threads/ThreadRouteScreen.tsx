@@ -17,11 +17,13 @@ import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vc
 import { vcsEnvironment } from "../../state/vcs";
 
 import { EmptyState } from "../../components/EmptyState";
+import { AppText as Text } from "../../components/AppText";
 import {
   AndroidScreenHeader,
   type AndroidHeaderAction,
 } from "../../components/AndroidScreenHeader";
 import { LoadingScreen } from "../../components/LoadingScreen";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
@@ -94,6 +96,30 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
 
 function OpeningThreadLoadingScreen() {
   return <LoadingScreen message="Opening thread…" messagePlacement="above-spinner" />;
+}
+
+function ThreadHeaderTitle() {
+  const { selectedThread, selectedThreadProject } = useThreadSelection();
+  if (selectedThread === null) return null;
+
+  return (
+    <View className="max-w-[220px] flex-row items-center gap-2">
+      {selectedThreadProject !== null ? (
+        <ProjectFavicon
+          environmentId={selectedThread.environmentId}
+          projectTitle={selectedThreadProject.title}
+          workspaceRoot={selectedThreadProject.workspaceRoot}
+          size={20}
+        />
+      ) : null}
+      <Text
+        className="min-w-0 flex-shrink text-[17px] font-aqqua-bold text-foreground"
+        numberOfLines={1}
+      >
+        {selectedThread.title}
+      </Text>
+    </View>
+  );
 }
 
 type ThreadRouteScreenRouteProps = StaticScreenProps<{
@@ -808,7 +834,7 @@ function ThreadRouteContent(
           // Android draws its own in-flow header (AndroidScreenHeader below);
           // the native stack header stays iOS-only.
           headerShown: Platform.OS !== "android",
-          headerTitle: selectedThread.title,
+          headerTitle: ThreadHeaderTitle,
           headerTitleStyle: usesNativeHeaderGlass
             ? {
                 fontSize: 17,
@@ -837,12 +863,23 @@ function ThreadRouteContent(
               : undefined,
           unstable_headerSubtitle: usesNativeHeaderGlass ? headerSubtitle : undefined,
         }}
+        optionsVersion={`${selectedThread.title}:${selectedThreadProject?.workspaceRoot ?? ""}`}
       />
 
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title={selectedThread.title}
           subtitle={headerSubtitle}
+          leading={
+            selectedThreadProject ? (
+              <ProjectFavicon
+                environmentId={selectedThread.environmentId}
+                projectTitle={selectedThreadProject.title}
+                workspaceRoot={selectedThreadProject.workspaceRoot}
+                size={24}
+              />
+            ) : null
+          }
           onBack={layout.usesSplitView ? undefined : () => navigation.goBack()}
           actions={androidHeaderActions}
         />

@@ -23,6 +23,10 @@ The top-level workspace record in the app. In [the orchestration contracts][1], 
 
 The root filesystem path for a project. In [the orchestration model][1], it is the base directory for branches and optional worktrees. See [workspace-layout.md][2].
 
+#### Project icon
+
+A project's chosen `icon` in [the orchestration contracts][1], which outranks favicon discovery. Today the only kind is `avatar`: a gradient generated from a `seed` with optional `text` initials, ported from vercel/avatar and rendered locally. A project without one falls back to the favicon found in its workspace, then to a folder glyph. See [project-icons.md](../user/project-icons.md).
+
 #### Worktree
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live in [GitCore.ts][3].
