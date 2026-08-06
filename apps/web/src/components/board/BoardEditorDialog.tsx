@@ -10,10 +10,12 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type {
+  AgentProfileMap,
   BoardStepId,
   EnvironmentId,
   OrchestrationBoard,
   ProviderDriverKind,
+  ProviderInstanceId,
 } from "@aqqua/contracts";
 import {
   ChevronDownIcon,
@@ -26,6 +28,9 @@ import { Fragment, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import type { ProviderWorkspaceSkillsState } from "../../lib/providerSkillsState";
+import type { ProviderInstanceEntry } from "../../providerInstances";
+import type { ModelEsque } from "../chat/providerIconUtils";
+import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Button } from "../ui/button";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
@@ -33,7 +38,12 @@ import {
   type BoardStepDraft,
   CONTINUATION_OPTIONS,
   insertSkillToken,
+  reasoningDescriptorForModel,
+  resolveStepAgentDisplay,
+  resolveStepAgentFallbackDisplay,
   segmentTemplate,
+  type StepAgentDisplay,
+  stepAgentSelection,
   type TemplatePlaceholderOption,
 } from "./BoardEditorDialog.logic";
 import { PromptEditor, SkillsMenu } from "./BoardPromptEditor";
@@ -59,12 +69,20 @@ function profileDotClass(name: string): string {
   return PROFILE_DOT_CLASSES[Math.abs(hash) % PROFILE_DOT_CLASSES.length] ?? "bg-violet-500";
 }
 
-function stepAgentLabel(step: BoardStepDraft): string {
+/** Chip label for a step's agent: the display model's name, else the raw selector. */
+function stepAgentLabel(step: BoardStepDraft, display: StepAgentDisplay | null): string {
+  if (display !== null) {
+    const model = display.entry.models.find((candidate) => candidate.slug === display.model);
+    return model?.shortName ?? model?.name ?? display.model;
+  }
   return (
     step.profileName ||
     (step.agent === undefined ? "agent" : `${step.agent.instanceId}/${step.agent.model}`)
   );
 }
+
+/** Sentinel radio value for "no explicit reasoning level" (the model's default). */
+const REASONING_DEFAULT_VALUE = "__default__";
 
 export function BoardEditorDialog({
   open,
@@ -145,6 +163,7 @@ function BoardEditorForm({
   });
   const {
     addStep,
+    agentProfiles,
     boardNameRef,
     cardFieldCount,
     draft,
@@ -158,8 +177,9 @@ function BoardEditorForm({
     handleSubmit,
     hasAttemptedSubmit,
     isMac,
+    modelOptionsByInstance,
     patchStep,
-    profileNames,
+    providerEntries,
     registerNameRef,
     removeStepById,
     reorderSteps,
@@ -213,7 +233,9 @@ function BoardEditorForm({
         steps={draft.steps}
         focusedStepId={focusedStepId}
         stepErrors={hasAttemptedSubmit ? errors.steps : null}
-        profileNames={profileNames}
+        agentProfiles={agentProfiles}
+        providerEntries={providerEntries}
+        modelOptionsByInstance={modelOptionsByInstance}
         skills={focusedSkillsProvider === null ? null : focusedStepSkills}
         skillsDriver={focusedSkillsProvider?.driver ?? null}
         placeholderOptions={focusedPlaceholderOptions}
@@ -261,7 +283,9 @@ function StepListSection({
   steps,
   focusedStepId,
   stepErrors,
-  profileNames,
+  agentProfiles,
+  providerEntries,
+  modelOptionsByInstance,
   skills,
   skillsDriver,
   placeholderOptions,
@@ -277,7 +301,9 @@ function StepListSection({
   readonly focusedStepId: BoardStepId | null;
   /** `null` until a submit attempt surfaces validation. */
   readonly stepErrors: Readonly<Record<string, string>> | null;
-  readonly profileNames: ReadonlyArray<string>;
+  readonly agentProfiles: AgentProfileMap | undefined;
+  readonly providerEntries: ReadonlyArray<ProviderInstanceEntry>;
+  readonly modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   readonly skills: ProviderWorkspaceSkillsState | null;
   readonly skillsDriver: ProviderDriverKind | null;
   readonly placeholderOptions: ReadonlyArray<TemplatePlaceholderOption>;
@@ -345,7 +371,9 @@ function StepListSection({
                         index={index}
                         step={step}
                         drag={drag}
-                        profileNames={profileNames}
+                        agentProfiles={agentProfiles}
+                        providerEntries={providerEntries}
+                        modelOptionsByInstance={modelOptionsByInstance}
                         skills={skills}
                         skillsDriver={skillsDriver}
                         placeholderOptions={placeholderOptions}
@@ -359,6 +387,8 @@ function StepListSection({
                         index={index}
                         step={step}
                         drag={drag}
+                        agentProfiles={agentProfiles}
+                        providerEntries={providerEntries}
                         hasError={error !== null}
                         onExpand={() => {
                           if (dragActiveRef.current) return;
@@ -450,6 +480,8 @@ function CollapsedStep({
   index,
   step,
   drag,
+  agentProfiles,
+  providerEntries,
   hasError,
   onExpand,
   onRemove,
@@ -457,10 +489,13 @@ function CollapsedStep({
   readonly index: number;
   readonly step: BoardStepDraft;
   readonly drag: StepDragHandle;
+  readonly agentProfiles: AgentProfileMap | undefined;
+  readonly providerEntries: ReadonlyArray<ProviderInstanceEntry>;
   readonly hasError: boolean;
   readonly onExpand: () => void;
   readonly onRemove: () => void;
 }) {
+  const display = resolveStepAgentDisplay(step, agentProfiles, providerEntries);
   // Newlines collapse so the one-line preview truncates instead of clipping.
   const previewSegments = useMemo(
     () => segmentTemplate(step.promptTemplate.replace(/\s+/g, " ").trim()),
@@ -519,7 +554,10 @@ function CollapsedStep({
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <StepChip dotClass={profileDotClass(stepAgentLabel(step))} label={stepAgentLabel(step)} />
+        <StepChip
+          dotClass={profileDotClass(display?.entry.instanceId ?? stepAgentLabel(step, display))}
+          label={stepAgentLabel(step, display)}
+        />
         <StepChip
           dotClass={step.continuation === "auto" ? "bg-success" : "bg-warning"}
           label={step.continuation === "auto" ? "auto-continue" : "waits"}
@@ -547,6 +585,15 @@ function StepChip({ dotClass, label }: { readonly dotClass: string; readonly lab
     </span>
   );
 }
+
+/**
+ * The composer's tabbed model picker restyled to the step chips' scale: chip
+ * height, radius, border, and label size override the composer-control base.
+ */
+const STEP_MODEL_TRIGGER_CLASSNAME =
+  "h-[22px] min-h-0 min-w-0 shrink gap-1.5 rounded-sm border-border bg-background/40 px-1.5 " +
+  "text-[11px] text-foreground/85 before:rounded-[3px] hover:text-foreground " +
+  "sm:h-[22px] sm:text-[11px]";
 
 function ChipMenu({
   dotClass,
@@ -580,7 +627,9 @@ function ExpandedStep({
   index,
   step,
   drag,
-  profileNames,
+  agentProfiles,
+  providerEntries,
+  modelOptionsByInstance,
   skills,
   skillsDriver,
   placeholderOptions,
@@ -592,8 +641,10 @@ function ExpandedStep({
   readonly index: number;
   readonly step: BoardStepDraft;
   readonly drag: StepDragHandle;
-  readonly profileNames: ReadonlyArray<string>;
-  /** `null` when the step's profile resolves to no configured provider. */
+  readonly agentProfiles: AgentProfileMap | undefined;
+  readonly providerEntries: ReadonlyArray<ProviderInstanceEntry>;
+  readonly modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
+  /** `null` when the step's agent resolves to no configured provider. */
   readonly skills: ProviderWorkspaceSkillsState | null;
   readonly skillsDriver: ProviderDriverKind | null;
   readonly placeholderOptions: ReadonlyArray<TemplatePlaceholderOption>;
@@ -603,6 +654,23 @@ function ExpandedStep({
   readonly onRemove: () => void;
 }) {
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const display = resolveStepAgentDisplay(step, agentProfiles, providerEntries);
+  // An unresolvable selector must still be replaceable: anchor the picker to
+  // an enabled instance with a real model, and keep the unavailable chip when
+  // this machine has no usable provider/model pair at all.
+  const pickerDisplay =
+    display ?? resolveStepAgentFallbackDisplay(providerEntries, modelOptionsByInstance);
+  const reasoningDescriptor =
+    pickerDisplay === null
+      ? undefined
+      : reasoningDescriptorForModel(
+          pickerDisplay.entry.models.find((candidate) => candidate.slug === pickerDisplay.model),
+        );
+  const reasoningLabel =
+    reasoningDescriptor === undefined
+      ? null
+      : (reasoningDescriptor.options.find((choice) => choice.id === pickerDisplay?.reasoning)
+          ?.label ?? reasoningDescriptor.label);
 
   const insertSkill = (skillName: string) => {
     const textarea = promptRef.current;
@@ -644,30 +712,67 @@ function ExpandedStep({
             onChange={(event) => onPatch({ name: event.target.value })}
           />
           <div className="flex shrink-0 items-center gap-1.5">
-            <ChipMenu
-              ariaLabel={`Step ${index + 1} agent profile`}
-              dotClass={profileDotClass(stepAgentLabel(step))}
-              label={stepAgentLabel(step)}
-            >
-              <MenuRadioGroup
-                value={step.profileName}
-                onValueChange={(value) => {
-                  if (typeof value === "string") onPatch({ profileName: value, agent: undefined });
-                }}
-              >
-                {profileNames.map((name) => (
-                  <MenuRadioItem key={name} value={name}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className={cn("size-1.5 rounded-full", profileDotClass(name))}
-                      />
-                      {name}
-                    </span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </ChipMenu>
+            {pickerDisplay === null ? (
+              <StepChip
+                dotClass="bg-destructive/70"
+                label={`${stepAgentLabel(step, display)} (unavailable)`}
+              />
+            ) : (
+              <>
+                <ProviderModelPicker
+                  activeInstanceId={pickerDisplay.entry.instanceId}
+                  model={pickerDisplay.model}
+                  lockedProvider={null}
+                  instanceEntries={providerEntries}
+                  modelOptionsByInstance={modelOptionsByInstance}
+                  compact
+                  triggerClassName={STEP_MODEL_TRIGGER_CLASSNAME}
+                  activeProviderIconClassName="size-3.5"
+                  triggerAriaLabel={`Step ${index + 1} model`}
+                  onInstanceModelChange={(instanceId, model) => {
+                    const entry = providerEntries.find(
+                      (candidate) => candidate.instanceId === instanceId,
+                    );
+                    if (entry === undefined) return;
+                    onPatch({
+                      agent: stepAgentSelection(entry, model, pickerDisplay.reasoning),
+                      profileName: "",
+                    });
+                  }}
+                />
+                {reasoningDescriptor === undefined ? null : (
+                  <ChipMenu
+                    ariaLabel={`Step ${index + 1} reasoning`}
+                    dotClass={
+                      pickerDisplay.reasoning === null ? "bg-muted-foreground/50" : "bg-amber-500"
+                    }
+                    label={reasoningLabel ?? "Reasoning"}
+                  >
+                    <MenuRadioGroup
+                      value={pickerDisplay.reasoning ?? REASONING_DEFAULT_VALUE}
+                      onValueChange={(value) => {
+                        if (typeof value !== "string") return;
+                        onPatch({
+                          agent: stepAgentSelection(
+                            pickerDisplay.entry,
+                            pickerDisplay.model,
+                            value === REASONING_DEFAULT_VALUE ? null : value,
+                          ),
+                          profileName: "",
+                        });
+                      }}
+                    >
+                      <MenuRadioItem value={REASONING_DEFAULT_VALUE}>Model default</MenuRadioItem>
+                      {reasoningDescriptor.options.map((choice) => (
+                        <MenuRadioItem key={choice.id} value={choice.id}>
+                          {choice.label}
+                        </MenuRadioItem>
+                      ))}
+                    </MenuRadioGroup>
+                  </ChipMenu>
+                )}
+              </>
+            )}
             <ChipMenu
               ariaLabel={`Step ${index + 1} continuation`}
               dotClass={step.continuation === "auto" ? "bg-success" : "bg-warning"}

@@ -12,6 +12,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { useProviderWorkspaceSkills } from "../../lib/providerSkillsState";
 import { isMacPlatform, randomUUID } from "../../lib/utils";
+import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  sortProviderInstanceEntries,
+} from "../../providerInstances";
 import { serverEnvironment } from "../../state/server";
 import { buildAgentProfileRows } from "../settings/AgentProfilesSettings.logic";
 import {
@@ -49,10 +55,10 @@ export function useBoardEditorController({
   readonly isSaving: boolean;
   readonly onSave: (input: BoardEditorSubmit) => Promise<void>;
 }) {
-  const agentProfiles = usePrimarySettings((settings) => settings.agentProfiles);
+  const settings = usePrimarySettings();
+  const agentProfiles = usePrimarySettings((current) => current.agentProfiles);
   const profileRows = useMemo(() => buildAgentProfileRows(agentProfiles), [agentProfiles]);
-  const profileNames = useMemo(() => profileRows.map((row) => row.name), [profileRows]);
-  const defaultProfileName = profileNames[0] ?? "implementer";
+  const defaultProfileName = profileRows[0]?.name ?? "implementer";
   const [draft, setDraft] = useState<BoardDraft>(() =>
     board === null
       ? {
@@ -87,6 +93,20 @@ export function useBoardEditorController({
     [draft.steps],
   );
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const providerEntries = useMemo(
+    () =>
+      sortProviderInstanceEntries(
+        applyProviderInstanceSettings(
+          deriveProviderInstanceEntries(serverConfig?.providers ?? []),
+          settings,
+        ),
+      ),
+    [serverConfig?.providers, settings],
+  );
+  const modelOptionsByInstance = useMemo(
+    () => getCustomModelOptionsByInstance(settings, serverConfig?.providers ?? []),
+    [serverConfig?.providers, settings],
+  );
   const focusedStep = draft.steps.find((step) => step.id === focusedStepId) ?? null;
   const focusedSkillsProvider = useMemo(() => {
     if (focusedStep === null) return null;
@@ -175,6 +195,7 @@ export function useBoardEditorController({
 
   return {
     addStep,
+    agentProfiles,
     boardNameRef,
     cardFieldCount,
     draft,
@@ -188,8 +209,9 @@ export function useBoardEditorController({
     handleSubmit,
     hasAttemptedSubmit,
     isMac,
+    modelOptionsByInstance,
     patchStep,
-    profileNames,
+    providerEntries,
     registerNameRef(id: BoardStepId, node: HTMLInputElement | null) {
       if (node === null) stepNameRefs.current.delete(id);
       else stepNameRefs.current.set(id, node);

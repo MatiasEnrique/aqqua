@@ -1,12 +1,21 @@
 import {
+  type AgentProfileMap,
   type AgentProfileTarget,
   BoardStepId,
   type BoardStep,
   type BoardStepContinuation,
   type OrchestrationBoard,
+  type ProviderOptionDescriptor,
   type ServerProvider,
+  type ServerProviderModel,
 } from "@aqqua/contracts";
 import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
+
+import type { ProviderInstanceEntry } from "../../providerInstances";
+import {
+  BUILT_IN_IMPLEMENTER_PROFILE,
+  getAgentProfile,
+} from "../settings/AgentProfilesSettings.logic";
 
 /** Editing shape: plain form strings plus any canonical selector that must survive editing. */
 export interface BoardStepDraft {
@@ -167,6 +176,112 @@ export function toBoardSteps(draft: BoardDraft): ReadonlyArray<BoardStep> {
     if (step.agent !== undefined) return { ...shared, agent: step.agent };
     throw new Error(`Step '${step.name}' has no agent selector.`);
   });
+}
+
+/** The reasoning select a model advertises, whatever its provider calls it. */
+export function reasoningDescriptorForModel(model: ServerProviderModel | undefined) {
+  return (model?.capabilities?.optionDescriptors ?? []).find(
+    (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
+      descriptor.type === "select" && descriptor.semantic === "reasoning",
+  );
+}
+
+export interface StepAgentDisplay {
+  readonly entry: ProviderInstanceEntry;
+  readonly model: string;
+  readonly reasoning: string | null;
+}
+
+/**
+ * A replacement selector for a step whose stored agent no longer resolves.
+ * Only instances with a visible model option can back the picker; custom-only
+ * instances therefore remain usable, while an empty model is never invented.
+ */
+export function resolveStepAgentFallbackDisplay(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  modelOptionsByInstance: ReadonlyMap<
+    ProviderInstanceEntry["instanceId"],
+    ReadonlyArray<{ readonly slug: string }>
+  >,
+): StepAgentDisplay | null {
+  for (const entry of entries) {
+    if (!entry.enabled || !entry.isAvailable) continue;
+    const options = modelOptionsByInstance.get(entry.instanceId) ?? [];
+    const defaultModel = entry.models.find((candidate) => candidate.isDefault)?.slug;
+    const model = options.find((option) => option.slug === defaultModel)?.slug ?? options[0]?.slug;
+    if (model !== undefined) return { entry, model, reasoning: null };
+  }
+  return null;
+}
+
+/**
+ * What the model picker shows for a step: its canonical `agent` when set,
+ * otherwise its legacy profile resolved against the live provider instances,
+ * mirroring the server's compatibility adapter (instance target wins, else the
+ * first enabled instance of the driver target). `null` when nothing on this
+ * machine can display it — no matching instance, or no instances at all.
+ */
+export function resolveStepAgentDisplay(
+  step: Pick<BoardStepDraft, "agent" | "profileName">,
+  agentProfiles: AgentProfileMap | undefined,
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+): StepAgentDisplay | null {
+  const agent = step.agent;
+  if (agent !== undefined) {
+    const entry = entries.find((candidate) => candidate.instanceId === agent.instanceId);
+    if (entry === undefined) return null;
+    return { entry, model: agent.model, reasoning: agent.reasoning ?? null };
+  }
+
+  // Unknown names fall back to the built-in implementer configuration so the
+  // picker still shows a concrete starting point the user can change.
+  const profile =
+    getAgentProfile(agentProfiles, step.profileName.trim()) ?? BUILT_IN_IMPLEMENTER_PROFILE;
+  const target = profile.target;
+  const entry =
+    target.kind === "instance"
+      ? entries.find((candidate) => candidate.instanceId === target.instanceId)
+      : entries.find((candidate) => candidate.enabled && candidate.driverKind === target.driver);
+  if (entry === undefined) return null;
+  const model =
+    profile.model ??
+    entry.models.find((candidate) => candidate.isDefault)?.slug ??
+    entry.models[0]?.slug;
+  if (model === undefined) return null;
+  const descriptor = reasoningDescriptorForModel(
+    entry.models.find((candidate) => candidate.slug === model),
+  );
+  const reasoningSelection =
+    descriptor === undefined
+      ? undefined
+      : (profile.options ?? []).find((option) => option.id === descriptor.id);
+  return {
+    entry,
+    model,
+    reasoning: typeof reasoningSelection?.value === "string" ? reasoningSelection.value : null,
+  };
+}
+
+/**
+ * Canonical selection for a picked instance + model. Carries a reasoning level
+ * only when the chosen model actually advertises that choice, so a provider or
+ * model switch cannot leave behind a level the spawn would reject.
+ */
+export function stepAgentSelection(
+  entry: ProviderInstanceEntry,
+  model: string,
+  reasoning: string | null,
+): NonNullable<BoardStep["agent"]> {
+  const descriptor = reasoningDescriptorForModel(
+    entry.models.find((candidate) => candidate.slug === model),
+  );
+  const keepsReasoning =
+    reasoning !== null && (descriptor?.options ?? []).some((choice) => choice.id === reasoning);
+  return {
+    instanceId: entry.instanceId,
+    model,
+    ...(keepsReasoning ? { reasoning } : {}),
+  };
 }
 
 export function makeBoardStepId(id: string): BoardStepId {
