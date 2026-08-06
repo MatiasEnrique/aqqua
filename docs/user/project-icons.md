@@ -17,8 +17,8 @@ apart in a long sidebar. That is what avatars are for.
 
 When you add a project, aqqua asks you to confirm its automatic icon or choose an avatar before it
 creates the project. For an existing project, right-click it in the web or desktop sidebar and open
-**Project settings**, or open **Settings → Project Icons** on mobile. The picker offers twelve
-gradients plus an initials field:
+**Project settings**, or open **Settings → Project Icons** on mobile. The picker offers up to
+twelve gradients plus an initials field:
 
 - **Gradients** are generated, not stored as images. Each swatch is seeded from the project's
   workspace path, so two projects with the same name still get different artwork, and the same

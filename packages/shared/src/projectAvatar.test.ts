@@ -5,8 +5,10 @@ import {
   projectAvatarGradientId,
   projectAvatarHue,
   projectAvatarInitials,
+  remapProjectAvatarSeed,
   projectAvatarSeedVariants,
   projectAvatarSvg,
+  truncateProjectAvatarText,
 } from "./projectAvatar.ts";
 
 describe("projectAvatarGradient", () => {
@@ -47,6 +49,8 @@ describe("projectAvatarInitials", () => {
     ["a", "A"],
     ["  spaced   out  ", "SO"],
     ["用户 项目", "用项"],
+    ["𐐀𐐁", "𐐀𐐁"],
+    ["𐐀 project", "𐐀P"],
   ])("derives %s -> %s", (title, expected) => {
     expect(projectAvatarInitials(title)).toBe(expected);
   });
@@ -54,6 +58,10 @@ describe("projectAvatarInitials", () => {
   it("returns nothing when there is no letter or digit", () => {
     expect(projectAvatarInitials("---")).toBe("");
     expect(projectAvatarInitials("")).toBe("");
+  });
+
+  it("truncates by Unicode code point", () => {
+    expect(truncateProjectAvatarText("𐐀𐐁𐐂𐐃")).toBe("𐐀𐐁𐐂");
   });
 });
 
@@ -84,6 +92,20 @@ describe("projectAvatarSeedVariants", () => {
     expect(seeds).toHaveLength(12);
     expect(new Set(seeds).size).toBe(12);
     expect(seeds.every((seed) => seed.length <= 256)).toBe(true);
+  });
+
+  it("remaps a selected variant when a clone canonicalizes its root", () => {
+    const beforeRoot = "/tmp/repository/../project";
+    const afterRoot = "/tmp/project";
+    const selected = projectAvatarSeedVariants(beforeRoot, 12)[4];
+    if (selected === undefined) throw new Error("Expected a fifth avatar variant.");
+    expect(remapProjectAvatarSeed(selected, beforeRoot, afterRoot)).toBe(
+      projectAvatarSeedVariants(afterRoot, 12)[4],
+    );
+  });
+
+  it("preserves seeds that did not come from the picker", () => {
+    expect(remapProjectAvatarSeed("custom-seed", "/tmp/old", "/tmp/new")).toBe("custom-seed");
   });
 });
 

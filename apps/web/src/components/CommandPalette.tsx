@@ -24,6 +24,7 @@ import {
   type ScopedProjectRef,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@aqqua/contracts";
+import { remapProjectAvatarSeed } from "@aqqua/shared/projectAvatar";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
@@ -1602,6 +1603,7 @@ function OpenCommandPaletteDialog(props: {
     setIsPendingProjectCreationSubmitting(true);
 
     let workspaceRoot = pendingProjectCreation.workspaceRoot;
+    let icon = pendingProjectCreation.icon;
     if (pendingProjectCreation.cloneRemoteUrl !== undefined) {
       const cloneResult = await cloneRepository({
         environmentId: pendingProjectCreation.environmentId,
@@ -1624,10 +1626,20 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
       workspaceRoot = cloneResult.value.cwd;
+      if (icon !== null) {
+        icon = {
+          ...icon,
+          seed: remapProjectAvatarSeed(
+            icon.seed,
+            pendingProjectCreation.workspaceRoot,
+            workspaceRoot,
+          ),
+        };
+      }
       setPendingProjectCreation({
         environmentId: pendingProjectCreation.environmentId,
         workspaceRoot,
-        icon: pendingProjectCreation.icon,
+        icon,
       });
     }
 
@@ -1648,7 +1660,7 @@ function OpenCommandPaletteDialog(props: {
           targetEnvironmentProviders,
           null,
         ),
-        ...(pendingProjectCreation.icon === null ? {} : { icon: pendingProjectCreation.icon }),
+        ...(icon === null ? {} : { icon }),
       },
     });
     if (createResult._tag === "Failure") {
@@ -1936,11 +1948,10 @@ function OpenCommandPaletteDialog(props: {
       ? "Continue"
       : "Lookup"
     : null;
-  const isRemoteProjectPending = isRemoteProjectLookingUp;
   const canSubmitRemoteProjectFlow =
     addProjectCloneFlow?.step === "repository" &&
     query.trim().length > 0 &&
-    !isRemoteProjectPending;
+    !isRemoteProjectLookingUp;
   const fileManagerName = getLocalFileManagerName(navigator.platform);
   const canOpenProjectFromFileManager =
     isBrowsing &&
@@ -2172,13 +2183,17 @@ function OpenCommandPaletteDialog(props: {
           composerHandleRef?.current?.focusAtEnd();
           return false;
         }}
-        onBackdropPointerDown={() => setOpen(false)}
+        onBackdropPointerDown={() => {
+          if (isPendingProjectCreationSubmitting) return;
+          setOpen(false);
+        }}
       >
         <Command aria-label="Choose a project icon" autoHighlight={false} mode="none">
           <div className="flex min-h-12 items-center gap-3 border-b px-3">
             <button
               type="button"
-              className="flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={isPendingProjectCreationSubmitting}
+              className="flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-50 disabled:active:scale-100"
               aria-label="Back"
               onClick={() => setPendingProjectCreation(null)}
             >
@@ -2202,6 +2217,7 @@ function OpenCommandPaletteDialog(props: {
                 )
               }
               idPrefix="create-project-icon"
+              disabled={isPendingProjectCreationSubmitting}
             />
           </CommandPanel>
           <CommandFooter className="justify-end">
@@ -2304,7 +2320,7 @@ function OpenCommandPaletteDialog(props: {
                   />
                 }
               >
-                <span>{isRemoteProjectPending ? "Working" : remoteProjectButtonLabel}</span>
+                <span>{isRemoteProjectLookingUp ? "Working" : remoteProjectButtonLabel}</span>
                 <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
                   <Kbd>Enter</Kbd>
                 </KbdGroup>
@@ -2326,10 +2342,7 @@ function OpenCommandPaletteDialog(props: {
                       hasHighlightedBrowseItem ? "gap-1" : "gap-1.5",
                     )}
                     aria-label={`${submitActionLabel} (${addShortcutLabel})`}
-                    disabled={
-                      relativePathNeedsActiveProject ||
-                      (isCloneDestinationStep && isRemoteProjectPending)
-                    }
+                    disabled={relativePathNeedsActiveProject}
                     onMouseDown={(event) => {
                       event.preventDefault();
                     }}
@@ -2346,9 +2359,7 @@ function OpenCommandPaletteDialog(props: {
                   />
                 }
               >
-                <span>
-                  {isCloneDestinationStep && isRemoteProjectPending ? "Cloning" : submitActionLabel}
-                </span>
+                <span>{submitActionLabel}</span>
                 <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
                   <Kbd>{hasHighlightedBrowseItem ? `${submitModifierLabel} Enter` : "Enter"}</Kbd>
                 </KbdGroup>

@@ -21,6 +21,7 @@ const TRIAD_DEGREES = 120;
 
 export const PROJECT_AVATAR_TEXT_MAX_LENGTH = 3;
 export const PROJECT_AVATAR_SEED_MAX_LENGTH = 256;
+export const PROJECT_AVATAR_VARIANT_COUNT = 12;
 
 /** Hues closer than this read as the same colour in a picker grid. */
 const VARIANT_MIN_HUE_DISTANCE = 20;
@@ -104,8 +105,17 @@ export function projectAvatarInitials(title: string): string {
   const words = title.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 0);
   const [first, second] = words;
   if (first === undefined) return "";
-  const initials = second === undefined ? first.slice(0, 2) : `${first[0]}${second[0]}`;
-  return initials.toUpperCase();
+  const firstCharacters = Array.from(first);
+  const initials =
+    second === undefined
+      ? firstCharacters.slice(0, 2).join("")
+      : `${firstCharacters[0] ?? ""}${Array.from(second)[0] ?? ""}`;
+  return truncateProjectAvatarText(initials.toUpperCase());
+}
+
+/** Keep user-visible initials within the wire limit by Unicode code point. */
+export function truncateProjectAvatarText(value: string): string {
+  return Array.from(value).slice(0, PROJECT_AVATAR_TEXT_MAX_LENGTH).join("");
 }
 
 /**
@@ -138,6 +148,24 @@ export function projectAvatarSeedVariants(base: string, count: number): Readonly
     hues.push(hue);
   }
   return seeds;
+}
+
+/**
+ * Preserve a selected swatch when a clone operation canonicalizes its path.
+ * Unknown/custom seeds stay untouched; picker seeds retain their variant index.
+ */
+export function remapProjectAvatarSeed(
+  seed: string,
+  previousRoot: string,
+  nextRoot: string,
+  count = PROJECT_AVATAR_VARIANT_COUNT,
+): string {
+  if (previousRoot === nextRoot) return seed;
+  const previousSeeds = projectAvatarSeedVariants(previousRoot, count);
+  const selectedIndex = previousSeeds.indexOf(seed);
+  if (selectedIndex < 0) return seed;
+  const nextSeeds = projectAvatarSeedVariants(nextRoot, count);
+  return nextSeeds[selectedIndex] ?? nextSeeds.at(-1) ?? seed;
 }
 
 const XML_ESCAPES: Record<string, string> = {

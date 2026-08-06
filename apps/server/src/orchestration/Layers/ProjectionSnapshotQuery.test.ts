@@ -51,6 +51,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
+          icon_json,
           created_at,
           updated_at,
           deleted_at
@@ -61,6 +62,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '/tmp/project-1',
           '{"provider":"codex","model":"gpt-5-codex"}',
           '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
+          '{"_tag":"avatar","seed":"project-1~2","text":"P1"}',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:01.000Z',
           NULL
@@ -277,6 +279,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               runOnWorktreeCreate: false,
             },
           ],
+          icon: { _tag: "avatar", seed: "project-1~2", text: "P1" },
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
           deletedAt: null,
@@ -393,6 +396,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               runOnWorktreeCreate: false,
             },
           ],
+          icon: { _tag: "avatar", seed: "project-1~2", text: "P1" },
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
         },
@@ -451,6 +455,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (threadDetail._tag === "Some") {
         assert.deepEqual(threadDetail.value, snapshot.threads[0]);
       }
+
+      const commandReadModel = yield* snapshotQuery.getCommandReadModel();
+      assert.deepEqual(commandReadModel.projects[0]?.icon, {
+        _tag: "avatar",
+        seed: "project-1~2",
+        text: "P1",
+      });
     }),
   );
 
@@ -880,6 +891,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
+          icon_json,
           created_at,
           updated_at,
           deleted_at
@@ -891,6 +903,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/workspace',
             '{"provider":"codex","model":"gpt-5-codex"}',
             '[]',
+            '{"_tag":"avatar","seed":"active-project","text":"AP"}',
             '2026-03-01T00:00:00.000Z',
             '2026-03-01T00:00:01.000Z',
             NULL
@@ -901,6 +914,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/deleted',
             NULL,
             '[]',
+            NULL,
             '2026-03-01T00:00:02.000Z',
             '2026-03-01T00:00:03.000Z',
             '2026-03-01T00:00:04.000Z'
@@ -981,6 +995,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(project._tag, "Some");
         if (project._tag === "Some") {
           assert.equal(project.value.id, asProjectId("project-active"));
+          assert.deepEqual(project.value.icon, {
+            _tag: "avatar",
+            seed: "active-project",
+            text: "AP",
+          });
         }
 
         const missingProject = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/missing");

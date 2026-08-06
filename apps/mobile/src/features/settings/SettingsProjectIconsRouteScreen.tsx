@@ -3,7 +3,7 @@ import type { EnvironmentProject } from "@aqqua/client-runtime/state/shell";
 import { EnvironmentId, ProjectId, type ProjectIcon } from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -150,6 +150,8 @@ export function SettingsProjectIconRouteScreen({
   const connection = useSavedRemoteConnection(environmentId);
   const storedIcon = useProjectIcon(environmentId, project?.workspaceRoot);
   const [pendingIcon, setPendingIcon] = useState<ProjectIcon | null | undefined>(undefined);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const updateInFlightRef = useRef(false);
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const icon = pendingIcon === undefined ? storedIcon : pendingIcon;
 
@@ -160,12 +162,16 @@ export function SettingsProjectIconRouteScreen({
   }, [pendingIcon, storedIcon]);
 
   const changeIcon = async (nextIcon: ProjectIcon | null) => {
-    if (project === null) return;
+    if (project === null || updateInFlightRef.current) return;
+    updateInFlightRef.current = true;
+    setIsUpdating(true);
     setPendingIcon(nextIcon);
     const result = await updateProject({
       environmentId: project.environmentId,
       input: { projectId: project.id, icon: nextIcon },
     });
+    updateInFlightRef.current = false;
+    setIsUpdating(false);
     if (AsyncResult.isFailure(result)) {
       setPendingIcon(undefined);
       const error = Cause.squash(result.cause);
@@ -209,6 +215,7 @@ export function SettingsProjectIconRouteScreen({
               title={project.title}
               workspaceRoot={project.workspaceRoot}
               value={icon}
+              disabled={isUpdating}
               onChange={(nextIcon) => void changeIcon(nextIcon)}
             />
           </View>

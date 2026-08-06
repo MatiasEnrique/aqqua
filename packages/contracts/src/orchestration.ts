@@ -264,6 +264,13 @@ export type ProjectScript = typeof ProjectScript.Type;
 
 const PROJECT_AVATAR_SEED_MAX_LENGTH = 256;
 const PROJECT_AVATAR_TEXT_MAX_LENGTH = 3;
+const ProjectAvatarText = TrimmedNonEmptyString.check(
+  Schema.makeFilter(
+    (value) =>
+      Array.from(value).length <= PROJECT_AVATAR_TEXT_MAX_LENGTH ||
+      `Project avatar text must contain at most ${PROJECT_AVATAR_TEXT_MAX_LENGTH} characters.`,
+  ),
+);
 
 /**
  * A user-chosen project icon, which wins over favicon discovery.
@@ -274,9 +281,7 @@ const PROJECT_AVATAR_TEXT_MAX_LENGTH = 3;
  */
 export const ProjectIcon = Schema.TaggedStruct("avatar", {
   seed: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_AVATAR_SEED_MAX_LENGTH)),
-  text: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_AVATAR_TEXT_MAX_LENGTH)),
-  ),
+  text: Schema.optional(ProjectAvatarText),
 });
 export type ProjectIcon = typeof ProjectIcon.Type;
 

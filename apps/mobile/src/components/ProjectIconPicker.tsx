@@ -1,8 +1,9 @@
 import type { ProjectIcon } from "@aqqua/contracts";
 import {
-  PROJECT_AVATAR_TEXT_MAX_LENGTH,
+  PROJECT_AVATAR_VARIANT_COUNT,
   projectAvatarInitials,
   projectAvatarSeedVariants,
+  truncateProjectAvatarText,
 } from "@aqqua/shared/projectAvatar";
 import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -11,8 +12,6 @@ import { AppText as Text, AppTextInput as TextInput } from "./AppText";
 import { ProjectAvatar } from "./ProjectAvatar";
 import { cn } from "../lib/cn";
 import { useThemeColor } from "../lib/useThemeColor";
-
-const VARIANT_COUNT = 12;
 
 function buildIcon(seed: string, text: string): ProjectIcon {
   return { _tag: "avatar", seed, ...(text.length > 0 ? { text } : {}) };
@@ -24,11 +23,12 @@ export function ProjectIconPicker(props: {
   readonly workspaceRoot: string;
   readonly value: ProjectIcon | null;
   readonly onChange: (icon: ProjectIcon | null) => void;
+  readonly disabled?: boolean | undefined;
 }) {
   const ringColor = useThemeColor("--color-primary");
   const borderColor = useThemeColor("--color-border");
   const seeds = useMemo(
-    () => projectAvatarSeedVariants(props.workspaceRoot, VARIANT_COUNT),
+    () => projectAvatarSeedVariants(props.workspaceRoot, PROJECT_AVATAR_VARIANT_COUNT),
     [props.workspaceRoot],
   );
   const defaultText = useMemo(() => projectAvatarInitials(props.title), [props.title]);
@@ -45,7 +45,7 @@ export function ProjectIconPicker(props: {
   };
 
   return (
-    <View className="gap-4">
+    <View className={cn("gap-4", props.disabled && "opacity-60")}>
       <View
         className="flex-row flex-wrap gap-3"
         accessibilityLabel="Project avatar"
@@ -58,7 +58,8 @@ export function ProjectIconPicker(props: {
               key={seed}
               accessibilityLabel={`Avatar option ${index + 1}`}
               accessibilityRole="radio"
-              accessibilityState={{ checked: selected }}
+              accessibilityState={{ checked: selected, disabled: props.disabled }}
+              disabled={props.disabled}
               onPress={() => {
                 setDraftText(null);
                 props.onChange(buildIcon(seed, text.trim()));
@@ -84,8 +85,7 @@ export function ProjectIconPicker(props: {
         <TextInput
           accessibilityLabel="Initials"
           value={text}
-          editable={props.value !== null}
-          maxLength={PROJECT_AVATAR_TEXT_MAX_LENGTH}
+          editable={props.value !== null && !props.disabled}
           autoCapitalize="characters"
           autoCorrect={false}
           placeholder={defaultText}
@@ -94,7 +94,7 @@ export function ProjectIconPicker(props: {
             "h-12 min-h-12 rounded-[20px] px-4 py-0 text-base",
             props.value === null && "opacity-45",
           )}
-          onChangeText={setDraftText}
+          onChangeText={(value) => setDraftText(truncateProjectAvatarText(value))}
           onBlur={commitText}
           onSubmitEditing={commitText}
         />
@@ -107,6 +107,8 @@ export function ProjectIconPicker(props: {
       ) : (
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ disabled: props.disabled }}
+          disabled={props.disabled}
           className="self-start rounded-full bg-subtle px-4 py-3 active:opacity-65"
           onPress={() => {
             setDraftText(null);

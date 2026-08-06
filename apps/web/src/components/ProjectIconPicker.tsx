@@ -1,16 +1,15 @@
 import type { ProjectIcon } from "@aqqua/contracts";
 import {
-  PROJECT_AVATAR_TEXT_MAX_LENGTH,
+  PROJECT_AVATAR_VARIANT_COUNT,
   projectAvatarInitials,
   projectAvatarSeedVariants,
+  truncateProjectAvatarText,
 } from "@aqqua/shared/projectAvatar";
 import { useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ProjectAvatar } from "./ProjectAvatar";
-
-const VARIANT_COUNT = 12;
 
 function buildIcon(seed: string, text: string): ProjectIcon {
   return { _tag: "avatar", seed, ...(text.length > 0 ? { text } : {}) };
@@ -30,11 +29,12 @@ export function ProjectIconPicker(props: {
   readonly value: ProjectIcon | null;
   readonly onChange: (icon: ProjectIcon | null) => void;
   readonly idPrefix: string;
+  readonly disabled?: boolean | undefined;
   readonly className?: string | undefined;
 }) {
   const { onChange, title, value, workspaceRoot } = props;
   const seeds = useMemo(
-    () => projectAvatarSeedVariants(workspaceRoot, VARIANT_COUNT),
+    () => projectAvatarSeedVariants(workspaceRoot, PROJECT_AVATAR_VARIANT_COUNT),
     [workspaceRoot],
   );
   const defaultText = useMemo(() => projectAvatarInitials(title), [title]);
@@ -52,14 +52,17 @@ export function ProjectIconPicker(props: {
   };
 
   return (
-    <div className={cn("grid gap-3", props.className)}>
-      <fieldset>
+    <div className={cn("grid gap-3", props.disabled && "opacity-60", props.className)}>
+      <fieldset disabled={props.disabled}>
         <legend className="sr-only">Project avatar</legend>
         <div className="grid grid-cols-6 gap-2 sm:grid-cols-12">
           {seeds.map((seed, index) => {
             const selected = value !== null && value.seed === seed;
             return (
-              <label key={seed} className="cursor-pointer rounded-lg">
+              <label
+                key={seed}
+                className={cn("rounded-lg", props.disabled ? "cursor-default" : "cursor-pointer")}
+              >
                 <input
                   type="radio"
                   name={`${props.idPrefix}-avatar`}
@@ -89,10 +92,9 @@ export function ProjectIconPicker(props: {
             autoComplete="off"
             className="w-24"
             value={text}
-            maxLength={PROJECT_AVATAR_TEXT_MAX_LENGTH}
             placeholder={defaultText}
-            disabled={value === null}
-            onChange={(event) => setDraftText(event.currentTarget.value)}
+            disabled={value === null || props.disabled}
+            onChange={(event) => setDraftText(truncateProjectAvatarText(event.currentTarget.value))}
             onBlur={commitText}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
@@ -107,6 +109,7 @@ export function ProjectIconPicker(props: {
           <Button
             type="button"
             variant="ghost"
+            disabled={props.disabled}
             className="mb-0.5"
             onClick={() => {
               setDraftText(null);

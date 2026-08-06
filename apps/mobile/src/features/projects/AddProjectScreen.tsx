@@ -22,6 +22,7 @@ import {
   inferProjectTitleFromPath,
 } from "@aqqua/client-runtime/state/projects";
 import { CommandId, type EnvironmentId, type ProjectIcon, ProjectId } from "@aqqua/contracts";
+import { remapProjectAvatarSeed } from "@aqqua/shared/projectAvatar";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -894,6 +895,7 @@ export function AddProjectIconScreen(props: {
     setIsSubmitting(true);
 
     let projectRoot = clonedProjectRoot ?? workspaceRoot;
+    let projectIcon = icon;
     if (remoteUrl !== null && clonedProjectRoot === null) {
       const cloneResult = await cloneRepository({
         environmentId: environment.environmentId,
@@ -905,10 +907,17 @@ export function AddProjectIconScreen(props: {
         return;
       }
       projectRoot = cloneResult.value.cwd;
+      if (projectIcon !== null) {
+        projectIcon = {
+          ...projectIcon,
+          seed: remapProjectAvatarSeed(projectIcon.seed, workspaceRoot, projectRoot),
+        };
+        setIcon(projectIcon);
+      }
       setClonedProjectRoot(projectRoot);
     }
 
-    const createResult = await createProject(projectRoot, icon);
+    const createResult = await createProject(projectRoot, projectIcon);
     if (createResult && AsyncResult.isFailure(createResult)) {
       setError(errorMessage(Cause.squash(createResult.cause)));
     }
@@ -943,6 +952,7 @@ export function AddProjectIconScreen(props: {
               title={inferProjectTitleFromPath(workspaceRoot)}
               workspaceRoot={workspaceRoot}
               value={icon}
+              disabled={isSubmitting}
               onChange={setIcon}
             />
           </View>
