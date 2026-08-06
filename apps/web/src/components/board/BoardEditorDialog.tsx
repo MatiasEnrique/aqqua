@@ -589,6 +589,15 @@ function StepChip({ dotClass, label }: { readonly dotClass: string; readonly lab
   );
 }
 
+/**
+ * The composer's tabbed model picker restyled to the step chips' scale: chip
+ * height, radius, border, and label size override the composer-control base.
+ */
+const STEP_MODEL_TRIGGER_CLASSNAME =
+  "h-[22px] min-h-0 min-w-0 shrink gap-1.5 rounded-sm border-border bg-background/40 px-1.5 " +
+  "text-[11px] text-foreground/85 before:rounded-[3px] hover:text-foreground " +
+  "sm:h-[22px] sm:text-[11px]";
+
 function ChipMenu({
   dotClass,
   label,
@@ -731,8 +740,8 @@ function ExpandedStep({
                   instanceEntries={providerEntries}
                   modelOptionsByInstance={modelOptionsByInstance}
                   compact
-                  triggerVariant="outline"
-                  triggerClassName="h-[22px] min-w-0 shrink rounded-sm text-[11px] text-foreground/90 hover:text-foreground"
+                  triggerClassName={STEP_MODEL_TRIGGER_CLASSNAME}
+                  activeProviderIconClassName="size-3.5"
                   triggerAriaLabel={`Step ${index + 1} model`}
                   onInstanceModelChange={(instanceId, model) => {
                     const entry = providerEntries.find(
