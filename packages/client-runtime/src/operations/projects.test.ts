@@ -123,14 +123,14 @@ describe("add project shared logic", () => {
   });
 
   it("builds the existing project.create command shape", () => {
-    expect(
-      buildProjectCreateCommand({
-        commandId: CommandId.make("command"),
-        projectId: ProjectId.make("project"),
-        workspaceRoot: "/work/repo",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      }),
-    ).toMatchObject({
+    const command = buildProjectCreateCommand({
+      commandId: CommandId.make("command"),
+      projectId: ProjectId.make("project"),
+      workspaceRoot: "/work/repo",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(command).toMatchObject({
       type: "project.create",
       commandId: "command",
       projectId: "project",
@@ -139,5 +139,32 @@ describe("add project shared logic", () => {
       createWorkspaceRootIfMissing: true,
       defaultModelSelection: null,
     });
+    expect(command).not.toHaveProperty("icon");
+  });
+
+  it("includes a creation-time project icon when selected", () => {
+    expect(
+      buildProjectCreateCommand({
+        commandId: CommandId.make("command"),
+        projectId: ProjectId.make("project"),
+        workspaceRoot: "/work/repo",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        icon: { _tag: "avatar", seed: "/work/repo~2", text: "RE" },
+      }),
+    ).toMatchObject({
+      icon: { _tag: "avatar", seed: "/work/repo~2", text: "RE" },
+    });
+  });
+
+  it("omits a null creation icon for older environment compatibility", () => {
+    const command = buildProjectCreateCommand({
+      commandId: CommandId.make("command"),
+      projectId: ProjectId.make("project"),
+      workspaceRoot: "/work/repo",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      icon: null,
+    });
+
+    expect(command).not.toHaveProperty("icon");
   });
 });

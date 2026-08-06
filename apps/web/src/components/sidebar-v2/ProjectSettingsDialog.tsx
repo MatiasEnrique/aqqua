@@ -1,5 +1,7 @@
 import { CopyIcon, FolderIcon, ServerIcon, Trash2Icon } from "lucide-react";
-import type { SidebarProjectGroupingMode } from "@aqqua/contracts";
+import type { ProjectIcon, SidebarProjectGroupingMode } from "@aqqua/contracts";
+import { useProjectIcon } from "~/state/entities";
+import { ProjectIconPicker } from "../ProjectIconPicker";
 import { deriveProjectGroupingOverrideKey } from "../../logicalProject";
 import type {
   SidebarProjectGroupMember,
@@ -20,6 +22,27 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { PROJECT_GROUPING_MODE_LABELS } from "./projectGroupingLabels";
 
+/**
+ * Icon picker bound to one grouped project entry.
+ *
+ * Split out so each member subscribes only to its own project's icon.
+ */
+function ProjectMemberIconPicker(props: {
+  readonly member: SidebarProjectGroupMember;
+  readonly onChange: (icon: ProjectIcon | null) => void;
+}) {
+  const icon = useProjectIcon(props.member.environmentId, props.member.workspaceRoot);
+  return (
+    <ProjectIconPicker
+      title={props.member.title}
+      workspaceRoot={props.member.workspaceRoot}
+      value={icon}
+      onChange={props.onChange}
+      idPrefix={`project-icon-${props.member.physicalProjectKey}`}
+    />
+  );
+}
+
 export function ProjectSettingsDialog(props: {
   target: SidebarProjectSnapshot | null;
   onClose: () => void;
@@ -27,6 +50,10 @@ export function ProjectSettingsDialog(props: {
   projectGroupingOverrides: Readonly<Record<string, SidebarProjectGroupingMode>> | undefined;
   copyProjectPath: (text: string, payload: { path: string }) => void;
   renameProjectMember: (member: SidebarProjectGroupMember, title: string) => void | Promise<void>;
+  updateProjectMemberIcon: (
+    member: SidebarProjectGroupMember,
+    icon: ProjectIcon | null,
+  ) => void | Promise<void>;
   updateProjectGroupingPreference: (
     member: SidebarProjectGroupMember,
     value: "inherit" | SidebarProjectGroupingMode,
@@ -152,6 +179,13 @@ export function ProjectSettingsDialog(props: {
                       </SelectPopup>
                     </Select>
                   </label>
+                </div>
+                <div className="grid min-w-0 gap-1.5">
+                  <span className="font-medium text-foreground">Icon</span>
+                  <ProjectMemberIconPicker
+                    member={member}
+                    onChange={(icon) => void props.updateProjectMemberIcon(member, icon)}
+                  />
                 </div>
                 {target && target.memberProjects.length > 1 ? (
                   <div className="flex justify-end">

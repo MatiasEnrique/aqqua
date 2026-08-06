@@ -262,6 +262,24 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+const PROJECT_AVATAR_SEED_MAX_LENGTH = 256;
+const PROJECT_AVATAR_TEXT_MAX_LENGTH = 3;
+
+/**
+ * A user-chosen project icon, which wins over favicon discovery.
+ *
+ * Tagged so other icon kinds can join later without a wire break. `avatar` is
+ * a generated gradient: `seed` picks the colours and `text` overlays initials.
+ * A project without an icon falls back to the favicon found in its workspace.
+ */
+export const ProjectIcon = Schema.TaggedStruct("avatar", {
+  seed: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_AVATAR_SEED_MAX_LENGTH)),
+  text: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_AVATAR_TEXT_MAX_LENGTH)),
+  ),
+});
+export type ProjectIcon = typeof ProjectIcon.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -269,6 +287,8 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional for wire compatibility with peers that predate project icons.
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -466,6 +486,8 @@ export const OrchestrationProjectShell = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional for wire compatibility with peers that predate project icons.
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -620,6 +642,7 @@ export const ProjectCreateCommand = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
 });
 
@@ -631,6 +654,8 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  /** `null` clears a chosen icon and restores favicon discovery. */
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1097,6 +1122,8 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional so events recorded before project icons still decode.
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1108,6 +1135,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   updatedAt: IsoDateTime,
 });
 

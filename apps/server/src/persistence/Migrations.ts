@@ -55,6 +55,7 @@ import Migration0039 from "./Migrations/039_UsageLedger.ts";
 import Migration0040 from "./Migrations/040_UsageScanFileRollupKeys.ts";
 import Migration0041 from "./Migrations/041_ProjectionThreadsSettledChangeRequest.ts";
 import Migration0042 from "./Migrations/042_ProjectionTurnCheckpointCompletedAt.ts";
+import Migration0043 from "./Migrations/043_ProjectionProjectsIcon.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -109,6 +110,7 @@ export const migrationEntries = [
   [40, "UsageScanFileRollupKeys", Migration0040],
   [41, "ProjectionThreadsSettledChangeRequest", Migration0041],
   [42, "ProjectionTurnCheckpointCompletedAt", Migration0042],
+  [43, "ProjectionProjectsIcon", Migration0043],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

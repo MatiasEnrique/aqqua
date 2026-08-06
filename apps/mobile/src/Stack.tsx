@@ -35,6 +35,7 @@ import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteSc
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
+import { AddProjectIconRoute } from "./features/projects/AddProjectIconRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
 import { AddProjectSourceRoute } from "./features/projects/AddProjectSourceRoute";
@@ -47,6 +48,10 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
+import {
+  SettingsProjectIconRouteScreen,
+  SettingsProjectIconsRouteScreen,
+} from "./features/settings/SettingsProjectIconsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
 import {
@@ -175,6 +180,20 @@ const SettingsSheetStack = createNativeStackNavigator({
         title: "Appearance",
       },
     }),
+    SettingsProjectIcons: createNativeStackScreen({
+      screen: SettingsProjectIconsRouteScreen,
+      linking: "project-icons",
+      options: {
+        title: "Project Icons",
+      },
+    }),
+    SettingsProjectIcon: createNativeStackScreen({
+      screen: SettingsProjectIconRouteScreen,
+      linking: "project-icons/:environmentId/:projectId",
+      options: {
+        title: "Project Icon",
+      },
+    }),
     SettingsClientStorage: createNativeStackScreen({
       screen: SettingsClientStorageRouteScreen,
       linking: "client-storage",
@@ -257,6 +276,13 @@ const NewTaskSheetStack = createNativeStackNavigator({
     AddProjectLocal: createNativeStackScreen({
       screen: AddProjectLocalRoute,
       linking: "add-project/local",
+    }),
+    AddProjectIcon: createNativeStackScreen({
+      screen: AddProjectIconRoute,
+      linking: "add-project/icon",
+      options: {
+        title: "Project Icon",
+      },
     }),
   },
 });

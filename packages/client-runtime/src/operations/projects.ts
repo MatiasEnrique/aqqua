@@ -2,6 +2,7 @@ import type {
   CommandId,
   EnvironmentId,
   OrchestrationCommand,
+  ProjectIcon,
   ProjectId,
   SourceControlDiscoveryResult,
   SourceControlProviderKind,
@@ -206,6 +207,8 @@ export function buildProjectCreateCommand(input: {
   readonly projectId: ProjectId;
   readonly workspaceRoot: string;
   readonly createdAt: string;
+  /** Omit to leave the project on favicon discovery. */
+  readonly icon?: ProjectIcon | null | undefined;
 }): Extract<OrchestrationCommand, { type: "project.create" }> {
   return {
     type: "project.create",
@@ -215,6 +218,7 @@ export function buildProjectCreateCommand(input: {
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
     defaultModelSelection: null,
+    ...(input.icon === undefined || input.icon === null ? {} : { icon: input.icon }),
     createdAt: input.createdAt,
   };
 }

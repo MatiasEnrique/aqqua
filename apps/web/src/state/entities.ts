@@ -13,6 +13,7 @@ import type {
   OrchestrationProposedPlan,
   OrchestrationSession,
   OrchestrationThreadActivity,
+  ProjectIcon,
   ScopedProjectRef,
   ScopedThreadRef,
   ServerConfig,
@@ -110,6 +111,20 @@ export function useEnvironmentThreadRefs(
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
   return useAtomValue(environmentProjects.projectsAtom);
+}
+
+/**
+ * The icon a user chose for the project rooted at `workspaceRoot`, or `null`
+ * when the project falls back to favicon discovery.
+ *
+ * Scoped per workspace root so an icon change repaints only the rows showing
+ * that project.
+ */
+export function useProjectIcon(
+  environmentId: EnvironmentId,
+  workspaceRoot: string,
+): ProjectIcon | null {
+  return useAtomValue(environmentProjects.projectIconAtom({ environmentId, workspaceRoot }));
 }
 
 export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {

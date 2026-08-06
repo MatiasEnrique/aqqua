@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentProject, EnvironmentThreadShell } from "@aqqua/client-runtime/state/shell";
 import type {
   EnvironmentId,
+  ProjectIcon,
   ScopedProjectRef,
   ScopedThreadRef,
   ServerConfig,
@@ -24,6 +25,25 @@ const EMPTY_SERVER_CONFIG_ATOM = Atom.make<ServerConfig | null>(null).pipe(
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
   return useAtomValue(environmentProjects.projectsAtom);
+}
+
+const EMPTY_PROJECT_ICON_ATOM = Atom.make<ProjectIcon | null>(null).pipe(
+  Atom.withLabel("mobile-project-icon:empty"),
+);
+
+/**
+ * The icon a user chose for the project rooted at `workspaceRoot`, or `null`
+ * when the project falls back to favicon discovery.
+ */
+export function useProjectIcon(
+  environmentId: EnvironmentId,
+  workspaceRoot: string | null | undefined,
+): ProjectIcon | null {
+  return useAtomValue(
+    workspaceRoot === null || workspaceRoot === undefined
+      ? EMPTY_PROJECT_ICON_ATOM
+      : environmentProjects.projectIconAtom({ environmentId, workspaceRoot }),
+  );
 }
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {

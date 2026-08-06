@@ -4,6 +4,7 @@ import type { SidebarConversationStateCounts } from "../Sidebar.summaryState";
 import type { SidebarThreadFamilyBand } from "../Sidebar.threadTree";
 import type {
   EnvironmentId,
+  ProjectIcon,
   ProjectId,
   ScopedThreadRef,
   ServerConfig,
@@ -181,6 +182,10 @@ export type ProjectActionsController = {
   readonly renameProjectMember: (
     member: SidebarProjectGroupMember,
     title: string,
+  ) => void | Promise<void>;
+  readonly updateProjectMemberIcon: (
+    member: SidebarProjectGroupMember,
+    icon: ProjectIcon | null,
   ) => void | Promise<void>;
   readonly updateProjectGroupingPreference: (
     member: SidebarProjectGroupMember,
