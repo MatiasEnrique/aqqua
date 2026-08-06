@@ -525,11 +525,8 @@ function setThreadResolvedMutation(resolved: boolean): string {
   return `mutation($threadId: ID!) { ${mutation}(input: {threadId: $threadId}) { thread { id isResolved } } }`;
 }
 
-function isAlreadyMissingRemoteBranch(error: GitHubCliCommandError): boolean {
-  const cause: unknown = error.cause;
-  if (typeof cause !== "object" || cause === null || !("stderr" in cause)) return false;
-  const stderr = cause.stderr;
-  return typeof stderr === "string" && /reference does not exist/i.test(stderr);
+function isAlreadyMissingRemoteBranch(stderr: string): boolean {
+  return /reference does not exist/i.test(stderr);
 }
 
 /**
@@ -833,9 +830,15 @@ export const make = Effect.gen(function* () {
         })
         .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
       if (output.exitCode === 0) return "deleted";
+      // Classify from stderr here, before it is discarded: VcsProcessExitError
+      // deliberately carries only stderr length/truncation so raw provider
+      // output never reaches RPC clients through the transported defect.
+      if (isAlreadyMissingRemoteBranch(output.stderr)) return "already_missing";
 
-      const cause = Object.assign(
-        new VcsProcessExitError({
+      return yield* new GitHubCliCommandError({
+        command: "gh",
+        cwd: input.cwd,
+        cause: new VcsProcessExitError({
           operation: "GitHubCli.execute",
           command: "gh",
           cwd: input.cwd,
@@ -846,11 +849,7 @@ export const make = Effect.gen(function* () {
           stderrLength: output.stderr.length,
           stderrTruncated: output.stderrTruncated,
         }),
-        { stderr: output.stderr },
-      );
-      const error = new GitHubCliCommandError({ command: "gh", cwd: input.cwd, cause });
-      if (isAlreadyMissingRemoteBranch(error)) return "already_missing";
-      return yield* error;
+      });
     }),
     listChecks: Effect.fn("GitHubCli.listChecks")(function* (input) {
       const raw = yield* readCheckRollup({

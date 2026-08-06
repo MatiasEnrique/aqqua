@@ -437,7 +437,7 @@ export const make = Effect.gen(function* () {
           (error) =>
             new SourceControlProviderError({
               provider: "github",
-              operation: "deleteChangeRequestBranch",
+              operation: "deleteChangeRequestRemoteBranch",
               command: error.command,
               cwd: input.cwd,
               reference,
@@ -449,21 +449,28 @@ export const make = Effect.gen(function* () {
       if ((pullRequest.state ?? "open") === "open") {
         return yield* new SourceControlProviderError({
           provider: "github",
-          operation: "deleteChangeRequestBranch",
+          operation: "deleteChangeRequestRemoteBranch",
           command: "gh",
           cwd: input.cwd,
           reference,
           detail: "Only merged or closed pull requests can have their head branch deleted.",
         });
       }
-      if (pullRequest.isCrossRepository === true) {
+      // Fail closed: `isCrossRepository` is optional in the decoder for gh
+      // version drift, and deleting a branch is not reversible. An unknown
+      // value must not be read as "not a fork", or a base-repo branch that
+      // merely shares the fork branch's name would be deleted instead.
+      if (pullRequest.isCrossRepository !== false) {
         return yield* new SourceControlProviderError({
           provider: "github",
-          operation: "deleteChangeRequestBranch",
+          operation: "deleteChangeRequestRemoteBranch",
           command: "gh",
           cwd: input.cwd,
           reference,
-          detail: "The head branch lives on a fork and cannot be deleted from this repository.",
+          detail:
+            pullRequest.isCrossRepository === true
+              ? "The head branch lives on a fork and cannot be deleted from this repository."
+              : "GitHub did not report whether the head branch lives on a fork, so it was not deleted.",
         });
       }
       const remote = yield* github
@@ -473,7 +480,7 @@ export const make = Effect.gen(function* () {
             (error) =>
               new SourceControlProviderError({
                 provider: "github",
-                operation: "deleteChangeRequestBranch",
+                operation: "deleteChangeRequestRemoteBranch",
                 command: error.command,
                 cwd: input.cwd,
                 reference,

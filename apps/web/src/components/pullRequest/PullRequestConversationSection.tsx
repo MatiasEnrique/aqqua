@@ -1,7 +1,4 @@
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@aqqua/client-runtime/state/runtime";
+import { isAtomCommandInterrupted } from "@aqqua/client-runtime/state/runtime";
 import type {
   ChangeRequestComment,
   ChangeRequestReviewThread,
@@ -21,6 +18,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
+import { changeRequestFailureMessage } from "./changeRequestFailureMessage";
 import { PullRequestCommentComposer } from "./PullRequestCommentComposer";
 import {
   orderChangeRequestComments,
@@ -28,13 +26,6 @@ import {
   reviewThreadLocation,
 } from "./PullRequestConversationSection.logic";
 import { PullRequestSection } from "./PullRequestSection";
-
-function failureMessage(result: {
-  readonly cause: Parameters<typeof squashAtomCommandFailure>[0]["cause"];
-}): string {
-  const cause = squashAtomCommandFailure(result);
-  return cause instanceof Error ? cause.message : "The pull request action failed.";
-}
 
 function CommentCard(props: {
   readonly comment: ChangeRequestComment;
@@ -160,7 +151,9 @@ export function PullRequestConversationSection(props: {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const openPrLink = useOpenPrLink();
   const commandFailure = (result: Awaited<ReturnType<typeof addComment>>) =>
-    result._tag === "Failure" && !isAtomCommandInterrupted(result) ? failureMessage(result) : null;
+    result._tag === "Failure" && !isAtomCommandInterrupted(result)
+      ? changeRequestFailureMessage(result, "The pull request action failed.")
+      : null;
   const timeline = useMemo(
     () => (props.query.data ? orderPullRequestConversation(props.query.data) : []),
     [props.query.data],
@@ -216,7 +209,7 @@ export function PullRequestConversationSection(props: {
                   });
                   setResolvingId(null);
                   return result._tag === "Failure" && !isAtomCommandInterrupted(result)
-                    ? failureMessage(result)
+                    ? changeRequestFailureMessage(result, "The pull request action failed.")
                     : null;
                 }}
                 onReply={async (body) => {
@@ -230,7 +223,7 @@ export function PullRequestConversationSection(props: {
                     },
                   });
                   return result._tag === "Failure" && !isAtomCommandInterrupted(result)
-                    ? failureMessage(result)
+                    ? changeRequestFailureMessage(result, "The pull request action failed.")
                     : null;
                 }}
               />

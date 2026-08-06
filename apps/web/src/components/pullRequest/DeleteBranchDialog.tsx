@@ -1,7 +1,4 @@
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@aqqua/client-runtime/state/runtime";
+import { isAtomCommandInterrupted } from "@aqqua/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@aqqua/contracts";
 import { useMemo, useState } from "react";
 
@@ -25,13 +22,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
-
-function failureMessage(result: {
-  readonly cause: Parameters<typeof squashAtomCommandFailure>[0]["cause"];
-}): string {
-  const cause = squashAtomCommandFailure(result);
-  return cause instanceof Error ? cause.message : "The branch action failed.";
-}
+import { changeRequestFailureMessage } from "./changeRequestFailureMessage";
 
 export function DeleteBranchDialog(props: {
   readonly open: boolean;
@@ -79,7 +70,8 @@ export function DeleteBranchDialog(props: {
     });
     setPending(false);
     if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) setError(failureMessage(result));
+      if (!isAtomCommandInterrupted(result))
+        setError(changeRequestFailureMessage(result, "The branch action failed."));
       return;
     }
     const next = reduceDeleteBranchDialogStep(result.value.local);

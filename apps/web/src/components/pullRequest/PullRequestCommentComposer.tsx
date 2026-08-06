@@ -19,14 +19,19 @@ export function PullRequestCommentComposer(props: {
     if (!composerSubmitEnabled(body, pending)) return;
     setPending(true);
     setError(null);
-    const failure = await props.onSubmit(body.trim());
-    setPending(false);
-    if (failure) {
-      setError(failure);
-      return;
+    try {
+      const failure = await props.onSubmit(body.trim());
+      if (failure) {
+        setError(failure);
+        return;
+      }
+      setBody("");
+      if (props.compact) setFocused(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The comment could not be submitted.");
+    } finally {
+      setPending(false);
     }
-    setBody("");
-    if (props.compact) setFocused(false);
   };
 
   if (props.compact && !focused && body.length === 0) {

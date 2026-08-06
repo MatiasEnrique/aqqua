@@ -201,6 +201,19 @@ describe("pull request detail presentation", () => {
     });
   });
 
+  it("pluralizes the comment count label", () => {
+    const single = { ...conversation, comments: [conversation.comments[0]!], reviewThreads: [] };
+    expect(pullRequestMetadata({ pr: pr(), conversation: single })).toMatchObject({
+      commentsLabel: "1 comment",
+    });
+    expect(
+      pullRequestMetadata({
+        pr: pr(),
+        conversation: { ...conversation, comments: [], reviewThreads: [] },
+      }),
+    ).toMatchObject({ commentsLabel: "No comments" });
+  });
+
   it("uses quiet empty labels when conversation data is unavailable", () => {
     expect(
       pullRequestMetadata({ pr: pr({ checksStatus: null }), conversation: null }),

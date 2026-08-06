@@ -1,7 +1,4 @@
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@aqqua/client-runtime/state/runtime";
+import { isAtomCommandInterrupted } from "@aqqua/client-runtime/state/runtime";
 import type {
   GitChangeRequestMergeMethod,
   ScopedThreadRef,
@@ -23,6 +20,7 @@ import {
   resolveChangeRequestManagementState,
 } from "../GitActionsControl.logic";
 import { Button } from "../ui/button";
+import { changeRequestFailureMessage } from "./changeRequestFailureMessage";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Spinner } from "../ui/spinner";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -103,13 +101,6 @@ export function PullRequestMergeActionsPopover({
     setError(null);
   }, [changeRequest.number]);
 
-  const failureMessage = (result: {
-    readonly cause: Parameters<typeof squashAtomCommandFailure>[0]["cause"];
-  }): string => {
-    const cause = squashAtomCommandFailure(result);
-    return cause instanceof Error ? cause.message : "The change request action failed.";
-  };
-
   const runMerge = (method: GitChangeRequestMergeMethod) => {
     if (management.mergeDisabledReason !== null || mutation !== null) return;
     setMutation("merge");
@@ -122,7 +113,7 @@ export function PullRequestMergeActionsPopover({
       setMutation(null);
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
-        setError(failureMessage(result));
+        setError(changeRequestFailureMessage(result, "The change request action failed."));
         return;
       }
       setOpen(false);
@@ -150,7 +141,7 @@ export function PullRequestMergeActionsPopover({
       setMutation(null);
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
-        setError(failureMessage(result));
+        setError(changeRequestFailureMessage(result, "The change request action failed."));
         return;
       }
       setAutoMergeEnabled(result.value.enabled);
@@ -170,7 +161,7 @@ export function PullRequestMergeActionsPopover({
       setMutation(null);
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
-        setError(failureMessage(result));
+        setError(changeRequestFailureMessage(result, "The change request action failed."));
         return;
       }
       setOpen(false);

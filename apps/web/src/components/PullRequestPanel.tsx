@@ -116,6 +116,10 @@ export function PullRequestPanel({
 
   useEffect(() => {
     setSelectedCommit(null);
+    // The delete dialog targets the active pull request's head branch. If the
+    // branch status stream swaps in a different pull request while the dialog
+    // is open, confirming would delete a branch the user never approved.
+    setDeleteOpen(false);
   }, [activePr?.number]);
 
   const handleRefresh = async () => {

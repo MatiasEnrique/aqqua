@@ -146,7 +146,7 @@ export function pullRequestMetadata(input: {
       ? "—"
       : commentCount === 0
         ? "No comments"
-        : `${commentCount} comments`,
+        : `${commentCount} ${commentCount === 1 ? "comment" : "comments"}`,
     checksLabel: pr.checksStatus == null ? "—" : aggregateChecksPresentation(pr.checksStatus).label,
   };
 }

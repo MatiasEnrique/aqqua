@@ -15,6 +15,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
+  GitChangeRequestCommit,
   GitPreparePullRequestThreadInput,
   ThreadId,
 } from "@aqqua/contracts";
@@ -54,6 +55,11 @@ interface FakeGhScenario {
     isCrossRepository?: boolean;
     headRepositoryNameWithOwner?: string | null;
     headRepositoryOwnerLogin?: string | null;
+  };
+  pullRequestCommits?: {
+    headOid?: string | null;
+    commits?: ReadonlyArray<GitChangeRequestCommit>;
+    truncated?: boolean;
   };
   repositoryCloneUrls?: Record<string, { url: string; sshUrl: string }>;
   checksStatus?: "success" | "failure" | "pending" | null;
@@ -667,9 +673,9 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         ghCalls.push(`pr commits ${input.reference}`);
         return Effect.succeed({
           number: scenario.pullRequest?.number ?? 42,
-          headOid: null,
-          commits: [],
-          truncated: false,
+          headOid: scenario.pullRequestCommits?.headOid ?? null,
+          commits: scenario.pullRequestCommits?.commits ?? [],
+          truncated: scenario.pullRequestCommits?.truncated ?? false,
         });
       },
       addPullRequestComment: (input) => {
@@ -3365,6 +3371,75 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(
           ghCalls.some((call) => call.includes("conversation") || call.includes("commits")),
         ).toBe(false);
+      }),
+  );
+
+  it.effect(
+    "reports commits as locally available when the head commit is in the object database",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const headOid = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequestCommits: {
+              headOid,
+              commits: [
+                {
+                  oid: headOid,
+                  messageHeadline: "Initial commit",
+                  authorName: "Test User",
+                  authorLogin: null,
+                  authoredAt: null,
+                  committedAt: null,
+                },
+              ],
+            },
+          },
+        });
+
+        const result = yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" });
+
+        expect(result.supported).toBe(true);
+        expect(result.commits.map((commit) => commit.oid)).toEqual([headOid]);
+        expect(result.commitsAvailableLocally).toBe(true);
+      }),
+  );
+
+  it.effect(
+    "keeps listing commits when the head commit is missing locally and the fetch fails",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        // A well-formed sha that is not in this repository forces the
+        // cat-file miss, the refs/pull fetch attempt, and the warn-and-continue
+        // path. There is no remote configured, so the fetch fails.
+        const missingOid = "0".repeat(40);
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequestCommits: {
+              headOid: missingOid,
+              commits: [
+                {
+                  oid: missingOid,
+                  messageHeadline: "Unfetched commit",
+                  authorName: null,
+                  authorLogin: null,
+                  authoredAt: null,
+                  committedAt: null,
+                },
+              ],
+            },
+          },
+        });
+
+        const result = yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" });
+
+        expect(result.supported).toBe(true);
+        expect(result.commits.map((commit) => commit.oid)).toEqual([missingOid]);
+        expect(result.commitsAvailableLocally).toBe(false);
       }),
   );
 
