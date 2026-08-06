@@ -19,6 +19,22 @@ interface NewThreadHandler {
   ): Promise<void>;
 }
 
+type NewThreadOptions = NonNullable<Parameters<NewThreadHandler>[1]>;
+
+interface ConversationTabWorktreeContext extends ThreadContextLike {
+  readonly isProjectCheckout: boolean;
+  readonly label: string;
+  readonly workspaceRoot: string | null;
+}
+
+export type ConversationTabNewThreadAction =
+  | {
+      readonly _tag: "create";
+      readonly projectRef: ScopedProjectRef;
+      readonly options?: NewThreadOptions;
+    }
+  | { readonly _tag: "choose-project" };
+
 export interface ChatThreadActionContext {
   readonly activeDraftThread: ThreadContextLike | null;
   readonly activeThread: ThreadContextLike | undefined;
@@ -46,6 +62,45 @@ export function resolveThreadActionProjectRef(
     );
   }
   return context.defaultProjectRef;
+}
+
+/**
+ * Resolve the tab strip's `+` from the workspace selection itself.
+ *
+ * The worktree wins over the routed conversation because a worktree can be
+ * selected before it contains a conversation. Falling back to the routed
+ * project preserves the same behavior outside a selected worktree, while the
+ * final state deliberately asks instead of creating an unscoped draft.
+ */
+export function resolveConversationTabNewThreadAction(input: {
+  readonly activeProjectRef: ScopedProjectRef | null;
+  readonly activeWorktree: ConversationTabWorktreeContext | null;
+}): ConversationTabNewThreadAction {
+  if (input.activeWorktree) {
+    const projectRef = scopeProjectRef(
+      input.activeWorktree.environmentId,
+      input.activeWorktree.projectId,
+    );
+    if (!input.activeWorktree.isProjectCheckout && input.activeWorktree.workspaceRoot === null) {
+      return { _tag: "create", projectRef };
+    }
+    return {
+      _tag: "create",
+      projectRef,
+      options: {
+        branch: input.activeWorktree.label,
+        worktreePath: input.activeWorktree.isProjectCheckout
+          ? null
+          : input.activeWorktree.workspaceRoot,
+        envMode: input.activeWorktree.isProjectCheckout ? "local" : "worktree",
+        startFromOrigin: false,
+      },
+    };
+  }
+  if (input.activeProjectRef) {
+    return { _tag: "create", projectRef: input.activeProjectRef };
+  }
+  return { _tag: "choose-project" };
 }
 
 // New threads inherit only the *project* from the current context. Branch,

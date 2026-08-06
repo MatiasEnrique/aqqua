@@ -2,7 +2,11 @@ import type {
   SidebarConversationStateCounts,
   SidebarConversationSummaryState,
 } from "../Sidebar.summaryState";
-import type { SidebarProjectState, SidebarWorktreeStateCounts } from "../Sidebar.worktreeGroups";
+import type {
+  SidebarProjectState,
+  SidebarWorktreeStateCounts,
+  SidebarWorktreeSummaryState,
+} from "../Sidebar.worktreeGroups";
 import { cn } from "~/lib/utils";
 import { CONVERSATION_STATE_PRESENTATIONS } from "../conversationStatePresentation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -13,9 +17,73 @@ export const SIDEBAR_STATE_PRESENTATIONS = {
   working: CONVERSATION_STATE_PRESENTATIONS.working,
   needsInput: CONVERSATION_STATE_PRESENTATIONS.needsInput,
   done: CONVERSATION_STATE_PRESENTATIONS.done,
+  failed: CONVERSATION_STATE_PRESENTATIONS.failed,
   stale: CONVERSATION_STATE_PRESENTATIONS.stale,
   settled: CONVERSATION_STATE_PRESENTATIONS.settled,
 } as const;
+
+/**
+ * The states that are still in motion, and so pulse.
+ *
+ * Matches the icon convention the rest of the app already uses — working and
+ * needsInput breathe, everything at rest holds still. A pulse means "this is
+ * not the final answer", which is exactly wrong for done, failed and settled.
+ */
+const PULSING_SIDEBAR_STATES: ReadonlySet<string> = new Set(["working", "needsInput"]);
+
+/**
+ * The state dot, shared by the worktree registry and the header tab strip so
+ * one glyph can't mean two things.
+ *
+ * `animate-status-pulse` rather than `animate-pulse`: its keyframes step the
+ * opacity instead of interpolating it, so a sidebar full of working
+ * conversations doesn't repaint every frame on a 120Hz display. Sizes are
+ * passed in — the registry dot is a hair larger than the tab's.
+ */
+export function conversationStateDotClassName(input: {
+  readonly state: string;
+  readonly size: string;
+}): string {
+  return cn(
+    "shrink-0 rounded-full bg-current",
+    input.size,
+    PULSING_SIDEBAR_STATES.has(input.state) && "animate-status-pulse motion-reduce:animate-none",
+  );
+}
+
+/**
+ * A worktree's one state: a dot and a micro-label, no count.
+ *
+ * Deliberately not `SidebarSummaryStateLabel` — that one leads with the state
+ * icon at row scale. On a 32px registry row the dot is the whole signal and the
+ * word is the caption, so the label is set as small caps rather than body text.
+ */
+export function SidebarWorktreeSummaryStateLabel(props: {
+  state: SidebarWorktreeSummaryState;
+  className?: string;
+}) {
+  const presentation = SIDEBAR_STATE_PRESENTATIONS[props.state];
+
+  return (
+    <span
+      role="status"
+      aria-label={`Worktree status: ${presentation.label}`}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1",
+        presentation.className,
+        props.className,
+      )}
+    >
+      <span
+        aria-hidden
+        className={conversationStateDotClassName({ state: props.state, size: "size-[7px]" })}
+      />
+      <span aria-hidden className="text-[8px] leading-[10px] font-semibold tracking-wide uppercase">
+        {presentation.label}
+      </span>
+    </span>
+  );
+}
 
 export function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {
   const presentation =

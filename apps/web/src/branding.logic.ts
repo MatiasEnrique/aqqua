@@ -10,16 +10,16 @@ export function formatAppDisplayName(input: {
 }
 
 /**
- * Whether the worktree view beta is on by default for a build stage.
+ * Whether the worktree view is on by default for a build stage.
  *
- * It never is: the worktree view is opt-in everywhere, including local dev,
- * so every build stage shows the same regular sidebar until the
- * user flips Settings → Beta → Worktree view. Kept as a function (rather than
- * inlined `false`) because the stage is the input a future staged rollout
- * would key on, and callers already thread it through.
+ * It always is: the worktree sidebar and its header tab strip are the app's
+ * shape, not an experiment, so every stage lands there unless the user turns it
+ * off in Settings → Beta. Kept as a function (rather than inlined `true`)
+ * because the stage is the input a staged rollback would key on, and callers
+ * already thread it through.
  */
 export function resolveSidebarV2Default(_stageLabel: string): boolean {
-  return false;
+  return true;
 }
 
 /**
@@ -34,8 +34,9 @@ export function resolveSidebarV2Default(_stageLabel: string): boolean {
  * `settingsHydrated` guards the startup window: client settings load
  * asynchronously and the pre-hydration snapshot is just the schema defaults, so
  * resolving against it would mount one sidebar and swap it out a tick later,
- * remounting the tree. While hydrating, hold the regular sidebar — where both
- * paths already start.
+ * remounting the tree. While hydrating, hold the stage default — where every
+ * user who has not opted out already ends up, so the common path never sees the
+ * swap. An explicit opt-out pays one remount instead of everyone paying it.
  */
 export function resolveSidebarV2Enabled(input: {
   readonly enabled: boolean;
@@ -44,7 +45,7 @@ export function resolveSidebarV2Enabled(input: {
   readonly stageLabel: string;
 }): boolean {
   if (!input.settingsHydrated) {
-    return false;
+    return resolveSidebarV2Default(input.stageLabel);
   }
 
   return input.configuredByUser || input.enabled

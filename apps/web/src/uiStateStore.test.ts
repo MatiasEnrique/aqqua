@@ -14,6 +14,7 @@ import {
   resolveProjectExpanded,
   resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
+  setOpenConversationTabKeys,
   setProjectExpanded,
   setThreadExpanded,
   setThreadChangedFilesExpanded,
@@ -28,6 +29,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadExpandedById: {},
     threadChangedFilesExpandedById: {},
     worktreeExpandedByKey: {},
+    activeWorktreeOverrideKey: null,
+    openConversationTabKeys: [],
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -248,6 +251,8 @@ describe("parsePersistedState", () => {
         "environment:thread-1": false,
       },
       worktreeExpandedByKey: {},
+      activeWorktreeOverrideKey: null,
+      openConversationTabKeys: [],
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -258,6 +263,30 @@ describe("parsePersistedState", () => {
     });
     // Legacy tombstones are dropped on read; hide state is request-local only.
     expect(parsed).not.toHaveProperty("removedWorktreeAtByKey");
+  });
+
+  it("restores the open conversation tabs in the order they were opened", () => {
+    expect(
+      parsePersistedState({
+        openConversationTabKeys: ["environment:thread-2", "environment:thread-1"],
+      }).openConversationTabKeys,
+    ).toEqual(["environment:thread-2", "environment:thread-1"]);
+    expect(
+      parsePersistedState({
+        openConversationTabKeys: ["environment:thread-1", "", 7, "environment:thread-1"] as never,
+      }).openConversationTabKeys,
+    ).toEqual(["environment:thread-1"]);
+  });
+
+  it("replaces the open tab set only when its order or membership changes", () => {
+    const state = makeUiState({ openConversationTabKeys: ["a", "b"] });
+
+    expect(setOpenConversationTabKeys(state, ["a", "b"])).toBe(state);
+    expect(setOpenConversationTabKeys(state, ["b", "a"]).openConversationTabKeys).toEqual([
+      "b",
+      "a",
+    ]);
+    expect(setOpenConversationTabKeys(state, ["a"]).openConversationTabKeys).toEqual(["a"]);
   });
 
   it("ignores changed-file expansion values saved with legacy folder semantics", () => {
@@ -371,6 +400,8 @@ describe("uiStateStore persistence", () => {
       },
       threadExpandedById: {},
       worktreeExpandedByKey: {},
+      activeWorktreeOverrideKey: null,
+      openConversationTabKeys: [],
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {

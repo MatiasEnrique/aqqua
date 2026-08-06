@@ -1,5 +1,5 @@
 import { ChartNoAxesCombinedIcon, SettingsIcon } from "lucide-react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
@@ -18,8 +18,15 @@ import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
+  trailing,
 }: {
   isElectron: boolean;
+  /**
+   * Sits at the right edge of the brand row. The workspace switcher lives
+   * here rather than above the list: it names the surface you are on, which
+   * belongs with the app's own chrome and not with the list's filters.
+   */
+  trailing?: ReactNode;
 }) {
   return (
     <SidebarHeader
@@ -30,6 +37,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     >
       <SidebarTrigger className="relative z-10 md:hidden" />
       <SidebarBrand />
+      {trailing ? <div className="relative z-10 ml-auto pr-3 md:pr-2">{trailing}</div> : null}
     </SidebarHeader>
   );
 });

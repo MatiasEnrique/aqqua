@@ -11,6 +11,7 @@ import {
   resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
   resolveSidebarWorktreeSettleAction,
+  resolveSidebarWorktreeSummaryState,
   sidebarLocationContextMenuItems,
   sidebarWorktreeHasVisibleChildren,
   type SidebarWorktreeGroup,
@@ -86,11 +87,13 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "draft",
+          threadId: ThreadId.make("draft-thread"),
           environmentId: EnvironmentId.make("local"),
           projectId: ProjectId.make("project"),
           envMode: "worktree",
           title: "future",
           baseBranch: "main",
+          worktreePath: null,
           createdAt: "2026-01-04T00:00:00.000Z",
         },
       ],
@@ -155,11 +158,13 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "local-draft",
+          threadId: ThreadId.make("local-draft-thread"),
           environmentId: EnvironmentId.make("local"),
           projectId: ProjectId.make("project"),
           envMode: "local",
           title: "New conversation",
           baseBranch: "main",
+          worktreePath: null,
           createdAt: "2026-01-04T00:00:00.000Z",
         },
       ],
@@ -217,11 +222,13 @@ describe("buildSidebarWorktreeGroups", () => {
       drafts: [
         {
           draftId: "draft",
+          threadId: ThreadId.make("draft-thread"),
           environmentId: EnvironmentId.make("local"),
           projectId: ProjectId.make("project"),
           envMode: "local",
           title: "New conversation",
           baseBranch: null,
+          worktreePath: null,
           createdAt: "2026-01-05T00:00:00.000Z",
         },
       ],
@@ -482,37 +489,18 @@ describe("buildSidebarRepositoryGroups", () => {
 
 describe("resolveSidebarProjectState", () => {
   const worktree = (
-    stateCounts: SidebarWorktreeGroup["stateCounts"],
-  ): Pick<SidebarWorktreeGroup, "stateCounts"> => ({ stateCounts });
+    summaryState: SidebarWorktreeGroup["summaryState"],
+  ): Pick<SidebarWorktreeGroup, "summaryState"> => ({ summaryState });
 
-  it("prioritizes needs input, then working, done, settled, and idle", () => {
-    expect(
-      resolveSidebarProjectState([
-        worktree({ needsInput: 0, working: 1, done: 1, stale: 0, settled: 0 }),
-        worktree({ needsInput: 1, working: 0, done: 0, stale: 0, settled: 0 }),
-      ]),
-    ).toBe("needsInput");
-    expect(
-      resolveSidebarProjectState([
-        worktree({ needsInput: 0, working: 1, done: 0, stale: 0, settled: 0 }),
-        worktree({ needsInput: 0, working: 0, done: 1, stale: 0, settled: 0 }),
-      ]),
-    ).toBe("working");
-    expect(
-      resolveSidebarProjectState([
-        worktree({ needsInput: 0, working: 0, done: 1, stale: 1, settled: 1 }),
-      ]),
-    ).toBe("done");
-    expect(
-      resolveSidebarProjectState([
-        worktree({ needsInput: 0, working: 0, done: 0, stale: 1, settled: 1 }),
-      ]),
-    ).toBe("settled");
-    expect(
-      resolveSidebarProjectState([
-        worktree({ needsInput: 0, working: 0, done: 0, stale: 1, settled: 0 }),
-      ]),
-    ).toBe("idle");
+  it("prioritizes failed, needs input, working, done, settled, and idle", () => {
+    expect(resolveSidebarProjectState([worktree("needsInput"), worktree("failed")])).toBe("failed");
+    expect(resolveSidebarProjectState([worktree("working"), worktree("needsInput")])).toBe(
+      "needsInput",
+    );
+    expect(resolveSidebarProjectState([worktree("done"), worktree("working")])).toBe("working");
+    expect(resolveSidebarProjectState([worktree("settled"), worktree("done")])).toBe("done");
+    expect(resolveSidebarProjectState([worktree(null), worktree("settled")])).toBe("settled");
+    expect(resolveSidebarProjectState([worktree(null)])).toBe("idle");
     expect(resolveSidebarProjectState([])).toBe("idle");
   });
 });
@@ -601,6 +589,62 @@ describe("resolveSidebarWorktreeConversationLocation", () => {
       envMode: "worktree",
       startFromOrigin: false,
     });
+  });
+
+  it("groups a draft aimed at an existing worktree into that worktree", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [thread("a", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
+      snoozed: [],
+      drafts: [
+        {
+          draftId: "draft",
+          threadId: ThreadId.make("draft-thread"),
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
+          envMode: "worktree",
+          title: "second conversation",
+          baseBranch: "feature",
+          worktreePath: "/repo-wt",
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    // Starting a second conversation in a worktree must not look like leaving
+    // it for a brand-new one.
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.workspaceRoot).toBe("/repo-wt");
+    expect(groups[0]?.drafts.map((draft) => draft.draftId)).toEqual(["draft"]);
+    expect(groups[0]?.active.map((entry) => entry.id)).toEqual(["a"]);
+  });
+
+  it("still gives a worktree draft with no path its own new-worktree group", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [thread("a", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],
+      snoozed: [],
+      drafts: [
+        {
+          draftId: "draft",
+          threadId: ThreadId.make("draft-thread"),
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
+          envMode: "worktree",
+          title: "future",
+          baseBranch: "main",
+          worktreePath: null,
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups).toHaveLength(2);
+    expect(groups.some((group) => group.key.startsWith("new-worktree:"))).toBe(true);
   });
 
   it("does not target a not-yet-created draft worktree", () => {
@@ -699,6 +743,66 @@ describe("session error aggregates", () => {
       stale: 1,
       settled: 0,
     });
-    expect(resolveSidebarProjectState(groups)).toBe("idle");
+    // The counters still fold the failure into `stale`; the single state the
+    // card and the project row show must not.
+    expect(groups[0]?.summaryState).toBe("failed");
+    expect(resolveSidebarProjectState(groups)).toBe("failed");
+  });
+});
+
+describe("resolveSidebarWorktreeSummaryState", () => {
+  const conversation = (
+    overrides: Parameters<typeof resolveSidebarWorktreeSummaryState>[0]["conversations"][number],
+  ) => overrides;
+  const runningSession = { status: "running" as const };
+  const failed = conversation({ session: { status: "error" }, latestTurn: { state: "completed" } });
+  const needsInput = conversation({ hasPendingUserInput: true, session: runningSession });
+  const working = conversation({ session: runningSession });
+  const done = conversation({ session: null, latestTurn: { state: "completed" } });
+
+  it("resolves failed ahead of every other state", () => {
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [done, working, needsInput, failed],
+        settledCount: 3,
+      }),
+    ).toBe("failed");
+  });
+
+  it("resolves needs input ahead of working and done", () => {
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [done, working, needsInput],
+        settledCount: 3,
+      }),
+    ).toBe("needsInput");
+  });
+
+  it("resolves working ahead of done", () => {
+    expect(
+      resolveSidebarWorktreeSummaryState({ conversations: [done, working], settledCount: 3 }),
+    ).toBe("working");
+  });
+
+  it("resolves done ahead of settled", () => {
+    expect(resolveSidebarWorktreeSummaryState({ conversations: [done], settledCount: 3 })).toBe(
+      "done",
+    );
+  });
+
+  it("falls back to settled only when nothing is unsettled", () => {
+    expect(resolveSidebarWorktreeSummaryState({ conversations: [], settledCount: 3 })).toBe(
+      "settled",
+    );
+  });
+
+  it("reports no state for a worktree with nothing in it", () => {
+    expect(resolveSidebarWorktreeSummaryState({ conversations: [], settledCount: 0 })).toBeNull();
+  });
+
+  it("reads a never-run conversation as done rather than failed", () => {
+    expect(
+      resolveSidebarWorktreeSummaryState({ conversations: [{ session: null }], settledCount: 0 }),
+    ).toBe("done");
   });
 });

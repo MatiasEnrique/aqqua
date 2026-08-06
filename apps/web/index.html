@@ -6,15 +6,15 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#161616" />
+    <meta name="theme-color" content="#fdfbf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#100f0e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#100f0e" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
       (() => {
-        const LIGHT_BACKGROUND = "#ffffff";
-        const DARK_BACKGROUND = "#161616";
+        const LIGHT_BACKGROUND = "#fdfbf7";
+        const DARK_BACKGROUND = "#100f0e";
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
           const storedTheme = window.localStorage.getItem("aqqua:theme");
@@ -45,8 +45,8 @@
       }
 
       body {
-        background: #ffffff;
-        color: #262626;
+        background: #fdfbf7;
+        color: #292928;
         font-family:
           "Inter Variable",
           "Inter",
@@ -58,8 +58,8 @@
       }
 
       html.dark body {
-        background: #161616;
-        color: #f5f5f5;
+        background: #100f0e;
+        color: #eae8e3;
       }
 
       #boot-shell {

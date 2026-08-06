@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_RUNTIME_MODE, ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 import {
   classifyThreadPresentation,
+  resolveSidebarConversationAggregateState,
   resolveSidebarConversationSummaryState,
   resolveSidebarV2Status,
   toConversationSummaryState,
@@ -107,5 +108,60 @@ describe("canonical projections stay consistent", () => {
     expect(toConversationSummaryState(presentation, thread)).toBe("stale");
     expect(resolveSidebarV2Status(thread)).toBe("failed");
     expect(resolveSidebarConversationSummaryState(thread)).toBe("stale");
+  });
+});
+
+describe("toConversationAggregateState", () => {
+  const aggregate = (thread: Parameters<typeof resolveSidebarConversationAggregateState>[0]) =>
+    resolveSidebarConversationAggregateState(thread);
+
+  it("keeps a failure distinct instead of folding it into the resting state", () => {
+    const thread = {
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      session: { ...session, status: "error" as const, lastError: "boom" },
+      latestTurn: completedTurn,
+    };
+    expect(resolveSidebarConversationSummaryState(thread)).toBe("stale");
+    expect(aggregate(thread)).toBe("failed");
+  });
+
+  it("reports an interrupted turn as failed", () => {
+    expect(
+      aggregate({
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        session: null,
+        latestTurn: { state: "interrupted", startedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toBe("failed");
+  });
+
+  it("puts pending approval and pending input ahead of a running session", () => {
+    expect(aggregate({ hasPendingApprovals: true, session })).toBe("needsInput");
+    expect(aggregate({ hasPendingUserInput: true, session })).toBe("needsInput");
+  });
+
+  it("treats a running or starting session as working", () => {
+    expect(aggregate({ session })).toBe("working");
+    expect(aggregate({ session: { ...session, status: "starting" } })).toBe("working");
+  });
+
+  it("treats a running turn without a live session as working", () => {
+    expect(
+      aggregate({
+        session: null,
+        latestTurn: { state: "running", startedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toBe("working");
+  });
+
+  it("rests as done rather than failed for a completed, never-run, or unknown thread", () => {
+    expect(aggregate({ session: null, latestTurn: completedTurn })).toBe("done");
+    // A thread that has never run reports nothing at all. The counter model
+    // calls this `stale`; a single label must not call it Failed.
+    expect(resolveSidebarConversationSummaryState({ session: null })).toBe("stale");
+    expect(aggregate({ session: null })).toBe("done");
+    expect(aggregate({ session: null, latestTurn: {} })).toBe("done");
   });
 });

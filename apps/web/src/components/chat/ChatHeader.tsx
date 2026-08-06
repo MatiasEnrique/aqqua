@@ -6,6 +6,7 @@ import {
   type ThreadId,
 } from "@aqqua/contracts";
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
+import { ChevronRightIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
@@ -36,6 +37,16 @@ interface ChatHeaderProps {
   /** Per-surface right-panel icon buttons (Files / Diff / Terminal / Browser). */
   rightPanelSurfaceControls?: ReactNode;
   gitCwd: string | null;
+  /**
+   * In `worktree-tabs` mode the breadcrumb names the *worktree* and the tab
+   * strip below names the conversation, so the thread title would be said
+   * twice. Left undefined, the header keeps its original thread breadcrumb.
+   */
+  worktreeLabel?: string;
+  /** "3 worktrees · 4 open conversations" — the shape of the workspace, in words. */
+  worktreeSummary?: string;
+  /** Settle-all / delete for the breadcrumb's worktree. */
+  worktreeActions?: ReactNode;
   onOpenPullRequest?: () => void;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -74,6 +85,9 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   rightPanelSurfaceControls,
   gitCwd,
+  worktreeLabel,
+  worktreeSummary,
+  worktreeActions,
   onOpenPullRequest,
   onNewThreadInProject,
   onRunProjectScript,
@@ -119,24 +133,49 @@ export const ChatHeader = memo(function ChatHeader({
               </TooltipTrigger>
               <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
             </Tooltip>
-            <span aria-hidden className="text-muted-foreground/40">
-              /
-            </span>
+            <ChevronRightIcon aria-hidden className="size-3.5 text-muted-foreground/40" />
           </span>
         ) : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <h2
-                aria-label={activeThreadTitle}
-                className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
-              >
-                {activeThreadTitle}
-              </h2>
-            }
-          />
-          <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
-        </Tooltip>
+        {/* With tabs below, the breadcrumb's job is the *container*: the strip
+            already says which conversation is open, and repeating it here
+            spends the one line that answers "where am I". */}
+        {worktreeLabel === undefined ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <h2
+                  aria-label={activeThreadTitle}
+                  className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
+                >
+                  {activeThreadTitle}
+                </h2>
+              }
+            />
+            <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
+          </Tooltip>
+        ) : (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <h2
+                    aria-label={`Worktree ${worktreeLabel}`}
+                    className="min-w-0 truncate text-sm font-medium text-foreground"
+                  >
+                    {worktreeLabel}
+                  </h2>
+                }
+              />
+              <TooltipPopup side="top">Worktree {worktreeLabel}</TooltipPopup>
+            </Tooltip>
+            {worktreeSummary ? (
+              <span className="hidden min-w-0 shrink truncate text-xs text-muted-foreground/70 @2xl/header-actions:inline">
+                {worktreeSummary}
+              </span>
+            ) : null}
+            {worktreeActions}
+          </>
+        )}
       </div>
       <div
         data-chat-header-actions

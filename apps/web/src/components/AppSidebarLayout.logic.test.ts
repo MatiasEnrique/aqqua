@@ -8,6 +8,7 @@ describe("resolveAppSidebarVariant", () => {
       resolveAppSidebarVariant({
         isOnSettings: false,
         worktreeViewEnabled: false,
+        threadGroupingMode: "flat",
       }),
     ).toBe("regular");
   });
@@ -17,8 +18,29 @@ describe("resolveAppSidebarVariant", () => {
       resolveAppSidebarVariant({
         isOnSettings: false,
         worktreeViewEnabled: true,
+        threadGroupingMode: "worktree",
       }),
     ).toBe("worktree");
+  });
+
+  it("uses the card sidebar when grouping is set to worktree cards", () => {
+    expect(
+      resolveAppSidebarVariant({
+        isOnSettings: false,
+        worktreeViewEnabled: true,
+        threadGroupingMode: "worktree_cards",
+      }),
+    ).toBe("worktree-cards");
+  });
+
+  it("keeps the beta flag in charge of every worktree-aware sidebar", () => {
+    expect(
+      resolveAppSidebarVariant({
+        isOnSettings: false,
+        worktreeViewEnabled: false,
+        threadGroupingMode: "worktree_cards",
+      }),
+    ).toBe("regular");
   });
 
   it("keeps the settings navigation on settings routes", () => {
@@ -26,12 +48,14 @@ describe("resolveAppSidebarVariant", () => {
       resolveAppSidebarVariant({
         isOnSettings: true,
         worktreeViewEnabled: true,
+        threadGroupingMode: "worktree_cards",
       }),
     ).toBe("settings");
     expect(
       resolveAppSidebarVariant({
         isOnSettings: true,
         worktreeViewEnabled: false,
+        threadGroupingMode: "flat",
       }),
     ).toBe("settings");
   });

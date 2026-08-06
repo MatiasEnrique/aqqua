@@ -1,5 +1,5 @@
 import * as React from "react";
-import { EnvironmentId, ProjectId, type ContextMenuItem } from "@aqqua/contracts";
+import { EnvironmentId, ProjectId, ThreadId, type ContextMenuItem } from "@aqqua/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@aqqua/contracts/settings";
 import {
   getThreadSortTimestamp,
@@ -516,12 +516,20 @@ export function sortSettledThreadsForSidebarV2<
 export type SidebarDraftRow = {
   readonly draftId: string;
   readonly environmentId: EnvironmentId;
+  /** The thread this draft becomes once its first message lands. */
+  readonly threadId: ThreadId;
   readonly projectId: ProjectId;
   readonly envMode: "local" | "worktree";
   /** Worktree branch the user named, or a generic label until they name one. */
   readonly title: string;
   /** Base branch the worktree will fork from, when the draft pinned one. */
   readonly baseBranch: string | null;
+  /**
+   * The existing worktree this draft is aimed at, when it has one. A worktree
+   * draft without a path is still asking for a *new* worktree; one with a path
+   * belongs to a tree that already exists.
+   */
+  readonly worktreePath: string | null;
   readonly createdAt: string;
 };
 
@@ -533,6 +541,7 @@ type SidebarDraftInput = {
   readonly envMode: string;
   readonly branch: string | null;
   readonly worktreeBranchName: string | null;
+  readonly worktreePath?: string | null;
   readonly promotedTo?: { readonly environmentId: string; readonly threadId: string } | null;
 };
 
@@ -571,13 +580,21 @@ export function selectSidebarDraftRows(input: {
     rows.push({
       draftId,
       environmentId: EnvironmentId.make(draft.environmentId),
+      threadId: ThreadId.make(draft.threadId),
       projectId: ProjectId.make(draft.projectId),
       envMode: draft.envMode,
       title:
         draft.envMode === "worktree"
-          ? (draft.worktreeBranchName ?? SIDEBAR_DRAFT_ROW_FALLBACK_TITLE)
+          ? // A draft aimed at a worktree that already exists is just another
+            // conversation there — only a draft that will *create* one gets the
+            // "New worktree" wording.
+            (draft.worktreeBranchName ??
+            (draft.worktreePath != null
+              ? SIDEBAR_LOCAL_DRAFT_ROW_TITLE
+              : SIDEBAR_DRAFT_ROW_FALLBACK_TITLE))
           : SIDEBAR_LOCAL_DRAFT_ROW_TITLE,
       baseBranch: draft.branch,
+      worktreePath: draft.worktreePath ?? null,
       createdAt: draft.createdAt,
     });
   }

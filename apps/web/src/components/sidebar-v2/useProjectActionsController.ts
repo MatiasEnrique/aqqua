@@ -34,7 +34,7 @@ export function useProjectActionsController(input: {
     projectGroupingSettings,
     routeTargetRef,
   } = runtime;
-  const { setProjectScopeMenuOpen, setProjectActionsTarget } = projects;
+  const { setProjectActionsTarget } = projects;
 
   const handleRemoveProjectMembers = useCallback(
     async (projectGroup: SidebarProjectSnapshot, members: readonly SidebarProjectGroupMember[]) => {
@@ -202,7 +202,6 @@ export function useProjectActionsController(input: {
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
       event.preventDefault();
       event.stopPropagation();
-      setProjectScopeMenuOpen(false);
       window.requestAnimationFrame(() => setProjectActionsTarget(projectGroup));
     },
     [],

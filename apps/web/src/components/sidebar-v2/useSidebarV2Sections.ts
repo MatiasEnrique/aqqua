@@ -17,6 +17,15 @@ import {
 } from "../../sidebarProjectGrouping";
 import { shortcutLabelForCommand, threadJumpCommandForIndex } from "../../keybindings";
 import {
+  EMPTY_PROJECT_SCOPE_SELECTION,
+  type ProjectScopeSelection,
+  projectScopeSelectionFromKeys,
+  projectScopeSelectionKey,
+  pruneProjectScopeSelection,
+  resolveSelectedProjectGroups,
+  resolveSoleScopedProjectGroup,
+} from "./projectScopeSelection";
+import {
   legacyProjectCwdPreferenceKey,
   resolveProjectExpanded,
   resolveThreadExpanded,
@@ -64,6 +73,8 @@ import {
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
 } from "../Sidebar.worktreeGroups";
+import { resolveActiveWorktreeKey } from "./activeWorktree";
+import { resolveSidebarGroupingMode } from "./groupingMode";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { useSidebar } from "../ui/sidebar";
@@ -164,7 +175,10 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // The entry component owns grouping: the regular sidebar is flat by
   // definition, so it pins the mode rather than reading a setting that only
   // the worktree view exposes.
-  const sidebarThreadGroupingMode = options.groupingMode ?? settingsThreadGroupingMode;
+  // `worktree_cards` buckets exactly like `worktree`; only the renderer differs,
+  // so it normalizes here rather than forking every `=== "worktree"` check below.
+  const sidebarThreadGroupingMode =
+    options.groupingMode ?? resolveSidebarGroupingMode(settingsThreadGroupingMode);
   const {
     settleThread,
     settleThreads,
@@ -205,7 +219,6 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const [projectActionsTarget, setProjectActionsTarget] = useState<SidebarProjectSnapshot | null>(
     null,
   );
-  const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -227,6 +240,8 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const setProjectExpanded = useUiStateStore((s) => s.setProjectExpanded);
   const worktreeExpandedByKey = useUiStateStore((s) => s.worktreeExpandedByKey);
   const setWorktreeExpanded = useUiStateStore((s) => s.setWorktreeExpanded);
+  const activeWorktreeOverrideKey = useUiStateStore((s) => s.activeWorktreeOverrideKey);
+  const setActiveWorktreeOverrideKey = useUiStateStore((s) => s.setActiveWorktreeOverrideKey);
   const [hiddenWorktreeKeys, setHiddenWorktreeKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -370,26 +385,40 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     },
     [],
   );
-  // Project scope: one menu above the list. Scoping filters the list without
+  // Project scope: a chip row above the list. Scoping filters the list without
   // making the header width depend on the number or length of project names.
-  const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
-  const scopedProjectGroup = useMemo(
-    () =>
-      projectScopeKey === null
-        ? null
-        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
-    [projectGroups, projectScopeKey],
+  // The selection is a set — someone working across two repositories wants both
+  // registries at once, and one-at-a-time forced a round trip through a menu to
+  // see either.
+  const [projectScopeSelection, setProjectScopeSelection] = useState<ProjectScopeSelection>(
+    EMPTY_PROJECT_SCOPE_SELECTION,
   );
+  const scopedProjectGroups = useMemo(
+    () => resolveSelectedProjectGroups(projectScopeSelection, projectGroups),
+    [projectGroups, projectScopeSelection],
+  );
+  const scopedProjectGroup = useMemo(
+    () => resolveSoleScopedProjectGroup(scopedProjectGroups),
+    [scopedProjectGroups],
+  );
+  const setProjectScope = useCallback((keys: readonly string[]) => {
+    setProjectScopeSelection(projectScopeSelectionFromKeys(keys));
+  }, []);
+  const clearProjectScope = useCallback(() => {
+    setProjectScopeSelection(EMPTY_PROJECT_SCOPE_SELECTION);
+  }, []);
   const scopedProjectKeys = useMemo(
     () =>
-      scopedProjectGroup === null
+      scopedProjectGroups.length === 0
         ? null
         : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+            scopedProjectGroups.flatMap((group) =>
+              group.memberProjectRefs.map(
+                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+              ),
             ),
           ),
-    [scopedProjectGroup],
+    [scopedProjectGroups],
   );
   // Rows can unmount while they remain visible (for example when the settled
   // shelf collapses), so row cleanup must not erase the PR state that put them
@@ -416,13 +445,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       return changed ? next : current;
     });
   }, [scopedProjectKeys, threads]);
+  // A project that disappears — deleted, or regrouped under a new key by
+  // Settings → General — must not keep filtering the list from a chip that is
+  // no longer rendered.
   useEffect(() => {
-    if (projectScopeKey !== null && scopedProjectGroup === null) {
-      setProjectScopeKey(null);
-    }
-  }, [projectScopeKey, scopedProjectGroup]);
+    setProjectScopeSelection((current) => pruneProjectScopeSelection(current, projectGroups));
+  }, [projectGroups]);
   // Scope flips drop the selection: rows selected under the old scope may be
   // hidden now, and bulk actions must never count or touch invisible rows.
+  const projectScopeKey = useMemo(
+    () => projectScopeSelectionKey(projectScopeSelection),
+    [projectScopeSelection],
+  );
   useEffect(() => {
     clearSelection();
   }, [clearSelection, projectScopeKey]);
@@ -632,7 +666,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
-  const settledResetKey = projectScopeKey ?? "all";
+  const settledResetKey = projectScopeKey;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -745,7 +779,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     [repositoryGroups, scopedProjectGroup],
   );
   const repositoryHierarchyVisible =
-    sidebarThreadGroupingMode === "worktree" && projectScopeKey === null;
+    sidebarThreadGroupingMode === "worktree" && projectScopeSelection.size === 0;
   const expandedWorktreeGroups = useMemo(
     () =>
       filterExpandedSidebarWorktreeGroups({
@@ -876,15 +910,15 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const projectsSection: SidebarProjectsSection = {
     projects,
     projectGroups,
-    projectScopeKey,
-    setProjectScopeKey,
+    projectScopeSelection,
+    setProjectScope,
+    clearProjectScope,
+    scopedProjectGroups,
     scopedProjectGroup,
     scopedProjectKeys,
     scopedProjectState,
     projectExpandedById,
     setProjectExpanded,
-    projectScopeMenuOpen,
-    setProjectScopeMenuOpen,
     projectActionsTarget,
     setProjectActionsTarget,
     projectGroupingSettings,
@@ -943,11 +977,57 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     setHiddenWorktreeKeys((current) => addEphemeralHiddenWorktreeKey(current, key));
   }, []);
 
+  // Built WITHOUT `renderedActive`: that argument filters and orders by what
+  // the sidebar currently renders, so a collapsed orchestrator would drop its
+  // sub-agents. Both the header strip and the route→worktree match need the
+  // complete set — a tab you cannot see is a conversation you cannot reach, and
+  // deep-linking straight to a collapsed sub-agent must still select its card.
+  const completeWorktreeGroups = useMemo(
+    () =>
+      filterHiddenSidebarWorktreeGroups(
+        buildSidebarWorktreeGroups({
+          active: activeThreads,
+          snoozed: snoozedThreads,
+          settled: settledThreads,
+          drafts: groupedDraftRows,
+          projectsByKey: worktreeProjectsByKey,
+        }),
+        hiddenWorktreeKeys,
+      ),
+    [
+      activeThreads,
+      groupedDraftRows,
+      hiddenWorktreeKeys,
+      settledThreads,
+      snoozedThreads,
+      worktreeProjectsByKey,
+    ],
+  );
+  // One source of truth for "which worktree am I in", shared by the card list
+  // and the header tab strip so the two surfaces can never disagree.
+  const activeWorktreeKey = useMemo(
+    () =>
+      resolveActiveWorktreeKey({
+        routeThreadKey,
+        routeDraftId,
+        worktreeGroups: completeWorktreeGroups,
+        overrideKey: activeWorktreeOverrideKey,
+      }),
+    [activeWorktreeOverrideKey, completeWorktreeGroups, routeDraftId, routeThreadKey],
+  );
+  const activeWorktreeGroup = useMemo(
+    () => completeWorktreeGroups.find((group) => group.key === activeWorktreeKey) ?? null,
+    [activeWorktreeKey, completeWorktreeGroups],
+  );
+
   const worktreesSection: SidebarWorktreesSection = {
     worktreeGroups,
     expandedWorktreeGroups,
     repositoryGroups,
     repositoryHierarchyVisible,
+    activeWorktreeKey,
+    activeWorktreeGroup,
+    setActiveWorktreeOverrideKey,
     worktreeExpandedByKey,
     setWorktreeExpanded,
     removingWorktreeKey,

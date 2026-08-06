@@ -77,11 +77,13 @@ describe("ClientSettings environment identification", () => {
 });
 
 describe("ClientSettings sidebar v2", () => {
-  it("defaults the beta off with a three-day auto-settle threshold", () => {
+  it("defaults to worktree cards with a three-day auto-settle threshold", () => {
     const settings = decodeClientSettings({});
+    // The stored flag stays false; `resolveSidebarV2Enabled` owns the default,
+    // so an untouched setting is "unconfigured" rather than "opted out".
     expect(settings.sidebarV2Enabled).toBe(false);
     expect(settings.sidebarAutoSettleAfterDays).toBe(3);
-    expect(settings.sidebarThreadGroupingMode).toBe("worktree");
+    expect(settings.sidebarThreadGroupingMode).toBe("worktree_cards");
   });
 
   it("accepts flat thread grouping in settings and patches", () => {

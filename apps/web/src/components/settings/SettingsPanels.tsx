@@ -151,6 +151,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
+const SIDEBAR_THREAD_GROUPING_MODE_LABELS = {
+  flat: "Flat list",
+  worktree: "Worktree groups",
+  worktree_cards: "Worktree cards",
+} as const;
+
 const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
   performance: "Performance",
@@ -1060,8 +1066,8 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
-          title="Group threads by worktree"
-          description="Keep conversations and workspace tools organized by checkout."
+          title="Thread grouping"
+          description="Worktree cards collapse each checkout into one card and move its conversations into the header as tabs."
           resetAction={
             settings.sidebarThreadGroupingMode !==
             DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode ? (
@@ -1076,15 +1082,31 @@ export function GeneralSettingsPanel() {
             ) : null
           }
           control={
-            <Switch
-              checked={settings.sidebarThreadGroupingMode === "worktree"}
-              onCheckedChange={(checked) =>
-                updateSettings({
-                  sidebarThreadGroupingMode: checked ? "worktree" : "flat",
-                })
-              }
-              aria-label="Group threads by worktree"
-            />
+            <Select
+              value={settings.sidebarThreadGroupingMode}
+              onValueChange={(value) => {
+                if (value === "flat" || value === "worktree" || value === "worktree_cards") {
+                  updateSettings({ sidebarThreadGroupingMode: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Thread grouping">
+                <SelectValue>
+                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS[settings.sidebarThreadGroupingMode]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="flat">
+                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.flat}
+                </SelectItem>
+                <SelectItem hideIndicator value="worktree">
+                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.worktree}
+                </SelectItem>
+                <SelectItem hideIndicator value="worktree_cards">
+                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.worktree_cards}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 

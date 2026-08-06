@@ -119,9 +119,9 @@ describe("branding logic", () => {
 
 describe("resolveSidebarV2Default", () => {
   it.each(["Dev", " dev ", "Alpha", "Latest", ""])(
-    "leaves the worktree view opt-in for %s builds",
+    "ships the worktree view as the default sidebar on %s builds",
     (stage) => {
-      expect(resolveSidebarV2Default(stage)).toBe(false);
+      expect(resolveSidebarV2Default(stage)).toBe(true);
     },
   );
 });
@@ -145,7 +145,7 @@ describe("resolveSidebarV2Enabled", () => {
     },
   );
 
-  it("applies the stage default when the beta was never enabled or configured", () => {
+  it("applies the stage default when the view was never enabled or configured", () => {
     expect(
       resolveSidebarV2Enabled({
         ...hydrated,
@@ -153,7 +153,7 @@ describe("resolveSidebarV2Enabled", () => {
         configuredByUser: false,
         stageLabel: "Sigma",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       resolveSidebarV2Enabled({
         ...hydrated,
@@ -161,7 +161,7 @@ describe("resolveSidebarV2Enabled", () => {
         configuredByUser: false,
         stageLabel: "Latest",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("honors an explicit opt-out over the stage default", () => {
@@ -175,14 +175,14 @@ describe("resolveSidebarV2Enabled", () => {
     ).toBe(false);
   });
 
-  it("holds the regular sidebar until settings hydrate so the sidebar does not remount", () => {
+  it("holds the stage default until settings hydrate so the common path never remounts", () => {
     expect(
       resolveSidebarV2Enabled({
-        enabled: true,
+        enabled: false,
         configuredByUser: true,
         settingsHydrated: false,
         stageLabel: "Sigma",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

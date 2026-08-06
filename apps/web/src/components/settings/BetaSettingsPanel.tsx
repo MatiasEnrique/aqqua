@@ -66,7 +66,7 @@ export function BetaSettingsPanel() {
       <SettingsSection title="Beta features">
         <SettingsRow
           title="Worktree view"
-          description="Group the sidebar by worktree instead of one flat thread list. Active work renders as rich cards; settled threads collapse to compact rows. Settling requires an up-to-date server — on older servers threads simply stay active. Switch back any time."
+          description="On by default. The sidebar lists your worktrees and the chat header holds your open conversations as tabs; Settings → General picks which of the worktree layouts you get. Turn this off for one flat thread list. Settling requires an up-to-date server — on older servers threads simply stay active."
           control={
             <Switch
               checked={worktreeViewEnabled}

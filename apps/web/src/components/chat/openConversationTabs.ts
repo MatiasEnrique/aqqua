@@ -1,0 +1,205 @@
+import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
+import {
+  resolveSidebarConversationAggregateState,
+  type SidebarConversationAggregateState,
+} from "../Sidebar.summaryState";
+
+/**
+ * Tabs are keyed by scoped thread key — including drafts.
+ *
+ * A draft already knows the thread it will become, and the draft route resolves
+ * to that same ref, so keying by it means promotion is invisible: the tab the
+ * user opened as "New thread" is the tab that holds the conversation once the
+ * first message lands, with no key to migrate and no window where both exist.
+ */
+export function conversationTabKey(threadRef: ScopedThreadRef): string {
+  return scopedThreadKey(threadRef);
+}
+
+/** Adds a conversation to the open set, keeping the order tabs were opened in. */
+export function openConversationTab(keys: readonly string[], key: string): string[] {
+  return keys.includes(key) ? [...keys] : [...keys, key];
+}
+
+/**
+ * Removes a conversation from the open set.
+ *
+ * Closing a tab is *only* this. It never settles, snoozes or deletes: the
+ * conversation stays exactly where it was, and reopening it costs one click in
+ * the sidebar or the command palette.
+ */
+export function closeConversationTab(keys: readonly string[], key: string): string[] {
+  return keys.filter((candidate) => candidate !== key);
+}
+
+/**
+ * Where to route after closing a tab, or null to stay put.
+ *
+ * Closing the tab you are looking at has to land somewhere; an editor answers
+ * "the neighbour", preferring the one on the right so repeated closes walk in a
+ * single direction. Closing any other tab leaves the route alone.
+ */
+export function resolveConversationTabCloseTarget(input: {
+  readonly keys: readonly string[];
+  readonly closingKey: string;
+  readonly activeKey: string | null;
+}): string | null {
+  if (input.activeKey !== input.closingKey) return null;
+  const index = input.keys.indexOf(input.closingKey);
+  if (index < 0) return null;
+  const remaining = closeConversationTab(input.keys, input.closingKey);
+  return remaining[index] ?? remaining[index - 1] ?? null;
+}
+
+export type ConversationTab =
+  | {
+      readonly _tag: "draft";
+      readonly key: string;
+      readonly threadRef: ScopedThreadRef;
+      readonly title: string;
+      readonly isActive: boolean;
+      readonly draftId: string;
+    }
+  | {
+      readonly _tag: "thread";
+      readonly key: string;
+      readonly threadRef: ScopedThreadRef;
+      readonly title: string;
+      readonly isActive: boolean;
+      readonly state: SidebarConversationAggregateState;
+    };
+
+export interface ConversationTabDraft {
+  readonly draftId: string;
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly title: string;
+}
+
+export interface ConversationTabSource {
+  readonly openKeys: readonly string[];
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly drafts: readonly ConversationTabDraft[];
+  readonly activeKey: string | null;
+}
+
+/**
+ * The strip's contents, in the order the tabs were opened.
+ *
+ * Keys whose conversation no longer exists are dropped rather than rendered as
+ * a placeholder: a deleted thread has no tab, and the persisted list is allowed
+ * to be briefly stale between prunes.
+ */
+export function buildConversationTabs(source: ConversationTabSource): ConversationTab[] {
+  const threadByKey = new Map(
+    source.threads.map(
+      (thread) =>
+        [conversationTabKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+    ),
+  );
+  const draftByKey = new Map(
+    source.drafts.map(
+      (draft) =>
+        [conversationTabKey(scopeThreadRef(draft.environmentId, draft.threadId)), draft] as const,
+    ),
+  );
+
+  return source.openKeys.flatMap((key): ConversationTab[] => {
+    // The live thread wins over its own draft: the instant a draft is promoted
+    // both sources describe the same key, and the thread is the truthful one.
+    const thread = threadByKey.get(key);
+    if (thread !== undefined) {
+      return [
+        {
+          _tag: "thread",
+          key,
+          threadRef: scopeThreadRef(thread.environmentId, thread.id),
+          title: thread.title || "Untitled",
+          state: resolveSidebarConversationAggregateState(thread),
+          isActive: source.activeKey === key,
+        },
+      ];
+    }
+    const draft = draftByKey.get(key);
+    if (draft !== undefined) {
+      return [
+        {
+          _tag: "draft",
+          key,
+          draftId: draft.draftId,
+          threadRef: scopeThreadRef(draft.environmentId, draft.threadId),
+          title: draft.title,
+          isActive: source.activeKey === key,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+/** The keys still backed by a live conversation, for pruning persisted state. */
+export function retainKnownConversationTabs(input: {
+  readonly keys: readonly string[];
+  readonly knownKeys: ReadonlySet<string>;
+}): string[] {
+  return input.keys.filter((key) => input.knownKeys.has(key));
+}
+
+export type WorktreeFocusTarget =
+  | { readonly _tag: "thread"; readonly threadRef: ScopedThreadRef }
+  | { readonly _tag: "draft"; readonly draftId: string }
+  | { readonly _tag: "none" };
+
+interface WorktreeFocusCandidate {
+  readonly drafts: readonly {
+    readonly draftId: string;
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+  }[];
+  readonly active: readonly {
+    readonly environmentId: EnvironmentId;
+    readonly id: ThreadId;
+    readonly updatedAt: string;
+  }[];
+}
+
+/**
+ * Where clicking a worktree lands.
+ *
+ * An already-open tab wins, so selecting a worktree resumes what you were doing
+ * there instead of yanking a stale conversation into the strip. Within either
+ * pool the most recently active conversation wins — the code had no prior rule,
+ * and recency is the one the strip's own ordering already implies.
+ */
+export function resolveWorktreeFocusTarget(input: {
+  readonly worktree: WorktreeFocusCandidate;
+  readonly openKeys: ReadonlySet<string>;
+}): WorktreeFocusTarget {
+  const byRecency = [...input.worktree.active].sort(
+    (left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt),
+  );
+  const thread =
+    byRecency.find((candidate) =>
+      input.openKeys.has(conversationTabKey(scopeThreadRef(candidate.environmentId, candidate.id))),
+    ) ?? byRecency[0];
+  if (thread !== undefined) {
+    return {
+      _tag: "thread",
+      threadRef: scopeThreadRef(thread.environmentId, thread.id),
+    };
+  }
+  const draft =
+    input.worktree.drafts.find((candidate) =>
+      input.openKeys.has(
+        conversationTabKey(scopeThreadRef(candidate.environmentId, candidate.threadId)),
+      ),
+    ) ?? input.worktree.drafts[0];
+  return draft === undefined ? { _tag: "none" } : { _tag: "draft", draftId: draft.draftId };
+}
+
+function parseTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
