@@ -104,6 +104,8 @@ export interface DiffPanelProps {
    * draft's worktree is only created with its first message.
    */
   fallbackCwd?: string | null;
+  /** Opens the in-app pull request panel after a successful PR action. */
+  onOpenPullRequest?: () => void;
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -116,6 +118,7 @@ export default function DiffPanel({
   threadRef: threadRefProp = null,
   workspaceRef = null,
   fallbackCwd = null,
+  onOpenPullRequest,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -704,6 +707,7 @@ export default function DiffPanel({
             excludedPaths={excludedCommitPaths}
             onExcludedPathsChange={setExcludedCommitPaths}
             onActionCompleted={handleCommitActionCompleted}
+            {...(onOpenPullRequest ? { onOpenPullRequest } : {})}
           />
         ) : null
       }

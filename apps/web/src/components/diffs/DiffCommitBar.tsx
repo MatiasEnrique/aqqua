@@ -3,10 +3,8 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import type { EnvironmentId, GitActionProgressEvent, GitStackedAction } from "@aqqua/contracts";
-import { ExternalLinkIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useGitStackedAction, useSourceControlActionRunning } from "~/lib/sourceControlActions";
 import { randomUUID } from "~/lib/utils";
 
@@ -38,7 +36,7 @@ interface DiffCommitProgress {
 interface DiffCommitOutcome {
   readonly title: string;
   readonly description: string | null;
-  readonly pullRequestUrl: string | null;
+  readonly canOpenPullRequest: boolean;
 }
 
 interface DiffCommitBarProps {
@@ -49,6 +47,8 @@ interface DiffCommitBarProps {
   onExcludedPathsChange: (excludedPaths: ReadonlySet<string>) => void;
   /** Called after an action succeeds so the panel can refetch the diff. */
   onActionCompleted: () => void;
+  /** Opens the in-app pull request panel when a PR was created. */
+  onOpenPullRequest?: () => void;
 }
 
 export function DiffCommitBar({
@@ -58,11 +58,11 @@ export function DiffCommitBar({
   excludedPaths,
   onExcludedPathsChange,
   onActionCompleted,
+  onOpenPullRequest,
 }: DiffCommitBarProps) {
   const scope = useMemo(() => ({ environmentId, cwd }), [cwd, environmentId]);
   const gitAction = useGitStackedAction(scope);
   const isSourceControlBusy = useSourceControlActionRunning(scope, RUNNING_SOURCE_CONTROL_ACTIONS);
-  const openPrLink = useOpenPrLink();
 
   const [commitMessage, setCommitMessage] = useState("");
   const [runningAction, setRunningAction] = useState<GitStackedAction | null>(null);
@@ -140,7 +140,10 @@ export function DiffCommitBar({
         setOutcome({
           title: actionResult.toast.title,
           description: actionResult.toast.description ?? null,
-          pullRequestUrl: actionResult.pr.url ?? null,
+          canOpenPullRequest:
+            actionResult.toast.cta.kind === "open_pr" ||
+            actionResult.pr.status === "created" ||
+            actionResult.pr.status === "opened_existing",
         });
         onActionCompleted();
       })();
@@ -232,18 +235,15 @@ export function DiffCommitBar({
             {outcome.title}
             {outcome.description ? ` — ${outcome.description}` : ""}
           </span>
-          {outcome.pullRequestUrl && (
+          {outcome.canOpenPullRequest && onOpenPullRequest && (
             <Button
               className="shrink-0"
-              onClick={(event) => {
-                if (outcome.pullRequestUrl) openPrLink(event, outcome.pullRequestUrl);
-              }}
+              onClick={onOpenPullRequest}
               size="xs"
               type="button"
               variant="ghost"
             >
-              <ExternalLinkIcon className="size-3" />
-              Open
+              View PR
             </Button>
           )}
         </div>
