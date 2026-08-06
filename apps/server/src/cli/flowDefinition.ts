@@ -13,10 +13,17 @@ import * as Schema from "effect/Schema";
 
 import { sanitizeBoardStepName } from "../boardArtifacts.ts";
 
+/**
+ * Deliberately permissive: this layer only mints missing step ids. Which
+ * selector a step is allowed to carry — canonical `agent`, legacy
+ * `profileName`, never both or neither — is `BoardSnapshot`'s job, so an
+ * authoring mistake is reported once, in the contract's own words.
+ */
 const FlowDefinitionStepSource = Schema.Struct({
   id: Schema.optional(Schema.Unknown),
   name: Schema.Unknown,
-  profileName: Schema.Unknown,
+  agent: Schema.optional(Schema.Unknown),
+  profileName: Schema.optional(Schema.Unknown),
   promptTemplate: Schema.Unknown,
   continuation: Schema.optional(Schema.Unknown),
 });
@@ -34,6 +41,7 @@ export type FlowDefinition = {
 export type ValidatedFlowDefinition = {
   readonly definition: FlowDefinition;
   readonly parameterNames: ReadonlyArray<string>;
+  /** Only legacy `profileName` steps can land here; canonical steps never do. */
   readonly unknownProfileNames: ReadonlyArray<string>;
 };
 
@@ -136,7 +144,7 @@ export class FlowDefinitionUnknownProfilesError extends Schema.TaggedErrorClass<
   override get message(): string {
     const unknown = this.unknownProfileNames.join(", ");
     const available = this.availableProfileNames.join(", ");
-    return `Unknown agent profile${this.unknownProfileNames.length === 1 ? "" : "s"}: ${unknown}. Available profiles: ${available}.`;
+    return `Unknown legacy agent profile${this.unknownProfileNames.length === 1 ? "" : "s"}: ${unknown}. Available profiles: ${available}. Prefer a canonical 'agent' selector: {"instanceId": ..., "model": ...}.`;
   }
 }
 
@@ -246,15 +254,21 @@ export const validateFlowDefinition = Effect.fn("validateFlowDefinition")(functi
     earlierStepNames.add(step.name);
   }
 
+  // Canonical `agent` steps name a provider instance and model on the machine
+  // that will *run* the card, which the authoring machine cannot enumerate.
+  // They are structurally validated here and catalog-validated at step entry;
+  // only legacy profile names are checked against local settings.
   const availableProfileNames = [
     ...new Set([...input.availableProfileNames, DEFAULT_AGENT_PROFILE_NAME]),
   ].toSorted();
   const availableProfiles = new Set(availableProfileNames);
   const unknownProfileNames = [
     ...new Set(
-      input.definition.steps
-        .map((step) => step.profileName)
-        .filter((profileName) => !availableProfiles.has(profileName)),
+      input.definition.steps.flatMap((step) =>
+        step.profileName !== undefined && !availableProfiles.has(step.profileName)
+          ? [step.profileName as string]
+          : [],
+      ),
     ),
   ].toSorted();
 

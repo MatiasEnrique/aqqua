@@ -12,6 +12,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
  * Mirror of `AgentProfileName` from settings.ts (same brand string + checks).
@@ -35,15 +36,58 @@ export const BoardStepContinuation = Schema.Literals(["auto", "manual"]);
 export type BoardStepContinuation = typeof BoardStepContinuation.Type;
 export const DEFAULT_BOARD_STEP_CONTINUATION: BoardStepContinuation = "auto";
 
+/**
+ * The canonical way a flow step names the agent that runs it: one exact
+ * provider-instance/model catalog row, plus an optional semantic reasoning
+ * level.
+ *
+ * Carries `ModelSelection`'s `instanceId + model` identity. The routing key is
+ * the real `ProviderInstanceId` — importing it costs nothing, since
+ * providerInstance.ts depends only on baseSchemas, while importing
+ * `ModelSelection` from orchestration.ts would close a cycle back through this
+ * module. `model` stays an unbounded trimmed string so exact slugs survive
+ * whatever a provider advertises.
+ *
+ * `reasoning` is deliberately the friendly level rather than a provider-native
+ * option id: the authoring machine and the executing environment may advertise
+ * different choices, so the value is validated against the live catalog at
+ * execution time.
+ */
+export const BoardStepAgent = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  model: TrimmedNonEmptyString,
+  reasoning: Schema.optional(TrimmedNonEmptyString),
+});
+export type BoardStepAgent = typeof BoardStepAgent.Type;
+
+/**
+ * A step names its agent exactly one way: canonically through `agent`, or —
+ * for boards persisted before model-first orchestration — through
+ * `profileName`. Both at once is ambiguous and neither leaves the step
+ * unrunnable, so the schema refuses both rather than picking a winner at
+ * execution time.
+ */
 export const BoardStep = Schema.Struct({
   id: BoardStepId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
   promptTemplate: TrimmedNonEmptyString.check(Schema.isMaxLength(20_000)),
-  profileName: BoardAgentProfileName,
+  agent: Schema.optional(BoardStepAgent),
+  /** @deprecated Legacy selector; resolved through the profile compatibility adapter. */
+  profileName: Schema.optional(BoardAgentProfileName),
   continuation: BoardStepContinuation.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BOARD_STEP_CONTINUATION)),
   ),
-});
+}).check(
+  Schema.makeFilter((step) => {
+    if (step.agent !== undefined && step.profileName !== undefined) {
+      return "a step names its agent through 'agent' or the legacy 'profileName', not both.";
+    }
+    if (step.agent === undefined && step.profileName === undefined) {
+      return "a step must name its agent through 'agent' (instanceId + model).";
+    }
+    return true;
+  }),
+);
 export type BoardStep = typeof BoardStep.Type;
 
 export const OrchestrationBoard = Schema.Struct({

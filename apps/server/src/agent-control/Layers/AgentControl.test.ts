@@ -5,10 +5,12 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
+  type ModelSelection,
   type OrchestrationSessionStatus,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
   type TerminalOpenInput,
   ThreadId,
   TurnId,
@@ -29,6 +31,7 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "../../orchestration/runtimeLayer.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { AgentControl } from "../Services/AgentControl.ts";
@@ -37,6 +40,68 @@ import { AgentControlLive, MAX_LIVE_SUB_AGENTS_PER_PARENT } from "./AgentControl
 const implementer = AgentProfileName.make("implementer");
 const terminalProfile = AgentProfileName.make("terminalImplementer");
 const codexInstanceId = ProviderInstanceId.make("codex");
+const codexAltInstanceId = ProviderInstanceId.make("codex-alt");
+
+let providerRefreshCalls = 0;
+const catalogProviders: ReadonlyArray<ServerProvider> = [
+  {
+    instanceId: codexInstanceId,
+    driver: ProviderDriverKind.make("codex"),
+    displayName: "Codex Work",
+    enabled: true,
+    installed: true,
+    version: "1.0.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-08-05T00:00:00.000Z",
+    models: [
+      {
+        slug: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        isCustom: false,
+        isDefault: true,
+        capabilities: {
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              label: "Reasoning",
+              type: "select",
+              semantic: "reasoning",
+              options: ["low", "high"].map((id) => ({ id, label: id })),
+            },
+          ],
+        },
+      },
+    ],
+    slashCommands: [],
+    skills: [],
+  },
+  {
+    instanceId: codexAltInstanceId,
+    driver: ProviderDriverKind.make("codex"),
+    displayName: "Codex Personal",
+    enabled: true,
+    installed: false,
+    version: null,
+    status: "error",
+    message: "Codex CLI is not installed.",
+    auth: { status: "unknown" },
+    checkedAt: "2026-08-05T00:00:00.000Z",
+    models: [{ slug: "gpt-5.6-sol", name: "GPT-5.6 Sol", isCustom: false, capabilities: null }],
+    slashCommands: [],
+    skills: [],
+  },
+];
+
+const providerRegistryStub = Layer.succeed(ProviderRegistry, {
+  getProviders: Effect.succeed(catalogProviders),
+  refresh: () =>
+    Effect.sync(() => {
+      providerRefreshCalls += 1;
+      return catalogProviders;
+    }),
+  streamChanges: Stream.empty,
+} as unknown as typeof ProviderRegistry.Service);
 
 let uniqueCounter = 0;
 const unique = (prefix: string) => `${prefix}-${(uniqueCounter += 1)}`;
@@ -104,6 +169,7 @@ const agentControlLayer = it.layer(
       Layer.mergeAll(
         OrchestrationLayerLive,
         registryStub,
+        providerRegistryStub,
         terminalStub,
         serverSettingsLayerTest({
           agentProfiles: {
@@ -135,7 +201,9 @@ agentControlLayer("AgentControl", (it) => {
    * A fresh project and unparented orchestrator per test. The suite shares one
    * in-memory database, so isolation comes from unique ids rather than teardown.
    */
-  const makeOrchestrator = Effect.fn("makeOrchestrator")(function* () {
+  const makeOrchestrator = Effect.fn("makeOrchestrator")(function* (
+    defaultModelSelection: ModelSelection | null = null,
+  ) {
     const engine = yield* OrchestrationEngineService;
     const projectId = ProjectId.make(unique("project"));
     const parentThreadId = ThreadId.make(unique("thread-orchestrator"));
@@ -150,7 +218,7 @@ agentControlLayer("AgentControl", (it) => {
       // Distinct per test: only one active project may claim a workspace root,
       // and this suite shares one database across its tests.
       workspaceRoot,
-      defaultModelSelection: null,
+      defaultModelSelection,
       createdAt: "2026-04-06T00:00:00.000Z",
     });
     yield* engine.dispatch({
@@ -265,7 +333,7 @@ agentControlLayer("AgentControl", (it) => {
       const agents = yield* AgentControl;
       const { parentThreadId, projectId, worktreePath } = yield* makeOrchestrator();
 
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Implement the server seam\nmore detail here",
@@ -298,12 +366,128 @@ agentControlLayer("AgentControl", (it) => {
     }),
   );
 
+  it.effect(
+    "spawns an exact catalog model with semantic reasoning translated to native options",
+    () =>
+      Effect.gen(function* () {
+        const agents = yield* AgentControl;
+        const { parentThreadId } = yield* makeOrchestrator();
+
+        const handle = yield* agents.spawn({
+          parentThreadId,
+          selection: {
+            model: {
+              instanceId: codexInstanceId,
+              model: "gpt-5.6-sol",
+              options: [{ id: "serviceTier", value: "priority" }],
+            },
+            reasoning: "high",
+          },
+          task: "Use the exact model",
+        });
+
+        const child = yield* readThread(handle.threadId);
+        assert.equal(handle.profile, "gpt-5.6-sol");
+        assert.equal(child.title, "gpt-5.6-sol: Use the exact model");
+        assert.deepEqual(child.modelSelection, {
+          instanceId: codexInstanceId,
+          model: "gpt-5.6-sol",
+          options: [
+            { id: "serviceTier", value: "priority" },
+            { id: "reasoningEffort", value: "high" },
+          ],
+        });
+      }),
+  );
+
+  it.effect("uses the project default for a bare canonical spawn", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const projectDefault = {
+        instanceId: codexInstanceId,
+        model: "gpt-5.6-sol",
+        options: [{ id: "serviceTier", value: "priority" }],
+      } satisfies ModelSelection;
+      const { parentThreadId } = yield* makeOrchestrator(projectDefault);
+
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Use the project default",
+      });
+
+      assert.deepEqual((yield* readThread(handle.threadId)).modelSelection, projectDefault);
+    }),
+  );
+
+  it.effect("uses the deterministic catalog fallback when the project has no default", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const handle = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Use the catalog fallback",
+      });
+
+      assert.deepEqual((yield* readThread(handle.threadId)).modelSelection, {
+        instanceId: codexInstanceId,
+        model: "gpt-5.6-sol",
+      });
+    }),
+  );
+
+  it.effect("lists duplicate model slugs by instance without refreshing providers", () =>
+    Effect.gen(function* () {
+      providerRefreshCalls = 0;
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const models = yield* agents.models({ parentThreadId });
+
+      assert.deepEqual(
+        models.map((row) => `${row.instanceId}/${row.model.slug}`),
+        ["codex/gpt-5.6-sol", "codex-alt/gpt-5.6-sol"],
+      );
+      assert.equal(models[1]?.available, false);
+      assert.equal(models[1]?.unavailableReason, "Codex CLI is not installed.");
+      assert.equal(providerRefreshCalls, 0);
+    }),
+  );
+
+  it.effect("lists models by archived worktree without an active top-level thread", () =>
+    Effect.gen(function* () {
+      providerRefreshCalls = 0;
+      const agents = yield* AgentControl;
+      const engine = yield* OrchestrationEngineService;
+      const { parentThreadId, worktreePath } = yield* makeOrchestrator({
+        instanceId: codexInstanceId,
+        model: "gpt-5.6-sol",
+      });
+
+      yield* engine.dispatch({
+        type: "thread.archive",
+        commandId: nextCommandId(),
+        threadId: parentThreadId,
+      });
+
+      const models = yield* agents.modelsStandalone({
+        cwd: `${worktreePath}/apps/server`,
+      });
+
+      assert.deepEqual(
+        models.filter((row) => row.isProjectDefault).map((row) => row.model.slug),
+        ["gpt-5.6-sol"],
+      );
+      assert.equal(providerRefreshCalls, 0);
+    }),
+  );
+
   it.effect("spawns a standalone agent in the project containing the CLI working directory", () =>
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { projectId, workspaceRoot } = yield* makeOrchestrator();
 
-      const handle = yield* agents.spawnStandalone({
+      const handle = yield* agents.spawnStandaloneProfile({
         cwd: `${workspaceRoot}/apps/server`,
         profile: implementer,
         task: "Implement the standalone CLI seam",
@@ -324,7 +508,7 @@ agentControlLayer("AgentControl", (it) => {
       const agents = yield* AgentControl;
       const { projectId, worktreePath } = yield* makeOrchestrator();
 
-      const handle = yield* agents.spawnStandalone({
+      const handle = yield* agents.spawnStandaloneProfile({
         cwd: `${worktreePath}/apps/server`,
         profile: implementer,
         task: "Work in this checkout",
@@ -350,7 +534,7 @@ agentControlLayer("AgentControl", (it) => {
         threadId: parentThreadId,
       });
 
-      const handle = yield* agents.spawnStandalone({
+      const handle = yield* agents.spawnStandaloneProfile({
         cwd: `${worktreePath}/apps/server`,
         profile: implementer,
         task: "Continue in the archived thread's checkout",
@@ -370,7 +554,7 @@ agentControlLayer("AgentControl", (it) => {
       yield* makeOrchestrator();
 
       const failure = yield* Effect.flip(
-        agents.spawnStandalone({
+        agents.spawnStandaloneProfile({
           cwd: `/tmp/not-an-aqqua-project/${unique("outside")}`,
           profile: implementer,
           task: "This must not start",
@@ -385,7 +569,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Fast task",
@@ -416,7 +600,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Slow task",
@@ -449,7 +633,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Long task",
@@ -475,7 +659,7 @@ agentControlLayer("AgentControl", (it) => {
       const agents = yield* AgentControl;
       const threads = yield* ProjectionThreadRepository;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Keep working after an older turn settles",
@@ -502,7 +686,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Wait through provider startup",
@@ -533,7 +717,7 @@ agentControlLayer("AgentControl", (it) => {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
 
-      const failing = yield* agents.spawn({
+      const failing = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Will fail",
@@ -550,7 +734,7 @@ agentControlLayer("AgentControl", (it) => {
       });
       assert.equal(failed.status, "failed");
 
-      const stopping = yield* agents.spawn({
+      const stopping = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Will be stopped",
@@ -573,14 +757,14 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Parent task",
       });
 
       const failure = yield* Effect.flip(
-        agents.spawn({
+        agents.spawnProfile({
           parentThreadId: handle.threadId,
           profile: implementer,
           task: "Grandchild task",
@@ -640,7 +824,7 @@ agentControlLayer("AgentControl", (it) => {
 
       const handles: Array<ThreadId> = [];
       for (let index = 0; index < MAX_LIVE_SUB_AGENTS_PER_PARENT; index += 1) {
-        const handle = yield* agents.spawn({
+        const handle = yield* agents.spawnProfile({
           parentThreadId,
           profile: implementer,
           task: `Task ${index}`,
@@ -650,7 +834,7 @@ agentControlLayer("AgentControl", (it) => {
       }
 
       const rejected = yield* Effect.flip(
-        agents.spawn({ parentThreadId, profile: implementer, task: "One too many" }),
+        agents.spawnProfile({ parentThreadId, profile: implementer, task: "One too many" }),
       );
       assert.equal(rejected._tag, "AgentConcurrencyLimitError");
 
@@ -663,7 +847,7 @@ agentControlLayer("AgentControl", (it) => {
         updatedAt: "2026-04-06T00:00:09.000Z",
       });
 
-      const accepted = yield* agents.spawn({
+      const accepted = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Now there is room",
@@ -676,7 +860,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "First task",
@@ -715,13 +899,13 @@ agentControlLayer("AgentControl", (it) => {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
 
-      const running = yield* agents.spawn({
+      const running = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Running task",
       });
       yield* startTurn(running.threadId, TurnId.make(unique("turn")));
-      const done = yield* agents.spawn({
+      const done = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Done task",
@@ -746,7 +930,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: implementer,
         task: "Interrupt me",
@@ -769,7 +953,7 @@ agentControlLayer("AgentControl", (it) => {
       const { parentThreadId, worktreePath } = yield* makeOrchestrator();
       openedTerminals.length = 0;
 
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: terminalProfile,
         task: "Fix the failing test",
@@ -800,7 +984,7 @@ agentControlLayer("AgentControl", (it) => {
     Effect.gen(function* () {
       const agents = yield* AgentControl;
       const { parentThreadId } = yield* makeOrchestrator();
-      const handle = yield* agents.spawn({
+      const handle = yield* agents.spawnProfile({
         parentThreadId,
         profile: terminalProfile,
         task: "Watch me in the terminal",
@@ -836,7 +1020,7 @@ agentControlLayer("AgentControl", (it) => {
       const { parentThreadId } = yield* makeOrchestrator();
 
       const failure = yield* Effect.flip(
-        agents.spawn({
+        agents.spawnProfile({
           parentThreadId,
           profile: AgentProfileName.make("reviewer"),
           task: "Review it",

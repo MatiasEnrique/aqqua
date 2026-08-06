@@ -56,6 +56,7 @@ const GROK_BUILT_IN_REASONING_CAPABILITIES: ModelCapabilities = createModelCapab
     {
       id: "reasoningEffort",
       label: "Reasoning",
+      semantic: "reasoning",
       type: "select",
       options: [
         { id: "high", label: "High", isDefault: true },
@@ -176,6 +177,7 @@ export function grokModelCapabilitiesFromAcpMeta(
       {
         id: "reasoningEffort",
         label: "Reasoning",
+        semantic: "reasoning",
         type: "select",
         options,
         ...(currentValue !== undefined ? { currentValue } : {}),

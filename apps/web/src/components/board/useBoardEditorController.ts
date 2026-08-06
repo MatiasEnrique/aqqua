@@ -90,6 +90,10 @@ export function useBoardEditorController({
   const focusedStep = draft.steps.find((step) => step.id === focusedStepId) ?? null;
   const focusedSkillsProvider = useMemo(() => {
     if (focusedStep === null) return null;
+    if (focusedStep.agent !== undefined) {
+      const instanceId = focusedStep.agent.instanceId;
+      return serverConfig?.providers.find((provider) => provider.instanceId === instanceId) ?? null;
+    }
     const profile =
       profileRows.find((row) => row.name === focusedStep.profileName)?.profile ?? null;
     return resolveProfileSkillsProvider(profile?.target ?? null, serverConfig?.providers ?? []);

@@ -11,6 +11,7 @@ import {
   type OrchestrationBoard,
   type OrchestrationCard,
   ProjectId,
+  ProviderInstanceId,
 } from "@aqqua/contracts";
 import * as NetService from "@aqqua/shared/Net";
 import { assert, it } from "@effect/vitest";
@@ -44,6 +45,7 @@ const decodeFlowListJson = Schema.decodeEffect(
         name: Schema.String,
         stepCount: Schema.Number,
         profiles: Schema.Array(Schema.String),
+        agents: Schema.Array(Schema.String),
       }),
     ),
   ),
@@ -180,6 +182,7 @@ it.effect("lists active flows with step counts and distinct sorted profiles", ()
         name: "Ship",
         stepCount: 3,
         profiles: ["implementer", "planner"],
+        agents: ["profile=implementer (legacy)", "profile=planner (legacy)"],
       },
     ]);
   }),
@@ -214,6 +217,118 @@ it.effect("shows the full definition and resolves an exact id before duplicate n
         },
       ],
     });
+  }),
+);
+
+it.effect("renders canonical steps by exact instance/model and legacy steps as profiles", () =>
+  Effect.gen(function* () {
+    const mixed = flow({
+      steps: [
+        {
+          id: BoardStepId.make("step-canonical"),
+          name: "Plan",
+          agent: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5.6-sol",
+            reasoning: "high",
+          },
+          continuation: "auto",
+          promptTemplate: "Plan ${request}",
+        },
+        {
+          id: BoardStepId.make("step-legacy"),
+          name: "Implement",
+          profileName: AgentProfileName.make("implementer"),
+          continuation: "manual",
+          promptTemplate: "Use ${artifact}",
+        },
+      ],
+    });
+    const { access } = makeAccess([mixed]);
+
+    // `show --json` round-trips: each step carries back the selector it was
+    // authored with, so the output is a valid `update --file` body.
+    const shown = yield* decodeUnknownJson(
+      yield* run({ type: "show", identifier: "flow-1", json: true }, access),
+    );
+    assert.deepStrictEqual(shown, {
+      id: "flow-1",
+      name: "Ship",
+      steps: [
+        {
+          id: "step-canonical",
+          name: "Plan",
+          agent: { instanceId: "codex", model: "gpt-5.6-sol", reasoning: "high" },
+          continuation: "auto",
+          promptTemplate: "Plan ${request}",
+        },
+        {
+          id: "step-legacy",
+          name: "Implement",
+          profileName: "implementer",
+          continuation: "manual",
+          promptTemplate: "Use ${artifact}",
+        },
+      ],
+    });
+
+    const text = yield* run({ type: "show", identifier: "flow-1", json: false }, access);
+    assert.include(text, "instance=codex model=gpt-5.6-sol reasoning=high");
+    assert.include(text, "profile=implementer (legacy)");
+
+    const listed = yield* decodeFlowListJson(yield* run({ type: "list", json: true }, access));
+    assert.deepStrictEqual(listed[0]?.agents, [
+      "instance=codex model=gpt-5.6-sol reasoning=high",
+      "profile=implementer (legacy)",
+    ]);
+  }),
+);
+
+it.effect("creates a canonical flow without consulting local agent profiles", () =>
+  Effect.gen(function* () {
+    const { access, commands } = makeAccess([]);
+    const ids = ["flow-created", "command-created"];
+    const output = yield* run(
+      {
+        type: "create",
+        contents:
+          '{"name":"Ship","steps":[{"id":"step-kept","name":"Plan","agent":{"instanceId":"pi_work","model":"anthropic/claude-sonnet-5","reasoning":"high"},"promptTemplate":"Plan ${request}"}]}',
+        availableProfileNames: [],
+        allowUnknownProfiles: false,
+        json: false,
+      },
+      access,
+      Effect.sync(() => ids.shift() ?? "unexpected"),
+    );
+
+    // No profile exists locally and none is needed: the instance/model pair is
+    // validated against the environment that runs the card.
+    assert.strictEqual(
+      output,
+      "Created flow flow-created. Cards on this flow will ask for: request.",
+    );
+    assert.deepStrictEqual(commands, [
+      {
+        type: "board.create",
+        commandId: CommandId.make("command-created"),
+        boardId: BoardId.make("flow-created"),
+        projectId: ProjectId.make("project-1"),
+        name: "Ship",
+        steps: [
+          {
+            id: BoardStepId.make("step-kept"),
+            name: "Plan",
+            agent: {
+              instanceId: ProviderInstanceId.make("pi_work"),
+              model: "anthropic/claude-sonnet-5",
+              reasoning: "high",
+            },
+            promptTemplate: "Plan ${request}",
+            continuation: "auto",
+          },
+        ],
+      },
+    ]);
   }),
 );
 
@@ -290,7 +405,7 @@ it.effect("updates a name-matched flow wholesale and preserves supplied step ids
     );
 
     assert.include(output, "Updated flow flow-1.");
-    assert.include(output, "Warning: unknown agent profiles: future.");
+    assert.include(output, "Warning: unknown legacy agent profiles: future.");
     assert.deepStrictEqual(commands, [
       {
         type: "board.update",
@@ -470,17 +585,47 @@ it.effect("prints the canonical schema example as JSON through the CLI command",
       steps: [
         {
           name: "Plan",
-          profileName: "Planning",
+          agent: {
+            instanceId: "codex",
+            model: "gpt-5.6-sol",
+            reasoning: "high",
+          },
           promptTemplate: "Plan ${card_title}: ${request}",
         },
         {
           name: "Implement",
-          profileName: "implementer",
+          agent: {
+            instanceId: "codex",
+            model: "gpt-5.6-sol",
+          },
           promptTemplate: "Implement the plan:\n${artifact}",
           continuation: "manual",
         },
       ],
     });
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        FetchHttpClient.layer,
+        NetService.layer,
+        TestConsole.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("documents canonical and legacy step selectors as optional alternatives", () =>
+  Effect.gen(function* () {
+    yield* Command.runWith(flowCommand, { version: "0.0.0" })(["schema"]);
+    const output = (yield* TestConsole.logLines).join("\n");
+
+    assert.include(
+      output,
+      '"agent"?: { "instanceId": string, "model": string, "reasoning"?: string }',
+    );
+    assert.include(output, '"profileName"?: string');
+    assert.include(output, 'A step names its agent exactly one way: "agent" or "profileName".');
   }).pipe(
     Effect.provide(
       Layer.mergeAll(

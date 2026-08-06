@@ -1,8 +1,8 @@
 # Flows
 
 Flows is a kanban-style workspace where each user-defined column is an agentic
-step. You design a workflow once — steps with prompt templates, an agent
-profile, and a continuation mode — and agents execute inside its rails. Use the
+step. You design a workflow once — steps with prompt templates, an agent, and
+a continuation mode — and agents execute inside its rails. Use the
 regular threads and Flows. The switch uses the selected project,
 the current conversation's project, or the first visible project. Switching back
 after entering Flows from a conversation or draft returns directly to it. You can
@@ -14,10 +14,14 @@ A flow belongs to a project. Between the built-in **To-Do** and **Done**
 columns you define steps; each step carries:
 
 - a **prompt template** with `${placeholder}` parameters,
-- an **agent profile** (the same profiles used for sub-agents in Settings →
-  Agent profiles),
+- an **agent**: an exact provider instance and model, plus an optional
+  reasoning level — see [Agent models](./agent-models.md),
 - a **continuation mode**: `auto` advances the card on success, `manual` pauses
   it so you can review the step's artifact before continuing.
+
+Steps written before model-first selection name a machine-local [agent
+profile](./agent-profiles.md) instead. Those steps keep running unchanged; a
+step names its agent one way or the other, never both.
 
 Editing a flow never changes cards that are already running: a card copies the
 flow definition when you start it.
@@ -55,12 +59,19 @@ placeholder grammar, validation rules, and a canonical example:
   "steps": [
     {
       "name": "Plan",
-      "profileName": "Planning",
+      "agent": {
+        "instanceId": "codex",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high"
+      },
       "promptTemplate": "Plan ${card_title}: ${request}"
     },
     {
       "name": "Implement",
-      "profileName": "implementer",
+      "agent": {
+        "instanceId": "codex",
+        "model": "gpt-5.6-sol"
+      },
       "promptTemplate": "Implement the plan:\n${artifact}",
       "continuation": "manual"
     }
@@ -68,16 +79,28 @@ placeholder grammar, validation rules, and a canonical example:
 }
 ```
 
+Run `aqqua agent models` to see the instance ids and model slugs this
+environment offers.
+
 Before saving, `create` and `update` require 1–20 steps, artifact-safe step
-names that are unique ignoring case, and existing [agent profiles](./agent-profiles.md).
+names that are unique ignoring case, and exactly one agent selector per step.
 The first step cannot use `${artifact}`, and `${artifact:Step name}` must name
-an earlier step exactly. Unknown profiles fail validation unless you pass
-`--allow-unknown-profiles`, which saves the flow with a warning instead.
+an earlier step exactly.
+
+A step's `agent` is checked structurally when you save and against the real
+catalog when the step runs, since a flow can be authored on one machine and run
+on another. A legacy `profileName` is different: it names a machine-local
+profile, so an unknown name fails validation unless you pass
+`--allow-unknown-profiles`, which saves the flow with a warning instead. That
+flag never applies to canonical `agent` steps.
 
 After a successful create or update, the command prints the parameters cards
 on the flow will require. Add `--json` to any subcommand for machine-readable
-output; `show --json` includes step ids and can be used as the starting point
-for an update file.
+output; `show --json` includes step ids, carries each step's selector back in
+the form it was authored, and can be used as the starting point for an update
+file. `list` and `show` print a canonical step as
+`instance=<id> model=<slug>` (with `reasoning=<level>` when set) and a legacy
+step as `profile=<name> (legacy)`.
 
 Flow mutations use the running environment when one is registered. If that
 server cannot be reached, the command fails instead of writing around it and
@@ -95,6 +118,11 @@ placeholder title.
 Pressing **Start** releases the card: it gets its own worktree and branch, and
 step 1 begins in a fresh top-level conversation you can open from the sidebar
 like any other. Each step runs in a fresh conversation to keep context clean.
+
+Each step resolves its agent as it starts. If the step names an instance this
+environment does not have, an instance that cannot run an agent right now, a
+model that instance does not offer, or a reasoning level that model does not
+support, the card's operation fails and the card shows that exact reason.
 
 You can create and start cards from the CLI too. The card definition names the
 flow's required parameters exactly:

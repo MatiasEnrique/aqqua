@@ -1,11 +1,41 @@
 # Agent Profiles
 
-An agent profile selects the provider target, model, runtime, permissions, and
-interaction mode used when aqqua starts an agent. Flows reference profiles by
-name, and the same profiles are available in **Settings** → **Agent profiles**.
+An agent profile is a named preset that selects the provider target, model,
+runtime, permissions, and interaction mode used when aqqua starts an agent. The
+same profiles are available in **Settings** → **Agent profiles**.
 
 Profiles are machine-local. They are stored in the aqqua environment's
 `settings.json`, not in a project or repository.
+
+## Profiles are a compatibility surface
+
+Naming a provider instance and model directly is now the primary way to say
+which agent runs something — see [Agent models](./agent-models.md). Profiles
+are kept, and keep working, for three reasons:
+
+- flow steps and spawns written before model-first selection still name a
+  profile, and still resolve;
+- a saved profile is a convenient preset when you want one name to stand for a
+  target plus its model and options;
+- a `terminal`-runtime agent is only reachable through a profile. A terminal
+  agent is the provider's own CLI in a PTY, which cannot be made to honour a
+  chosen model or its options, so direct model selection always launches a
+  session instead.
+
+Prefer `agent: { instanceId, model, reasoning? }` in new flow steps and the
+model-first spawn flags in new delegation. Nothing here is being removed.
+
+## What a profile resolves to
+
+A profile resolves its provider instance from `target`: an explicit instance,
+or the first **enabled** instance of the named driver. It then resolves a model
+from, in order, the profile's own `model`, the owning project's default model
+when that default targets the instance the profile resolved, and finally a
+built-in per-provider fallback. Unlike a canonical agent selection, the model
+name is not checked against what that instance advertises.
+
+An unknown profile name fails loudly rather than quietly running as the default
+one.
 
 ## Managing profiles from the CLI
 
@@ -37,7 +67,9 @@ shape, allowed values, option-id conventions, and a canonical example:
 }
 ```
 
-`target` is required. It can select a provider driver, such as
+`target` is required and is what makes a profile different from a canonical
+agent selection: it can name a driver rather than an exact instance. It can
+select a provider driver, such as
 `{"kind":"driver","driver":"codex"}`, or a configured provider instance.
 The optional `model` is a free-form slug; omit it to inherit the project's
 default. `runtime` is `session` or `terminal`, `runtimeMode` controls access,

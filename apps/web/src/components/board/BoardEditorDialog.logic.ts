@@ -8,12 +8,13 @@ import {
 } from "@aqqua/contracts";
 import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
 
-/** Editing shape: plain strings, so a half-typed step is always representable. */
+/** Editing shape: plain form strings plus any canonical selector that must survive editing. */
 export interface BoardStepDraft {
   readonly id: BoardStepId;
   readonly name: string;
   readonly promptTemplate: string;
   readonly profileName: string;
+  readonly agent?: BoardStep["agent"];
   readonly continuation: BoardStepContinuation;
 }
 
@@ -50,7 +51,8 @@ export function draftFromBoard(board: OrchestrationBoard): BoardDraft {
       id: step.id,
       name: step.name,
       promptTemplate: step.promptTemplate,
-      profileName: step.profileName,
+      profileName: step.profileName ?? "",
+      ...(step.agent === undefined ? {} : { agent: step.agent }),
       continuation: step.continuation,
     })),
   };
@@ -117,8 +119,8 @@ export function validateBoardDraft(draft: BoardDraft): BoardDraftErrors {
               "Step names must be unique."
             : step.promptTemplate.trim() === ""
               ? "Give the step a prompt template."
-              : step.profileName.trim() === ""
-                ? "Pick an agent profile."
+              : step.profileName.trim() === "" && step.agent === undefined
+                ? "Pick an agent."
                 : null;
     if (name !== "") seenNames.add(name.toLowerCase());
     if (message !== null) stepErrors[step.id] = message;
@@ -148,13 +150,23 @@ export function isBoardDraftSubmittable(errors: BoardDraftErrors): boolean {
 
 /** Trimmed steps, ready for `board.create` / `board.update` (replaced wholesale). */
 export function toBoardSteps(draft: BoardDraft): ReadonlyArray<BoardStep> {
-  return draft.steps.map((step) => ({
-    id: step.id,
-    name: step.name.trim(),
-    promptTemplate: step.promptTemplate.trim(),
-    profileName: step.profileName.trim() as BoardStep["profileName"],
-    continuation: step.continuation,
-  }));
+  return draft.steps.map((step) => {
+    const shared = {
+      id: step.id,
+      name: step.name.trim(),
+      promptTemplate: step.promptTemplate.trim(),
+      continuation: step.continuation,
+    };
+    const profileName = step.profileName.trim();
+    if (profileName !== "") {
+      return {
+        ...shared,
+        profileName: profileName as NonNullable<BoardStep["profileName"]>,
+      };
+    }
+    if (step.agent !== undefined) return { ...shared, agent: step.agent };
+    throw new Error(`Step '${step.name}' has no agent selector.`);
+  });
 }
 
 export function makeBoardStepId(id: string): BoardStepId {

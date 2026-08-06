@@ -66,6 +66,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -97,6 +98,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -133,6 +135,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -160,6 +163,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -186,6 +190,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -219,6 +224,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -242,6 +248,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -273,6 +280,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "effort",
           label: "Reasoning",
+          semantic: "reasoning",
           options: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },

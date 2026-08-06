@@ -21,6 +21,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
   TurnId,
 } from "@aqqua/contracts";
@@ -43,6 +44,7 @@ import { ProjectionCardRepository } from "../../persistence/Services/ProjectionC
 import { ProjectSetupScriptRunner } from "../../project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import {
@@ -79,6 +81,55 @@ let commandSerial = 0;
 const nextCommandSerial = () => ++commandSerial;
 const NOW = "2026-01-01T00:00:00.000Z";
 const codexInstanceId = ProviderInstanceId.make("codex");
+
+/**
+ * One spawnable codex instance advertising one model with a provider-native
+ * `reasoningEffort` select — enough for the model catalog to resolve a
+ * canonical step and reject anything the instance does not advertise.
+ */
+const codexProviderSnapshot: ServerProvider = {
+  instanceId: codexInstanceId,
+  driver: ProviderDriverKind.make("codex"),
+  displayName: "Codex",
+  enabled: true,
+  installed: true,
+  version: "1.0.0",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: NOW,
+  models: [
+    {
+      slug: "gpt-5-codex",
+      name: "gpt-5-codex",
+      isCustom: false,
+      isDefault: true,
+      capabilities: {
+        optionDescriptors: [
+          {
+            id: "reasoningEffort",
+            label: "Reasoning",
+            type: "select",
+            semantic: "reasoning",
+            options: [
+              { id: "low", label: "Low" },
+              { id: "high", label: "High" },
+            ],
+          },
+        ],
+      },
+    },
+  ],
+  slashCommands: [],
+  skills: [],
+};
+
+const providerRegistryStub = Layer.mock(ProviderRegistry)({
+  getProviders: Effect.succeed([codexProviderSnapshot]),
+  refresh: () => Effect.succeed([codexProviderSnapshot]),
+  refreshInstance: () => Effect.succeed([codexProviderSnapshot]),
+  setProviderMaintenanceActionState: () => Effect.succeed([codexProviderSnapshot]),
+  streamChanges: Stream.empty,
+} satisfies Partial<ProviderRegistry["Service"]>);
 
 const STEPS: ReadonlyArray<BoardStep> = [
   {
@@ -345,6 +396,7 @@ const withBoardReactorHarness = <A, E>(
         Layer.provideMerge(projectionSnapshotLayer),
         Layer.provideMerge(gitLayer),
         Layer.provideMerge(registryStub),
+        Layer.provideMerge(providerRegistryStub),
         Layer.provideMerge(textGenerationLayer),
         Layer.provideMerge(setupScriptRunnerStub),
         Layer.provideMerge(WorktreePathCoordinationLive),
@@ -1151,6 +1203,7 @@ describe("BoardReactor", () => {
             Layer.provideMerge(cardsLayer),
             Layer.provideMerge(gitLayer),
             Layer.provideMerge(registryStub),
+            Layer.provideMerge(providerRegistryStub),
             Layer.provideMerge(textGenerationLayer),
             Layer.provideMerge(setupScriptRunnerStub),
             Layer.provideMerge(WorktreePathCoordinationLive),
@@ -1427,6 +1480,157 @@ describe("BoardReactor", () => {
         expect(card.branch).not.toBeNull();
         expect(card.worktreePath).toBe(harness.worktreePath);
       }),
+    ),
+  );
+
+  /**
+   * Replace the flow with one step and release a fresh card through it, so a
+   * selector can be exercised end to end without disturbing the shared card.
+   */
+  const releaseSingleStepCard = (
+    harness: BoardHarness,
+    input: { readonly tag: string; readonly step: BoardStep },
+  ) =>
+    Effect.gen(function* () {
+      yield* harness.dispatch({
+        type: "board.update",
+        commandId: CommandId.make(`cmd-board-update-${input.tag}`),
+        boardId: harness.boardId,
+        name: "Delivery",
+        steps: [input.step],
+      });
+      const cardId = CardId.make(`card-${input.tag}`);
+      yield* harness.dispatch({
+        type: "card.create",
+        commandId: CommandId.make(`cmd-card-create-${input.tag}`),
+        cardId,
+        boardId: harness.boardId,
+        title: `${input.tag} card`,
+        parameters: { ticket_id: "T-1" },
+      });
+      yield* harness.dispatch({
+        type: "card.release",
+        commandId: CommandId.make(`cmd-card-release-${input.tag}`),
+        cardId,
+      });
+      yield* harness.drain;
+      return cardId;
+    });
+
+  it.effect(
+    "canonical agent step starts its thread on the exact model with provider-native reasoning",
+    () =>
+      withBoardReactorHarness({}, (harness) =>
+        Effect.gen(function* () {
+          yield* releaseSingleStepCard(harness, {
+            tag: "canonical",
+            step: {
+              id: BoardStepId.make("step-canonical"),
+              name: "Implement",
+              promptTemplate: "Do ${ticket_id}",
+              agent: {
+                instanceId: codexInstanceId,
+                model: "gpt-5-codex",
+                reasoning: "high",
+              },
+              continuation: "auto",
+            },
+          });
+
+          const expectedSelection = {
+            instanceId: codexInstanceId,
+            model: "gpt-5-codex",
+            options: [{ id: "reasoningEffort", value: "high" }],
+          };
+
+          const events = yield* harness.readEvents;
+          const created = events.find((e) => e.type === "thread.created") as
+            | {
+                payload: {
+                  modelSelection: unknown;
+                  runtimeMode: string;
+                  interactionMode: string;
+                };
+              }
+            | undefined;
+          expect(created).toBeDefined();
+          expect(created!.payload.modelSelection).toEqual(expectedSelection);
+          expect(created!.payload.runtimeMode).toBe("full-access");
+          expect(created!.payload.interactionMode).toBe(DEFAULT_PROVIDER_INTERACTION_MODE);
+
+          const turnStart = events.find((e) => e.type === "thread.turn-start-requested") as
+            | { payload: { modelSelection: unknown; runtimeMode: string } }
+            | undefined;
+          expect(turnStart).toBeDefined();
+          expect(turnStart!.payload.modelSelection).toEqual(expectedSelection);
+          expect(turnStart!.payload.runtimeMode).toBe("full-access");
+        }),
+      ),
+  );
+
+  it.effect("canonical agent step naming a model the instance does not offer fails the card", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        const cardId = yield* releaseSingleStepCard(harness, {
+          tag: "unknown-model",
+          step: {
+            id: BoardStepId.make("step-unknown-model"),
+            name: "Implement",
+            promptTemplate: "Do ${ticket_id}",
+            agent: { instanceId: codexInstanceId, model: "gpt-4o" },
+            continuation: "auto",
+          },
+        });
+
+        const snapshot = yield* harness.readModel;
+        const card = snapshot.cards.find((entry) => entry.id === cardId)!;
+        expect(card.status).toBe("failed");
+        expect(card.stepThreads).toHaveLength(0);
+        expect(card.lastError).toContain("gpt-4o");
+      }),
+    ),
+  );
+
+  it.effect("legacy profileName step still resolves through the profile adapter", () =>
+    withBoardReactorHarness(
+      {
+        agentProfiles: {
+          reviewer: {
+            runtime: "session",
+            target: { kind: "instance", instanceId: "codex" },
+            model: "gpt-5-codex-mini",
+            options: [{ id: "reasoningEffort", value: "low" }],
+            runtimeMode: "full-access",
+            interactionMode: "default",
+          },
+        },
+      },
+      (harness) =>
+        Effect.gen(function* () {
+          yield* releaseSingleStepCard(harness, {
+            tag: "legacy",
+            step: {
+              id: BoardStepId.make("step-legacy"),
+              name: "Review",
+              promptTemplate: "Do ${ticket_id}",
+              profileName: "reviewer" as BoardStep["profileName"],
+              continuation: "auto",
+            },
+          });
+
+          const events = yield* harness.readEvents;
+          const created = events.find((e) => e.type === "thread.created") as
+            | { payload: { modelSelection: unknown } }
+            | undefined;
+          expect(created).toBeDefined();
+          // Resolved from settings, not the catalog: a model the provider
+          // snapshot does not advertise still launches on the legacy path.
+          expect(created!.payload.modelSelection).toEqual({
+            instanceId: codexInstanceId,
+            model: "gpt-5-codex-mini",
+            options: [{ id: "reasoningEffort", value: "low" }],
+          });
+        }),
     ),
   );
 
@@ -2439,6 +2643,7 @@ describe("BoardReactor", () => {
             Layer.provideMerge(projectionSnapshotLayer),
             Layer.provideMerge(gitLayer),
             Layer.provideMerge(registryStub),
+            Layer.provideMerge(providerRegistryStub),
             Layer.provideMerge(textGenerationLayer),
             Layer.provideMerge(setupScriptRunnerStub),
             Layer.provideMerge(WorktreePathCoordinationLive),

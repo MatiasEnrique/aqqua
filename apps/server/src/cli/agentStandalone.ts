@@ -1,4 +1,11 @@
-import { AuthOrchestrationOperateScope, EnvironmentHttpApi } from "@aqqua/contracts";
+import {
+  type AuthEnvironmentScope,
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  EnvironmentHttpApi,
+  type AgentStandaloneSpawnRequest,
+  type ModelSelection,
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -14,8 +21,25 @@ import * as ServerConfig from "../config.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { AgentCliError } from "./agentCliError.ts";
 import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { withEnvironmentCliSessionToken } from "./environmentAccess.ts";
 
 const standalonePresenceError = (detail: string) => new AgentCliError({ detail });
+
+export const standaloneSpawnPayload = (input: {
+  readonly cwd: string;
+  readonly profile?: string;
+  readonly modelSelection?: ModelSelection;
+  readonly reasoning?: string;
+  readonly task: string;
+  readonly title?: string;
+}): AgentStandaloneSpawnRequest => ({
+  cwd: input.cwd,
+  task: input.task,
+  ...(input.profile === undefined ? {} : { profile: input.profile }),
+  ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+  ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
+  ...(input.title === undefined ? {} : { title: input.title }),
+});
 
 /**
  * Standalone spawn is a human action, not an alternate agent identity path.
@@ -54,69 +78,114 @@ export const requireStandaloneUserPresence = Effect.fn("agentCli.requireStandalo
 );
 
 export const withStandaloneAgentSession = Effect.fn("agentCli.withStandaloneAgentSession")(
-  function* <A, E, R>(run: (token: string) => Effect.Effect<A, E, R>) {
+  function* <A, E, R>(
+    run: (token: string) => Effect.Effect<A, E, R>,
+    options?: {
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+      readonly label?: string;
+    },
+  ) {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
-    return yield* Effect.acquireUseRelease(
-      environmentAuth.issueSession({
-        scopes: [AuthOrchestrationOperateScope],
-        label: "aqqua agent cli",
-      }),
-      (issued) => run(issued.token),
-      (issued) =>
-        environmentAuth.revokeSession(issued.sessionId).pipe(Effect.ignore({ log: true })),
+    return yield* withEnvironmentCliSessionToken(
+      environmentAuth,
+      {
+        scopes: options?.scopes ?? [AuthOrchestrationOperateScope],
+        label: options?.label ?? "aqqua agent cli",
+      },
+      run,
     );
+  },
+);
+
+const makeStandaloneEnvironmentClient = (origin: string) =>
+  HttpApiClient.make(EnvironmentHttpApi, { baseUrl: origin });
+
+type StandaloneEnvironmentClient = Effect.Success<
+  ReturnType<typeof makeStandaloneEnvironmentClient>
+>;
+
+/** Common authenticated client boundary for ordinary-terminal agent commands. */
+export const withStandaloneEnvironmentClient = <A, E, R, BeforeE, BeforeR>(input: {
+  readonly flags: CliAuthLocationFlags;
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+  readonly label: string;
+  readonly beforeSession: Effect.Effect<void, BeforeE, BeforeR>;
+  readonly run: (client: StandaloneEnvironmentClient, token: string) => Effect.Effect<A, E, R>;
+}) =>
+  Effect.gen(function* () {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveCliAuthConfig(input.flags, logLevel);
+    const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
+    if (Option.isNone(runtimeState)) {
+      return yield* new AgentCliError({
+        detail:
+          "No running aqqua desktop environment was found. Open the desktop app and try again, " +
+          "or pass --base-dir for a non-default aqqua home.",
+      });
+    }
+    yield* input.beforeSession;
+
+    const origin = runtimeState.value.origin;
+    return yield* withStandaloneAgentSession(
+      (token) =>
+        Effect.gen(function* () {
+          const client = yield* makeStandaloneEnvironmentClient(origin);
+          return yield* input.run(client, token);
+        }),
+      { scopes: input.scopes, label: input.label },
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentCliError({
+            detail:
+              cause instanceof Error
+                ? cause.message
+                : `Could not reach the aqqua desktop environment at ${origin}.`,
+          }),
+      ),
+      Effect.provide(
+        EnvironmentAuth.runtimeLayer.pipe(
+          Layer.provideMerge(FetchHttpClient.layer),
+          Layer.provide(ServerConfig.layer(config)),
+          Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),
+        ),
+      ),
+    );
+  });
+
+export const listStandaloneAgentModels = Effect.fn("agentCli.listStandaloneModels")(
+  function* (input: { readonly flags: CliAuthLocationFlags; readonly cwd?: string }) {
+    return yield* withStandaloneEnvironmentClient({
+      flags: input.flags,
+      scopes: [AuthOrchestrationReadScope],
+      label: "aqqua agent models cli",
+      beforeSession: Effect.void,
+      run: (client, token) =>
+        client.agents.standaloneModels({
+          headers: { authorization: `Bearer ${token}` },
+          payload: { cwd: input.cwd ?? process.cwd() },
+        }),
+    });
   },
 );
 
 export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(function* (input: {
   readonly flags: CliAuthLocationFlags;
-  readonly profile: string;
+  readonly profile?: string;
+  readonly modelSelection?: ModelSelection;
+  readonly reasoning?: string;
   readonly task: string;
   readonly title?: string;
 }) {
-  const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(input.flags, logLevel);
-  const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
-  if (Option.isNone(runtimeState)) {
-    return yield* new AgentCliError({
-      detail:
-        "No running aqqua desktop environment was found. Open the desktop app and try again, " +
-        "or pass --base-dir for a non-default aqqua home.",
-    });
-  }
-  yield* requireStandaloneUserPresence();
-
-  return yield* withStandaloneAgentSession((token) =>
-    Effect.gen(function* () {
-      const client = yield* HttpApiClient.make(EnvironmentHttpApi, {
-        baseUrl: runtimeState.value.origin,
-      });
-      return yield* client.agents.standaloneSpawn({
+  return yield* withStandaloneEnvironmentClient({
+    flags: input.flags,
+    scopes: [AuthOrchestrationOperateScope],
+    label: "aqqua agent cli",
+    beforeSession: requireStandaloneUserPresence(),
+    run: (client, token) =>
+      client.agents.standaloneSpawn({
         headers: { authorization: `Bearer ${token}` },
-        payload: {
-          profile: input.profile,
-          task: input.task,
-          cwd: process.cwd(),
-          ...(input.title === undefined ? {} : { title: input.title }),
-        },
-      });
-    }),
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new AgentCliError({
-          detail:
-            cause instanceof Error
-              ? cause.message
-              : `Could not reach the aqqua desktop environment at ${runtimeState.value.origin}.`,
-        }),
-    ),
-    Effect.provide(
-      EnvironmentAuth.runtimeLayer.pipe(
-        Layer.provideMerge(FetchHttpClient.layer),
-        Layer.provide(ServerConfig.layer(config)),
-        Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),
-      ),
-    ),
-  );
+        payload: standaloneSpawnPayload({ ...input, cwd: process.cwd() }),
+      }),
+  });
 });

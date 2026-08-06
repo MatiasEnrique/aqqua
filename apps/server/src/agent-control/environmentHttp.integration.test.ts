@@ -5,6 +5,8 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentAgentHttpApi,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ThreadId,
 } from "@aqqua/contracts";
 import { assert, it } from "@effect/vitest";
@@ -44,7 +46,7 @@ const makeAuthLayer = () =>
     Layer.provide(makeConfigLayer()),
   );
 
-const makeAppLayer = (spawnStandalone: AgentControl["Service"]["spawnStandalone"]) => {
+const makeAppLayer = (agents: Partial<AgentControl["Service"]>) => {
   const routesLayer = HttpApiBuilder.layer(AgentHttpApi).pipe(
     Layer.provide(agentEnvironmentHttpApiLayer),
     Layer.provide(environmentAuthenticatedAuthLayer),
@@ -53,42 +55,52 @@ const makeAppLayer = (spawnStandalone: AgentControl["Service"]["spawnStandalone"
   return HttpRouter.serve(routesLayer, {
     disableListenLog: true,
     disableLogger: true,
-  }).pipe(
-    Layer.provide(Layer.mock(AgentControl)({ spawnStandalone })),
-    Layer.provideMerge(makeAuthLayer()),
-  );
+  }).pipe(Layer.provide(Layer.mock(AgentControl)(agents)), Layer.provideMerge(makeAuthLayer()));
 };
 
-const postStandalone = (token?: string) =>
+const postStandalone = (token?: string, payload: Record<string, unknown> = requestPayload) =>
   Effect.gen(function* () {
     const response = yield* HttpClient.post("/api/agents/standalone", {
       headers: {
         "content-type": "application/json",
         ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       },
-      body: yield* HttpBody.json(requestPayload),
+      body: yield* HttpBody.json(payload),
+    });
+    const body = (yield* response.json) as Record<string, unknown>;
+    return { response, body };
+  });
+
+const postModels = (token?: string, cwd = "/tmp/aqqua-agent-http-test") =>
+  Effect.gen(function* () {
+    const response = yield* HttpClient.post("/api/agents/models", {
+      headers: {
+        "content-type": "application/json",
+        ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      },
+      body: yield* HttpBody.json({ cwd }),
     });
     const body = (yield* response.json) as Record<string, unknown>;
     return { response, body };
   });
 
 const withAgentHttpApp = <A, E, R>(
-  spawnStandalone: AgentControl["Service"]["spawnStandalone"],
+  agents: Partial<AgentControl["Service"]>,
   effect: Effect.Effect<A, E, R | EnvironmentAuth.EnvironmentAuth>,
 ) =>
   effect.pipe(
-    Effect.provide(
-      makeAppLayer(spawnStandalone).pipe(Layer.provideMerge(NodeHttpServer.layerTest)),
-    ),
+    Effect.provide(makeAppLayer(agents).pipe(Layer.provideMerge(NodeHttpServer.layerTest))),
   );
 
 it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
   it.effect("rejects anonymous requests before calling AgentControl", () => {
     let spawnCalls = 0;
     return withAgentHttpApp(
-      () => {
-        spawnCalls += 1;
-        return Effect.die("spawnStandalone must not be called");
+      {
+        spawnStandaloneProfile: () => {
+          spawnCalls += 1;
+          return Effect.die("spawnStandalone must not be called");
+        },
       },
       Effect.gen(function* () {
         const { response, body } = yield* postStandalone();
@@ -105,9 +117,11 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
   it.effect("rejects forged bearer credentials before calling AgentControl", () => {
     let spawnCalls = 0;
     return withAgentHttpApp(
-      () => {
-        spawnCalls += 1;
-        return Effect.die("spawnStandalone must not be called");
+      {
+        spawnStandaloneProfile: () => {
+          spawnCalls += 1;
+          return Effect.die("spawnStandalone must not be called");
+        },
       },
       Effect.gen(function* () {
         const { response, body } = yield* postStandalone("forged-bearer-credential");
@@ -124,9 +138,11 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
   it.effect("rejects bearer sessions without orchestration operate scope", () => {
     let spawnCalls = 0;
     return withAgentHttpApp(
-      () => {
-        spawnCalls += 1;
-        return Effect.die("spawnStandalone must not be called");
+      {
+        spawnStandaloneProfile: () => {
+          spawnCalls += 1;
+          return Effect.die("spawnStandalone must not be called");
+        },
       },
       Effect.gen(function* () {
         const auth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -146,7 +162,7 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
   });
 
   it.effect("dispatches correctly scoped bearer requests through AgentControl", () => {
-    let received: Parameters<AgentControl["Service"]["spawnStandalone"]>[0] | undefined;
+    let received: Parameters<AgentControl["Service"]["spawnStandaloneProfile"]>[0] | undefined;
     const handle = {
       threadId: ThreadId.make("standalone-http-thread"),
       profile: AgentProfileName.make("implementer"),
@@ -154,11 +170,13 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
     } as const;
 
     return withAgentHttpApp(
-      (input) =>
-        Effect.sync(() => {
-          received = input;
-          return handle;
-        }),
+      {
+        spawnStandaloneProfile: (input) =>
+          Effect.sync(() => {
+            received = input;
+            return handle;
+          }),
+      },
       Effect.gen(function* () {
         const auth = yield* EnvironmentAuth.EnvironmentAuth;
         const session = yield* auth.issueSession({
@@ -174,17 +192,94 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
     );
   });
 
+  it.effect("forwards canonical model selection and reasoning to standalone AgentControl", () => {
+    let received: Parameters<AgentControl["Service"]["spawnStandalone"]>[0] | undefined;
+    const handle = {
+      threadId: ThreadId.make("standalone-model-thread"),
+      profile: "gpt-5.6-sol",
+      terminalId: null,
+    } as const;
+    const payload = {
+      cwd: requestPayload.cwd,
+      task: requestPayload.task,
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex-work"),
+        model: "gpt-5.6-sol",
+        options: [{ id: "serviceTier", value: "priority" }],
+      },
+      reasoning: "high",
+    };
+
+    return withAgentHttpApp(
+      {
+        spawnStandalone: (input) =>
+          Effect.sync(() => {
+            received = input;
+            return handle;
+          }),
+      },
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const session = yield* auth.issueSession({
+          subject: "model-test-client",
+          scopes: [AuthOrchestrationOperateScope],
+        });
+        const { response } = yield* postStandalone(session.token, payload);
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(received, {
+          cwd: payload.cwd,
+          task: payload.task,
+          selection: { model: payload.modelSelection, reasoning: "high" },
+        });
+      }),
+    );
+  });
+
+  it.effect("rejects conflicting standalone selectors before AgentControl", () => {
+    let spawnCalls = 0;
+    return withAgentHttpApp(
+      {
+        spawnStandalone: () => {
+          spawnCalls += 1;
+          return Effect.die("must not call canonical spawn");
+        },
+        spawnStandaloneProfile: () => {
+          spawnCalls += 1;
+          return Effect.die("must not call legacy spawn");
+        },
+      },
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const session = yield* auth.issueSession({
+          subject: "conflict-test-client",
+          scopes: [AuthOrchestrationOperateScope],
+        });
+        const { response, body } = yield* postStandalone(session.token, {
+          ...requestPayload,
+          reasoning: "high",
+        });
+
+        assert.equal(response.status, 400);
+        assert.equal(body._tag, "EnvironmentHttpBadRequestError");
+        assert.equal(spawnCalls, 0);
+      }),
+    );
+  });
+
   it.effect("classifies AgentDispatchError as an internal error instead of a conflict", () => {
     let spawnCalls = 0;
     return withAgentHttpApp(
-      () => {
-        spawnCalls += 1;
-        return Effect.fail(
-          new AgentDispatchError({
-            operation: "spawnStandalone",
-            detail: "database unavailable",
-          }),
-        );
+      {
+        spawnStandaloneProfile: () => {
+          spawnCalls += 1;
+          return Effect.fail(
+            new AgentDispatchError({
+              operation: "spawnStandalone",
+              detail: "database unavailable",
+            }),
+          );
+        },
       },
       Effect.gen(function* () {
         const auth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -200,6 +295,52 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
         assert.equal(body.code, "internal_error");
         assert.equal(body.reason, "internal_error");
         assert.equal(spawnCalls, 1);
+      }),
+    );
+  });
+
+  it.effect("lists project-scoped models through the read-scoped environment route", () => {
+    const models = [
+      {
+        instanceId: ProviderInstanceId.make("codex-work"),
+        driver: ProviderDriverKind.make("codex"),
+        providerName: "Codex Work",
+        model: {
+          slug: "gpt-5.6-sol",
+          name: "GPT-5.6 Sol",
+          isCustom: false,
+          capabilities: null,
+        },
+        available: true,
+        unavailableReason: null,
+        isProjectDefault: true,
+      },
+    ] as const;
+    let receivedCwd: string | undefined;
+
+    return withAgentHttpApp(
+      {
+        modelsStandalone: ({ cwd }) =>
+          Effect.sync(() => {
+            receivedCwd = cwd;
+            return models;
+          }),
+      },
+      Effect.gen(function* () {
+        const anonymous = yield* postModels();
+        assert.equal(anonymous.response.status, 401);
+        assert.equal(receivedCwd, undefined);
+
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const session = yield* auth.issueSession({
+          subject: "models-read-client",
+          scopes: [AuthOrchestrationReadScope],
+        });
+        const { response, body } = yield* postModels(session.token);
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(body, { models });
+        assert.equal(receivedCwd, "/tmp/aqqua-agent-http-test");
       }),
     );
   });

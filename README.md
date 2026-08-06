@@ -30,8 +30,11 @@ No separate CLI or npm installation is required for desktop-managed agents. To i
 With the desktop app running, start an agent from any directory inside an aqqua project or one of its existing worktrees:
 
 ```bash
-aqqua agent spawn --profile implementer --task "Fix the failing test"
+aqqua agent models
+aqqua agent spawn --instance codex --model gpt-5.6-sol --task "Fix the failing test"
 ```
+
+`aqqua agent models` lists every advertised provider-instance/model row, including unavailable rows and the reason they cannot currently spawn. `spawn` names an available row exactly. Add `--reasoning high` to pick a reasoning level, or drop `--instance`/`--model` to use the project's default.
 
 The new thread appears in the desktop app. From a project directory it uses the project root; from an existing aqqua worktree it uses that worktree and branch.
 
@@ -64,6 +67,8 @@ There's no public docs site yet, checkout the miscellaneous markdown files in [d
 ## Documentation
 
 - [Getting started](./docs/getting-started/quick-start.md)
+- [Agent models](./docs/user/agent-models.md)
+- [Flows](./docs/user/agentic-board.md)
 - [Remote access](./docs/user/remote-access.md)
 - [Keeping aqqua in sync](./docs/user/server-updates.md)
 - [Architecture overview](./docs/architecture/overview.md)

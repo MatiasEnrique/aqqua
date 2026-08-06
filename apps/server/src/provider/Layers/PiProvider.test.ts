@@ -254,3 +254,19 @@ describe("listPiSkills", () => {
     }),
   );
 });
+
+describe("pi reasoning capability metadata", () => {
+  it("marks its reasoningEffort descriptor as the semantic reasoning control", () => {
+    const models = parsePiListModelsOutput(
+      [
+        "provider    model                              context  max-out  thinking  images",
+        "anthropic   claude-sonnet-5                    200k     64k      yes       yes",
+      ].join("\n"),
+    );
+
+    const descriptor = models[0]?.capabilities?.optionDescriptors?.find(
+      (candidate) => candidate.semantic === "reasoning",
+    );
+    expect(descriptor?.id).toBe("reasoningEffort");
+  });
+});

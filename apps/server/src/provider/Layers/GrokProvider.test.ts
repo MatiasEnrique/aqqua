@@ -37,6 +37,7 @@ describe("grokModelCapabilitiesFromAcpMeta", () => {
         id: "reasoningEffort",
         label: "Reasoning",
         type: "select",
+        semantic: "reasoning",
         options: [
           {
             id: "high",
@@ -78,6 +79,7 @@ describe("grokModelCapabilitiesFromAcpMeta", () => {
         id: "reasoningEffort",
         label: "Reasoning",
         type: "select",
+        semantic: "reasoning",
         options: [{ id: "medium", label: "Medium Effort", isDefault: true }],
         currentValue: "medium",
       },
@@ -180,6 +182,35 @@ it.layer(NodeServices.layer)("checkGrokProviderStatus", (it) => {
       expect(snapshot.installed).toBe(true);
       expect(snapshot.models.map((model) => model.slug)).toEqual(["grok-build"]);
       expect(snapshot.message).toContain("ACP startup failed");
+    }),
+  );
+});
+
+describe("grok reasoning capability metadata", () => {
+  it("marks the ACP-derived reasoningEffort descriptor as the reasoning control", () => {
+    const capabilities = grokModelCapabilitiesFromAcpMeta({
+      supportsReasoningEffort: true,
+      reasoningEfforts: [{ id: "high", label: "High", default: true }],
+    });
+
+    expect(capabilities.optionDescriptors?.[0]).toMatchObject({
+      id: "reasoningEffort",
+      semantic: "reasoning",
+    });
+  });
+
+  it.effect("marks the static built-in reasoning descriptor too, before ACP discovery runs", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* buildInitialGrokProviderSnapshot(
+        decodeGrokSettings({ enabled: true }),
+      );
+
+      const model = snapshot.models.find((candidate) => candidate.slug === "grok-build");
+      expect(
+        model?.capabilities?.optionDescriptors?.find(
+          (descriptor) => descriptor.semantic === "reasoning",
+        )?.id,
+      ).toBe("reasoningEffort");
     }),
   );
 });

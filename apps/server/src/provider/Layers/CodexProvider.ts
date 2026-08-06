@@ -146,6 +146,7 @@ export function mapCodexModelCapabilities(
     optionDescriptors.push({
       id: "reasoningEffort",
       label: "Reasoning",
+      semantic: "reasoning",
       type: "select",
       options: reasoningOptions,
       ...(defaultReasoning ? { currentValue: defaultReasoning } : {}),

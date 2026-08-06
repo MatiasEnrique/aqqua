@@ -551,7 +551,9 @@ const schemaCommand = Command.make("schema", { json: jsonFlag }).pipe(
 );
 
 export const profileCommand = Command.make("profile").pipe(
-  Command.withDescription("Create and manage machine-local agent profiles."),
+  Command.withDescription(
+    "Legacy/deprecated: manage machine-local agent profiles. Use 'aqqua agent models' for model-first orchestration.",
+  ),
   Command.withSubcommands([
     listCommand,
     showCommand,

@@ -51,6 +51,7 @@ const PI_MODEL_CAPABILITIES = createModelCapabilities({
     {
       id: "reasoningEffort",
       label: "Thinking",
+      semantic: "reasoning",
       type: "select",
       options: [
         { id: "off", label: "Off" },
