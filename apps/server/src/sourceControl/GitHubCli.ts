@@ -9,9 +9,12 @@ import {
   TrimmedNonEmptyString,
   type GitChangeRequestCheck,
   type GitChangeRequestMergeMethod,
+  type GitRepositoryChangeRequestSummary,
   type SourceControlRepositoryVisibility,
   type VcsError,
+  VcsProcessExitError,
 } from "@aqqua/contracts";
+import { decodeJsonResult } from "@aqqua/shared/schemaJson";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
@@ -21,6 +24,18 @@ import {
   decodeGitHubPullRequestListJson,
   type GitHubChecksStatus,
 } from "./gitHubPullRequests.ts";
+import {
+  decodeGitHubConversationOverviewJson,
+  decodeGitHubPullRequestCommitsJson,
+  decodeGitHubReviewThreadsJson,
+  type GitHubPullRequestCommits,
+  type GitHubPullRequestConversation,
+} from "./gitHubConversation.ts";
+
+export type {
+  GitHubPullRequestCommits,
+  GitHubPullRequestConversation,
+} from "./gitHubConversation.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -186,6 +201,32 @@ export class GitHubMergeOptionsDecodeError extends Schema.TaggedErrorClass<GitHu
   }
 }
 
+export class GitHubConversationDecodeError extends Schema.TaggedErrorClass<GitHubConversationDecodeError>()(
+  "GitHubConversationDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid conversation JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in getPullRequestConversation: ${this.detail}`;
+  }
+}
+
+export class GitHubCommitsDecodeError extends Schema.TaggedErrorClass<GitHubCommitsDecodeError>()(
+  "GitHubCommitsDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid commits JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in listPullRequestCommits: ${this.detail}`;
+  }
+}
+
 export const GitHubCliError = Schema.Union([
   GitHubCliUnavailableError,
   GitHubCliAuthenticationError,
@@ -198,6 +239,8 @@ export const GitHubCliError = Schema.Union([
   GitHubRepositoryDecodeError,
   GitHubChecksDecodeError,
   GitHubMergeOptionsDecodeError,
+  GitHubConversationDecodeError,
+  GitHubCommitsDecodeError,
 ]);
 export type GitHubCliError = typeof GitHubCliError.Type;
 
@@ -270,10 +313,54 @@ export class GitHubCli extends Context.Service<
       readonly limit?: number;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
+    readonly listRepositoryPullRequests: (input: {
+      readonly cwd: string;
+      readonly limit: number;
+    }) => Effect.Effect<
+      {
+        readonly changeRequests: ReadonlyArray<GitRepositoryChangeRequestSummary>;
+        readonly truncated: boolean;
+      },
+      GitHubCliError
+    >;
+
     readonly getPullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+    readonly getPullRequestConversation: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<GitHubPullRequestConversation, GitHubCliError>;
+
+    readonly listPullRequestCommits: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<GitHubPullRequestCommits, GitHubCliError>;
+
+    readonly addPullRequestComment: (input: {
+      readonly cwd: string;
+      readonly changeRequestNumber: number;
+      readonly body: string;
+    }) => Effect.Effect<void, GitHubCliError>;
+
+    readonly replyToPullRequestThread: (input: {
+      readonly cwd: string;
+      readonly threadId: string;
+      readonly body: string;
+    }) => Effect.Effect<void, GitHubCliError>;
+
+    readonly setPullRequestThreadResolved: (input: {
+      readonly cwd: string;
+      readonly threadId: string;
+      readonly resolved: boolean;
+    }) => Effect.Effect<void, GitHubCliError>;
+
+    readonly deleteRemoteBranch: (input: {
+      readonly cwd: string;
+      readonly branch: string;
+    }) => Effect.Effect<"deleted" | "already_missing", GitHubCliError>;
 
     readonly listChecks: (input: {
       readonly cwd: string;
@@ -288,6 +375,11 @@ export class GitHubCli extends Context.Service<
     readonly getMergeOptions: (input: {
       readonly cwd: string;
     }) => Effect.Effect<GitHubMergeOptions, GitHubCliError>;
+
+    readonly getPullRequestAutoMergeState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<boolean | null, GitHubCliError>;
 
     readonly mergePullRequest: (input: {
       readonly cwd: string;
@@ -358,12 +450,16 @@ const RawGitHubMergeOptionsSchema = Schema.Struct({
   rebaseMergeAllowed: Schema.Boolean,
   viewerDefaultMergeMethod: Schema.optional(Schema.NullOr(Schema.String)),
 });
+const RawGitHubAutoMergeStateSchema = Schema.Struct({
+  autoMergeRequest: Schema.optional(Schema.NullOr(Schema.Unknown)),
+});
 const decodeRawGitHubRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubRepositoryCloneUrlsSchema),
 );
 const decodeRawGitHubMergeOptions = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubMergeOptionsSchema),
 );
+const decodeRawGitHubAutoMergeState = decodeJsonResult(RawGitHubAutoMergeStateSchema);
 
 function mergeMethodFlag(method: GitChangeRequestMergeMethod): string {
   switch (method) {
@@ -412,6 +508,35 @@ function normalizeRepositoryCloneUrls(
     url: raw.url,
     sshUrl: raw.sshUrl,
   };
+}
+
+const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          id isResolved isOutdated path line startLine diffSide
+          comments(first: 50) {
+            totalCount
+            nodes { id author { login } body createdAt url }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+const REPLY_TO_THREAD_MUTATION =
+  "mutation($threadId: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) { comment { id } } }";
+
+function setThreadResolvedMutation(resolved: boolean): string {
+  const mutation = resolved ? "resolveReviewThread" : "unresolveReviewThread";
+  return `mutation($threadId: ID!) { ${mutation}(input: {threadId: $threadId}) { thread { id isResolved } } }`;
+}
+
+function isAlreadyMissingRemoteBranch(stderr: string): boolean {
+  return /reference does not exist/i.test(stderr);
 }
 
 /**
@@ -518,6 +643,52 @@ export const make = Effect.gen(function* () {
               ),
         ),
       ),
+    listRepositoryPullRequests: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          // Over-fetch by one as a truncation probe; the extra row is never returned.
+          "--limit",
+          String(input.limit + 1),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed({ changeRequests: [], truncated: false })
+            : Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
+                Effect.flatMap((decoded) => {
+                  if (!Result.isSuccess(decoded)) {
+                    return Effect.fail(
+                      new GitHubPullRequestListDecodeError({
+                        command: "gh",
+                        cwd: input.cwd,
+                        cause: decoded.failure,
+                      }),
+                    );
+                  }
+
+                  return Effect.succeed({
+                    changeRequests: decoded.success.slice(0, input.limit).map((item) => ({
+                      number: item.number,
+                      title: item.title,
+                      url: item.url,
+                      baseRefName: item.baseRefName,
+                      headRefName: item.headRefName,
+                      state: item.state,
+                    })),
+                    truncated: decoded.success.length > input.limit,
+                  });
+                }),
+              ),
+        ),
+      ),
     getPullRequest: (input) =>
       execute({
         cwd: input.cwd,
@@ -550,6 +721,147 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    getPullRequestConversation: Effect.fn("GitHubCli.getPullRequestConversation")(
+      function* (input) {
+        const overviewOutput = yield* execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "view",
+            input.reference,
+            "--json",
+            "number,state,mergedAt,headRefName,isCrossRepository,body,author,createdAt,url,additions,deletions,comments,reviewRequests",
+          ],
+        });
+        const overview = decodeGitHubConversationOverviewJson(overviewOutput.stdout.trim());
+        if (!Result.isSuccess(overview)) {
+          return yield* new GitHubConversationDecodeError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: overview.failure,
+          });
+        }
+
+        const threadsOutput = yield* execute({
+          cwd: input.cwd,
+          args: [
+            "api",
+            "graphql",
+            "-F",
+            "owner={owner}",
+            "-F",
+            "name={repo}",
+            "-F",
+            `number=${overview.success.number}`,
+            "-f",
+            `query=${REVIEW_THREADS_QUERY}`,
+          ],
+        });
+        const threads = decodeGitHubReviewThreadsJson(threadsOutput.stdout.trim());
+        if (!Result.isSuccess(threads)) {
+          return yield* new GitHubConversationDecodeError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: threads.failure,
+          });
+        }
+
+        return { ...overview.success, ...threads.success };
+      },
+    ),
+    listPullRequestCommits: Effect.fn("GitHubCli.listPullRequestCommits")(function* (input) {
+      const output = yield* execute({
+        cwd: input.cwd,
+        args: ["pr", "view", input.reference, "--json", "number,commits"],
+      });
+      const decoded = decodeGitHubPullRequestCommitsJson(output.stdout.trim());
+      if (Result.isSuccess(decoded)) return decoded.success;
+      return yield* new GitHubCommitsDecodeError({
+        command: "gh",
+        cwd: input.cwd,
+        cause: decoded.failure,
+      });
+    }),
+    addPullRequestComment: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "api",
+          `repos/{owner}/{repo}/issues/${input.changeRequestNumber}/comments`,
+          "-f",
+          `body=${input.body}`,
+        ],
+      }).pipe(Effect.asVoid),
+    replyToPullRequestThread: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "api",
+          "graphql",
+          "-f",
+          `threadId=${input.threadId}`,
+          "-f",
+          `body=${input.body}`,
+          "-f",
+          `query=${REPLY_TO_THREAD_MUTATION}`,
+        ],
+      }).pipe(Effect.asVoid),
+    setPullRequestThreadResolved: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "api",
+          "graphql",
+          "-f",
+          `threadId=${input.threadId}`,
+          "-f",
+          `query=${setThreadResolvedMutation(input.resolved)}`,
+        ],
+      }).pipe(Effect.asVoid),
+    deleteRemoteBranch: Effect.fn("GitHubCli.deleteRemoteBranch")(function* (input) {
+      const branch = yield* validatePullRequestMutationReference({
+        cwd: input.cwd,
+        reference: input.branch,
+      });
+      const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
+      const args = [
+        "api",
+        "-X",
+        "DELETE",
+        `repos/{owner}/{repo}/git/refs/heads/${encodedBranch}`,
+      ] as const;
+      const output = yield* process
+        .run({
+          operation: "GitHubCli.execute",
+          command: "gh",
+          args,
+          cwd: input.cwd,
+          timeoutMs: DEFAULT_TIMEOUT_MS,
+          allowNonZeroExit: true,
+        })
+        .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
+      if (output.exitCode === 0) return "deleted";
+      // Classify from stderr here, before it is discarded: VcsProcessExitError
+      // deliberately carries only stderr length/truncation so raw provider
+      // output never reaches RPC clients through the transported defect.
+      if (isAlreadyMissingRemoteBranch(output.stderr)) return "already_missing";
+
+      return yield* new GitHubCliCommandError({
+        command: "gh",
+        cwd: input.cwd,
+        cause: new VcsProcessExitError({
+          operation: "GitHubCli.execute",
+          command: "gh",
+          cwd: input.cwd,
+          argumentCount: args.length,
+          exitCode: output.exitCode,
+          detail: "Process exited with a non-zero status.",
+          failureKind: "command-failed",
+          stderrLength: output.stderr.length,
+          stderrTruncated: output.stderrTruncated,
+        }),
+      });
+    }),
     listChecks: Effect.fn("GitHubCli.listChecks")(function* (input) {
       const raw = yield* readCheckRollup({
         cwd: input.cwd,
@@ -599,6 +911,23 @@ export const make = Effect.gen(function* () {
           ),
         ),
         Effect.map(normalizeGitHubMergeOptions),
+      ),
+    getPullRequestAutoMergeState: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "view", input.reference, "--json", "autoMergeRequest"],
+      }).pipe(
+        Effect.map((result) => {
+          const decoded = decodeRawGitHubAutoMergeState(result.stdout.trim());
+          if (Result.isFailure(decoded)) return null;
+          if (!("autoMergeRequest" in decoded.success)) return null;
+          const request = decoded.success.autoMergeRequest;
+          return request !== null && typeof request === "object"
+            ? true
+            : request === null
+              ? false
+              : null;
+        }),
       ),
     mergePullRequest: Effect.fn("GitHubCli.mergePullRequest")(function* (input) {
       const reference = yield* validatePullRequestMutationReference(input);

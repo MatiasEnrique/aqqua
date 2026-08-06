@@ -3,6 +3,7 @@ import { CircleCheckIcon, CircleXIcon, Clock3Icon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
+import { AqquaBreathingStateIcon } from "./AqquaWave";
 import { aggregateChecksPresentation, type StatusPresentation } from "./PullRequestPanel.logic";
 import { Badge } from "./ui/badge";
 
@@ -15,6 +16,10 @@ export function ChangeRequestStatusIcon({
   readonly presentation: StatusPresentation;
   readonly className?: string;
 }) {
+  if (presentation.tone === "pending") {
+    return <AqquaBreathingStateIcon aria-hidden className={cn("size-4 shrink-0", className)} />;
+  }
+
   const Icon =
     presentation.icon === "check"
       ? CircleCheckIcon

@@ -15,6 +15,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
+  GitChangeRequestCommit,
   GitPreparePullRequestThreadInput,
   ThreadId,
 } from "@aqqua/contracts";
@@ -55,6 +56,11 @@ interface FakeGhScenario {
     headRepositoryNameWithOwner?: string | null;
     headRepositoryOwnerLogin?: string | null;
   };
+  pullRequestCommits?: {
+    headOid?: string | null;
+    commits?: ReadonlyArray<GitChangeRequestCommit>;
+    truncated?: boolean;
+  };
   repositoryCloneUrls?: Record<string, { url: string; sshUrl: string }>;
   checksStatus?: "success" | "failure" | "pending" | null;
   checkDetails?: ReadonlyArray<{
@@ -63,6 +69,7 @@ interface FakeGhScenario {
     readonly detailsUrl?: string;
   }>;
   mergeOptions?: GitHubCli.GitHubMergeOptions;
+  autoMergeStateSequence?: Array<boolean | null>;
   failWith?: GitHubCli.GitHubCliError;
   /** Let this many gh calls succeed before failWith kicks in (default 0 = fail immediately). */
   failAfterCalls?: number;
@@ -522,6 +529,39 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
               .filter((entry): entry is GitHubCli.GitHubPullRequestSummary => entry !== null),
           ),
         ),
+      listRepositoryPullRequests: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            String(input.limit),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt",
+          ],
+        }).pipe(
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) => {
+            const changeRequests = raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is GitHubCli.GitHubPullRequestSummary => entry !== null)
+              .map((entry) => ({
+                number: entry.number,
+                title: entry.title,
+                url: entry.url,
+                baseRefName: entry.baseRefName,
+                headRefName: entry.headRefName,
+                state: entry.state ?? "open",
+              }));
+            return {
+              changeRequests,
+              truncated: changeRequests.length >= input.limit,
+            };
+          }),
+        ),
       createPullRequest: (input) =>
         execute({
           cwd: input.cwd,
@@ -586,6 +626,10 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
               },
             );
       },
+      getPullRequestAutoMergeState: (input) => {
+        ghCalls.push(`pr view ${input.reference} --json autoMergeRequest`);
+        return Effect.succeed(scenario.autoMergeStateSequence?.shift() ?? null);
+      },
       mergePullRequest: (input) => {
         ghCalls.push(`pr merge ${input.reference} --${input.method}`);
         return scenario.failWith && ghCalls.length > (scenario.failAfterCalls ?? 0)
@@ -607,6 +651,53 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         return scenario.failWith && ghCalls.length > (scenario.failAfterCalls ?? 0)
           ? Effect.fail(scenario.failWith)
           : Effect.void;
+      },
+      getPullRequestConversation: (input) => {
+        ghCalls.push(`pr conversation ${input.reference}`);
+        return Effect.succeed({
+          number: scenario.pullRequest?.number ?? 42,
+          state: scenario.pullRequest?.state ?? "open",
+          headRefName: scenario.pullRequest?.headRefName ?? "feature/pull-request",
+          isCrossRepository: scenario.pullRequest?.isCrossRepository ?? false,
+          additions: 12,
+          deletions: 3,
+          reviewers: ["reviewer"],
+          description: {
+            author: { login: "author" },
+            body: "Pull request description",
+            createdAt: null,
+            url: "https://github.com/acme/repo/pull/42",
+          },
+          comments: [],
+          commentsTruncated: false,
+          reviewThreads: [],
+          reviewThreadsTruncated: false,
+        });
+      },
+      listPullRequestCommits: (input) => {
+        ghCalls.push(`pr commits ${input.reference}`);
+        return Effect.succeed({
+          number: scenario.pullRequest?.number ?? 42,
+          headOid: scenario.pullRequestCommits?.headOid ?? null,
+          commits: scenario.pullRequestCommits?.commits ?? [],
+          truncated: scenario.pullRequestCommits?.truncated ?? false,
+        });
+      },
+      addPullRequestComment: (input) => {
+        ghCalls.push(`pr comment ${input.changeRequestNumber} ${input.body}`);
+        return Effect.void;
+      },
+      replyToPullRequestThread: (input) => {
+        ghCalls.push(`pr thread reply ${input.threadId} ${input.body}`);
+        return Effect.void;
+      },
+      setPullRequestThreadResolved: (input) => {
+        ghCalls.push(`pr thread resolve ${input.threadId} ${input.resolved}`);
+        return Effect.void;
+      },
+      deleteRemoteBranch: (input) => {
+        ghCalls.push(`git push --delete ${input.branch}`);
+        return Effect.succeed("deleted");
       },
       getRepositoryCloneUrls: (input) =>
         execute({
@@ -669,6 +760,10 @@ function preparePullRequestThread(
 function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   checksSupported?: boolean;
+  conversationSupported?: boolean;
+  commitsSupported?: boolean;
+  changeRequestListSupported?: boolean;
+  branchDeleteSupported?: boolean;
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
@@ -701,10 +796,23 @@ function makeManager(input?: {
                 },
               }
             : provider;
+        const capabilityAdjustedProvider = {
+          ...resolvedProvider,
+          capabilities: {
+            ...resolvedProvider.capabilities,
+            ...(input?.conversationSupported === false ? { conversation: false as const } : {}),
+            ...(input?.commitsSupported === false ? { commits: false as const } : {}),
+            ...(input?.changeRequestListSupported === false
+              ? { changeRequestList: false as const }
+              : {}),
+            ...(input?.branchDeleteSupported === false ? { branchDelete: false as const } : {}),
+          },
+        };
         return SourceControlProviderRegistry.SourceControlProviderRegistry.of({
-          get: () => Effect.succeed(resolvedProvider),
-          resolveHandle: () => Effect.succeed({ provider: resolvedProvider, context: null }),
-          resolve: () => Effect.succeed(resolvedProvider),
+          get: () => Effect.succeed(capabilityAdjustedProvider),
+          resolveHandle: () =>
+            Effect.succeed({ provider: capabilityAdjustedProvider, context: null }),
+          resolve: () => Effect.succeed(capabilityAdjustedProvider),
           discover: Effect.succeed([]),
         });
       }),
@@ -3138,7 +3246,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("caches repository merge options by canonical path", () =>
+  it.effect("caches merge options by canonical path and pull request reference", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("aqqua-git-manager-");
       yield* initRepo(repoDir);
@@ -3150,6 +3258,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             methods: ["merge", "squash"],
             defaultMethod: "squash",
           },
+          autoMergeStateSequence: [true, false],
         },
       });
 
@@ -3159,6 +3268,10 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
       const second = yield* manager.getChangeRequestMergeOptions({
         cwd: symlinkDir,
+        reference: "42",
+      });
+      const otherPullRequest = yield* manager.getChangeRequestMergeOptions({
+        cwd: repoDir,
         reference: "#43",
       });
 
@@ -3166,9 +3279,22 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         methods: ["merge", "squash"],
         defaultMethod: "squash",
         autoMergeSupported: true,
+        autoMergeEnabled: true,
       });
       expect(second).toEqual(first);
-      expect(ghCalls.filter((call) => call === "repo view --json merge options")).toHaveLength(1);
+      expect(otherPullRequest).toEqual({
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+        autoMergeSupported: true,
+        autoMergeEnabled: false,
+      });
+      expect(ghCalls.filter((call) => call === "repo view --json merge options")).toHaveLength(2);
+      expect(ghCalls.filter((call) => call === "pr view 42 --json autoMergeRequest")).toHaveLength(
+        1,
+      );
+      expect(ghCalls.filter((call) => call === "pr view 43 --json autoMergeRequest")).toHaveLength(
+        1,
+      );
     }),
   );
 
@@ -3233,6 +3359,375 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect(
+    "reports unsupported conversation and commit details without calling the provider",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const { manager, ghCalls } = yield* makeManager({
+          conversationSupported: false,
+          commitsSupported: false,
+        });
+
+        expect(
+          yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" }),
+        ).toEqual({
+          supported: false,
+          description: null,
+          additions: null,
+          deletions: null,
+          reviewers: [],
+          comments: [],
+          commentsTruncated: false,
+          reviewThreads: [],
+          reviewThreadsTruncated: false,
+        });
+        expect(yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" })).toEqual(
+          {
+            supported: false,
+            commits: [],
+            truncated: false,
+            commitsAvailableLocally: false,
+          },
+        );
+        expect(
+          ghCalls.some((call) => call.includes("conversation") || call.includes("commits")),
+        ).toBe(false);
+      }),
+  );
+
+  it.effect(
+    "reports commits as locally available when the head commit is in the object database",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const headOid = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequestCommits: {
+              headOid,
+              commits: [
+                {
+                  oid: headOid,
+                  messageHeadline: "Initial commit",
+                  authorName: "Test User",
+                  authorLogin: null,
+                  authoredAt: null,
+                  committedAt: null,
+                },
+              ],
+            },
+          },
+        });
+
+        const result = yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" });
+
+        expect(result.supported).toBe(true);
+        expect(result.commits.map((commit) => commit.oid)).toEqual([headOid]);
+        expect(result.commitsAvailableLocally).toBe(true);
+      }),
+  );
+
+  it.effect(
+    "keeps listing commits when the head commit is missing locally and the fetch fails",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        // A well-formed sha that is not in this repository forces the
+        // cat-file miss. Origin resolves, but the bare remote has no
+        // refs/pull/42/head, so the fetch fails and we warn-and-continue.
+        const remoteDir = yield* createBareRemote();
+        yield* configureRemote(repoDir, "origin", remoteDir, "origin");
+        const missingOid = "0".repeat(40);
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequestCommits: {
+              headOid: missingOid,
+              commits: [
+                {
+                  oid: missingOid,
+                  messageHeadline: "Unfetched commit",
+                  authorName: null,
+                  authorLogin: null,
+                  authoredAt: null,
+                  committedAt: null,
+                },
+              ],
+            },
+          },
+        });
+
+        const result = yield* manager.listChangeRequestCommits({ cwd: repoDir, reference: "#42" });
+
+        expect(result.supported).toBe(true);
+        expect(result.commits.map((commit) => commit.oid)).toEqual([missingOid]);
+        expect(result.commitsAvailableLocally).toBe(false);
+      }),
+  );
+
+  it.effect(
+    "reports unsupported repository change request lists without calling the provider",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("aqqua-git-manager-");
+        yield* initRepo(repoDir);
+        const { manager, ghCalls } = yield* makeManager({
+          changeRequestListSupported: false,
+        });
+
+        expect(yield* manager.listRepositoryChangeRequests({ cwd: repoDir })).toEqual({
+          supported: false,
+          changeRequests: [],
+          truncated: false,
+        });
+        expect(ghCalls.some((call) => call.startsWith("pr list --state open --limit"))).toBe(false);
+      }),
+  );
+
+  it.effect("refetches repository change requests after the PR lookup epoch changes", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const firstPage = [
+        {
+          number: 41,
+          title: "First pull request",
+          url: "https://github.com/acme/repo/pull/41",
+          baseRefName: "main",
+          headRefName: "feature/first",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const secondPage = [
+        {
+          number: 42,
+          title: "Second pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/second",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(firstPage),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(secondPage),
+          ],
+        },
+      });
+
+      const first = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const cached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      yield* manager.invalidateStatus(repoDir);
+      const refreshed = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+
+      expect(first.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(cached).toEqual(first);
+      expect(refreshed.changeRequests.map((item) => item.number)).toEqual([42]);
+      expect(
+        ghCalls.filter((call) => call.startsWith("pr list --state open --limit 30 --json")),
+      ).toHaveLength(2);
+    }),
+  );
+
+  it.effect("caches repository change requests per limit and honors the requested limit", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const page = [
+        {
+          number: 41,
+          title: "First pull request",
+          url: "https://github.com/acme/repo/pull/41",
+          baseRefName: "main",
+          headRefName: "feature/first",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+          ],
+        },
+      });
+
+      const defaultLimit = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const defaultLimitCached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const limitFive = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 5 });
+      const limitFiveCached = yield* manager.listRepositoryChangeRequests({
+        cwd: repoDir,
+        limit: 5,
+      });
+      const limitTen = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 10 });
+
+      expect(defaultLimit.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(defaultLimitCached).toEqual(defaultLimit);
+      expect(limitFive.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(limitFiveCached).toEqual(limitFive);
+      expect(limitTen.changeRequests.map((item) => item.number)).toEqual([41]);
+
+      const openListCalls = ghCalls.filter((call) =>
+        call.startsWith("pr list --state open --limit "),
+      );
+      expect(openListCalls.filter((call) => call.includes("--limit 30 "))).toHaveLength(1);
+      expect(openListCalls.filter((call) => call.includes("--limit 5 "))).toHaveLength(1);
+      expect(openListCalls.filter((call) => call.includes("--limit 10 "))).toHaveLength(1);
+      expect(openListCalls).toHaveLength(3);
+    }),
+  );
+
+  it.effect("invalidates only the mutated change request conversation cache entry", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 42,
+            title: "Pull request",
+            url: "https://github.com/acme/repo/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/pull-request",
+            state: "open",
+          },
+        },
+      });
+
+      const first = yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" });
+      const cached = yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "42" });
+      expect(cached).toEqual(first);
+      expect(ghCalls.filter((call) => call === "pr conversation 42")).toHaveLength(1);
+
+      expect(
+        yield* manager.addChangeRequestComment({ cwd: repoDir, reference: "#42", body: "Hello" }),
+      ).toEqual({ added: true });
+      yield* manager.getChangeRequestConversation({ cwd: repoDir, reference: "#42" });
+
+      expect(ghCalls).toContain("pr comment 42 Hello");
+      expect(ghCalls.filter((call) => call === "pr conversation 42")).toHaveLength(2);
+    }),
+  );
+
+  it.effect(
+    "reports local branch state after deleting a change request branch",
+    () =>
+      Effect.gen(function* () {
+        const makeDeleteManager = () =>
+          makeManager({
+            ghScenario: {
+              pullRequest: {
+                number: 42,
+                title: "Merged pull request",
+                url: "https://github.com/acme/repo/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/delete-me",
+                state: "merged",
+                isCrossRepository: false,
+              },
+            },
+          });
+
+        const noneRepo = yield* makeTempDir("aqqua-git-manager-delete-none-");
+        yield* initRepo(noneRepo);
+        const { manager: noneManager } = yield* makeDeleteManager();
+        expect(
+          yield* noneManager.deleteChangeRequestBranch({ cwd: noneRepo, reference: "#42" }),
+        ).toEqual({ branch: "feature/delete-me", remote: "deleted", local: { _tag: "none" } });
+
+        const plainRepo = yield* makeTempDir("aqqua-git-manager-delete-plain-");
+        yield* initRepo(plainRepo);
+        yield* runGit(plainRepo, ["branch", "feature/delete-me"]);
+        const { manager: plainManager } = yield* makeDeleteManager();
+        expect(
+          yield* plainManager.deleteChangeRequestBranch({ cwd: plainRepo, reference: "#42" }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "branch", refName: "feature/delete-me", removal: "not_requested" },
+        });
+
+        const removedRepo = yield* makeTempDir("aqqua-git-manager-delete-removed-");
+        yield* initRepo(removedRepo);
+        yield* runGit(removedRepo, ["branch", "feature/delete-me"]);
+        const { manager: removedManager } = yield* makeDeleteManager();
+        expect(
+          yield* removedManager.deleteChangeRequestBranch({
+            cwd: removedRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "branch", refName: "feature/delete-me", removal: "removed" },
+        });
+        expect(
+          Number(
+            (yield* runGit(
+              removedRepo,
+              ["show-ref", "--verify", "refs/heads/feature/delete-me"],
+              true,
+            )).exitCode,
+          ),
+        ).not.toBe(0);
+
+        const worktreeRepo = yield* makeTempDir("aqqua-git-manager-delete-worktree-");
+        yield* initRepo(worktreeRepo);
+        yield* runGit(worktreeRepo, ["branch", "feature/delete-me"]);
+        const worktreePath = yield* makeTempDir("aqqua-git-manager-linked-worktree-");
+        yield* removePath(worktreePath);
+        yield* runGit(worktreeRepo, ["worktree", "add", worktreePath, "feature/delete-me"]);
+        const { manager: worktreeManager } = yield* makeDeleteManager();
+        expect(
+          yield* worktreeManager.deleteChangeRequestBranch({
+            cwd: worktreeRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: {
+            _tag: "worktree",
+            refName: "feature/delete-me",
+            worktreePath: NodeFS.realpathSync.native(worktreePath),
+          },
+        });
+
+        const checkedOutRepo = yield* makeTempDir("aqqua-git-manager-delete-checked-out-");
+        yield* initRepo(checkedOutRepo);
+        yield* runGit(checkedOutRepo, ["checkout", "-b", "feature/delete-me"]);
+        const { manager: checkedOutManager } = yield* makeDeleteManager();
+        expect(
+          yield* checkedOutManager.deleteChangeRequestBranch({
+            cwd: checkedOutRepo,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: { _tag: "checked_out", refName: "feature/delete-me" },
+        });
+      }),
+    30_000,
+  );
+
   it.effect("validates merge methods before mutating and normalizes PR references", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("aqqua-git-manager-");
@@ -3287,6 +3782,38 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(ghCalls).toContain("pr merge 42 --auto --merge");
       expect(ghCalls).toContain("pr close 42");
+    }),
+  );
+
+  it.effect("invalidates cached merge options after toggling auto-merge", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: { autoMergeStateSequence: [false, true] },
+      });
+
+      expect(
+        (yield* manager.getChangeRequestMergeOptions({
+          cwd: repoDir,
+          reference: "#42",
+        })).autoMergeEnabled,
+      ).toBe(false);
+      yield* manager.setAutoMerge({
+        cwd: repoDir,
+        reference: "#42",
+        enabled: true,
+        method: "merge",
+      });
+      expect(
+        (yield* manager.getChangeRequestMergeOptions({
+          cwd: repoDir,
+          reference: "42",
+        })).autoMergeEnabled,
+      ).toBe(true);
+      expect(ghCalls.filter((call) => call === "pr view 42 --json autoMergeRequest")).toHaveLength(
+        2,
+      );
     }),
   );
 

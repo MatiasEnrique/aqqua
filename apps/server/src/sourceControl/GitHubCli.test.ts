@@ -16,6 +16,14 @@ const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({
   stderrTruncated: false,
 });
 
+const processFailureOutput = (stderr: string): VcsProcess.VcsProcessOutput => ({
+  exitCode: ChildProcessSpawner.ExitCode(1),
+  stdout: "",
+  stderr,
+  stdoutTruncated: false,
+  stderrTruncated: false,
+});
+
 const mockRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
 
 const layer = GitHubCli.layer.pipe(
@@ -157,6 +165,232 @@ describe("GitHubCli.layer", () => {
         ["pr", "merge", "42", "--disable-auto"],
         ["pr", "close", "42"],
       ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("reads pull request auto-merge state tolerantly", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({ autoMergeRequest: { enabledAt: "2026-08-05T00:00:00Z" } }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({ autoMergeRequest: null }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(Effect.succeed(processOutput("{}")))
+        .mockReturnValueOnce(Effect.succeed(processOutput("not json")))
+        .mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const github = yield* GitHubCli.GitHubCli;
+
+      expect(yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "#42" })).toBe(
+        true,
+      );
+      expect(yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "43" })).toBe(
+        false,
+      );
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "44" }),
+      ).toBeNull();
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "45" }),
+      ).toBeNull();
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "46" }),
+      ).toBeNull();
+      expect(mockRun.mock.calls.map(([input]) => input.args)).toEqual([
+        ["pr", "view", "#42", "--json", "autoMergeRequest"],
+        ["pr", "view", "43", "--json", "autoMergeRequest"],
+        ["pr", "view", "44", "--json", "autoMergeRequest"],
+        ["pr", "view", "45", "--json", "autoMergeRequest"],
+        ["pr", "view", "46", "--json", "autoMergeRequest"],
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("fetches conversation and commits and maps comment and thread mutations", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                number: 42,
+                state: "OPEN",
+                headRefName: "feature/conversation",
+                comments: [],
+                reviewRequests: [],
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({ data: null }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                number: 42,
+                commits: [{ oid: "abc123", messageHeadline: "First commit" }],
+              }),
+            ),
+          ),
+        )
+        .mockReturnValue(Effect.succeed(processOutput("")));
+
+      const github = yield* GitHubCli.GitHubCli;
+      const conversation = yield* github.getPullRequestConversation({
+        cwd: "/repo",
+        reference: "42",
+      });
+      const commits = yield* github.listPullRequestCommits({ cwd: "/repo", reference: "42" });
+      yield* github.addPullRequestComment({
+        cwd: "/repo",
+        changeRequestNumber: 42,
+        body: "Body\n--repo=other/project",
+      });
+      yield* github.replyToPullRequestThread({
+        cwd: "/repo",
+        threadId: "thread-1",
+        body: "true",
+      });
+      yield* github.replyToPullRequestThread({
+        cwd: "/repo",
+        threadId: "thread-2",
+        body: "@/private/secret.txt",
+      });
+      yield* github.setPullRequestThreadResolved({
+        cwd: "/repo",
+        threadId: "123",
+        resolved: true,
+      });
+      yield* github.setPullRequestThreadResolved({
+        cwd: "/repo",
+        threadId: "thread-1",
+        resolved: false,
+      });
+
+      assert.strictEqual(conversation.number, 42);
+      assert.strictEqual(conversation.reviewThreads.length, 0);
+      assert.strictEqual(commits.headOid, "abc123");
+      const args = mockRun.mock.calls.map(([input]) => input.args);
+      assert.deepStrictEqual(args[0], [
+        "pr",
+        "view",
+        "42",
+        "--json",
+        "number,state,mergedAt,headRefName,isCrossRepository,body,author,createdAt,url,additions,deletions,comments,reviewRequests",
+      ]);
+      assert.deepStrictEqual(args[1]?.slice(0, 9), [
+        "api",
+        "graphql",
+        "-F",
+        "owner={owner}",
+        "-F",
+        "name={repo}",
+        "-F",
+        "number=42",
+        "-f",
+      ]);
+      assert.match(args[1]?.[9] ?? "", /^query=query\(\$owner: String!/);
+      assert.deepStrictEqual(args[2], ["pr", "view", "42", "--json", "number,commits"]);
+      assert.deepStrictEqual(args[3], [
+        "api",
+        "repos/{owner}/{repo}/issues/42/comments",
+        "-f",
+        "body=Body\n--repo=other/project",
+      ]);
+      assert.deepStrictEqual(args[4]?.slice(0, 7), [
+        "api",
+        "graphql",
+        "-f",
+        "threadId=thread-1",
+        "-f",
+        "body=true",
+        "-f",
+      ]);
+      assert.deepStrictEqual(args[5]?.slice(0, 7), [
+        "api",
+        "graphql",
+        "-f",
+        "threadId=thread-2",
+        "-f",
+        "body=@/private/secret.txt",
+        "-f",
+      ]);
+      assert.deepStrictEqual(args[6]?.slice(0, 5), ["api", "graphql", "-f", "threadId=123", "-f"]);
+      assert.match(args[6]?.at(-1) ?? "", /query=.*resolveReviewThread/);
+      assert.deepStrictEqual(args[7]?.slice(0, 5), [
+        "api",
+        "graphql",
+        "-f",
+        "threadId=thread-1",
+        "-f",
+      ]);
+      assert.match(args[7]?.at(-1) ?? "", /query=.*unresolveReviewThread/);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("deletes remote branches and tolerates an already-missing reference", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(Effect.succeed(processOutput("")))
+        .mockReturnValueOnce(
+          Effect.succeed(processFailureOutput("GraphQL: Reference does not exist")),
+        );
+
+      const github = yield* GitHubCli.GitHubCli;
+      const deleted = yield* github.deleteRemoteBranch({ cwd: "/repo", branch: "fix/#12%" });
+      const alreadyMissing = yield* github.deleteRemoteBranch({
+        cwd: "/repo",
+        branch: "feature/missing",
+      });
+      const invalid = yield* github
+        .deleteRemoteBranch({ cwd: "/repo", branch: "--repo=other/project" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(deleted, "deleted");
+      assert.strictEqual(alreadyMissing, "already_missing");
+      assert.strictEqual(invalid._tag, "GitHubPullRequestReferenceError");
+      assert.deepStrictEqual(
+        mockRun.mock.calls.map(([input]) => input),
+        [
+          {
+            operation: "GitHubCli.execute",
+            command: "gh",
+            args: ["api", "-X", "DELETE", "repos/{owner}/{repo}/git/refs/heads/fix/%2312%25"],
+            cwd: "/repo",
+            timeoutMs: 30_000,
+            allowNonZeroExit: true,
+          },
+          {
+            operation: "GitHubCli.execute",
+            command: "gh",
+            args: ["api", "-X", "DELETE", "repos/{owner}/{repo}/git/refs/heads/feature/missing"],
+            cwd: "/repo",
+            timeoutMs: 30_000,
+            allowNonZeroExit: true,
+          },
+        ],
+      );
     }).pipe(Effect.provide(layer)),
   );
 
@@ -502,6 +736,151 @@ describe("GitHubCli.layer", () => {
           headRepositoryOwnerLogin: "pingdotgg",
         },
       ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("lists repository pull requests without a head filter", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 42,
+                title: "Repository pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/repository-list",
+                state: "OPEN",
+                mergedAt: null,
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [
+          {
+            number: 42,
+            title: "Repository pull request",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/repository-list",
+            state: "open",
+          },
+        ],
+        truncated: false,
+      });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          "2",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+      expect(mockRun.mock.calls[0]?.[0].args).not.toContain("--head");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("marks repository pull requests as truncated when more exist than the limit", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 42,
+                title: "First pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/first",
+                state: "OPEN",
+                mergedAt: null,
+              },
+              {
+                number: 43,
+                title: "Second pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/43",
+                baseRefName: "main",
+                headRefName: "feature/second",
+                state: "OPEN",
+                mergedAt: null,
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [
+          {
+            number: 42,
+            title: "First pull request",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/first",
+            state: "open",
+          },
+        ],
+        truncated: true,
+      });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          "2",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("returns an empty repository pull request list when stdout is empty", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [],
+        truncated: false,
+      });
     }).pipe(Effect.provide(layer)),
   );
 

@@ -1,81 +1,145 @@
-import type { EnvironmentId, ScopedThreadRef, VcsStatusResult } from "@aqqua/contracts";
-import { Clock3Icon, ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { WorkspacePanelRef } from "@aqqua/client-runtime/environment";
+import type {
+  EnvironmentId,
+  GitChangeRequestCommit,
+  ScopedThreadRef,
+  VcsStatusResult,
+} from "@aqqua/contracts";
+import { GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
-import { cn } from "~/lib/utils";
 import { gitEnvironment } from "~/state/git";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 
+import type { DraftId } from "../composerDraftStore";
+import { GitHubIcon } from "./Icons";
 import {
+  branchPanelPullRequest,
   changeRequestStatePresentation,
-  checkPresentation,
-  keyChangeRequestChecks,
+  type PanelPullRequest,
+  pullRequestSectionVisibility,
   shouldRefetchChecks,
 } from "./PullRequestPanel.logic";
-import { ChangeRequestChecksBadge, ChangeRequestStatusIcon } from "./ChangeRequestChecksBadge";
-import { ManagePullRequestDialog } from "./ManagePullRequestDialog";
 import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
+import { DeleteBranchDialog } from "./pullRequest/DeleteBranchDialog";
+import { PullRequestMergeActionsPopover } from "./pullRequest/PullRequestMergeActionsPopover";
+import { PullRequestChecksSection } from "./pullRequest/PullRequestChecksSection";
+import { PullRequestCommitsSection } from "./pullRequest/PullRequestCommitsSection";
+import { PullRequestConversationSection } from "./pullRequest/PullRequestConversationSection";
+import { PullRequestDescriptionSection } from "./pullRequest/PullRequestDescriptionSection";
+import { PullRequestMetadataRows } from "./pullRequest/PullRequestMetadataRows";
+import { PullRequestSelector } from "./pullRequest/PullRequestSelector";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
+
+const DiffPanel = lazy(() => import("./DiffPanel"));
 
 interface PullRequestPanelProps {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
+  readonly composerDraftTarget: ScopedThreadRef | DraftId;
+  readonly workspaceRef: WorkspacePanelRef | null;
   readonly cwd: string;
   readonly status: VcsStatusResult | null;
   readonly statusError: string | null;
   readonly statusPending: boolean;
 }
 
-const toneClasses = {
-  neutral: "text-muted-foreground",
-  pending: "text-warning-foreground",
-  success: "text-success-foreground",
-  failure: "text-destructive-foreground",
-  info: "text-info-foreground",
-} as const;
-
 export function PullRequestPanel({
   environmentId,
   threadRef,
+  composerDraftTarget,
+  workspaceRef,
   cwd,
   status,
   statusError,
   statusPending,
 }: PullRequestPanelProps) {
   const pr = status?.pr ?? null;
+  const branchPr = branchPanelPullRequest(pr);
+  const [selectedPr, setSelectedPr] = useState<PanelPullRequest | null>(null);
+  const selectedPrCwdRef = useRef(cwd);
+  const scopedSelectedPr = selectedPrCwdRef.current === cwd ? selectedPr : null;
+  const activePr = scopedSelectedPr ?? branchPr;
+  const providerKind = status?.sourceControlProvider?.kind ?? null;
+  const isGitHub = providerKind === "github";
+  const reference = activePr === null ? null : String(activePr.number);
   const checksQuery = useEnvironmentQuery(
-    pr === null
+    activePr === null
       ? null
       : gitEnvironment.changeRequestChecks({
           environmentId,
-          input: { cwd, reference: String(pr.number) },
+          input: { cwd, reference: String(activePr.number) },
+        }),
+  );
+  const conversationQuery = useEnvironmentQuery(
+    activePr === null || !isGitHub
+      ? null
+      : gitEnvironment.changeRequestConversation({
+          environmentId,
+          input: { cwd, reference: String(activePr.number) },
+        }),
+  );
+  const [commitsRequestedFor, setCommitsRequestedFor] = useState<number | null>(null);
+  const commitsRequested = activePr !== null && commitsRequestedFor === activePr.number;
+  const commitsQuery = useEnvironmentQuery(
+    activePr === null || !isGitHub || !commitsRequested
+      ? null
+      : gitEnvironment.changeRequestCommits({
+          environmentId,
+          input: { cwd, reference: String(activePr.number) },
         }),
   );
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const previousPrRef = useRef(pr);
   const [refreshPending, setRefreshPending] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedCommit, setSelectedCommit] = useState<GitChangeRequestCommit | null>(null);
   const openPrLink = useOpenPrLink();
 
   useEffect(() => {
+    if (scopedSelectedPr !== null) return;
     const previous = previousPrRef.current;
     previousPrRef.current = pr;
     if (!shouldRefetchChecks(previous, pr)) return;
     void checksQuery.refresh().catch(() => undefined);
-  }, [checksQuery.refresh, pr]);
+  }, [checksQuery.refresh, pr, scopedSelectedPr]);
+
+  useEffect(() => {
+    selectedPrCwdRef.current = cwd;
+    setSelectedPr(null);
+  }, [cwd]);
+
+  useEffect(() => {
+    setSelectedCommit(null);
+    // The delete dialog targets the active pull request's head branch. If the
+    // branch status stream swaps in a different pull request while the dialog
+    // is open, confirming would delete a branch the user never approved.
+    setDeleteOpen(false);
+  }, [activePr?.number]);
 
   const handleRefresh = async () => {
     if (refreshPending) return;
     setRefreshPending(true);
     try {
       await refreshStatus({ environmentId, input: { cwd } });
-      await checksQuery.refresh().catch(() => undefined);
+      await Promise.all([
+        checksQuery.refresh().catch(() => undefined),
+        conversationQuery.refresh().catch(() => undefined),
+        commitsQuery.refresh().catch(() => undefined),
+      ]);
     } finally {
       setRefreshPending(false);
     }
+  };
+
+  const handleSelectPr = (nextPr: PanelPullRequest | null) => {
+    selectedPrCwdRef.current = cwd;
+    setSelectedPr(nextPr?.number === branchPr?.number ? null : nextPr);
   };
 
   const panelHeader = (
@@ -83,43 +147,34 @@ export function PullRequestPanel({
       icon={GitPullRequestIcon}
       title="Pull request"
       actions={
-        <>
-          {pr ? (
-            <ManagePullRequestDialog
-              threadRef={threadRef}
-              cwd={cwd}
-              changeRequest={pr}
-              sourceControlProvider={status?.sourceControlProvider}
-            />
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Refresh pull request status and checks"
-            title={refreshPending ? "Refreshing pull request" : "Refresh pull request"}
-            disabled={refreshPending}
-            onClick={() => void handleRefresh()}
-          >
-            <RefreshCwIcon aria-hidden />
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Refresh pull request details"
+          title={refreshPending ? "Refreshing pull request" : "Refresh pull request"}
+          disabled={refreshPending}
+          onClick={() => void handleRefresh()}
+        >
+          <RefreshCwIcon className={refreshPending ? "animate-spin" : undefined} aria-hidden />
+        </Button>
       }
     />
   );
 
-  if (status === null && statusPending) {
+  if (status === null && statusPending && activePr === null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {panelHeader}
-        <div className="flex flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-          <Clock3Icon className="size-4" aria-hidden />
-          Loading pull request status…
+        <div className="space-y-3 p-4">
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
       </div>
     );
   }
 
-  if (pr === null) {
+  if (activePr === null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {panelHeader}
@@ -131,6 +186,17 @@ export function PullRequestPanel({
               Create one from the Git actions control in the workspace toolbar, then return here to
               watch its status and checks.
             </p>
+            {isGitHub ? (
+              <div className="mt-4">
+                <PullRequestSelector
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  branchPr={branchPr}
+                  activePr={activePr}
+                  onSelect={handleSelectPr}
+                />
+              </div>
+            ) : null}
             {statusError ? <p className="mt-3 text-xs text-destructive">{statusError}</p> : null}
           </div>
         </div>
@@ -138,105 +204,156 @@ export function PullRequestPanel({
     );
   }
 
-  const statePresentation = changeRequestStatePresentation(pr.state);
+  if (selectedCommit) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col bg-background">
+        {panelHeader}
+        <div className="min-h-0 flex-1">
+          <Suspense
+            fallback={
+              <div className="space-y-3 p-4">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-64 w-full" />
+              </div>
+            }
+          >
+            <DiffPanel
+              mode="embedded"
+              composerDraftTarget={composerDraftTarget}
+              initialGitScope="branch"
+              threadRef={threadRef}
+              workspaceRef={workspaceRef}
+              fallbackCwd={cwd}
+              commitTarget={{
+                environmentId,
+                cwd,
+                commitId: selectedCommit.oid,
+                label: selectedCommit.messageHeadline || selectedCommit.oid.slice(0, 7),
+                onBack: () => setSelectedCommit(null),
+              }}
+            />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
+
+  const statePresentation = changeRequestStatePresentation(activePr.state);
   const stateVariant =
     statePresentation.tone === "success"
       ? "success"
       : statePresentation.tone === "info"
         ? "info"
         : "secondary";
-  const checks = checksQuery.data?.checks ?? [];
-  const keyedChecks = keyChangeRequestChecks(checks);
+  const visibility = pullRequestSectionVisibility(providerKind, activePr.state);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {panelHeader}
-      <div className="shrink-0 space-y-3 border-b border-border p-4">
-        <div className="flex items-start gap-2">
-          <span className="shrink-0 text-sm text-muted-foreground">#{pr.number}</span>
-          <a
-            href={pr.url}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 text-sm font-medium text-foreground underline-offset-4 hover:underline"
-            onClick={(event) => openPrLink(event, pr.url)}
-          >
-            {pr.title}
-            <ExternalLinkIcon className="ms-1 inline size-3 align-baseline text-muted-foreground" />
-          </a>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="border-b border-border">
+          <div className="px-4 pb-3 pt-4">
+            {isGitHub ? (
+              <div className="mb-2">
+                <PullRequestSelector
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  branchPr={branchPr}
+                  activePr={activePr}
+                  onSelect={handleSelectPr}
+                />
+              </div>
+            ) : null}
+            <div className="flex items-start gap-3">
+              <h1 className="min-w-0 flex-1 text-balance text-sm font-semibold leading-snug text-foreground">
+                {activePr.title}
+              </h1>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Badge size="sm" variant={stateVariant}>
+                  {statePresentation.label}
+                </Badge>
+                {isGitHub ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Open pull request on GitHub"
+                    title="Open on GitHub"
+                    onClick={(event) => openPrLink(event, activePr.url)}
+                  >
+                    <GitHubIcon className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <PullRequestMetadataRows
+            pr={activePr}
+            conversation={conversationQuery.data}
+            conversationPending={conversationQuery.isPending}
+          />
+          <div className="flex gap-2 px-4 pb-4">
+            {visibility.merge || visibility.manage ? (
+              <PullRequestMergeActionsPopover
+                threadRef={threadRef}
+                cwd={cwd}
+                changeRequest={activePr}
+                sourceControlProvider={status?.sourceControlProvider}
+              />
+            ) : visibility.deleteBranch ? (
+              <Button
+                className="w-full"
+                variant="destructive-outline"
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete branch
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge size="sm" variant={stateVariant}>
-            {statePresentation.label}
-          </Badge>
-          <ChangeRequestChecksBadge status={pr.checksStatus} />
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-            {pr.baseRef} ← {pr.headRef}
-          </span>
-        </div>
+
+        {visibility.description ? (
+          <PullRequestDescriptionSection
+            cwd={cwd}
+            threadRef={threadRef}
+            conversation={conversationQuery.data}
+            pending={conversationQuery.isPending}
+            error={conversationQuery.error}
+            onRetry={() => void conversationQuery.refresh()}
+          />
+        ) : null}
+        <PullRequestChecksSection query={checksQuery} />
+        {visibility.commits ? (
+          <PullRequestCommitsSection
+            key={activePr.number}
+            query={commitsQuery}
+            prUrl={activePr.url}
+            onFirstOpen={() => setCommitsRequestedFor(activePr.number)}
+            onSelect={setSelectedCommit}
+          />
+        ) : null}
+        {visibility.comments && reference ? (
+          <PullRequestConversationSection
+            environmentId={environmentId}
+            threadRef={threadRef}
+            cwd={cwd}
+            reference={reference}
+            prUrl={activePr.url}
+            query={conversationQuery}
+          />
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center border-b border-border px-4 text-xs font-medium text-muted-foreground">
-          Checks
-        </div>
-        {checksQuery.data?.supported === false ? (
-          <div className="p-4 text-sm text-muted-foreground">
-            Per-check detail is unavailable for this host. The aggregate status above will continue
-            to update.
-          </div>
-        ) : checksQuery.error ? (
-          <div className="p-4">
-            <p className="text-sm text-destructive">Could not load check details.</p>
-            <p className="mt-1 text-xs text-muted-foreground">{checksQuery.error}</p>
-          </div>
-        ) : checksQuery.isPending && checksQuery.data === null ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Clock3Icon className="size-4" aria-hidden />
-            Loading checks…
-          </div>
-        ) : checks.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            No checks are reported for this pull request.
-          </p>
-        ) : (
-          <ul className="min-h-0 flex-1 overflow-y-auto">
-            {keyedChecks.map(({ check, key }) => {
-              const presentation = checkPresentation(check.status);
-              return (
-                <li
-                  key={key}
-                  className="flex min-h-10 items-center gap-3 border-b border-border/60 px-4 py-2 last:border-b-0"
-                >
-                  <ChangeRequestStatusIcon
-                    presentation={presentation}
-                    className={toneClasses[presentation.tone]}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm" title={check.name}>
-                    {check.name}
-                  </span>
-                  <span className={cn("shrink-0 text-xs", toneClasses[presentation.tone])}>
-                    {presentation.label}
-                  </span>
-                  {check.detailsUrl ? (
-                    <a
-                      href={check.detailsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`Open details for ${check.name}`}
-                      title={`Open details for ${check.name}`}
-                      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={(event) => openPrLink(event, check.detailsUrl!)}
-                    >
-                      <ExternalLinkIcon className="size-3.5" aria-hidden />
-                    </a>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      {visibility.deleteBranch && reference && deleteOpen ? (
+        <DeleteBranchDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          environmentId={environmentId}
+          threadRef={threadRef}
+          cwd={cwd}
+          reference={reference}
+          headRef={activePr.headRef}
+        />
+      ) : null}
     </div>
   );
 }

@@ -20,6 +20,7 @@ describe("change request management", () => {
     methods: ["merge", "squash"] as const,
     defaultMethod: "squash" as const,
     autoMergeSupported: true,
+    autoMergeEnabled: null,
   };
 
   it("puts the repository default first and labels only allowed methods", () => {

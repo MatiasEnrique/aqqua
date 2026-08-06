@@ -2,9 +2,14 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type {
   ChangeRequest,
+  ChangeRequestComment,
+  ChangeRequestDescription,
+  ChangeRequestReviewThread,
   ChangeRequestState,
+  GitChangeRequestCommit,
   GitChangeRequestMergeMethod,
   GitChangeRequestCheck,
+  GitRepositoryChangeRequestSummary,
   SourceControlProviderError,
   SourceControlProviderInfo,
   SourceControlProviderKind,
@@ -49,12 +54,90 @@ export interface SourceControlProviderCheckDetailsCapability {
 export interface ChangeRequestMergeOptions {
   readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
   readonly defaultMethod: GitChangeRequestMergeMethod;
+  readonly autoMergeEnabled?: boolean | null;
 }
 
-interface ChangeRequestOperationInput {
+export interface ChangeRequestOperationInput {
   readonly cwd: string;
   readonly context?: SourceControlProviderContext;
   readonly reference: string;
+}
+
+export interface ProviderChangeRequestConversation {
+  readonly number: number;
+  readonly state: ChangeRequestState;
+  readonly headRefName: string;
+  readonly isCrossRepository: boolean;
+  readonly additions: number | null;
+  readonly deletions: number | null;
+  readonly reviewers: ReadonlyArray<string>;
+  readonly description: ChangeRequestDescription;
+  readonly comments: ReadonlyArray<ChangeRequestComment>;
+  readonly commentsTruncated: boolean;
+  readonly reviewThreads: ReadonlyArray<ChangeRequestReviewThread>;
+  readonly reviewThreadsTruncated: boolean;
+}
+
+export interface SourceControlProviderConversationCapability {
+  readonly capabilities: {
+    readonly conversation: true;
+  };
+  readonly getChangeRequestConversation: (
+    input: ChangeRequestOperationInput,
+  ) => Effect.Effect<ProviderChangeRequestConversation, SourceControlProviderError>;
+  readonly addChangeRequestComment: (
+    input: ChangeRequestOperationInput & { readonly body: string },
+  ) => Effect.Effect<void, SourceControlProviderError>;
+  readonly replyToChangeRequestThread: (
+    input: ChangeRequestOperationInput & { readonly threadId: string; readonly body: string },
+  ) => Effect.Effect<void, SourceControlProviderError>;
+  readonly setChangeRequestThreadResolved: (
+    input: ChangeRequestOperationInput & { readonly threadId: string; readonly resolved: boolean },
+  ) => Effect.Effect<void, SourceControlProviderError>;
+}
+
+export interface SourceControlProviderCommitsCapability {
+  readonly capabilities: {
+    readonly commits: true;
+  };
+  readonly listChangeRequestCommits: (input: ChangeRequestOperationInput) => Effect.Effect<
+    {
+      readonly number: number;
+      readonly headOid: string | null;
+      readonly commits: ReadonlyArray<GitChangeRequestCommit>;
+      readonly truncated: boolean;
+    },
+    SourceControlProviderError
+  >;
+}
+
+export interface SourceControlProviderChangeRequestListCapability {
+  readonly capabilities: {
+    readonly changeRequestList: true;
+  };
+  readonly listRepositoryChangeRequests: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly limit?: number;
+  }) => Effect.Effect<
+    {
+      readonly changeRequests: ReadonlyArray<GitRepositoryChangeRequestSummary>;
+      readonly truncated: boolean;
+    },
+    SourceControlProviderError
+  >;
+}
+
+export interface SourceControlProviderBranchDeleteCapability {
+  readonly capabilities: {
+    readonly branchDelete: true;
+  };
+  readonly deleteChangeRequestRemoteBranch: (
+    input: ChangeRequestOperationInput,
+  ) => Effect.Effect<
+    { readonly branch: string; readonly remote: "deleted" | "already_missing" },
+    SourceControlProviderError
+  >;
 }
 
 export interface SourceControlProviderMergeCapability {
@@ -167,6 +250,10 @@ export class SourceControlProvider extends Context.Service<
       readonly merge?: boolean;
       readonly autoMerge?: boolean;
       readonly changeRequestState?: boolean;
+      readonly conversation?: boolean;
+      readonly commits?: boolean;
+      readonly changeRequestList?: boolean;
+      readonly branchDelete?: boolean;
     };
     readonly listChecks?: SourceControlProviderChecksCapability["listChecks"];
     readonly listCheckDetails?: SourceControlProviderCheckDetailsCapability["listCheckDetails"];
@@ -174,6 +261,13 @@ export class SourceControlProvider extends Context.Service<
     readonly mergeChangeRequest?: SourceControlProviderMergeCapability["mergeChangeRequest"];
     readonly setAutoMerge?: SourceControlProviderAutoMergeCapability["setAutoMerge"];
     readonly updateChangeRequestState?: SourceControlProviderChangeRequestStateCapability["updateChangeRequestState"];
+    readonly getChangeRequestConversation?: SourceControlProviderConversationCapability["getChangeRequestConversation"];
+    readonly addChangeRequestComment?: SourceControlProviderConversationCapability["addChangeRequestComment"];
+    readonly replyToChangeRequestThread?: SourceControlProviderConversationCapability["replyToChangeRequestThread"];
+    readonly setChangeRequestThreadResolved?: SourceControlProviderConversationCapability["setChangeRequestThreadResolved"];
+    readonly listChangeRequestCommits?: SourceControlProviderCommitsCapability["listChangeRequestCommits"];
+    readonly listRepositoryChangeRequests?: SourceControlProviderChangeRequestListCapability["listRepositoryChangeRequests"];
+    readonly deleteChangeRequestRemoteBranch?: SourceControlProviderBranchDeleteCapability["deleteChangeRequestRemoteBranch"];
     readonly listChangeRequests: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
@@ -255,5 +349,41 @@ export function supportsChangeRequestStateUpdate(
   return (
     provider.capabilities?.changeRequestState === true &&
     provider.updateChangeRequestState !== undefined
+  );
+}
+
+export function supportsChangeRequestConversation(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderConversationCapability {
+  return (
+    provider.capabilities?.conversation === true &&
+    provider.getChangeRequestConversation !== undefined &&
+    provider.addChangeRequestComment !== undefined &&
+    provider.replyToChangeRequestThread !== undefined &&
+    provider.setChangeRequestThreadResolved !== undefined
+  );
+}
+
+export function supportsChangeRequestCommits(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderCommitsCapability {
+  return provider.capabilities?.commits === true && provider.listChangeRequestCommits !== undefined;
+}
+
+export function supportsRepositoryChangeRequestList(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderChangeRequestListCapability {
+  return (
+    provider.capabilities?.changeRequestList === true &&
+    provider.listRepositoryChangeRequests !== undefined
+  );
+}
+
+export function supportsChangeRequestBranchDelete(
+  provider: SourceControlProvider["Service"],
+): provider is SourceControlProvider["Service"] & SourceControlProviderBranchDeleteCapability {
+  return (
+    provider.capabilities?.branchDelete === true &&
+    provider.deleteChangeRequestRemoteBranch !== undefined
   );
 }

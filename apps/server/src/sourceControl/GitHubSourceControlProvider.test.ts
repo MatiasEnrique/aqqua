@@ -100,6 +100,10 @@ it.effect(
         merge: true,
         autoMerge: true,
         changeRequestState: true,
+        conversation: true,
+        commits: true,
+        changeRequestList: true,
+        branchDelete: true,
       });
       assert.deepStrictEqual(checksInput, { cwd: "/repo", changeRequestNumber: 42 });
       assert.strictEqual(status, "failure");
@@ -109,12 +113,59 @@ it.effect(
     }),
 );
 
+it.effect("lists repository change requests through the GitHub capability", () =>
+  Effect.gen(function* () {
+    let listInput:
+      | Parameters<GitHubCli.GitHubCli["Service"]["listRepositoryPullRequests"]>[0]
+      | null = null;
+    const provider = yield* makeProvider({
+      listRepositoryPullRequests: (input) => {
+        listInput = input;
+        return Effect.succeed({
+          changeRequests: [
+            {
+              number: 42,
+              title: "Repository pull request",
+              url: "https://github.com/acme/repo/pull/42",
+              baseRefName: "main",
+              headRefName: "feature/list",
+              state: "open",
+            },
+          ],
+          truncated: false,
+        });
+      },
+    });
+
+    const result = yield* provider.listRepositoryChangeRequests!({
+      cwd: "/repo",
+      limit: 12,
+    });
+
+    assert.deepStrictEqual(listInput, { cwd: "/repo", limit: 12 });
+    assert.deepStrictEqual(result, {
+      changeRequests: [
+        {
+          number: 42,
+          title: "Repository pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/list",
+          state: "open",
+        },
+      ],
+      truncated: false,
+    });
+  }),
+);
+
 it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
   Effect.gen(function* () {
     const calls: Array<string> = [];
     const provider = yield* makeProvider({
       getMergeOptions: () =>
         Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "squash" }),
+      getPullRequestAutoMergeState: () => Effect.succeed(true),
       mergePullRequest: (input) => {
         calls.push(`merge:${input.reference}:${input.method}`);
         return Effect.void;
@@ -156,12 +207,103 @@ it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
       merge: true,
       autoMerge: true,
       changeRequestState: true,
+      conversation: true,
+      commits: true,
+      changeRequestList: true,
+      branchDelete: true,
     });
     assert.deepStrictEqual(options, {
       methods: ["merge", "squash"],
       defaultMethod: "squash",
+      autoMergeEnabled: true,
     });
     assert.deepStrictEqual(calls, ["merge:42:squash", "auto:42:true", "state:42:closed"]);
+  }),
+);
+
+it.effect("keeps merge options when the auto-merge state probe fails", () =>
+  Effect.gen(function* () {
+    const provider = yield* makeProvider({
+      getMergeOptions: () =>
+        Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "squash" }),
+      getPullRequestAutoMergeState: () =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: "/repo",
+            cause: new Error("probe failed"),
+          }),
+        ),
+    });
+
+    assert.deepStrictEqual(
+      yield* provider.getChangeRequestMergeOptions!({ cwd: "/repo", reference: "42" }),
+      {
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+        autoMergeEnabled: null,
+      },
+    );
+  }),
+);
+
+it.effect("refuses to delete the head branch of an open pull request", () =>
+  Effect.gen(function* () {
+    let deleteCalled = false;
+    const provider = yield* makeProvider({
+      getPullRequest: () =>
+        Effect.succeed({
+          number: 42,
+          title: "Open pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/open",
+          state: "open",
+          isCrossRepository: false,
+        }),
+      deleteRemoteBranch: () => {
+        deleteCalled = true;
+        return Effect.succeed("deleted");
+      },
+    });
+
+    const error = yield* provider.deleteChangeRequestRemoteBranch!({
+      cwd: "/repo",
+      reference: "#42",
+    }).pipe(Effect.flip);
+
+    assert.match(error.detail, /Only merged or closed pull requests/u);
+    assert.strictEqual(deleteCalled, false);
+  }),
+);
+
+it.effect("refuses to delete a pull request head branch that lives on a fork", () =>
+  Effect.gen(function* () {
+    let deleteCalled = false;
+    const provider = yield* makeProvider({
+      getPullRequest: () =>
+        Effect.succeed({
+          number: 42,
+          title: "Fork pull request",
+          url: "https://github.com/acme/repo/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/fork",
+          state: "merged",
+          isCrossRepository: true,
+        }),
+      deleteRemoteBranch: () => {
+        deleteCalled = true;
+        return Effect.succeed("deleted");
+      },
+    });
+
+    const error = yield* provider.deleteChangeRequestRemoteBranch!({
+      cwd: "/repo",
+      reference: "#42",
+    }).pipe(Effect.flip);
+
+    assert.match(error.detail, /head branch lives on a fork/u);
+    assert.strictEqual(deleteCalled, false);
   }),
 );
 
