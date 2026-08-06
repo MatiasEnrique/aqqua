@@ -37,7 +37,7 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudInstallRelayClient)).toBe(AuthRelayWriteScope);
   });
 
-  it("requires operate access for change-request merge options", () => {
+  it("requires read access for change-request reads and operate access for mutations", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.gitGetChangeRequestChecks)).toBe(
       AuthOrchestrationReadScope,
     );
