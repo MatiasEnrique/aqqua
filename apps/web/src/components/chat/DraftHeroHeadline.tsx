@@ -146,7 +146,7 @@ export function DraftHeroHeadline({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-      <span className="font-medium font-mono text-[0.6875rem] text-muted-foreground uppercase leading-4 tracking-[0.16em]">
+      <span className="font-medium text-[0.6875rem] text-muted-foreground leading-4">
         {activeProjectDisplayName ?? "Aqqua"} · new thread
       </span>
       <h1 className="font-semibold text-3xl text-foreground leading-tight tracking-[-0.035em] sm:text-4xl">

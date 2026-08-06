@@ -167,7 +167,7 @@ export function ConnectCliCallbackSurface() {
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
             One-time authorization code
           </span>
-          <span className="font-mono text-[10px] text-muted-foreground">expires shortly</span>
+          <span className="text-[10px] text-muted-foreground">expires shortly</span>
         </div>
         <code
           className="block p-4 font-mono text-sm leading-relaxed break-all select-all"

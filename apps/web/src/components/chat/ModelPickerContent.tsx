@@ -5,6 +5,7 @@ import {
 } from "@aqqua/contracts";
 import { resolveSelectableModel } from "@aqqua/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { SearchIcon } from "lucide-react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
@@ -581,14 +582,15 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               <div className="min-w-0 flex-1">
                 <ComboboxInput
                   ref={searchInputRef}
-                  className="[&_input]:h-8.5 [&_input]:font-mono [&_input]:leading-8.5"
-                  inputClassName="rounded-none bg-transparent text-xs lowercase"
-                  placeholder="search models"
+                  className="[&_input]:h-8.5 [&_input]:leading-8.5"
+                  inputClassName="rounded-none bg-transparent text-xs"
+                  placeholder="Search models"
                   showTrigger={false}
                   startAddon={
-                    <span aria-hidden="true" className="shrink-0 font-mono text-primary text-xs">
-                      &rsaquo;
-                    </span>
+                    <SearchIcon
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                    />
                   }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -619,7 +621,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   unstyled
                 />
               </div>
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+              <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
                 {filteredModels.length} of {flatModels.length}
               </span>
             </div>

@@ -187,9 +187,7 @@ function BoardEditorForm({
             {board === null ? "New flow" : "Edit flow"}
           </DialogTitle>
         </div>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-          esc to close
-        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/70">esc to close</span>
       </div>
 
       <div className="px-4 pt-2 pb-3">
@@ -240,7 +238,7 @@ function BoardEditorForm({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
-          <span className="font-mono text-[10px] text-muted-foreground/70">
+          <span className="text-[10px] text-muted-foreground/70">
             {isMac ? "⌘⇧⏎" : "Ctrl+Shift+⏎"} to {board === null ? "create" : "save"}
           </span>
           <Button
@@ -312,7 +310,7 @@ function StepListSection({
         <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-[0.05em]">
           Steps
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground/70">
+        <span className="text-[10px] text-muted-foreground/70">
           {isMac ? "⌥" : "Alt+"}↑↓ reorder
         </span>
       </div>
@@ -386,9 +384,7 @@ function StepListSection({
           <PlusIcon aria-hidden className="size-2.5 text-muted-foreground" />
         </span>
         <span className="font-medium text-[13px] text-muted-foreground">Add step</span>
-        <span className="font-mono text-[10px] text-muted-foreground/70">
-          {isMac ? "⌘⏎" : "Ctrl+⏎"}
-        </span>
+        <span className="text-[10px] text-muted-foreground/70">{isMac ? "⌘⏎" : "Ctrl+⏎"}</span>
       </button>
     </div>
   );
@@ -404,7 +400,7 @@ function StepNumber({
   return (
     <span
       className={cn(
-        "mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full font-mono text-[9px]",
+        "mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full text-[9px]",
         variant === "active"
           ? "bg-primary font-semibold text-primary-foreground"
           : variant === "error"

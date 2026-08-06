@@ -387,7 +387,7 @@ function ProjectBoardSection({
                         reserveWidth
                         resting={
                           <span className="inline-flex items-center gap-2">
-                            <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                            <span className="text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
                               <RelativeCardAge at={card.completedAt} />
                             </span>
                             <FlowCardStateBadge card={card} />
@@ -473,7 +473,7 @@ function ProjectBoardSection({
                           reserveWidth
                           resting={
                             <span className="inline-flex items-center gap-2">
-                              <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                              <span className="text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
                                 <RelativeCardAge at={card.settledAt} />
                               </span>
                               <FlowCardStateBadge card={card} />
@@ -503,9 +503,7 @@ function ProjectBoardSection({
                                 disabled={busy}
                                 tone="destructive"
                                 shape="inline"
-                                onClick={() =>
-                                  setPendingDelete({ id: card.id, title: card.title })
-                                }
+                                onClick={() => setPendingDelete({ id: card.id, title: card.title })}
                               />
                             </>
                           }

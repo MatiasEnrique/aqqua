@@ -58,7 +58,7 @@ export function ConversationPrBadge(props: {
       type="button"
       onClick={props.row.handlePrClick}
       className={cn(
-        "shrink-0 font-mono text-xs hover:underline",
+        "shrink-0 text-xs tabular-nums hover:underline",
         props.settled === true
           ? props.isActive === true
             ? "text-muted-foreground/70"

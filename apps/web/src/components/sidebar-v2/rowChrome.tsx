@@ -12,7 +12,7 @@ export function JumpHintBadge(props: { label: string }) {
   return (
     <span
       aria-hidden
-      className="pointer-events-none absolute right-1.5 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center rounded-sm border border-border/80 bg-background/95 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+      className="pointer-events-none absolute right-1.5 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center rounded-sm border border-border/80 bg-background/95 px-1.5 text-[10px] font-medium text-foreground shadow-sm"
     >
       {props.label}
     </span>
@@ -148,7 +148,7 @@ export function SnoozePopoverButton(props: {
             className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
           >
             <span className="flex-1">{preset.label}</span>
-            <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+            <span className="text-[10px] text-muted-foreground/60 tabular-nums">
               {preset.whenLabel}
             </span>
           </button>

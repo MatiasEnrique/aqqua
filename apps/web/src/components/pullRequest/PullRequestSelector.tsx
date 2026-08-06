@@ -30,7 +30,7 @@ function PullRequestItem(props: {
       className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
       onClick={props.onSelect}
     >
-      <span className="shrink-0 font-mono text-xs">#{props.pr.number}</span>
+      <span className="shrink-0 text-xs tabular-nums">#{props.pr.number}</span>
       <span className="min-w-0 flex-1 truncate">{props.pr.title}</span>
       {props.hint ? (
         <span className="shrink-0 text-xs text-muted-foreground">{props.hint}</span>
