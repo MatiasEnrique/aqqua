@@ -38,6 +38,8 @@ export interface SidebarWorktreeGroup {
    * holds no conversation to report on.
    */
   readonly summaryState: SidebarWorktreeSummaryState | null;
+  /** Pull request that most recently merged this worktree, when known. */
+  readonly mergedChangeRequestNumber: number | null;
   readonly updatedAt: number;
   readonly drafts: readonly WorktreeDraftRow[];
   readonly active: readonly EnvironmentThreadShell[];
@@ -288,6 +290,8 @@ export function buildSidebarWorktreeGroups(input: {
       active: EnvironmentThreadShell[];
       snoozed: EnvironmentThreadShell[];
       settledCount: number;
+      mergedChangeRequestNumber: number | null;
+      mergedChangeRequestUpdatedAt: number;
     }
   >();
 
@@ -324,6 +328,8 @@ export function buildSidebarWorktreeGroups(input: {
     active: [],
     snoozed: [],
     settledCount: 0,
+    mergedChangeRequestNumber: null,
+    mergedChangeRequestUpdatedAt: 0,
   });
 
   const addThread = (thread: EnvironmentThreadShell, bucket: "active" | "snoozed" | "settled") => {
@@ -346,6 +352,13 @@ export function buildSidebarWorktreeGroups(input: {
       current[bucket].push(thread);
     }
     const nextUpdatedAt = timestamp(thread.updatedAt);
+    if (
+      thread.settledChangeRequestNumber !== undefined &&
+      nextUpdatedAt >= current.mergedChangeRequestUpdatedAt
+    ) {
+      current.mergedChangeRequestNumber = thread.settledChangeRequestNumber;
+      current.mergedChangeRequestUpdatedAt = nextUpdatedAt;
+    }
     if (nextUpdatedAt >= current.updatedAt) {
       current.updatedAt = nextUpdatedAt;
       current.label = thread.branch ?? basename(workspaceRoot);
@@ -448,6 +461,7 @@ export function buildSidebarWorktreeGroups(input: {
           conversations: unsettled,
           settledCount: group.settledCount,
         }),
+        mergedChangeRequestNumber: group.mergedChangeRequestNumber,
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:

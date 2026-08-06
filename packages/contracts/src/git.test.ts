@@ -225,15 +225,15 @@ describe("Git history contracts", () => {
 });
 
 describe("VcsDeleteWorktreeResult", () => {
-  it("decodes a completed server-owned deletion", () => {
+  it("decodes archived conversation roots from worktree deletion", () => {
     const parsed = decodeDeleteWorktreeResult({
       status: "completed",
-      deletedThreadIds: ["thread-1", "thread-2"],
+      archivedThreadIds: ["thread-1", "thread-2"],
       worktreeRemoval: "removed",
     });
     expect(parsed).toEqual({
       status: "completed",
-      deletedThreadIds: ["thread-1", "thread-2"],
+      archivedThreadIds: ["thread-1", "thread-2"],
       worktreeRemoval: "removed",
     });
   });
@@ -242,7 +242,7 @@ describe("VcsDeleteWorktreeResult", () => {
     const parsed = decodeDeleteWorktreeResult({
       status: "partial",
       stage: "worktree",
-      deletedThreadIds: ["thread-1"],
+      archivedThreadIds: ["thread-1"],
       retryable: true,
       detail: "git worktree remove failed",
       worktreeRemoval: "failed",
@@ -259,9 +259,9 @@ describe("VcsDeleteWorktreeResult", () => {
     const parsed = decodeDeleteWorktreeResult({
       status: "partial",
       stage: "conversation",
-      deletedThreadIds: ["thread-1"],
+      archivedThreadIds: ["thread-1"],
       retryable: true,
-      detail: "straggler delete rejected",
+      detail: "straggler archive rejected",
       worktreeRemoval: "removed",
     });
     expect(parsed).toMatchObject({
@@ -291,7 +291,7 @@ describe("VcsDeleteWorktreeResult", () => {
     expect(
       decodeDeleteWorktreeResult({
         status: "completed",
-        deletedThreadIds: ["thread-1"],
+        archivedThreadIds: ["thread-1"],
         worktreeRemoval: "already_missing",
         preservedUnverifiedPath: true,
         branchRemoval: "unavailable",
@@ -306,7 +306,7 @@ describe("VcsDeleteWorktreeResult", () => {
       decodeDeleteWorktreeResult({
         status: "partial",
         stage: "branch",
-        deletedThreadIds: ["thread-1"],
+        archivedThreadIds: ["thread-1"],
         retryable: false,
         detail: "branch changed",
         worktreeRemoval: "removed",

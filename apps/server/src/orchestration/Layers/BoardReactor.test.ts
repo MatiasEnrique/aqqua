@@ -1330,7 +1330,7 @@ describe("BoardReactor", () => {
             }
             expect(NodeFS.existsSync(artifactDir)).toBe(false);
             expect(removeWorktree).toHaveBeenCalledTimes(
-              cleanupStage === "cleanup-started" || cleanupStage === "conversations-deleted"
+              cleanupStage === "cleanup-started" || cleanupStage === "conversations-archived"
                 ? 1
                 : 0,
             );
@@ -1338,7 +1338,7 @@ describe("BoardReactor", () => {
               Effect.map((chunk) => Array.from(chunk)),
               Effect.orDie,
             );
-            expect(events.filter((event) => event.type === "thread.deleted")).toHaveLength(
+            expect(events.filter((event) => event.type === "thread.archived")).toHaveLength(
               cleanupStage === "cleanup-started" ? 1 : 0,
             );
           }).pipe(Effect.provide(makeProcessLayer()), Effect.orDie),
@@ -1922,15 +1922,10 @@ describe("BoardReactor", () => {
 
         const eventsAfterFinalize = yield* harness.readEvents;
         expect(
-          eventsAfterFinalize.some(
-            (event) => event.type === "thread.archived" && event.aggregateId === firstThreadId,
-          ),
-        ).toBe(true);
-        expect(
-          eventsAfterFinalize.some(
-            (event) => event.type === "thread.archived" && event.aggregateId === subAgentThreadId,
-          ),
-        ).toBe(true);
+          eventsAfterFinalize
+            .filter((event) => event.type === "thread.archived")
+            .map((event) => event.aggregateId),
+        ).toEqual(expect.arrayContaining([firstThreadId, subAgentThreadId]));
 
         yield* harness.dispatch({
           type: "card.release",
@@ -3395,7 +3390,7 @@ describe("BoardReactor", () => {
             kind: "deleting",
             operationId: "cmd-archive-worktree-failure",
             purpose: "archive",
-            cleanupStage: "conversations-deleted",
+            cleanupStage: "conversations-archived",
           },
         });
         expect(card.lastError).toMatch(/Archive failed/i);
@@ -3491,7 +3486,7 @@ describe("BoardReactor", () => {
 
   for (const cleanupStage of [
     "cleanup-started",
-    "conversations-deleted",
+    "conversations-archived",
     "worktree-removed",
     "artifacts-removed",
   ] as const satisfies ReadonlyArray<CardCleanupStage>) {
@@ -3599,15 +3594,15 @@ describe("BoardReactor", () => {
 
         const model = yield* harness.readModel;
         expect(model.cards.find((entry) => entry.id === harness.cardId)).toBeUndefined();
-        for (const deletedThreadId of [
+        for (const archivedThreadId of [
           stepThreadId,
           childThreadId,
           grandchildThreadId,
           siblingRootThreadId,
         ]) {
-          expect(
-            model.threads.find((thread) => thread.id === deletedThreadId)?.deletedAt,
-          ).not.toBeNull();
+          const archivedThread = model.threads.find((thread) => thread.id === archivedThreadId);
+          expect(archivedThread?.archivedAt).not.toBeNull();
+          expect(archivedThread?.deletedAt).toBeNull();
         }
         expect(
           model.threads.find((thread) => thread.id === unrelatedThreadId)?.deletedAt,
@@ -3646,7 +3641,7 @@ describe("BoardReactor", () => {
         expect(card?.operation).toMatchObject({
           kind: "deleting",
           operationId: "cmd-delete-retry-first",
-          cleanupStage: "conversations-deleted",
+          cleanupStage: "conversations-archived",
         });
         expect(card?.status).toBe("cancelled");
         expect(card?.lastError).toMatch(/Delete failed/i);

@@ -2436,10 +2436,10 @@ const makeWsRpcLayer = (
                           : "Failed to load worktree conversation membership.",
                     })),
                   ),
-                dispatchThreadDelete: ({ commandId, threadId }) =>
+                dispatchThreadArchive: ({ commandId, threadId }) =>
                   orchestrationEngine
                     .dispatch({
-                      type: "thread.delete",
+                      type: "thread.archive",
                       commandId,
                       threadId,
                     })

@@ -418,7 +418,7 @@ it.effect("keeps archive cleanup visible until the final archived receipt", () =
 
     for (const [sequence, stage] of [
       [3, "cleanup-started"],
-      [4, "conversations-deleted"],
+      [4, "conversations-archived"],
       [5, "worktree-removed"],
     ] as const) {
       model = yield* projectEvent(

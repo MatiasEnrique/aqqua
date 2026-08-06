@@ -20,7 +20,7 @@ import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 import {
   listActiveThreadsForWorktreePath,
-  selectTopLevelThreadsForBatchDelete,
+  selectTopLevelThreadsForBatchAction,
 } from "./threadDeletion.ts";
 
 const asCommandId = (value: string): CommandId => CommandId.make(value);
@@ -342,6 +342,28 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
     }),
   );
 
+  it.effect("archiving a thread cascades to its sub-agent threads, deepest first", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: asCommandId("cmd-thread-archive-parent"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.archived", aggregateId: asThreadId("thread-grandchild") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-child") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-parent") },
+        ],
+      );
+    }),
+  );
+
   it.effect("rejects deleting a flow step thread or its descendant", () =>
     Effect.gen(function* () {
       const readModel = yield* seedHierarchyReadModel;
@@ -547,7 +569,7 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
         [asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort(),
       );
       expect(
-        selectTopLevelThreadsForBatchDelete(members)
+        selectTopLevelThreadsForBatchAction(members)
           .map((thread) => thread.id)
           .sort(),
       ).toEqual([asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort());

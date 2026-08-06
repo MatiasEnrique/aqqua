@@ -224,8 +224,8 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
                       : "Failed to load worktree conversation membership.",
                 })),
               ),
-            dispatchThreadDelete: ({ commandId, threadId }) =>
-              orchestrationEngine.dispatch({ type: "thread.delete", commandId, threadId }).pipe(
+            dispatchThreadArchive: ({ commandId, threadId }) =>
+              orchestrationEngine.dispatch({ type: "thread.archive", commandId, threadId }).pipe(
                 Effect.asVoid,
                 Effect.mapError((error) => ({
                   message: error instanceof Error ? error.message : String(error),
@@ -257,7 +257,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
             cleanupStage === "cleanup-started"
           ) {
             if (cleanupOperation !== null) {
-              yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+              yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-archived");
             }
           }
           const detail =
@@ -269,7 +269,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
         }
         if (cleanupStage === "cleanup-started") {
           if (cleanupOperation !== null) {
-            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-archived");
           }
         }
         if (cleanupOperation !== null) {
@@ -282,7 +282,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
       ) {
         if (cleanupStage === "cleanup-started") {
           if (cleanupOperation !== null) {
-            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-deleted");
+            yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-archived");
           }
         }
         if (cleanupOperation !== null) {

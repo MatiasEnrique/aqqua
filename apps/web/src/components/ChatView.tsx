@@ -182,6 +182,7 @@ import { useConversationTabs } from "./chat/useConversationTabs";
 import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import {
@@ -1293,6 +1294,7 @@ function ChatViewContent(props: ChatViewProps) {
   // the two surfaces turn on together or not at all.
   const worktreeViewEnabled = useSidebarV2Enabled();
   const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
+  const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const worktreeTabsHeader =
     resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
@@ -1300,6 +1302,25 @@ function ChatViewContent(props: ChatViewProps) {
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
+  const { archiveThread } = useThreadActions();
+  const archiveConversationTab = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const result = await archiveThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to archive conversation",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [archiveThread],
+  );
   const newConversationTabLabel = headerWorktreeGroup
     ? `New conversation in ${headerWorktreeGroup.label}`
     : "New conversation";
@@ -6327,6 +6348,8 @@ function ChatViewContent(props: ChatViewProps) {
             onSelectThread={navigateToThreadRef}
             onSelectDraft={navigateToDraftId}
             onCloseTab={closeConversationTab}
+            onArchiveThread={archiveConversationTab}
+            confirmArchive={confirmThreadArchive}
             onNewThread={handleNewThreadInActiveWorktree}
             newThreadLabel={newConversationTabLabel}
           />

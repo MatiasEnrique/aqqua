@@ -1,6 +1,6 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
-import { memo, useEffect, useRef } from "react";
+import { ArchiveIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import {
@@ -27,6 +27,8 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
   readonly onCloseTab: (tabKey: string) => void;
+  readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
+  readonly confirmArchive: boolean;
   readonly onNewThread: () => void;
   readonly newThreadLabel: string;
 }) {
@@ -64,6 +66,10 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
                   : props.onSelectDraft(tab.draftId)
               }
               onClose={() => props.onCloseTab(tab.key)}
+              onArchive={
+                tab._tag === "thread" ? () => props.onArchiveThread(tab.threadRef) : undefined
+              }
+              confirmArchive={props.confirmArchive}
             />
           ))}
           <li className="shrink-0">
@@ -100,8 +106,16 @@ function ConversationTabShell(props: {
   readonly tab: ConversationTab;
   readonly onSelect: () => void;
   readonly onClose: () => void;
+  readonly onArchive?: (() => void) | undefined;
+  readonly confirmArchive: boolean;
 }) {
   const { tab } = props;
+  const [isConfirmingArchive, setIsConfirmingArchive] = useState(false);
+  const confirmArchiveRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (isConfirmingArchive) confirmArchiveRef.current?.focus();
+  }, [isConfirmingArchive]);
 
   return (
     <li className="shrink-0">
@@ -135,6 +149,43 @@ function ConversationTabShell(props: {
           )}
           <span className="max-w-44 truncate">{tab.title}</span>
         </button>
+        {props.onArchive === undefined ? null : isConfirmingArchive ? (
+          <button
+            ref={confirmArchiveRef}
+            type="button"
+            aria-label={`Confirm archive ${tab.title}`}
+            onBlur={() => setIsConfirmingArchive(false)}
+            onClick={() => {
+              setIsConfirmingArchive(false);
+              props.onArchive?.();
+            }}
+            className="inline-flex h-5 shrink-0 cursor-pointer items-center rounded-sm bg-destructive/12 px-1.5 text-[10px] font-medium text-destructive outline-none transition-colors hover:bg-destructive/18 focus-visible:ring-2 focus-visible:ring-destructive/40"
+          >
+            Confirm
+          </button>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Archive ${tab.title}`}
+                  onClick={() => {
+                    if (props.confirmArchive) {
+                      setIsConfirmingArchive(true);
+                    } else {
+                      props.onArchive?.();
+                    }
+                  }}
+                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              }
+            >
+              <ArchiveIcon aria-hidden className="size-3" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Archive conversation</TooltipPopup>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

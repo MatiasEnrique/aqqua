@@ -41,10 +41,10 @@ export function listActiveThreadsForWorktreePath<T extends WorktreeMemberThread>
 }
 
 /**
- * Same root selection as project.delete / thread hierarchy cascade: only roots
- * whose parent is not itself in the batch, so `thread.delete` owns descendants.
+ * Select only roots whose parent is not itself in the batch, so one cascading
+ * command can own each family without dispatching a duplicate child command.
  */
-export function selectTopLevelThreadsForBatchDelete<
+export function selectTopLevelThreadsForBatchAction<
   T extends { readonly id: ThreadId; readonly parentThreadId?: ThreadId | null | undefined },
 >(threads: ReadonlyArray<T>): T[] {
   const activeThreadIds = new Set(threads.map((thread) => thread.id));

@@ -24,6 +24,7 @@ import {
   listActiveDescendantDeletionRoots,
   listThreadsByParentThreadId,
   listThreadsByProjectId,
+  listUnarchivedDescendantArchiveRoots,
   listUnarchivedCardsOwningThread,
   requireActiveProjectWorkspaceRootAbsent,
   requireBoard,
@@ -41,7 +42,7 @@ import {
 } from "./commandInvariants.ts";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { projectEvent } from "./projector.ts";
-import { selectTopLevelThreadsForBatchDelete } from "./threadDeletion.ts";
+import { selectTopLevelThreadsForBatchAction } from "./threadDeletion.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -154,7 +155,7 @@ const CLEANUP_STAGES = {
   deleting: [
     "pending",
     "cleanup-started",
-    "conversations-deleted",
+    "conversations-archived",
     "worktree-removed",
     "artifacts-removed",
   ],
@@ -362,7 +363,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         // thread.delete cascades to sub-agent threads, so only dispatch deletes
         // for roots whose parent is not itself in this batch — deleting a
         // child here too would emit a second thread.deleted for it.
-        const topLevelThreads = selectTopLevelThreadsForBatchDelete(activeThreads);
+        const topLevelThreads = selectTopLevelThreadsForBatchAction(activeThreads);
         return yield* decideCommandSequence({
           readModel,
           commands: [
@@ -495,6 +496,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const unarchivedDescendants = listUnarchivedDescendantArchiveRoots(
+        readModel,
+        command.threadId,
+      );
+      if (unarchivedDescendants.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...unarchivedDescendants.map(
+              (thread): Extract<OrchestrationCommand, { type: "thread.archive" }> => ({
+                type: "thread.archive",
+                commandId: command.commandId,
+                threadId: thread.id,
+              }),
+            ),
+            command,
+          ],
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({

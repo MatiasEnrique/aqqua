@@ -162,7 +162,7 @@ export const CardCleanupStage = Schema.Literals([
   "pending",
   "cleanup-started",
   "threads-archived",
-  "conversations-deleted",
+  "conversations-archived",
   "worktree-removed",
   "artifacts-removed",
 ]);

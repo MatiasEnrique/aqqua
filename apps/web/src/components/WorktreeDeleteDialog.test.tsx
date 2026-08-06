@@ -39,6 +39,9 @@ describe("WorktreeDeleteDialog", () => {
     expect(markup).toContain("Remote branches are never deleted");
     expect(markup).toContain("Merged");
     expect(markup).toContain("Clean");
+    expect(markup).toContain("1 live conversation will be archived");
+    expect(markup).toContain("1 already archived conversation will be preserved");
+    expect(markup).not.toContain("conversation metadata will be deleted");
     expect(markup).toContain('type="checkbox"');
   });
 
@@ -67,6 +70,7 @@ describe("WorktreeDeleteDialog", () => {
 
     expect(markup).toContain("no longer recognizes this path as a worktree");
     expect(markup).toContain("leave the directory untouched");
+    expect(markup).toContain("conversation metadata will be archived");
     expect(markup).not.toContain("Also delete local branch");
   });
 });

@@ -403,11 +403,8 @@ export function SidebarV2View(props: {
                         key={`worktree-card:${group.key}`}
                         group={group}
                         isSelected={activeWorktreeKey === group.key}
-                        serverConfigs={serverConfigs}
                         removingWorktreeKey={removingWorktreeKey}
-                        settlingWorktreeKey={settlingWorktreeKey}
                         onSelect={selectWorktree}
-                        onSettleWorktree={attemptSettleWorktree}
                         onDeleteWorktree={attemptDeleteWorktree}
                         onContextMenu={(event, target) => {
                           const location = resolveSidebarWorktreeConversationLocation(target);
@@ -438,6 +435,10 @@ export function SidebarV2View(props: {
                       const expanded = resolveProjectExpanded(projectExpandedById, [
                         project.projectKey,
                       ]);
+                      const projectState =
+                        repositoryGroups.find(
+                          (repository) => repository.project.projectKey === project.projectKey,
+                        )?.state ?? "idle";
                       return (
                         <WorktreeProjectFolder
                           key={`worktree-folder:${cardGroup.key}`}
@@ -446,11 +447,7 @@ export function SidebarV2View(props: {
                           workspaceRoot={project.workspaceRoot}
                           projectKey={project.projectKey}
                           worktreeCount={cardGroup.worktrees.length}
-                          state={
-                            repositoryGroups.find(
-                              (repository) => repository.project.projectKey === project.projectKey,
-                            )?.state ?? "idle"
-                          }
+                          state={projectState === "settled" ? "idle" : projectState}
                           expanded={expanded}
                           onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
                           onContextMenu={(event) =>

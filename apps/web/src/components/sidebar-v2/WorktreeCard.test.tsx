@@ -22,6 +22,7 @@ const group = (overrides: Partial<SidebarWorktreeGroup> = {}): SidebarWorktreeGr
     isProjectCheckout: false,
     stateCounts: { working: 2, needsInput: 1, done: 3, stale: 0, settled: 4 },
     summaryState: "needsInput",
+    mergedChangeRequestNumber: null,
     updatedAt: 0,
     drafts: [],
     active: [],
@@ -37,11 +38,8 @@ const render = (worktree: SidebarWorktreeGroup, isSelected = false) =>
     <WorktreeCard
       group={worktree}
       isSelected={isSelected}
-      serverConfigs={new Map()}
       removingWorktreeKey={null}
-      settlingWorktreeKey={null}
       onSelect={() => {}}
-      onSettleWorktree={() => {}}
       onDeleteWorktree={() => {}}
       onContextMenu={() => {}}
     />,
@@ -100,5 +98,29 @@ describe("WorktreeCard", () => {
 
   it("shows no state at all for a worktree with nothing to report", () => {
     expect(render(group({ summaryState: null }))).not.toContain("Worktree status:");
+  });
+
+  it("removes settlement actions and the settled status from worktree cards", () => {
+    const markup = render(group({ summaryState: "settled" }));
+
+    expect(markup).not.toContain("Settle all");
+    expect(markup).not.toContain("Worktree status: Settled");
+  });
+
+  it("shows an inline grey delete control that turns red on hover", () => {
+    const markup = render(group());
+
+    expect(markup).toContain('aria-label="Delete worktree header-refactor"');
+    expect(markup).toContain("text-muted-foreground");
+    expect(markup).toContain("hover:text-destructive");
+    expect(markup).not.toContain("Worktree actions for");
+  });
+
+  it("shows the merged pull request number and icon in violet", () => {
+    const markup = render(group({ mergedChangeRequestNumber: 42, summaryState: "settled" }));
+
+    expect(markup).toContain('aria-label="Pull request #42 merged"');
+    expect(markup).toContain("text-violet-600");
+    expect(markup).toContain(">#42</span>");
   });
 });

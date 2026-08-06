@@ -91,6 +91,35 @@ export function listActiveDescendantDeletionRoots(
   return roots;
 }
 
+/**
+ * Nearest live descendants that need their own archive command.
+ *
+ * Archived/deleted legacy nodes are transparent: a still-live grandchild below
+ * one must not escape a parent-family archive.
+ */
+export function listUnarchivedDescendantArchiveRoots(
+  readModel: OrchestrationReadModel,
+  parentThreadId: ThreadId,
+): ReadonlyArray<OrchestrationThread> {
+  const roots: OrchestrationThread[] = [];
+  const visited = new Set<ThreadId>([parentThreadId]);
+
+  const visitChildren = (threadId: ThreadId): void => {
+    for (const child of listThreadsByParentThreadId(readModel, threadId)) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      if (child.deletedAt === null && child.archivedAt === null) {
+        roots.push(child);
+      } else {
+        visitChildren(child.id);
+      }
+    }
+  };
+
+  visitChildren(parentThreadId);
+  return roots;
+}
+
 export function listUnarchivedCardsOwningThread(
   readModel: OrchestrationReadModel,
   threadId: ThreadId,

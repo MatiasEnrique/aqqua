@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   listActiveThreadsForWorktreePath,
-  selectTopLevelThreadsForBatchDelete,
+  selectTopLevelThreadsForBatchAction,
   type WorktreeMemberThread,
 } from "./threadDeletion.ts";
 
@@ -53,14 +53,14 @@ describe("listActiveThreadsForWorktreePath", () => {
   });
 });
 
-describe("selectTopLevelThreadsForBatchDelete", () => {
-  it("keeps only roots so thread.delete owns the cascade", () => {
+describe("selectTopLevelThreadsForBatchAction", () => {
+  it("keeps only roots so one family command owns the cascade", () => {
     const parent = member({ id: "parent", worktreePath: "/wt" });
     const child = member({ id: "child", worktreePath: "/wt", parentThreadId: "parent" });
     const independent = member({ id: "independent", worktreePath: "/wt" });
 
     expect(
-      selectTopLevelThreadsForBatchDelete([parent, child, independent]).map((thread) => thread.id),
+      selectTopLevelThreadsForBatchAction([parent, child, independent]).map((thread) => thread.id),
     ).toEqual([asThreadId("parent"), asThreadId("independent")]);
   });
 });

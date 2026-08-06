@@ -1,10 +1,12 @@
-import type { EnvironmentId, ServerConfig } from "@aqqua/contracts";
-import { GitBranchIcon } from "lucide-react";
+import { GitBranchIcon, GitPullRequestIcon, Trash2Icon } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "~/lib/utils";
-import type { SidebarWorktreeGroup } from "../Sidebar.worktreeGroups";
+import {
+  resolveSidebarWorktreeDeleteAction,
+  type SidebarWorktreeGroup,
+} from "../Sidebar.worktreeGroups";
 import { SidebarWorktreeSummaryStateLabel } from "./SidebarStatusPresentations";
-import { WorktreeActionsPopover } from "./WorktreeActionsPopover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
  * One worktree as a single registry row — the whole unit of the worktree-cards
@@ -18,15 +20,21 @@ import { WorktreeActionsPopover } from "./WorktreeActionsPopover";
 export function WorktreeCard(props: {
   readonly group: SidebarWorktreeGroup;
   readonly isSelected: boolean;
-  readonly serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>;
   readonly removingWorktreeKey: string | null;
-  readonly settlingWorktreeKey: string | null;
   readonly onSelect: (group: SidebarWorktreeGroup) => void;
-  readonly onSettleWorktree: (group: SidebarWorktreeGroup) => void;
   readonly onDeleteWorktree: (group: SidebarWorktreeGroup) => void;
   readonly onContextMenu: (event: ReactMouseEvent, group: SidebarWorktreeGroup) => void;
 }) {
   const { group } = props;
+  const deleteAction = resolveSidebarWorktreeDeleteAction({
+    isProjectCheckout: group.isProjectCheckout,
+    worktreeCreated: group.workspaceRoot !== null && group.projectRoot !== null,
+    isRemoving: props.removingWorktreeKey !== null,
+    isSettling: false,
+  });
+  const showDeleteAction =
+    !group.isProjectCheckout && group.workspaceRoot !== null && group.projectRoot !== null;
+  const summaryState = group.summaryState === "settled" ? null : group.summaryState;
 
   return (
     // `data-thread-selection-safe`, not `data-thread-item`: the card is a
@@ -61,18 +69,42 @@ export function WorktreeCard(props: {
           <span className="hidden shrink-0 text-[10px] leading-3 text-sidebar-muted-foreground/70 @[19rem]/sidebar-conversations:inline">
             {group.isProjectCheckout ? "current checkout" : "worktree"}
           </span>
-          {group.summaryState === null ? null : (
-            <SidebarWorktreeSummaryStateLabel state={group.summaryState} className="ml-auto pl-2" />
+          {group.mergedChangeRequestNumber === null ? null : (
+            <span
+              aria-label={`Pull request #${group.mergedChangeRequestNumber} merged`}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 pl-2 text-[11px] font-semibold text-violet-600 tabular-nums dark:text-violet-300"
+            >
+              <GitPullRequestIcon aria-hidden className="size-3.5" />
+              <span>#{group.mergedChangeRequestNumber}</span>
+            </span>
+          )}
+          {summaryState === null ? null : (
+            <SidebarWorktreeSummaryStateLabel
+              state={summaryState}
+              className={group.mergedChangeRequestNumber === null ? "ml-auto pl-2" : "pl-1"}
+            />
           )}
         </button>
-        <WorktreeActionsPopover
-          group={group}
-          serverConfigs={props.serverConfigs}
-          removingWorktreeKey={props.removingWorktreeKey}
-          settlingWorktreeKey={props.settlingWorktreeKey}
-          onSettleWorktree={props.onSettleWorktree}
-          onDeleteWorktree={props.onDeleteWorktree}
-        />
+        {showDeleteAction ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Delete worktree ${group.label}`}
+                  disabled={!deleteAction.enabled}
+                  onClick={() => props.onDeleteWorktree(group)}
+                  className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/55"
+                />
+              }
+            >
+              <Trash2Icon aria-hidden className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="right">
+              {deleteAction.enabled ? "Delete worktree" : deleteAction.disabledReason}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
       </div>
     </li>
   );

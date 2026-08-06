@@ -44,13 +44,23 @@ export function WorktreeDeleteDialogView(props: {
     inspection.availability === "available" &&
     inspection.refName !== null &&
     inspection.headCommit !== null;
-  const conversationCopy = `${props.request.conversationCount} conversation${props.request.conversationCount === 1 ? "" : "s"} will be permanently deleted${props.request.archivedCount > 0 ? `, including ${props.request.archivedCount} archived` : ""}.`;
+  const liveConversationCount = Math.max(
+    0,
+    props.request.conversationCount - props.request.archivedCount,
+  );
+  const conversationCopy = `${liveConversationCount} live conversation${liveConversationCount === 1 ? "" : "s"} will be archived.${
+    props.request.archivedCount > 0
+      ? ` ${props.request.archivedCount} already archived conversation${props.request.archivedCount === 1 ? "" : "s"} will be preserved.`
+      : ""
+  }`;
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Delete worktree “{props.request.label}”?</DialogTitle>
-        <DialogDescription>{conversationCopy} This cannot be undone.</DialogDescription>
+        <DialogDescription>
+          {conversationCopy} Removing the worktree cannot be undone.
+        </DialogDescription>
       </DialogHeader>
       <DialogPanel className="space-y-4">
         <section className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
@@ -63,12 +73,12 @@ export function WorktreeDeleteDialogView(props: {
             </p>
           ) : inspection.availability === "missing" ? (
             <p className="text-xs text-muted-foreground">
-              The worktree no longer exists. aqqua will remove its stale conversations.
+              The worktree no longer exists. aqqua will archive its stale conversations.
             </p>
           ) : (
             <p className="text-xs text-warning-foreground">
               Git no longer recognizes this path as a worktree. aqqua will remove its stale
-              conversations and leave the directory untouched.
+              conversations from the sidebar, archive them, and leave the directory untouched.
             </p>
           )}
         </section>
@@ -93,7 +103,7 @@ export function WorktreeDeleteDialogView(props: {
 
         <p className="text-sm text-destructive">
           {inspection.availability !== "available"
-            ? "Only Aqqua conversation metadata will be deleted for this unavailable worktree."
+            ? "Only Aqqua conversation metadata will be archived for this unavailable worktree."
             : props.deleteBranch
               ? "The worktree and selected local branch are removed permanently."
               : "The worktree is removed permanently. The local branch is kept."}

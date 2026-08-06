@@ -46,7 +46,7 @@ const availableInspection = {
 };
 
 describe("deleteWorktreeOwned", () => {
-  it.effect("deletes live and archived membership roots before filesystem removal", () =>
+  it.effect("archives live membership roots and preserves archived history before removal", () =>
     Effect.gen(function* () {
       const coordination = yield* WorktreePathCoordination;
       const calls: string[] = [];
@@ -59,7 +59,7 @@ describe("deleteWorktreeOwned", () => {
         }),
         member({ id: "child", worktreePath: "/tmp/wt", parentThreadId: "live" }),
       ];
-      const deleted = yield* Ref.make(new Set<string>());
+      const archived = yield* Ref.make(new Set<string>());
 
       const result = yield* deleteWorktreeOwned(
         { cwd: "/tmp/repo", path: "/tmp/wt", force: true },
@@ -76,13 +76,17 @@ describe("deleteWorktreeOwned", () => {
             }),
           listMemberThreads: () =>
             Effect.gen(function* () {
-              const gone = yield* Ref.get(deleted);
-              return members.filter((thread) => !gone.has(thread.id));
+              const newlyArchived = yield* Ref.get(archived);
+              return members.map((thread) =>
+                newlyArchived.has(thread.id)
+                  ? { ...thread, archivedAt: "2026-01-03T00:00:00.000Z" }
+                  : thread,
+              );
             }),
-          dispatchThreadDelete: ({ threadId }) =>
+          dispatchThreadArchive: ({ threadId }) =>
             Effect.gen(function* () {
-              calls.push(`delete:${threadId}`);
-              yield* Ref.update(deleted, (current) => {
+              calls.push(`archive:${threadId}`);
+              yield* Ref.update(archived, (current) => {
                 const next = new Set(current);
                 next.add(threadId);
                 if (threadId === asThreadId("live")) {
@@ -97,10 +101,10 @@ describe("deleteWorktreeOwned", () => {
 
       expect(result).toEqual({
         status: "completed",
-        deletedThreadIds: [asThreadId("live"), asThreadId("archived")],
+        archivedThreadIds: [asThreadId("live")],
         worktreeRemoval: "removed",
       });
-      expect(calls).toEqual(["inspect", "delete:live", "delete:archived", "inspect", "worktree"]);
+      expect(calls).toEqual(["inspect", "archive:live", "inspect", "worktree"]);
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 
@@ -124,7 +128,7 @@ describe("deleteWorktreeOwned", () => {
             ),
           removeWorktree: () => Ref.update(removeCalls, (count) => count + 1),
           listMemberThreads: () => Effect.succeed([]),
-          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          dispatchThreadArchive: () => Effect.die("should not archive threads"),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );
@@ -132,7 +136,7 @@ describe("deleteWorktreeOwned", () => {
       expect(result).toEqual({
         status: "partial",
         stage: "worktree",
-        deletedThreadIds: [],
+        archivedThreadIds: [],
         retryable: true,
         detail: "Worktree changed after deletion confirmation; inspect it again before retrying.",
         worktreeRemoval: "not_attempted",
@@ -163,7 +167,7 @@ describe("deleteWorktreeOwned", () => {
                 yield* Deferred.await(finishRemoval);
               }),
             listMemberThreads: () => Effect.succeed([]),
-            dispatchThreadDelete: () => Effect.die("should not delete threads"),
+            dispatchThreadArchive: () => Effect.die("should not archive threads"),
             allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
           },
         ),
@@ -219,9 +223,9 @@ describe("deleteWorktreeOwned", () => {
               ];
               return base.filter((thread) => !gone.has(thread.id));
             }),
-          dispatchThreadDelete: ({ threadId }) =>
+          dispatchThreadArchive: ({ threadId }) =>
             Effect.gen(function* () {
-              calls.push(`delete:${threadId}`);
+              calls.push(`archive:${threadId}`);
               yield* Ref.update(deleted, (current) => new Set(current).add(threadId));
             }),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
@@ -230,9 +234,9 @@ describe("deleteWorktreeOwned", () => {
 
       expect(result.status).toBe("completed");
       if (result.status === "completed") {
-        expect(result.deletedThreadIds).toEqual([asThreadId("initial"), asThreadId("concurrent")]);
+        expect(result.archivedThreadIds).toEqual([asThreadId("initial"), asThreadId("concurrent")]);
       }
-      expect(calls).toEqual(["delete:initial", "delete:concurrent", "worktree"]);
+      expect(calls).toEqual(["archive:initial", "archive:concurrent", "worktree"]);
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 
@@ -268,9 +272,9 @@ describe("deleteWorktreeOwned", () => {
                 ];
                 return base.filter((thread) => !gone.has(thread.id));
               }),
-            dispatchThreadDelete: ({ threadId }) =>
+            dispatchThreadArchive: ({ threadId }) =>
               Effect.gen(function* () {
-                calls.push(`delete:${threadId}`);
+                calls.push(`archive:${threadId}`);
                 yield* Ref.update(deleted, (current) => new Set(current).add(threadId));
               }),
             allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
@@ -279,10 +283,10 @@ describe("deleteWorktreeOwned", () => {
 
         expect(result).toEqual({
           status: "completed",
-          deletedThreadIds: [asThreadId("initial"), asThreadId("post-empty-create")],
+          archivedThreadIds: [asThreadId("initial"), asThreadId("post-empty-create")],
           worktreeRemoval: "removed",
         });
-        expect(calls).toEqual(["delete:initial", "worktree", "delete:post-empty-create"]);
+        expect(calls).toEqual(["archive:initial", "worktree", "archive:post-empty-create"]);
       }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 
@@ -314,7 +318,7 @@ describe("deleteWorktreeOwned", () => {
                     ),
                   ),
                 ),
-              dispatchThreadDelete: ({ threadId }) =>
+              dispatchThreadArchive: ({ threadId }) =>
                 Ref.update(deleted, (current) => new Set(current).add(threadId)),
               allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
             },
@@ -333,7 +337,7 @@ describe("deleteWorktreeOwned", () => {
 
       expect(deleteResult).toEqual({
         status: "completed",
-        deletedThreadIds: [asThreadId("only")],
+        archivedThreadIds: [asThreadId("only")],
         worktreeRemoval: "removed",
       });
       expect(Result.isFailure(createResult)).toBe(true);
@@ -370,7 +374,7 @@ describe("deleteWorktreeOwned", () => {
                 ),
               ),
             ),
-          dispatchThreadDelete: ({ threadId }) =>
+          dispatchThreadArchive: ({ threadId }) =>
             Ref.update(deleted, (current) => new Set(current).add(threadId)),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
@@ -412,10 +416,10 @@ describe("deleteWorktreeOwned", () => {
                 ];
                 return base.filter((thread) => !gone.has(thread.id));
               }),
-            dispatchThreadDelete: ({ threadId }) =>
+            dispatchThreadArchive: ({ threadId }) =>
               Effect.gen(function* () {
                 if (threadId === asThreadId("straggler")) {
-                  return yield* Effect.fail({ message: "straggler delete rejected" });
+                  return yield* Effect.fail({ message: "straggler archive rejected" });
                 }
                 yield* Ref.update(deleted, (current) => new Set(current).add(threadId));
               }),
@@ -427,9 +431,9 @@ describe("deleteWorktreeOwned", () => {
         expect(result).toEqual({
           status: "partial",
           stage: "conversation",
-          deletedThreadIds: [asThreadId("initial")],
+          archivedThreadIds: [asThreadId("initial")],
           retryable: true,
-          detail: "straggler delete rejected",
+          detail: "straggler archive rejected",
           worktreeRemoval: "removed",
         });
         expect(releaseOutcomeForDeleteResult(result)).toBe("removed");
@@ -455,21 +459,21 @@ describe("deleteWorktreeOwned", () => {
             }),
           removeWorktree: () => Ref.update(removeCalls, (count) => count + 1),
           listMemberThreads: () => Effect.succeed([]),
-          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          dispatchThreadArchive: () => Effect.die("should not archive threads"),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );
 
       expect(result).toEqual({
         status: "completed",
-        deletedThreadIds: [],
+        archivedThreadIds: [],
         worktreeRemoval: "already_missing",
       });
       expect(yield* Ref.get(removeCalls)).toBe(0);
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 
-  it.effect("returns a typed partial when filesystem removal fails after thread deletes", () =>
+  it.effect("returns a typed partial when filesystem removal fails after thread archives", () =>
     Effect.gen(function* () {
       const coordination = yield* WorktreePathCoordination;
       const deleted = yield* Ref.make(new Set<string>());
@@ -495,7 +499,7 @@ describe("deleteWorktreeOwned", () => {
                 ),
               ),
             ),
-          dispatchThreadDelete: ({ threadId }) =>
+          dispatchThreadArchive: ({ threadId }) =>
             Ref.update(deleted, (current) => new Set(current).add(threadId)),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
@@ -505,7 +509,7 @@ describe("deleteWorktreeOwned", () => {
       if (result.status === "partial") {
         expect(result.stage).toBe("worktree");
         expect(result.worktreeRemoval).toBe("failed");
-        expect(result.deletedThreadIds).toEqual([asThreadId("only")]);
+        expect(result.archivedThreadIds).toEqual([asThreadId("only")]);
         expect(result.retryable).toBe(true);
         expect(result.detail).toContain("device busy");
       }
@@ -513,7 +517,7 @@ describe("deleteWorktreeOwned", () => {
     }).pipe(Effect.provide(WorktreePathCoordinationLive)),
   );
 
-  it.effect("is idempotent when membership is already empty after prior deletes", () =>
+  it.effect("is idempotent when membership is already archived", () =>
     Effect.gen(function* () {
       const coordination = yield* WorktreePathCoordination;
       const deleteCalls = yield* Ref.make(0);
@@ -524,14 +528,14 @@ describe("deleteWorktreeOwned", () => {
           inspectWorktreeRemoval: () => Effect.succeed(availableInspection),
           removeWorktree: () => Effect.void,
           listMemberThreads: () => Effect.succeed([]),
-          dispatchThreadDelete: () => Ref.update(deleteCalls, (count) => count + 1),
+          dispatchThreadArchive: () => Ref.update(deleteCalls, (count) => count + 1),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );
 
       expect(result).toEqual({
         status: "completed",
-        deletedThreadIds: [],
+        archivedThreadIds: [],
         worktreeRemoval: "removed",
       });
       expect(yield* Ref.get(deleteCalls)).toBe(0);
@@ -549,7 +553,7 @@ describe("deleteWorktreeOwned", () => {
           removeWorktree: () => Effect.die("should not remove worktree"),
           listMemberThreads: () =>
             Effect.succeed([member({ id: "blocked", worktreePath: "/tmp/wt-blocked" })]),
-          dispatchThreadDelete: () => Effect.fail({ message: "delete blocked" }),
+          dispatchThreadArchive: () => Effect.fail({ message: "archive blocked" }),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );
@@ -557,9 +561,9 @@ describe("deleteWorktreeOwned", () => {
       expect(result).toEqual({
         status: "partial",
         stage: "conversation",
-        deletedThreadIds: [],
+        archivedThreadIds: [],
         retryable: true,
-        detail: "delete blocked",
+        detail: "archive blocked",
         worktreeRemoval: "not_attempted",
       });
       expect(releaseOutcomeForDeleteResult(result)).toBe("kept");
@@ -589,14 +593,14 @@ describe("deleteWorktreeOwned", () => {
               calls.push(`branch:${input.refName}:${input.expectedHeadCommit}`);
             }),
           listMemberThreads: () => Effect.succeed([]),
-          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          dispatchThreadArchive: () => Effect.die("should not archive threads"),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );
 
       expect(result).toEqual({
         status: "completed",
-        deletedThreadIds: [],
+        archivedThreadIds: [],
         worktreeRemoval: "removed",
         branchRemoval: "removed",
       });
@@ -629,14 +633,14 @@ describe("deleteWorktreeOwned", () => {
             deleteLocalBranch: () => Effect.die("must not guess a stale branch identity"),
             listMemberThreads: () =>
               Ref.get(deleted).pipe(Effect.map((gone) => (gone ? [] : [staleThread]))),
-            dispatchThreadDelete: () => Ref.set(deleted, true),
+            dispatchThreadArchive: () => Ref.set(deleted, true),
             allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
           },
         );
 
         expect(result).toEqual({
           status: "completed",
-          deletedThreadIds: [asThreadId("stale-thread")],
+          archivedThreadIds: [asThreadId("stale-thread")],
           worktreeRemoval: "already_missing",
           preservedUnverifiedPath: true,
           branchRemoval: "unavailable",
@@ -664,7 +668,7 @@ describe("deleteWorktreeOwned", () => {
               }),
             ),
           listMemberThreads: () => Effect.succeed([]),
-          dispatchThreadDelete: () => Effect.die("should not delete threads"),
+          dispatchThreadArchive: () => Effect.die("should not archive threads"),
           allocateCommandId: (tag) => Effect.succeed(asCommandId(`cmd-${tag}`)),
         },
       );

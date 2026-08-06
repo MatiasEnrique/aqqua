@@ -151,6 +151,29 @@ describe("buildSidebarWorktreeGroups", () => {
     expect(groups[0]).not.toHaveProperty("settled");
   });
 
+  it("carries the merged pull request number from the newest matching conversation", () => {
+    const olderMerged = {
+      ...thread("older", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z"),
+      settledChangeRequestNumber: 41,
+    };
+    const newerMerged = {
+      ...thread("newer", "local", "/repo-wt", "feature", "2026-01-02T00:00:00.000Z"),
+      settledChangeRequestNumber: 42,
+    };
+
+    const groups = buildSidebarWorktreeGroups({
+      active: [],
+      snoozed: [],
+      settled: [olderMerged, newerMerged],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups[0]?.mergedChangeRequestNumber).toBe(42);
+  });
+
   it("places local drafts in the current checkout group", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [],
