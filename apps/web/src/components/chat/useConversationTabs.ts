@@ -2,8 +2,13 @@ import { scopeThreadRef } from "@aqqua/client-runtime/environment";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
+import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
 import { selectSidebarDraftRows } from "../Sidebar.logic";
 import {
   buildConversationTabs,
@@ -37,6 +42,7 @@ export function useConversationTabs(input: {
   const openKeys = useUiStateStore((store) => store.openConversationTabKeys);
   const setOpenKeys = useUiStateStore((store) => store.setOpenConversationTabKeys);
   const threads = useThreadShells();
+  const projects = useProjects();
   // Every environment has to have reported before a missing key means anything.
   // Pruning mid-bootstrap would wipe the restored strip on every cold start.
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
@@ -90,6 +96,24 @@ export function useConversationTabs(input: {
     if (retained.length !== current.length) setOpenKeys(retained);
   }, [bootstrapped, enabled, knownKeys, setOpenKeys]);
 
+  // The strip belongs to one worktree: switching checkouts is switching the set
+  // of conversations you are holding open, not adding to a global pile. Open
+  // keys stay unscoped in the store, so returning to a worktree brings its own
+  // tabs back exactly as they were.
+  const activeWorktreeKey = useWorktreeHeaderStore(
+    (store) => store.activeWorktreeGroup?.key ?? null,
+  );
+  const projectRootByProjectKey = useMemo(
+    () =>
+      new Map(
+        projects.map((project) => [
+          `${project.environmentId}:${project.id}`,
+          project.workspaceRoot,
+        ]),
+      ),
+    [projects],
+  );
+
   const tabs = useMemo(
     () =>
       enabled
@@ -98,9 +122,19 @@ export function useConversationTabs(input: {
             threads,
             drafts,
             activeKey: routeThreadKey,
+            worktreeKey: activeWorktreeKey,
+            projectRootByProjectKey,
           })
         : [],
-    [drafts, enabled, openKeys, routeThreadKey, threads],
+    [
+      activeWorktreeKey,
+      drafts,
+      enabled,
+      openKeys,
+      projectRootByProjectKey,
+      routeThreadKey,
+      threads,
+    ],
   );
 
   const closeTab = useCallback(

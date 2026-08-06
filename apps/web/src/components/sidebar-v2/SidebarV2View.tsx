@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  EllipsisIcon,
   FolderPlusIcon,
   GitBranchIcon,
   MessageSquareIcon,
@@ -15,9 +16,10 @@ import {
   SquarePenIcon,
   Trash2Icon,
 } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { Fragment, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { cn } from "~/lib/utils";
 import { isElectron } from "../../env";
+import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../../uiStateStore";
 import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
 import { SidebarSurfaceSwitcher } from "../board/SidebarSurfaceSwitcher";
@@ -33,6 +35,8 @@ import { Button } from "../ui/button";
 import { CommandDialogTrigger } from "../ui/command";
 import { Kbd } from "../ui/kbd";
 import { SidebarProjectScopeChips } from "./SidebarProjectScopeChips";
+import { WorktreeProjectFolder } from "./WorktreeProjectFolder";
+import { buildWorktreeCardGroups } from "./worktreeCardGroups";
 import { resolveProjectScopeAddition } from "./projectScopeSelection";
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -200,6 +204,24 @@ export function SidebarV2View(props: {
     setActiveWorktreeOverrideKey(group.key);
   };
 
+  // A tab-reachable way into project actions. The copy inside the project
+  // combobox sits in a listbox, where arrow keys move between options and Tab
+  // never lands on a nested control — so on its own it left the action
+  // mouse-only.
+  const renderProjectActionsButton = (project: SidebarProjectSnapshot) => (
+    <button
+      type="button"
+      aria-label={`Project actions for ${project.displayName}`}
+      title={`Project actions for ${project.displayName}`}
+      onClick={(event) => {
+        void handleProjectActions(event, project);
+      }}
+      className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <EllipsisIcon className="size-3.5" />
+    </button>
+  );
+
   return (
     <>
       <SidebarChromeHeader
@@ -269,7 +291,6 @@ export function SidebarV2View(props: {
                 <div className="min-w-0 flex-1">
                   <SidebarProjectScopeChips
                     projectGroups={projectGroups}
-                    selection={projectScopeSelection}
                     scopedProjectGroups={scopedProjectGroups}
                     onSelectionChange={(projectKeys) => {
                       // In board mode the scope filter doubles as the board's
@@ -300,13 +321,16 @@ export function SidebarV2View(props: {
                   />
                 </div>
                 {scopedProjectGroup ? (
-                  <ProjectNewWorktreeButton
-                    projectRef={scopeProjectRef(
-                      scopedProjectGroup.environmentId,
-                      scopedProjectGroup.id,
-                    )}
-                    projectName={scopedProjectGroup.displayName}
-                  />
+                  <>
+                    {renderProjectActionsButton(scopedProjectGroup)}
+                    <ProjectNewWorktreeButton
+                      projectRef={scopeProjectRef(
+                        scopedProjectGroup.environmentId,
+                        scopedProjectGroup.id,
+                      )}
+                      projectName={scopedProjectGroup.displayName}
+                    />
+                  </>
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger
@@ -345,7 +369,10 @@ export function SidebarV2View(props: {
             />
           </Suspense>
         ) : (
-          <SidebarGroup className="px-2 pb-1 pt-0">
+          // The scope chips are a control, not a heading for the list below:
+          // the extra top pad keeps the multiselect from reading as the first
+          // row of the project registry.
+          <SidebarGroup className="px-2 pb-1 pt-2">
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
               delay={150}
@@ -367,11 +394,11 @@ export function SidebarV2View(props: {
                 {(() => {
                   const items: ReactNode[] = [];
                   if (presentation === "cards") {
-                    // Worktrees and nothing else. Conversations, the snoozed
-                    // shelf and the settled tail are all reached from the
-                    // header strip or the command palette in this mode, so the
-                    // list stays one flat registry of checkouts.
-                    return worktreeGroups.map((group) => (
+                    // Worktrees under their project, and nothing else.
+                    // Conversations, the snoozed shelf and the settled tail are
+                    // all reached from the header strip or the command palette
+                    // in this mode, so the list stays a registry of checkouts.
+                    const renderCard = (group: SidebarWorktreeGroup) => (
                       <WorktreeCard
                         key={`worktree-card:${group.key}`}
                         group={group}
@@ -391,7 +418,58 @@ export function SidebarV2View(props: {
                           });
                         }}
                       />
-                    ));
+                    );
+                    return buildWorktreeCardGroups({
+                      repositories: repositoryGroups,
+                      worktrees: worktreeGroups,
+                      selection: projectScopeSelection,
+                    }).map((cardGroup) => {
+                      const { project } = cardGroup;
+                      // The remainder bucket has no project to name, so its
+                      // checkouts render bare rather than under a blank folder.
+                      if (project === null) {
+                        return (
+                          <Fragment key={`worktree-folder:${cardGroup.key}`}>
+                            {cardGroup.worktrees.map(renderCard)}
+                          </Fragment>
+                        );
+                      }
+                      const projectRef = scopeProjectRef(project.environmentId, project.id);
+                      const expanded = resolveProjectExpanded(projectExpandedById, [
+                        project.projectKey,
+                      ]);
+                      return (
+                        <WorktreeProjectFolder
+                          key={`worktree-folder:${cardGroup.key}`}
+                          displayName={project.displayName}
+                          environmentId={project.environmentId}
+                          workspaceRoot={project.workspaceRoot}
+                          projectKey={project.projectKey}
+                          worktreeCount={cardGroup.worktrees.length}
+                          state={
+                            repositoryGroups.find(
+                              (repository) => repository.project.projectKey === project.projectKey,
+                            )?.state ?? "idle"
+                          }
+                          expanded={expanded}
+                          onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
+                          onContextMenu={(event) =>
+                            handleLocationContextMenu(event, { projectRef })
+                          }
+                          actions={
+                            <>
+                              {renderProjectActionsButton(project)}
+                              <ProjectNewWorktreeButton
+                                projectRef={projectRef}
+                                projectName={project.displayName}
+                              />
+                            </>
+                          }
+                        >
+                          {cardGroup.worktrees.map(renderCard)}
+                        </WorktreeProjectFolder>
+                      );
+                    });
                   }
                   if (sidebarThreadGroupingMode === "worktree") {
                     const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode[] => {
@@ -718,7 +796,15 @@ export function SidebarV2View(props: {
                 ) : null}
               </ul>
             </TooltipProvider>
-            {activeThreads.length + snoozedThreads.length + settledThreads.length === 0 ? (
+            {/* Gated on what the current presentation actually renders. Cards
+                list worktrees, and a worktree can exist with no conversations
+                at all — counting threads there would print "No threads yet"
+                underneath a registry full of cards. */}
+            {(
+              presentation === "cards"
+                ? worktreeGroups.length === 0
+                : activeThreads.length + snoozedThreads.length + settledThreads.length === 0
+            ) ? (
               <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
                 {projects.length === 0 ? (
                   <>

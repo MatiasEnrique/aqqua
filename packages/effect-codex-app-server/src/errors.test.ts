@@ -35,4 +35,15 @@ describe("CodexAppServerSpawnError", () => {
       "Failed to spawn Codex App Server process: boom",
     );
   });
+
+  it("describes a cause thrown as a bare string", () => {
+    // Not every throw site wraps in an Error, and this path is supported.
+    assert.strictEqual(
+      new CodexError.CodexAppServerSpawnError({
+        command: "codex app-server",
+        cause: "ENOENT",
+      }).message,
+      "Failed to spawn Codex App Server process for command: codex app-server: ENOENT",
+    );
+  });
 });

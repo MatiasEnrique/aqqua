@@ -202,6 +202,59 @@ export function sidebarWorkspaceKey(environmentId: string, workspaceRoot: string
   return `${environmentId}:${normalizeProjectPathForComparison(workspaceRoot)}`;
 }
 
+/**
+ * Which worktree group a single conversation belongs to.
+ *
+ * `buildSidebarWorktreeGroups` answers this by bucketing everything at once,
+ * which is the wrong shape for a caller holding one conversation and asking
+ * "is this one mine" — the chat header's tab strip, for instance. The two must
+ * agree, so the key derivation lives here beside the grouping that defines it.
+ *
+ * Null means the conversation's project is unknown, which is also the condition
+ * under which grouping drops it.
+ */
+export function resolveSidebarConversationWorktreeKey(input: {
+  readonly environmentId: string;
+  readonly projectId: string;
+  /** The tree it lives in. Null falls back to the project's own checkout. */
+  readonly worktreePath: string | null;
+  readonly projectRootByProjectKey: ReadonlyMap<string, string>;
+}): string | null {
+  const projectRoot = input.projectRootByProjectKey.get(
+    `${input.environmentId}:${input.projectId}`,
+  );
+  if (projectRoot === undefined) return null;
+  return sidebarWorkspaceKey(input.environmentId, input.worktreePath ?? projectRoot);
+}
+
+/**
+ * The same answer for a draft, which has one case a thread cannot have.
+ *
+ * A worktree draft with no path is asking for a tree that does not exist yet,
+ * so grouping gives it a placeholder group of its own rather than filing it
+ * under the project checkout. Mirrors the draft branches of
+ * `buildSidebarWorktreeGroups`.
+ */
+export function resolveSidebarDraftWorktreeKey(input: {
+  /** Narrower than `WorktreeDraftRow` so callers holding a tab can ask too. */
+  readonly draft: Pick<
+    WorktreeDraftRow,
+    "draftId" | "environmentId" | "projectId" | "envMode" | "worktreePath"
+  >;
+  readonly projectRootByProjectKey: ReadonlyMap<string, string>;
+}): string | null {
+  const { draft } = input;
+  if (draft.envMode === "worktree" && draft.worktreePath == null) {
+    return `new-worktree:${draft.environmentId}:${draft.projectId}:${draft.draftId}`;
+  }
+  return resolveSidebarConversationWorktreeKey({
+    environmentId: draft.environmentId,
+    projectId: draft.projectId,
+    worktreePath: draft.envMode === "local" ? null : draft.worktreePath,
+    projectRootByProjectKey: input.projectRootByProjectKey,
+  });
+}
+
 function basename(value: string): string {
   const normalized = value.replaceAll("\\", "/").replace(/\/+$/, "");
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
@@ -238,27 +291,55 @@ export function buildSidebarWorktreeGroups(input: {
     }
   >();
 
+  type PendingWorktreeGroup = NonNullable<ReturnType<typeof groups.get>>;
+
+  /**
+   * One place a worktree group starts life.
+   *
+   * There were three near-identical literals here, and they had already drifted:
+   * two of them hardcoded `isProjectCheckout: false`, so a draft that landed in
+   * the project's own checkout before any thread did created a group flagged as
+   * a worktree — which then sorted below its true position, since project
+   * checkouts sort first.
+   */
+  const startGroup = (seed: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly workspaceRoot: string | null;
+    readonly project: ProjectWorkspace;
+    readonly label: string;
+  }): PendingWorktreeGroup => ({
+    environmentId: seed.environmentId,
+    projectId: seed.projectId,
+    workspaceRoot: seed.workspaceRoot,
+    projectRoot: seed.project.workspaceRoot,
+    environmentLabel: seed.project.environmentLabel,
+    label: seed.label,
+    isProjectCheckout:
+      seed.workspaceRoot !== null &&
+      normalizeProjectPathForComparison(seed.workspaceRoot) ===
+        normalizeProjectPathForComparison(seed.project.workspaceRoot),
+    updatedAt: 0,
+    drafts: [],
+    active: [],
+    snoozed: [],
+    settledCount: 0,
+  });
+
   const addThread = (thread: EnvironmentThreadShell, bucket: "active" | "snoozed" | "settled") => {
     const project = input.projectsByKey.get(`${thread.environmentId}:${thread.projectId}`);
     if (!project) return;
     const workspaceRoot = thread.worktreePath ?? project.workspaceRoot;
     const key = sidebarWorkspaceKey(thread.environmentId, workspaceRoot);
-    const current = groups.get(key) ?? {
-      environmentId: thread.environmentId,
-      projectId: thread.projectId,
-      workspaceRoot,
-      projectRoot: project.workspaceRoot,
-      environmentLabel: project.environmentLabel,
-      label: thread.branch ?? basename(workspaceRoot),
-      isProjectCheckout:
-        normalizeProjectPathForComparison(workspaceRoot) ===
-        normalizeProjectPathForComparison(project.workspaceRoot),
-      updatedAt: 0,
-      drafts: [],
-      active: [],
-      snoozed: [],
-      settledCount: 0,
-    };
+    const current =
+      groups.get(key) ??
+      startGroup({
+        environmentId: thread.environmentId,
+        projectId: thread.projectId,
+        workspaceRoot,
+        project,
+        label: thread.branch ?? basename(workspaceRoot),
+      });
     if (bucket === "settled") {
       current.settledCount += 1;
     } else {
@@ -281,20 +362,15 @@ export function buildSidebarWorktreeGroups(input: {
     if (!project) continue;
     if (draft.envMode === "local") {
       const key = sidebarWorkspaceKey(draft.environmentId, project.workspaceRoot);
-      const current = groups.get(key) ?? {
-        environmentId: draft.environmentId,
-        projectId: draft.projectId,
-        workspaceRoot: project.workspaceRoot,
-        projectRoot: project.workspaceRoot,
-        environmentLabel: project.environmentLabel,
-        label: draft.baseBranch ?? basename(project.workspaceRoot),
-        isProjectCheckout: true,
-        updatedAt: 0,
-        drafts: [],
-        active: [],
-        snoozed: [],
-        settledCount: 0,
-      };
+      const current =
+        groups.get(key) ??
+        startGroup({
+          environmentId: draft.environmentId,
+          projectId: draft.projectId,
+          workspaceRoot: project.workspaceRoot,
+          project,
+          label: draft.baseBranch ?? basename(project.workspaceRoot),
+        });
       current.drafts.push(draft);
       current.updatedAt = Math.max(current.updatedAt, timestamp(draft.createdAt));
       groups.set(key, current);
@@ -305,20 +381,15 @@ export function buildSidebarWorktreeGroups(input: {
     // conversation in a worktree appears to leave it.
     if (draft.worktreePath != null) {
       const key = sidebarWorkspaceKey(draft.environmentId, draft.worktreePath);
-      const current = groups.get(key) ?? {
-        environmentId: draft.environmentId,
-        projectId: draft.projectId,
-        workspaceRoot: draft.worktreePath,
-        projectRoot: project.workspaceRoot,
-        environmentLabel: project.environmentLabel,
-        label: draft.baseBranch ?? basename(draft.worktreePath),
-        isProjectCheckout: false,
-        updatedAt: 0,
-        drafts: [],
-        active: [],
-        snoozed: [],
-        settledCount: 0,
-      };
+      const current =
+        groups.get(key) ??
+        startGroup({
+          environmentId: draft.environmentId,
+          projectId: draft.projectId,
+          workspaceRoot: draft.worktreePath,
+          project,
+          label: draft.baseBranch ?? basename(draft.worktreePath),
+        });
       current.drafts.push(draft);
       current.updatedAt = Math.max(current.updatedAt, timestamp(draft.createdAt));
       groups.set(key, current);
@@ -326,18 +397,15 @@ export function buildSidebarWorktreeGroups(input: {
     }
     const key = `new-worktree:${draft.environmentId}:${draft.projectId}:${draft.draftId}`;
     groups.set(key, {
-      environmentId: draft.environmentId,
-      projectId: draft.projectId,
-      workspaceRoot: null,
-      projectRoot: project.workspaceRoot,
-      environmentLabel: project.environmentLabel,
-      label: `New worktree · ${draft.title}`,
-      isProjectCheckout: false,
+      ...startGroup({
+        environmentId: draft.environmentId,
+        projectId: draft.projectId,
+        workspaceRoot: null,
+        project,
+        label: `New worktree · ${draft.title}`,
+      }),
       updatedAt: timestamp(draft.createdAt),
       drafts: [draft],
-      active: [],
-      snoozed: [],
-      settledCount: 0,
     });
   }
 

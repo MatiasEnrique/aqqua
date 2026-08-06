@@ -48,6 +48,49 @@ describe("chatThreadActions", () => {
     });
   });
 
+  it("starts a project checkout's thread in the project itself, not in a worktree", () => {
+    expect(
+      resolveConversationTabNewThreadAction({
+        activeProjectRef: null,
+        activeWorktree: {
+          environmentId: ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          isProjectCheckout: true,
+          label: "main",
+          workspaceRoot: "/repo",
+        },
+      }),
+    ).toEqual({
+      _tag: "create",
+      projectRef: scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID),
+      options: {
+        branch: "main",
+        // `local` with no path: the checkout already exists, so the send path
+        // must reuse it rather than cutting a worktree named after it.
+        worktreePath: null,
+        envMode: "local",
+        startFromOrigin: false,
+      },
+    });
+  });
+
+  it("carries no worktree options for a worktree that has not been created yet", () => {
+    expect(
+      resolveConversationTabNewThreadAction({
+        activeProjectRef: null,
+        activeWorktree: {
+          environmentId: ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+          isProjectCheckout: false,
+          label: "New worktree · draft",
+          workspaceRoot: null,
+        },
+      }),
+      // Naming a branch for a tree with no path would ask the send path to
+      // reuse a worktree that does not exist.
+    ).toEqual({ _tag: "create", projectRef: scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID) });
+  });
+
   it("asks for a project when neither a conversation nor worktree is selected", () => {
     expect(
       resolveConversationTabNewThreadAction({

@@ -7,6 +7,7 @@ import {
   markThreadVisited,
   parsePersistedState,
   PERSISTED_STATE_KEY,
+  WINDOW_STATE_KEY,
   type PersistedUiState,
   persistState,
   retainThreadExpansionForKnownThreads,
@@ -357,10 +358,17 @@ function createLocalStorageStub(): Storage {
 describe("uiStateStore persistence", () => {
   let localStorageStub: Storage;
 
+  let sessionStorageStub: Storage;
+
   beforeEach(() => {
     localStorageStub = createLocalStorageStub();
-    vi.stubGlobal("window", { localStorage: localStorageStub });
+    sessionStorageStub = createLocalStorageStub();
+    vi.stubGlobal("window", {
+      localStorage: localStorageStub,
+      sessionStorage: sessionStorageStub,
+    });
     vi.stubGlobal("localStorage", localStorageStub);
+    vi.stubGlobal("sessionStorage", sessionStorageStub);
   });
 
   afterEach(() => {
@@ -400,8 +408,6 @@ describe("uiStateStore persistence", () => {
       },
       threadExpandedById: {},
       worktreeExpandedByKey: {},
-      activeWorktreeOverrideKey: null,
-      openConversationTabKeys: [],
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -412,6 +418,14 @@ describe("uiStateStore persistence", () => {
       },
     });
     expect(persisted).not.toHaveProperty("removedWorktreeAtByKey");
+    // Window-local: `localStorage` is shared by every same-origin window, so
+    // two windows would overwrite each other's selection and tab order.
+    expect(persisted).not.toHaveProperty("activeWorktreeOverrideKey");
+    expect(persisted).not.toHaveProperty("openConversationTabKeys");
+    expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
+      activeWorktreeOverrideKey: null,
+      openConversationTabKeys: [],
+    });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });

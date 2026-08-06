@@ -96,7 +96,10 @@ export function SidebarSurfaceSwitcher(props: {
       /* Word-only, and no rule beneath it. Two surfaces do not need a tab bar:
          at this size the words carry the switch, and the sidebar's first
          hairline is better spent on something the eye has to find. */
-      className="flex shrink-0 items-center gap-3.5"
+      /* `gap-0.5` plus each tab's own `px-1.5` is the design's 14px between
+         words; `-mr-1.5` cancels the last tab's padding so the words still end
+         flush with the header's edge. */
+      className="-mr-1.5 flex shrink-0 items-center gap-0.5"
     >
       <SurfaceTab
         active={displayedSurface === "threads"}
@@ -154,7 +157,11 @@ function SurfaceTab({
       type="button"
       aria-current={current ? "page" : undefined}
       className={cn(
-        "shrink-0 cursor-pointer rounded-sm text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:pointer-events-none disabled:opacity-50",
+        // Word-only, but not a word-sized target: a bare `text-xs` button is a
+        // 12px-tall hit area, and this is the primary surface switch — reachable
+        // by thumb in the sidebar header. Padding brings it to WCAG 2.5.8's
+        // 24px without changing how it reads.
+        "inline-flex min-h-6 shrink-0 cursor-pointer items-center rounded-sm px-1.5 py-1 text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:pointer-events-none disabled:opacity-50",
         // Weight is the whole indicator. It reads at a glance without spending
         // a rule, a chip or a colour on a two-item switch.
         active

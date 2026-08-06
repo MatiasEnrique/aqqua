@@ -621,6 +621,34 @@ describe("resolveSidebarWorktreeConversationLocation", () => {
     expect(groups[0]?.active.map((entry) => entry.id)).toEqual(["a"]);
   });
 
+  it("flags a group opened by a draft aimed at the project's own checkout", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [],
+      snoozed: [],
+      drafts: [
+        {
+          draftId: "draft",
+          threadId: ThreadId.make("draft-thread"),
+          environmentId: EnvironmentId.make("local"),
+          projectId: ProjectId.make("project"),
+          envMode: "worktree",
+          title: "in the checkout",
+          baseBranch: "main",
+          worktreePath: "/repo",
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    // When a draft creates the group before any thread does, the checkout flag
+    // has to be derived the same way `addThread` derives it — project checkouts
+    // sort first, so a hardcoded `false` sorted the group below its position.
+    expect(groups[0]?.isProjectCheckout).toBe(true);
+  });
+
   it("still gives a worktree draft with no path its own new-worktree group", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [thread("a", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z")],

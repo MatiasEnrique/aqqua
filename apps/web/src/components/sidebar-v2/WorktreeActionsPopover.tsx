@@ -27,15 +27,18 @@ export function WorktreeActionsPopover(props: {
   readonly className?: string;
 }) {
   const { group } = props;
+  // Hoisted out of the `.some()` below: it allocated a Date and formatted a
+  // string per unsettled conversation on every render of every row, and gave
+  // each conversation a slightly different `now` — so one pass of the same
+  // predicate could straddle a time boundary.
+  const now = new Date().toISOString();
   const settlementSupported =
     props.serverConfigs.get(group.environmentId)?.environment.capabilities.threadSettlement ===
     true;
   const settleAction = resolveSidebarWorktreeSettleAction({
     conversationCount: group.unsettled.length,
     settlementSupported,
-    hasBlockedConversation: group.unsettled.some(
-      (thread) => !canSettle(thread, { now: new Date().toISOString() }),
-    ),
+    hasBlockedConversation: group.unsettled.some((thread) => !canSettle(thread, { now })),
     isSettling: props.settlingWorktreeKey !== null,
     isRemoving: props.removingWorktreeKey !== null,
   });
@@ -71,7 +74,6 @@ export function WorktreeActionsPopover(props: {
                   size="lg"
                   variant="outline"
                   disabled={!settleAction.enabled}
-                  title={settleAction.disabledReason ?? undefined}
                   onClick={() => props.onSettleWorktree(group)}
                   className="h-10 w-full justify-start px-3"
                 />
@@ -80,6 +82,7 @@ export function WorktreeActionsPopover(props: {
               <CheckCheckIcon aria-hidden />
               Settle all
             </PopoverClose>
+            <DisabledReason reason={settleAction.enabled ? null : settleAction.disabledReason} />
           </div>
           <div>
             <PopoverClose
@@ -88,7 +91,6 @@ export function WorktreeActionsPopover(props: {
                   size="lg"
                   variant="destructive-outline"
                   disabled={!deleteAction.enabled}
-                  title={deleteAction.disabledReason ?? undefined}
                   onClick={() => props.onDeleteWorktree(group)}
                   className="h-10 w-full justify-start px-3"
                 />
@@ -97,9 +99,23 @@ export function WorktreeActionsPopover(props: {
               <Trash2Icon aria-hidden />
               Delete worktree
             </PopoverClose>
+            <DisabledReason reason={deleteAction.enabled ? null : deleteAction.disabledReason} />
           </div>
         </div>
       </PopoverPopup>
     </Popover>
   );
+}
+
+/**
+ * Why an action is unavailable, as text under the button.
+ *
+ * It used to ride on the button's `title`. Browsers fire no pointer events on a
+ * disabled control, so the native tooltip never appeared and assistive tech did
+ * not reliably announce it — leaving a greyed-out "Settle all" with no
+ * explanation anywhere. Helper text has no such conditions.
+ */
+function DisabledReason(props: { readonly reason: string | null }) {
+  if (props.reason === null) return null;
+  return <p className="px-3 pt-1 text-[11px] leading-4 text-muted-foreground">{props.reason}</p>;
 }

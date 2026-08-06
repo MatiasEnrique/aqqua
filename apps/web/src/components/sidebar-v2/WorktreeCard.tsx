@@ -2,7 +2,6 @@ import type { EnvironmentId, ServerConfig } from "@aqqua/contracts";
 import { GitBranchIcon } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "~/lib/utils";
-import { ProjectFavicon } from "../ProjectFavicon";
 import type { SidebarWorktreeGroup } from "../Sidebar.worktreeGroups";
 import { SidebarWorktreeSummaryStateLabel } from "./SidebarStatusPresentations";
 import { WorktreeActionsPopover } from "./WorktreeActionsPopover";
@@ -28,12 +27,12 @@ export function WorktreeCard(props: {
   readonly onContextMenu: (event: ReactMouseEvent, group: SidebarWorktreeGroup) => void;
 }) {
   const { group } = props;
-  // The avatar identifies the *project*, so it follows the repository root and
-  // falls back to the worktree only when the group has no project behind it.
-  const faviconCwd = group.projectRoot ?? group.workspaceRoot;
 
   return (
-    <li data-thread-item data-testid={`worktree-card-${group.key}`} className="list-none">
+    // `data-thread-selection-safe`, not `data-thread-item`: the card is a
+    // worktree, and marquee selection, range selection and keyboard traversal
+    // all treat a thread item as a selectable conversation.
+    <li data-thread-selection-safe data-testid={`worktree-card-${group.key}`} className="list-none">
       <div
         className={cn(
           "flex h-8 items-center gap-1.5 rounded-lg pr-0.5 pl-1.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
@@ -52,15 +51,6 @@ export function WorktreeCard(props: {
           aria-current={props.isSelected ? "true" : undefined}
           className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
-          {faviconCwd === null ? (
-            <span aria-hidden className="size-4 shrink-0" />
-          ) : (
-            <ProjectFavicon
-              environmentId={group.environmentId}
-              cwd={faviconCwd}
-              className="size-4 shrink-0 rounded-sm"
-            />
-          )}
           <GitBranchIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground">
             {group.label}

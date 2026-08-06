@@ -58,13 +58,16 @@ describe("WorktreeCard", () => {
     expect(markup).not.toContain(">3<");
   });
 
-  it("carries the project avatar, not the worktree path", () => {
-    expect(render(group())).toContain('data-project-favicon="/repo"');
+  it("leaves the project avatar to the parent project folder", () => {
+    expect(render(group())).not.toContain("data-project-favicon");
   });
 
   it("labels the project checkout differently from a worktree", () => {
-    expect(render(group())).toContain("worktree");
-    expect(render(group({ isProjectCheckout: true }))).toContain("current checkout");
+    // The rendered text node, not a bare substring: `worktree-card-<key>` is in
+    // the testid of every card, so `toContain("worktree")` passed even with the
+    // kind label deleted.
+    expect(render(group())).toContain(">worktree</span>");
+    expect(render(group({ isProjectCheckout: true }))).toContain(">current checkout</span>");
   });
 
   it("marks the selected card with the row highlight and no left rail", () => {

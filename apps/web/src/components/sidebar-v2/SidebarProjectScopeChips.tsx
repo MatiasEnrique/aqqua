@@ -15,7 +15,6 @@ import {
   ComboboxPopup,
   ComboboxValue,
 } from "../ui/combobox";
-import type { ProjectScopeSelection } from "./projectScopeSelection";
 
 /**
  * The project filter, as a multi-select combobox.
@@ -31,7 +30,6 @@ import type { ProjectScopeSelection } from "./projectScopeSelection";
  */
 export function SidebarProjectScopeChips(props: {
   readonly projectGroups: readonly SidebarProjectSnapshot[];
-  readonly selection: ProjectScopeSelection;
   readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
   readonly onSelectionChange: (projectKeys: readonly string[]) => void;
   readonly onProjectActions: (
@@ -139,7 +137,7 @@ export function SidebarProjectScopeChips(props: {
             Above the list rather than in it: a row that can be arrowed onto
             and highlighted like a project invites being picked by accident
             when typing narrows the list to one. */}
-        {props.selection.size > 0 ? (
+        {props.scopedProjectGroups.length > 0 ? (
           <div className="border-b border-border/60 p-1">
             <button
               type="button"

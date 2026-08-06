@@ -466,7 +466,15 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // merging, no optimistic holds. Archived threads remain hidden here —
   // archive keeps its original "remove from sidebar" meaning.
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
-  const { activeThreads, snoozedThreads, settledThreads, snoozeNow } = useMemo(() => {
+  const {
+    activeThreads,
+    snoozedThreads,
+    settledThreads,
+    unscopedActiveThreads,
+    unscopedSnoozedThreads,
+    unscopedSettledThreads,
+    snoozeNow,
+  } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -474,14 +482,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
+    // Partitioned before the project scope is applied, not after. The route can
+    // point at a conversation the scope hides, and "which worktree am I in"
+    // must still have an answer — the chat header names that worktree and fills
+    // its tab strip from it. Orchestrator inheritance also reads truer over the
+    // whole set: a scope that hides an orchestrator should not change how its
+    // sub-agents classify.
+    const unarchived = threads.filter((thread) => thread.archivedAt === null);
+    const inScope = (thread: EnvironmentThreadShell) =>
+      scopedProjectKeys === null ||
+      scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
     const sectionById = inheritSettledFromOrchestrators({
-      threads: visible,
+      threads: unarchived,
       classify: (thread) => {
         const supportsSettlement =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
@@ -503,7 +515,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
-    for (const thread of visible) {
+    for (const thread of unarchived) {
       const section = sectionById.get(thread.id) ?? "active";
       if (section === "snoozed") {
         snoozed.push(thread);
@@ -513,15 +525,21 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
         active.push(thread);
       }
     }
+    // Soonest wake first: "what comes back next" is the shelf's question.
+    const bySoonestWake = (left: EnvironmentThreadShell, right: EnvironmentThreadShell) =>
+      firstValidTimestampMs(left.snoozedUntil ?? null) -
+      firstValidTimestampMs(right.snoozedUntil ?? null);
+    const unscopedActive = sortThreadsForSidebarV2(active);
+    const unscopedSnoozed = snoozed.toSorted(bySoonestWake);
+    const unscopedSettled = sortSettledThreadsForSidebarV2(settled);
     return {
-      activeThreads: sortThreadsForSidebarV2(active),
-      // Soonest wake first: "what comes back next" is the shelf's question.
-      snoozedThreads: snoozed.toSorted(
-        (left, right) =>
-          firstValidTimestampMs(left.snoozedUntil ?? null) -
-          firstValidTimestampMs(right.snoozedUntil ?? null),
-      ),
-      settledThreads: sortSettledThreadsForSidebarV2(settled),
+      // Filtering after the sort keeps both views in one order.
+      activeThreads: unscopedActive.filter(inScope),
+      snoozedThreads: unscopedSnoozed.filter(inScope),
+      settledThreads: unscopedSettled.filter(inScope),
+      unscopedActiveThreads: unscopedActive,
+      unscopedSnoozedThreads: unscopedSnoozed,
+      unscopedSettledThreads: unscopedSettled,
       snoozeNow: preciseNow,
     };
   }, [
@@ -655,6 +673,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
         includeLocal: true,
       }),
     [draftThreadsByDraftId, scopedProjectKeys, shellThreadIdKeys],
+  );
+  // Same reason as the thread partition: the route can name a draft the scope
+  // hides, and its worktree still has to resolve.
+  const unscopedDraftRows = useMemo(
+    () =>
+      selectSidebarDraftRows({
+        draftsByDraftId: draftThreadsByDraftId,
+        existingThreadKeys: shellThreadIdKeys,
+        scopedProjectKeys: null,
+        includeLocal: true,
+      }),
+    [draftThreadsByDraftId, shellThreadIdKeys],
   );
   const draftRows = useMemo(
     () => groupedDraftRows.filter((draft) => draft.envMode === "worktree"),
@@ -982,24 +1012,28 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // sub-agents. Both the header strip and the route→worktree match need the
   // complete set — a tab you cannot see is a conversation you cannot reach, and
   // deep-linking straight to a collapsed sub-agent must still select its card.
+  // Also built from UNSCOPED conversations: `worktreeGroups` above is what the
+  // sidebar renders, but this one answers the route. Narrowing the project
+  // filter must not make the routed conversation's worktree unresolvable, which
+  // would blank the chat header's name and its tab strip.
   const completeWorktreeGroups = useMemo(
     () =>
       filterHiddenSidebarWorktreeGroups(
         buildSidebarWorktreeGroups({
-          active: activeThreads,
-          snoozed: snoozedThreads,
-          settled: settledThreads,
-          drafts: groupedDraftRows,
+          active: unscopedActiveThreads,
+          snoozed: unscopedSnoozedThreads,
+          settled: unscopedSettledThreads,
+          drafts: unscopedDraftRows,
           projectsByKey: worktreeProjectsByKey,
         }),
         hiddenWorktreeKeys,
       ),
     [
-      activeThreads,
-      groupedDraftRows,
       hiddenWorktreeKeys,
-      settledThreads,
-      snoozedThreads,
+      unscopedActiveThreads,
+      unscopedDraftRows,
+      unscopedSettledThreads,
+      unscopedSnoozedThreads,
       worktreeProjectsByKey,
     ],
   );

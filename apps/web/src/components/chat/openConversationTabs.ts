@@ -1,10 +1,14 @@
 import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
 import {
   resolveSidebarConversationAggregateState,
   type SidebarConversationAggregateState,
 } from "../Sidebar.summaryState";
+import {
+  resolveSidebarConversationWorktreeKey,
+  resolveSidebarDraftWorktreeKey,
+} from "../Sidebar.worktreeGroups";
 
 /**
  * Tabs are keyed by scoped thread key — including drafts.
@@ -75,6 +79,9 @@ export interface ConversationTabDraft {
   readonly draftId: string;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+  readonly envMode: "local" | "worktree";
+  readonly worktreePath: string | null;
   readonly title: string;
 }
 
@@ -83,6 +90,14 @@ export interface ConversationTabSource {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly drafts: readonly ConversationTabDraft[];
   readonly activeKey: string | null;
+  /**
+   * The worktree whose conversations the strip is showing. Null shows every
+   * open tab — the state before a worktree has been resolved, where hiding
+   * everything would be worse than showing too much.
+   */
+  readonly worktreeKey: string | null;
+  /** `environmentId:projectId` → the project's own checkout path. */
+  readonly projectRootByProjectKey: ReadonlyMap<string, string>;
 }
 
 /**
@@ -106,11 +121,32 @@ export function buildConversationTabs(source: ConversationTabSource): Conversati
     ),
   );
 
+  // The routed conversation is always its own tab, whatever worktree it turns
+  // out to belong to. Routing somewhere and finding no active tab would be a
+  // worse failure than one out-of-scope tab.
+  const belongsToWorktree = (conversationWorktreeKey: string | null, key: string) =>
+    source.worktreeKey === null ||
+    key === source.activeKey ||
+    conversationWorktreeKey === source.worktreeKey;
+
   return source.openKeys.flatMap((key): ConversationTab[] => {
     // The live thread wins over its own draft: the instant a draft is promoted
     // both sources describe the same key, and the thread is the truthful one.
     const thread = threadByKey.get(key);
     if (thread !== undefined) {
+      if (
+        !belongsToWorktree(
+          resolveSidebarConversationWorktreeKey({
+            environmentId: thread.environmentId,
+            projectId: thread.projectId,
+            worktreePath: thread.worktreePath ?? null,
+            projectRootByProjectKey: source.projectRootByProjectKey,
+          }),
+          key,
+        )
+      ) {
+        return [];
+      }
       return [
         {
           _tag: "thread",
@@ -124,6 +160,23 @@ export function buildConversationTabs(source: ConversationTabSource): Conversati
     }
     const draft = draftByKey.get(key);
     if (draft !== undefined) {
+      if (
+        !belongsToWorktree(
+          resolveSidebarDraftWorktreeKey({
+            draft: {
+              draftId: draft.draftId,
+              environmentId: draft.environmentId,
+              projectId: draft.projectId,
+              envMode: draft.envMode,
+              worktreePath: draft.worktreePath,
+            },
+            projectRootByProjectKey: source.projectRootByProjectKey,
+          }),
+          key,
+        )
+      ) {
+        return [];
+      }
       return [
         {
           _tag: "draft",
@@ -180,22 +233,29 @@ export function resolveWorktreeFocusTarget(input: {
   const byRecency = [...input.worktree.active].sort(
     (left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt),
   );
-  const thread =
-    byRecency.find((candidate) =>
-      input.openKeys.has(conversationTabKey(scopeThreadRef(candidate.environmentId, candidate.id))),
-    ) ?? byRecency[0];
+  const isOpen = (ref: { environmentId: EnvironmentId; threadId: ThreadId }) =>
+    input.openKeys.has(conversationTabKey(scopeThreadRef(ref.environmentId, ref.threadId)));
+
+  // Open beats closed across BOTH pools before recency gets a say. Checking
+  // threads to exhaustion first meant a worktree holding one closed thread and
+  // one open draft focused the thread, abandoning the draft being written in.
+  const openThread = byRecency.find((candidate) =>
+    isOpen({ environmentId: candidate.environmentId, threadId: candidate.id }),
+  );
+  if (openThread !== undefined) {
+    return { _tag: "thread", threadRef: scopeThreadRef(openThread.environmentId, openThread.id) };
+  }
+  const openDraft = input.worktree.drafts.find(isOpen);
+  if (openDraft !== undefined) return { _tag: "draft", draftId: openDraft.draftId };
+
+  const thread = byRecency[0];
   if (thread !== undefined) {
     return {
       _tag: "thread",
       threadRef: scopeThreadRef(thread.environmentId, thread.id),
     };
   }
-  const draft =
-    input.worktree.drafts.find((candidate) =>
-      input.openKeys.has(
-        conversationTabKey(scopeThreadRef(candidate.environmentId, candidate.threadId)),
-      ),
-    ) ?? input.worktree.drafts[0];
+  const draft = input.worktree.drafts[0];
   return draft === undefined ? { _tag: "none" } : { _tag: "draft", draftId: draft.draftId };
 }
 

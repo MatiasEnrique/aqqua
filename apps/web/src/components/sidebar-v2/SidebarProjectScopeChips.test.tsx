@@ -26,7 +26,6 @@ const render = (selected: readonly string[]) =>
   renderToStaticMarkup(
     <SidebarProjectScopeChips
       projectGroups={projectGroups}
-      selection={new Set(selected)}
       scopedProjectGroups={projectGroups.filter((group) => selected.includes(group.projectKey))}
       onSelectionChange={() => {}}
       onProjectActions={() => {}}

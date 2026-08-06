@@ -13,6 +13,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export type SidebarSummaryState = SidebarConversationSummaryState | "settled";
 
+/**
+ * Every state with a presentation, including `failed` — which is not a
+ * `SidebarSummaryState` but is what a worktree card and a header tab report.
+ */
+export type SidebarStatePresentationKey = keyof typeof SIDEBAR_STATE_PRESENTATIONS;
+
 export const SIDEBAR_STATE_PRESENTATIONS = {
   working: CONVERSATION_STATE_PRESENTATIONS.working,
   needsInput: CONVERSATION_STATE_PRESENTATIONS.needsInput,
@@ -41,7 +47,9 @@ const PULSING_SIDEBAR_STATES: ReadonlySet<string> = new Set(["working", "needsIn
  * passed in — the registry dot is a hair larger than the tab's.
  */
 export function conversationStateDotClassName(input: {
-  readonly state: string;
+  /** A presentation key, so a misspelt state fails to compile rather than
+      silently losing its pulse. */
+  readonly state: SidebarStatePresentationKey;
   readonly size: string;
 }): string {
   return cn(

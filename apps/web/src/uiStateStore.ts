@@ -3,6 +3,15 @@ import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "aqqua:ui-state:v1";
+/**
+ * State that belongs to ONE window, kept in `sessionStorage`.
+ *
+ * `localStorage` is shared by every same-origin window, so two open windows
+ * overwrote each other's selected worktree and tab order, and a reload could
+ * restore whichever wrote last. `sessionStorage` is per-window and still
+ * survives a reload, which is exactly the documented behaviour of these two.
+ */
+export const WINDOW_STATE_KEY = "aqqua:ui-window-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 1;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "aqqua:renderer-state:v8",
@@ -186,14 +195,38 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        return parsePersistedState(JSON.parse(legacyRaw) as PersistedUiState);
+        return withWindowLocalState(parsePersistedState(JSON.parse(legacyRaw) as PersistedUiState));
       }
-      return initialState;
+      return withWindowLocalState(initialState);
     }
-    return parsePersistedState(JSON.parse(raw) as PersistedUiState);
+    return withWindowLocalState(parsePersistedState(JSON.parse(raw) as PersistedUiState));
   } catch {
     return initialState;
   }
+}
+
+/**
+ * Overlays this window's own copy of the window-local fields.
+ *
+ * With nothing stored yet, whatever `parsePersistedState` read from the shared
+ * blob stands — so a window open across the change keeps the strip it already
+ * had rather than blanking once on the way over.
+ */
+function withWindowLocalState(state: UiState): UiState {
+  const raw = window.sessionStorage.getItem(WINDOW_STATE_KEY);
+  if (raw === null) return state;
+  const parsed = JSON.parse(raw) as Pick<
+    PersistedUiState,
+    "activeWorktreeOverrideKey" | "openConversationTabKeys"
+  >;
+  return {
+    ...state,
+    activeWorktreeOverrideKey:
+      typeof parsed.activeWorktreeOverrideKey === "string"
+        ? parsed.activeWorktreeOverrideKey
+        : null,
+    openConversationTabKeys: sanitizeStringArray(parsed.openConversationTabKeys),
+  };
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -242,12 +275,17 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         threadExpandedById: state.threadExpandedById,
         worktreeExpandedByKey: state.worktreeExpandedByKey,
-        activeWorktreeOverrideKey: state.activeWorktreeOverrideKey,
-        openConversationTabKeys: state.openConversationTabKeys,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
+    );
+    window.sessionStorage.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        activeWorktreeOverrideKey: state.activeWorktreeOverrideKey,
+        openConversationTabKeys: state.openConversationTabKeys,
+      } satisfies Pick<PersistedUiState, "activeWorktreeOverrideKey" | "openConversationTabKeys">),
     );
     if (!legacyKeysCleanedUp) {
       legacyKeysCleanedUp = true;

@@ -26,12 +26,22 @@ const thread = (
   }) as unknown as EnvironmentThreadShell;
 
 const key = (id: string) => conversationTabKey({ environmentId: "env", threadId: id } as never);
-const draft = (draftId: string, threadId: string) => ({
-  draftId,
-  environmentId: "env" as never,
-  threadId: threadId as never,
-  title: "New thread",
-});
+const draft = (draftId: string, threadId: string, overrides: Record<string, unknown> = {}) =>
+  ({
+    draftId,
+    environmentId: "env",
+    threadId,
+    projectId: "project",
+    envMode: "local",
+    worktreePath: null,
+    title: "New thread",
+    ...overrides,
+  }) as never;
+
+/** Every conversation above lives in `project`, whose own checkout is `/repo`. */
+const projectRootByProjectKey = new Map([["env:project", "/repo"]]);
+/** Scoping off, which is how every pre-existing case here behaved. */
+const unscoped = { worktreeKey: null, projectRootByProjectKey };
 
 describe("openConversationTab", () => {
   it("appends a newly opened conversation", () => {
@@ -82,6 +92,7 @@ describe("buildConversationTabs", () => {
       threads: [thread("a"), thread("b")],
       drafts: [draft("d1", "d1-thread")],
       activeKey: key("b"),
+      ...unscoped,
     });
     expect(tabs.map((tab) => tab.key)).toEqual([key("d1-thread"), key("b"), key("a")]);
     expect(tabs.map((tab) => tab.isActive)).toEqual([false, true, false]);
@@ -93,6 +104,7 @@ describe("buildConversationTabs", () => {
       threads: [thread("a")],
       drafts: [],
       activeKey: null,
+      ...unscoped,
     });
     expect(tabs.map((tab) => tab.key)).toEqual([key("a")]);
   });
@@ -108,6 +120,7 @@ describe("buildConversationTabs", () => {
       ],
       drafts: [],
       activeKey: null,
+      ...unscoped,
     });
     expect(tabs[0]).toMatchObject({ _tag: "thread", state: "failed", title: "a" });
   });
@@ -118,6 +131,7 @@ describe("buildConversationTabs", () => {
       threads: [thread("a", { title: "" })],
       drafts: [],
       activeKey: null,
+      ...unscoped,
     });
     expect(tabs[0]).toMatchObject({ title: "Untitled" });
   });
@@ -129,6 +143,7 @@ describe("buildConversationTabs — draft promotion", () => {
       openKeys: [key("promoting")],
       drafts: [draft("d1", "promoting")],
       activeKey: key("promoting"),
+      ...unscoped,
     };
     const before = buildConversationTabs({ ...source, threads: [] });
     expect(before[0]).toMatchObject({ _tag: "draft", draftId: "d1", key: key("promoting") });
@@ -136,6 +151,127 @@ describe("buildConversationTabs — draft promotion", () => {
     const after = buildConversationTabs({ ...source, threads: [thread("promoting")] });
     expect(after).toHaveLength(1);
     expect(after[0]).toMatchObject({ _tag: "thread", key: key("promoting") });
+  });
+});
+
+describe("buildConversationTabs — worktree scoping", () => {
+  // `/repo` is the project checkout; `/repo-wt` a worktree beside it.
+  const checkoutKey = "env:/repo";
+  const worktreeKey = "env:/repo-wt";
+  const inCheckout = thread("checkout-thread");
+  const inWorktree = thread("worktree-thread", { worktreePath: "/repo-wt" } as never);
+  const openKeys = [key("checkout-thread"), key("worktree-thread")];
+
+  it("shows only the active worktree's conversations", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [inCheckout, inWorktree],
+      drafts: [],
+      activeKey: null,
+      worktreeKey,
+      projectRootByProjectKey,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("worktree-thread")]);
+  });
+
+  it("swaps the strip wholesale when the worktree changes", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [inCheckout, inWorktree],
+      drafts: [],
+      activeKey: null,
+      worktreeKey: checkoutKey,
+      projectRootByProjectKey,
+    });
+
+    // The other worktree's tab is hidden, not closed: the open keys are
+    // untouched, so switching back restores it.
+    expect(tabs.map((tab) => tab.key)).toEqual([key("checkout-thread")]);
+  });
+
+  it("keeps the routed conversation even when it sits outside the worktree", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [inCheckout, inWorktree],
+      drafts: [],
+      activeKey: key("checkout-thread"),
+      worktreeKey,
+      projectRootByProjectKey,
+    });
+
+    // Routing somewhere and finding no active tab would be the worse failure.
+    expect(tabs.map((tab) => tab.key)).toEqual([key("checkout-thread"), key("worktree-thread")]);
+  });
+
+  it("files a local draft under the project checkout", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("draft-thread")],
+      threads: [],
+      drafts: [draft("d1", "draft-thread")],
+      activeKey: null,
+      worktreeKey: checkoutKey,
+      projectRootByProjectKey,
+    });
+
+    expect(tabs).toHaveLength(1);
+  });
+
+  it("files a worktree draft under the tree it targets", () => {
+    const source = {
+      openKeys: [key("draft-thread")],
+      threads: [],
+      drafts: [draft("d1", "draft-thread", { envMode: "worktree", worktreePath: "/repo-wt" })],
+      activeKey: null,
+      projectRootByProjectKey,
+    };
+
+    expect(buildConversationTabs({ ...source, worktreeKey })).toHaveLength(1);
+    expect(buildConversationTabs({ ...source, worktreeKey: checkoutKey })).toHaveLength(0);
+  });
+
+  it("keeps a draft for a not-yet-created worktree out of every existing one", () => {
+    const source = {
+      openKeys: [key("draft-thread")],
+      threads: [],
+      drafts: [draft("d1", "draft-thread", { envMode: "worktree", worktreePath: null })],
+      activeKey: null,
+      projectRootByProjectKey,
+    };
+
+    expect(buildConversationTabs({ ...source, worktreeKey: checkoutKey })).toHaveLength(0);
+    expect(
+      buildConversationTabs({
+        ...source,
+        worktreeKey: "new-worktree:env:project:d1",
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("shows every open tab before a worktree has been resolved", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [inCheckout, inWorktree],
+      drafts: [],
+      activeKey: null,
+      worktreeKey: null,
+      projectRootByProjectKey,
+    });
+
+    expect(tabs).toHaveLength(2);
+  });
+
+  it("shows a conversation whose project is unknown rather than hiding it", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("checkout-thread")],
+      threads: [inCheckout],
+      drafts: [],
+      activeKey: key("checkout-thread"),
+      worktreeKey,
+      projectRootByProjectKey: new Map(),
+    });
+
+    expect(tabs).toHaveLength(1);
   });
 });
 
@@ -176,6 +312,26 @@ describe("resolveWorktreeFocusTarget", () => {
         openKeys: new Set([key("d2-thread")]),
       }),
     ).toEqual({ _tag: "draft", draftId: "d2" });
+  });
+
+  it("prefers an open draft over a closed conversation", () => {
+    // Open beats closed across both pools. Resolving threads to exhaustion
+    // first abandoned the draft the user was writing in.
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [draft("d1", "d1-thread")], active: [newer] as never },
+        openKeys: new Set([key("d1-thread")]),
+      }),
+    ).toEqual({ _tag: "draft", draftId: "d1" });
+  });
+
+  it("still prefers an open conversation over an open draft", () => {
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [draft("d1", "d1-thread")], active: [newer] as never },
+        openKeys: new Set([key("d1-thread"), key("newer")]),
+      }),
+    ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "newer" } });
   });
 
   it("reports an empty worktree so the caller can select it without navigating", () => {
