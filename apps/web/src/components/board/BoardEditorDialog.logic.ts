@@ -205,7 +205,7 @@ export function resolveStepAgentFallbackDisplay(
   >,
 ): StepAgentDisplay | null {
   for (const entry of entries) {
-    if (!entry.enabled) continue;
+    if (!entry.enabled || !entry.isAvailable) continue;
     const options = modelOptionsByInstance.get(entry.instanceId) ?? [];
     const defaultModel = entry.models.find((candidate) => candidate.isDefault)?.slug;
     const model = options.find((option) => option.slug === defaultModel)?.slug ?? options[0]?.slug;

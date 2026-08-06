@@ -342,6 +342,7 @@ describe("step agent display and selection", () => {
     instanceId: ProviderInstanceId.make("codex"),
     driverKind: "codex",
     enabled: true,
+    isAvailable: true,
     models: [
       {
         slug: "gpt-5-codex",
@@ -388,11 +389,16 @@ describe("step agent display and selection", () => {
     expect(resolveStepAgentDisplay(stepDraft(), undefined, [])).toBeNull();
   });
 
-  it("falls back only to an enabled instance with a selectable model", () => {
+  it("falls back only to an enabled, available instance with a selectable model", () => {
     const disabledEntry = {
       ...codexEntry,
       enabled: false,
       instanceId: ProviderInstanceId.make("codex_disabled"),
+    };
+    const unavailableEntry = {
+      ...codexEntry,
+      isAvailable: false,
+      instanceId: ProviderInstanceId.make("codex_unavailable"),
     };
     const emptyEntry = {
       ...codexEntry,
@@ -406,13 +412,19 @@ describe("step agent display and selection", () => {
     };
     const options = new Map([
       [disabledEntry.instanceId, [{ slug: "disabled-model" }]],
+      [unavailableEntry.instanceId, [{ slug: "unavailable-model" }]],
       [customEntry.instanceId, [{ slug: "custom-model" }]],
     ]);
 
     expect(
-      resolveStepAgentFallbackDisplay([disabledEntry, emptyEntry, customEntry], options),
+      resolveStepAgentFallbackDisplay(
+        [disabledEntry, unavailableEntry, emptyEntry, customEntry],
+        options,
+      ),
     ).toEqual({ entry: customEntry, model: "custom-model", reasoning: null });
-    expect(resolveStepAgentFallbackDisplay([disabledEntry, emptyEntry], options)).toBeNull();
+    expect(
+      resolveStepAgentFallbackDisplay([disabledEntry, unavailableEntry, emptyEntry], options),
+    ).toBeNull();
   });
 
   it("prefers an available declared default for the fallback", () => {
