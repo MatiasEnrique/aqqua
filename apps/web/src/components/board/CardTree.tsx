@@ -121,7 +121,7 @@ export function CardTree({ model, selection, onSelect, onOpenDiff }: CardTreePro
         <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground/70 leading-4">
           Done
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
+        <span className="shrink-0 text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
           {model.done.trailing}
         </span>
       </div>
@@ -190,7 +190,7 @@ function StepRows({
           {step.trailing === null ? null : (
             <span
               className={cn(
-                "shrink-0 font-mono text-[10px] leading-3 tabular-nums",
+                "shrink-0 text-[10px] leading-3 tabular-nums",
                 isSelected ? "text-muted-foreground" : "text-muted-foreground/70",
               )}
             >
@@ -300,7 +300,7 @@ function LeafRow({
             {leaf.title}
           </span>
           {leaf.elapsed === null ? null : (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
+            <span className="shrink-0 text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
               {leaf.elapsed}
             </span>
           )}
@@ -314,7 +314,7 @@ function LeafRow({
             {leaf.label}
           </span>
           {leaf.stat === null ? null : (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
+            <span className="shrink-0 text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
               +{leaf.stat.additions} −{leaf.stat.deletions}
             </span>
           )}
@@ -333,7 +333,7 @@ function LeafRow({
             {leaf.fileName}
           </span>
           {leaf.trailing === null ? null : (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
+            <span className="shrink-0 text-[10px] text-muted-foreground/70 leading-3 tabular-nums">
               {leaf.trailing}
             </span>
           )}

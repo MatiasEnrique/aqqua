@@ -311,7 +311,7 @@ function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }
     <span className="text-[11px] text-muted-foreground/60">
       {lastCheckedRelative.suffix ? (
         <>
-          Checked <span className="font-mono tabular-nums">{lastCheckedRelative.value}</span>{" "}
+          Checked <span className="tabular-nums">{lastCheckedRelative.value}</span>{" "}
           {lastCheckedRelative.suffix}
         </>
       ) : (
@@ -909,7 +909,7 @@ export function AppearanceSettingsPanel() {
           control={
             <div className="flex w-full items-center gap-3 sm:w-52">
               <output
-                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center text-xs font-medium tabular-nums text-foreground"
                 htmlFor="glass-opacity"
               >
                 {settings.glassOpacity}%
