@@ -649,17 +649,33 @@ function ExpandedStep({
 }) {
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const display = resolveStepAgentDisplay(step, agentProfiles, providerEntries);
+  // An unresolvable selector must still be replaceable: anchor the picker to
+  // the first enabled instance so the user can choose a new model, and keep
+  // the unavailable chip only when this machine has no usable provider at all.
+  const fallbackEntry = providerEntries.find((candidate) => candidate.enabled);
+  const pickerDisplay =
+    display ??
+    (fallbackEntry === undefined
+      ? null
+      : {
+          entry: fallbackEntry,
+          model:
+            fallbackEntry.models.find((candidate) => candidate.isDefault)?.slug ??
+            fallbackEntry.models[0]?.slug ??
+            "",
+          reasoning: null,
+        });
   const reasoningDescriptor =
-    display === null
+    pickerDisplay === null
       ? undefined
       : reasoningDescriptorForModel(
-          display.entry.models.find((candidate) => candidate.slug === display.model),
+          pickerDisplay.entry.models.find((candidate) => candidate.slug === pickerDisplay.model),
         );
   const reasoningLabel =
     reasoningDescriptor === undefined
       ? null
-      : (reasoningDescriptor.options.find((choice) => choice.id === display?.reasoning)?.label ??
-        reasoningDescriptor.label);
+      : (reasoningDescriptor.options.find((choice) => choice.id === pickerDisplay?.reasoning)
+          ?.label ?? reasoningDescriptor.label);
 
   const insertSkill = (skillName: string) => {
     const textarea = promptRef.current;
@@ -701,7 +717,7 @@ function ExpandedStep({
             onChange={(event) => onPatch({ name: event.target.value })}
           />
           <div className="flex shrink-0 items-center gap-1.5">
-            {display === null ? (
+            {pickerDisplay === null ? (
               <StepChip
                 dotClass="bg-destructive/70"
                 label={`${stepAgentLabel(step, display)} (unavailable)`}
@@ -709,8 +725,8 @@ function ExpandedStep({
             ) : (
               <>
                 <ProviderModelPicker
-                  activeInstanceId={display.entry.instanceId}
-                  model={display.model}
+                  activeInstanceId={pickerDisplay.entry.instanceId}
+                  model={pickerDisplay.model}
                   lockedProvider={null}
                   instanceEntries={providerEntries}
                   modelOptionsByInstance={modelOptionsByInstance}
@@ -724,7 +740,7 @@ function ExpandedStep({
                     );
                     if (entry === undefined) return;
                     onPatch({
-                      agent: stepAgentSelection(entry, model, display.reasoning),
+                      agent: stepAgentSelection(entry, model, pickerDisplay.reasoning),
                       profileName: "",
                     });
                   }}
@@ -733,18 +749,18 @@ function ExpandedStep({
                   <ChipMenu
                     ariaLabel={`Step ${index + 1} reasoning`}
                     dotClass={
-                      display.reasoning === null ? "bg-muted-foreground/50" : "bg-amber-500"
+                      pickerDisplay.reasoning === null ? "bg-muted-foreground/50" : "bg-amber-500"
                     }
                     label={reasoningLabel ?? "Reasoning"}
                   >
                     <MenuRadioGroup
-                      value={display.reasoning ?? REASONING_DEFAULT_VALUE}
+                      value={pickerDisplay.reasoning ?? REASONING_DEFAULT_VALUE}
                       onValueChange={(value) => {
                         if (typeof value !== "string") return;
                         onPatch({
                           agent: stepAgentSelection(
-                            display.entry,
-                            display.model,
+                            pickerDisplay.entry,
+                            pickerDisplay.model,
                             value === REASONING_DEFAULT_VALUE ? null : value,
                           ),
                           profileName: "",
