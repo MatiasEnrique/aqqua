@@ -14,7 +14,9 @@ import {
   moveStep,
   removeStep,
   resolveProfileSkillsProvider,
+  resolveStepAgentDisplay,
   segmentTemplate,
+  stepAgentSelection,
   toBoardSteps,
   updateStep,
   validateBoardDraft,
@@ -331,5 +333,70 @@ describe("buildPlaceholderOptions", () => {
     const tokens = buildPlaceholderOptions(unnamed, 1).map((option) => option.token);
     expect(tokens).not.toContainEqual(expect.stringContaining("${artifact:"));
     expect(tokens).toContain("${artifact}");
+  });
+});
+
+describe("step agent display and selection", () => {
+  const codexEntry = {
+    instanceId: ProviderInstanceId.make("codex"),
+    driverKind: "codex",
+    enabled: true,
+    models: [
+      {
+        slug: "gpt-5-codex",
+        name: "GPT-5 Codex",
+        isCustom: false,
+        capabilities: {
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              label: "Reasoning",
+              type: "select",
+              semantic: "reasoning",
+              options: [
+                { id: "medium", label: "Medium" },
+                { id: "high", label: "High" },
+              ],
+            },
+          ],
+        },
+      },
+      { slug: "gpt-5", name: "GPT-5", isCustom: false, isDefault: true, capabilities: {} },
+    ],
+  } as unknown as Parameters<typeof resolveStepAgentDisplay>[2][number];
+
+  it("shows the canonical agent, or resolves the legacy profile to an entry", () => {
+    const canonical = resolveStepAgentDisplay(
+      stepDraft({
+        profileName: "",
+        agent: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+          reasoning: "high",
+        },
+      }),
+      undefined,
+      [codexEntry],
+    );
+    expect(canonical).toEqual({ entry: codexEntry, model: "gpt-5-codex", reasoning: "high" });
+
+    // Legacy profile (built-in implementer fallback): codex driver, default model.
+    const legacy = resolveStepAgentDisplay(stepDraft(), undefined, [codexEntry]);
+    expect(legacy).toEqual({ entry: codexEntry, model: "gpt-5", reasoning: null });
+
+    expect(resolveStepAgentDisplay(stepDraft(), undefined, [])).toBeNull();
+  });
+
+  it("keeps a reasoning level only when the chosen model advertises it", () => {
+    expect(stepAgentSelection(codexEntry, "gpt-5-codex", "high")).toEqual({
+      instanceId: "codex",
+      model: "gpt-5-codex",
+      reasoning: "high",
+    });
+    // gpt-5 has no reasoning descriptor, so the level is dropped.
+    expect(stepAgentSelection(codexEntry, "gpt-5", "high")).toEqual({
+      instanceId: "codex",
+      model: "gpt-5",
+    });
   });
 });
