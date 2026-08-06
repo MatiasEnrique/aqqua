@@ -61,6 +61,7 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
 ];
 const ACTIVE_TURN_MISMATCH_ERROR_SNIPPET = "expected active turn id";
 const NO_ACTIVE_TURN_TO_STEER_ERROR_SNIPPET = "no active turn to steer";
+const JSON_RPC_INVALID_REQUEST_CODE = -32600;
 
 export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | undefined): boolean {
   return appServerArgs?.some((argument) => argument.includes("mcp_servers.")) === true;
@@ -705,6 +706,7 @@ type CodexTurnControlRequest = <M extends "thread/read" | "turn/interrupt" | "tu
 export function isActiveTurnMismatchError(error: CodexSessionRuntimeError): boolean {
   return (
     error._tag === "CodexAppServerRequestError" &&
+    error.code === JSON_RPC_INVALID_REQUEST_CODE &&
     error.errorMessage.toLowerCase().includes(ACTIVE_TURN_MISMATCH_ERROR_SNIPPET)
   );
 }
@@ -713,6 +715,7 @@ function isRecoverableSteerRaceError(error: CodexSessionRuntimeError): boolean {
   return (
     isActiveTurnMismatchError(error) ||
     (error._tag === "CodexAppServerRequestError" &&
+      error.code === JSON_RPC_INVALID_REQUEST_CODE &&
       error.errorMessage.toLowerCase().includes(NO_ACTIVE_TURN_TO_STEER_ERROR_SNIPPET))
   );
 }
@@ -744,6 +747,20 @@ export function turnStartSessionUpdates(
     ? modelUpdate
     : { status: "running", activeTurnId: turnId, ...modelUpdate };
 }
+
+export const updateTurnStartSession = Effect.fn("CodexSessionRuntime.updateTurnStartSession")(
+  function* (
+    sessionRef: Ref.Ref<ProviderSession>,
+    turnId: TurnId,
+    normalizedModel: string | undefined,
+  ) {
+    const sessionAtStart = yield* Ref.get(sessionRef);
+    yield* updateSession(
+      sessionRef,
+      turnStartSessionUpdates(sessionAtStart, turnId, normalizedModel),
+    );
+  },
+);
 
 export const steerCodexTurn = Effect.fn("CodexSessionRuntime.steerCodexTurn")(function* (
   request: CodexTurnControlRequest,
@@ -1436,10 +1453,7 @@ export const makeCodexSessionRuntime = (
               ),
             );
             const turnId = TurnId.make(response.turn.id);
-            yield* updateSession(
-              sessionRef,
-              turnStartSessionUpdates(sessionBeforeSend, turnId, normalizedModel),
-            );
+            yield* updateTurnStartSession(sessionRef, turnId, normalizedModel);
             return turnId;
           });
           let turnId: TurnId;

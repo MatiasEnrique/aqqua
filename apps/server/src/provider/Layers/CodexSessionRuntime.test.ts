@@ -31,6 +31,7 @@ import {
   steerCodexTurn,
   steerCodexTurnOrStart,
   turnStartSessionUpdates,
+  updateTurnStartSession,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
 
@@ -403,6 +404,39 @@ describe("Codex turn control", () => {
     }),
   );
 
+  it.effect("preserves same-message failures with a non-invalid-request code", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      let startCount = 0;
+
+      for (const errorMessage of [
+        "expected active turn id active-turn but found next-turn",
+        "no active turn to steer",
+      ]) {
+        const failure = new CodexErrors.CodexAppServerRequestError({
+          code: -32603,
+          errorMessage,
+        });
+        const request = (() => Effect.fail(failure)) as TurnControlRequest;
+        const error = yield* steerCodexTurnOrStart(
+          request,
+          "provider-thread-1",
+          activeTurnId,
+          "One more thing",
+          () =>
+            Effect.sync(() => {
+              startCount += 1;
+              return TurnId.make("started-turn");
+            }),
+        ).pipe(Effect.flip);
+
+        NodeAssert.strictEqual(error, failure);
+      }
+
+      NodeAssert.equal(startCount, 0);
+    }),
+  );
+
   it("keeps idle and non-plain inputs on the turn/start path", () => {
     const activeTurnId = TurnId.make("active-turn");
 
@@ -431,6 +465,25 @@ describe("Codex turn control", () => {
       {},
     );
   });
+
+  it.effect("records the replacement turn from session state updated during steering", () =>
+    Effect.gen(function* () {
+      const staleTurnId = TurnId.make("stale-turn");
+      const replacementTurnId = TurnId.make("replacement-turn");
+      const sessionBeforeSend = makeProviderSession({
+        status: "running",
+        activeTurnId: staleTurnId,
+      });
+      const sessionRef = yield* Ref.make(sessionBeforeSend);
+
+      yield* Ref.set(sessionRef, makeProviderSession());
+      yield* updateTurnStartSession(sessionRef, replacementTurnId, undefined);
+
+      const session = yield* Ref.get(sessionRef);
+      NodeAssert.equal(session.status, "running");
+      NodeAssert.equal(session.activeTurnId, replacementTurnId);
+    }),
+  );
 
   it.effect("interrupts a matching active turn on the first request", () =>
     Effect.gen(function* () {
