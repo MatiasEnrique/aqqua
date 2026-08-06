@@ -348,6 +348,34 @@ describe("Codex turn control", () => {
     }),
   );
 
+  it.effect("falls back to turn/start when the active turn finishes before steering", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      const startedTurnId = TurnId.make("started-turn");
+      const noActiveTurn = new CodexErrors.CodexAppServerRequestError({
+        code: -32600,
+        errorMessage: "no active turn to steer",
+      });
+      const request = (() => Effect.fail(noActiveTurn)) as TurnControlRequest;
+      let startCount = 0;
+
+      const result = yield* steerCodexTurnOrStart(
+        request,
+        "provider-thread-1",
+        activeTurnId,
+        "One more thing",
+        () =>
+          Effect.sync(() => {
+            startCount += 1;
+            return startedTurnId;
+          }),
+      );
+
+      NodeAssert.equal(result, startedTurnId);
+      NodeAssert.equal(startCount, 1);
+    }),
+  );
+
   it.effect("preserves non-mismatch steer failures", () =>
     Effect.gen(function* () {
       const activeTurnId = TurnId.make("active-turn");

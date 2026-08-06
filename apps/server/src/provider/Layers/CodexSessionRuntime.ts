@@ -60,6 +60,7 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "does not exist",
 ];
 const ACTIVE_TURN_MISMATCH_ERROR_SNIPPET = "expected active turn id";
+const NO_ACTIVE_TURN_TO_STEER_ERROR_SNIPPET = "no active turn to steer";
 
 export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | undefined): boolean {
   return appServerArgs?.some((argument) => argument.includes("mcp_servers.")) === true;
@@ -708,6 +709,14 @@ export function isActiveTurnMismatchError(error: CodexSessionRuntimeError): bool
   );
 }
 
+function isRecoverableSteerRaceError(error: CodexSessionRuntimeError): boolean {
+  return (
+    isActiveTurnMismatchError(error) ||
+    (error._tag === "CodexAppServerRequestError" &&
+      error.errorMessage.toLowerCase().includes(NO_ACTIVE_TURN_TO_STEER_ERROR_SNIPPET))
+  );
+}
+
 export function shouldSteerCodexTurn(
   session: ProviderSession,
   input: CodexSessionRuntimeSendTurnInput,
@@ -760,7 +769,7 @@ export const steerCodexTurnOrStart = Effect.fn("CodexSessionRuntime.steerCodexTu
   ) {
     return yield* steerCodexTurn(request, providerThreadId, activeTurnId, input).pipe(
       Effect.catch((error) =>
-        isActiveTurnMismatchError(error) ? startTurn() : Effect.fail(error),
+        isRecoverableSteerRaceError(error) ? startTurn() : Effect.fail(error),
       ),
     );
   },
