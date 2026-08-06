@@ -193,6 +193,28 @@ export interface StepAgentDisplay {
 }
 
 /**
+ * A replacement selector for a step whose stored agent no longer resolves.
+ * Only instances with a visible model option can back the picker; custom-only
+ * instances therefore remain usable, while an empty model is never invented.
+ */
+export function resolveStepAgentFallbackDisplay(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  modelOptionsByInstance: ReadonlyMap<
+    ProviderInstanceEntry["instanceId"],
+    ReadonlyArray<{ readonly slug: string }>
+  >,
+): StepAgentDisplay | null {
+  for (const entry of entries) {
+    if (!entry.enabled) continue;
+    const options = modelOptionsByInstance.get(entry.instanceId) ?? [];
+    const defaultModel = entry.models.find((candidate) => candidate.isDefault)?.slug;
+    const model = options.find((option) => option.slug === defaultModel)?.slug ?? options[0]?.slug;
+    if (model !== undefined) return { entry, model, reasoning: null };
+  }
+  return null;
+}
+
+/**
  * What the model picker shows for a step: its canonical `agent` when set,
  * otherwise its legacy profile resolved against the live provider instances,
  * mirroring the server's compatibility adapter (instance target wins, else the

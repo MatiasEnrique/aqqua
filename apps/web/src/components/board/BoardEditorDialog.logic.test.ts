@@ -15,6 +15,7 @@ import {
   removeStep,
   resolveProfileSkillsProvider,
   resolveStepAgentDisplay,
+  resolveStepAgentFallbackDisplay,
   segmentTemplate,
   stepAgentSelection,
   toBoardSteps,
@@ -385,6 +386,48 @@ describe("step agent display and selection", () => {
     expect(legacy).toEqual({ entry: codexEntry, model: "gpt-5", reasoning: null });
 
     expect(resolveStepAgentDisplay(stepDraft(), undefined, [])).toBeNull();
+  });
+
+  it("falls back only to an enabled instance with a selectable model", () => {
+    const disabledEntry = {
+      ...codexEntry,
+      enabled: false,
+      instanceId: ProviderInstanceId.make("codex_disabled"),
+    };
+    const emptyEntry = {
+      ...codexEntry,
+      models: [],
+      instanceId: ProviderInstanceId.make("codex_empty"),
+    };
+    const customEntry = {
+      ...codexEntry,
+      models: [],
+      instanceId: ProviderInstanceId.make("codex_custom"),
+    };
+    const options = new Map([
+      [disabledEntry.instanceId, [{ slug: "disabled-model" }]],
+      [customEntry.instanceId, [{ slug: "custom-model" }]],
+    ]);
+
+    expect(
+      resolveStepAgentFallbackDisplay([disabledEntry, emptyEntry, customEntry], options),
+    ).toEqual({ entry: customEntry, model: "custom-model", reasoning: null });
+    expect(resolveStepAgentFallbackDisplay([disabledEntry, emptyEntry], options)).toBeNull();
+  });
+
+  it("prefers an available declared default for the fallback", () => {
+    const options = new Map([
+      [
+        codexEntry.instanceId,
+        [{ slug: "gpt-5-codex" }, { slug: "gpt-5" }, { slug: "custom-model" }],
+      ],
+    ]);
+
+    expect(resolveStepAgentFallbackDisplay([codexEntry], options)).toEqual({
+      entry: codexEntry,
+      model: "gpt-5",
+      reasoning: null,
+    });
   });
 
   it("keeps a reasoning level only when the chosen model advertises it", () => {

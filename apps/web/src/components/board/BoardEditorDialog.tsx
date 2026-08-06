@@ -40,6 +40,7 @@ import {
   insertSkillToken,
   reasoningDescriptorForModel,
   resolveStepAgentDisplay,
+  resolveStepAgentFallbackDisplay,
   segmentTemplate,
   type StepAgentDisplay,
   stepAgentSelection,
@@ -659,21 +660,10 @@ function ExpandedStep({
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const display = resolveStepAgentDisplay(step, agentProfiles, providerEntries);
   // An unresolvable selector must still be replaceable: anchor the picker to
-  // the first enabled instance so the user can choose a new model, and keep
-  // the unavailable chip only when this machine has no usable provider at all.
-  const fallbackEntry = providerEntries.find((candidate) => candidate.enabled);
+  // an enabled instance with a real model, and keep the unavailable chip when
+  // this machine has no usable provider/model pair at all.
   const pickerDisplay =
-    display ??
-    (fallbackEntry === undefined
-      ? null
-      : {
-          entry: fallbackEntry,
-          model:
-            fallbackEntry.models.find((candidate) => candidate.isDefault)?.slug ??
-            fallbackEntry.models[0]?.slug ??
-            "",
-          reasoning: null,
-        });
+    display ?? resolveStepAgentFallbackDisplay(providerEntries, modelOptionsByInstance);
   const reasoningDescriptor =
     pickerDisplay === null
       ? undefined
