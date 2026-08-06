@@ -29,11 +29,23 @@ const SEGMENT_FILL: Record<BoardBadgeVariant, string> = {
  * One badge, one vocabulary: an operation the server is running outranks the
  * card's resting state, so a row never reads Done while it is being deleted.
  */
-export function FlowCardStateBadge({ card }: { readonly card: OrchestrationCard }) {
+export function FlowCardStateBadge({
+  card,
+  className,
+}: {
+  readonly card: OrchestrationCard;
+  /** Size class, so a full card and a slim row can weigh the badge differently. */
+  readonly className?: string;
+}) {
   const operation = cardOperation(card);
   if (operation === "deleting") {
     return (
-      <span className="inline-flex h-4 shrink-0 items-center gap-1 font-medium text-[10px] text-destructive-foreground leading-none">
+      <span
+        className={cn(
+          "inline-flex h-4 shrink-0 items-center gap-1 font-medium text-[10px] text-destructive-foreground leading-none",
+          className,
+        )}
+      >
         <Trash2Icon aria-hidden className="size-3.5 shrink-0" />
         <span role="status" className="leading-none">
           Deleting
@@ -43,7 +55,12 @@ export function FlowCardStateBadge({ card }: { readonly card: OrchestrationCard 
   }
   if (operation !== null && operation !== "starting") {
     return (
-      <span className="inline-flex h-4 shrink-0 items-center gap-1 font-medium text-[10px] text-sidebar-muted-foreground leading-none">
+      <span
+        className={cn(
+          "inline-flex h-4 shrink-0 items-center gap-1 font-medium text-[10px] text-sidebar-muted-foreground leading-none",
+          className,
+        )}
+      >
         <Spinner className="size-3 shrink-0" />
         <span role="status" className="leading-none">
           {cardOperationPresentation(operation).label}
@@ -51,7 +68,12 @@ export function FlowCardStateBadge({ card }: { readonly card: OrchestrationCard 
       </span>
     );
   }
-  return <SidebarSummaryStateLabel state={cardSidebarSummaryState(card)} className="text-[10px]" />;
+  return (
+    <SidebarSummaryStateLabel
+      state={cardSidebarSummaryState(card)}
+      className={cn("text-[10px]", className)}
+    />
+  );
 }
 
 /**
