@@ -205,6 +205,33 @@ export function sidebarWorkspaceKey(environmentId: string, workspaceRoot: string
 }
 
 /**
+ * The key every project-keyed lookup in the sidebar and the tab strip uses.
+ *
+ * Exported because the lookups are built in several places while
+ * `resolveSidebarConversationWorktreeKey` reads them here: a divergence in the
+ * format would hide conversations rather than fail, so there is one spelling.
+ */
+export function sidebarProjectKey(environmentId: string, projectId: string): string {
+  return `${environmentId}:${projectId}`;
+}
+
+/** The `sidebarProjectKey` → checkout-root map that key resolution reads. */
+export function buildProjectRootByProjectKey(
+  projects: readonly {
+    readonly environmentId: string;
+    readonly id: string;
+    readonly workspaceRoot: string;
+  }[],
+): ReadonlyMap<string, string> {
+  return new Map(
+    projects.map((project) => [
+      sidebarProjectKey(project.environmentId, project.id),
+      project.workspaceRoot,
+    ]),
+  );
+}
+
+/**
  * Which worktree group a single conversation belongs to.
  *
  * `buildSidebarWorktreeGroups` answers this by bucketing everything at once,
@@ -223,7 +250,7 @@ export function resolveSidebarConversationWorktreeKey(input: {
   readonly projectRootByProjectKey: ReadonlyMap<string, string>;
 }): string | null {
   const projectRoot = input.projectRootByProjectKey.get(
-    `${input.environmentId}:${input.projectId}`,
+    sidebarProjectKey(input.environmentId, input.projectId),
   );
   if (projectRoot === undefined) return null;
   return sidebarWorkspaceKey(input.environmentId, input.worktreePath ?? projectRoot);

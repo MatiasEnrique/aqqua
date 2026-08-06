@@ -10,6 +10,7 @@ import {
   WINDOW_STATE_KEY,
   type PersistedUiState,
   persistState,
+  readPersistedState,
   retainThreadExpansionForKnownThreads,
   reorderProjects,
   resolveProjectExpanded,
@@ -463,5 +464,55 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(rewritten).not.toHaveProperty("removedWorktreeAtByKey");
+  });
+
+  it("overlays the window-local fields onto the shared blob when loading", () => {
+    localStorageStub.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+        // A stale copy from before the split. The session blob wins.
+        activeWorktreeOverrideKey: "local:/worktrees/shared",
+        openConversationTabKeys: ["environment:shared"],
+      } satisfies PersistedUiState),
+    );
+    sessionStorageStub.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        activeWorktreeOverrideKey: "local:/worktrees/window",
+        openConversationTabKeys: ["environment:thread-1", "environment:thread-2"],
+      }),
+    );
+
+    const loaded = readPersistedState();
+
+    expect(loaded.activeWorktreeOverrideKey).toBe("local:/worktrees/window");
+    expect(loaded.openConversationTabKeys).toEqual([
+      "environment:thread-1",
+      "environment:thread-2",
+    ]);
+    expect(loaded.projectOrder).toEqual(["physical-a", "physical-b"]);
+    expect(loaded.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+  });
+
+  it("keeps the shared state when the window-local blob is unreadable", () => {
+    localStorageStub.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      } satisfies PersistedUiState),
+    );
+    sessionStorageStub.setItem(WINDOW_STATE_KEY, '{"openConversationTabKeys":[');
+
+    const loaded = readPersistedState();
+
+    // The window loses only its own strip, not the shared preferences it just
+    // parsed — otherwise the next mutation writes the loss back for everyone.
+    expect(loaded.projectOrder).toEqual(["physical-a", "physical-b"]);
+    expect(loaded.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+    expect(loaded.activeWorktreeOverrideKey).toBeNull();
+    expect(loaded.openConversationTabKeys).toEqual([]);
   });
 });

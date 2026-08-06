@@ -68,10 +68,12 @@ import {
 } from "../Sidebar.threadTree";
 import { resolveSidebarConversationSummaryState } from "../Sidebar.summaryState";
 import {
+  buildProjectRootByProjectKey,
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
+  sidebarProjectKey,
 } from "../Sidebar.worktreeGroups";
 import { resolveActiveWorktreeKey } from "./activeWorktree";
 import { resolveSidebarGroupingMode } from "./groupingMode";
@@ -320,21 +322,12 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       ),
     [serverProviders],
   );
-  const projectCwdByKey = useMemo(
-    () =>
-      new Map(
-        projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
-          project.workspaceRoot,
-        ]),
-      ),
-    [projects],
-  );
+  const projectCwdByKey = useMemo(() => buildProjectRootByProjectKey(projects), [projects]);
   const worktreeProjectsByKey = useMemo(
     () =>
       new Map(
         projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
+          sidebarProjectKey(project.environmentId, project.id),
           {
             workspaceRoot: project.workspaceRoot,
             environmentLabel: environmentLabelById.get(project.environmentId) ?? null,

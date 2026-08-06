@@ -10,6 +10,7 @@ import {
 import { useUiStateStore } from "../../uiStateStore";
 import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
 import { selectSidebarDraftRows } from "../Sidebar.logic";
+import { buildProjectRootByProjectKey } from "../Sidebar.worktreeGroups";
 import {
   buildConversationTabs,
   type ConversationTab,
@@ -103,16 +104,7 @@ export function useConversationTabs(input: {
   const activeWorktreeKey = useWorktreeHeaderStore(
     (store) => store.activeWorktreeGroup?.key ?? null,
   );
-  const projectRootByProjectKey = useMemo(
-    () =>
-      new Map(
-        projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
-          project.workspaceRoot,
-        ]),
-      ),
-    [projects],
-  );
+  const projectRootByProjectKey = useMemo(() => buildProjectRootByProjectKey(projects), [projects]);
 
   const tabs = useMemo(
     () =>

@@ -51,11 +51,16 @@ export function conversationStateDotClassName(input: {
       silently losing its pulse. */
   readonly state: SidebarStatePresentationKey;
   readonly size: string;
+  /** Off where the dot sits next to its own word, which already says the
+      state — a pulse there is a second voice repeating the first. */
+  readonly pulse?: boolean;
 }): string {
   return cn(
     "shrink-0 rounded-full bg-current",
     input.size,
-    PULSING_SIDEBAR_STATES.has(input.state) && "animate-status-pulse motion-reduce:animate-none",
+    input.pulse !== false &&
+      PULSING_SIDEBAR_STATES.has(input.state) &&
+      "animate-status-pulse motion-reduce:animate-none",
   );
 }
 
@@ -84,7 +89,11 @@ export function SidebarWorktreeSummaryStateLabel(props: {
     >
       <span
         aria-hidden
-        className={conversationStateDotClassName({ state: props.state, size: "size-[7px]" })}
+        className={conversationStateDotClassName({
+          state: props.state,
+          size: "size-[7px]",
+          pulse: false,
+        })}
       />
       <span aria-hidden className="text-[8px] leading-[10px] font-semibold tracking-wide uppercase">
         {presentation.label}

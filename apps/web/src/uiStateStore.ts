@@ -183,7 +183,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   };
 }
 
-function readPersistedState(): UiState {
+/** Exported for the persistence suite: the store itself only reads it at init. */
+export function readPersistedState(): UiState {
   if (typeof window === "undefined") {
     return initialState;
   }
@@ -211,14 +212,21 @@ function readPersistedState(): UiState {
  * With nothing stored yet, whatever `parsePersistedState` read from the shared
  * blob stands — so a window open across the change keeps the strip it already
  * had rather than blanking once on the way over.
+ *
+ * A malformed session blob is contained here rather than thrown at the caller:
+ * failing outwards would drop the shared state this window just parsed, and the
+ * next mutation would write that loss back over `localStorage` for every window.
  */
 function withWindowLocalState(state: UiState): UiState {
-  const raw = window.sessionStorage.getItem(WINDOW_STATE_KEY);
-  if (raw === null) return state;
-  const parsed = JSON.parse(raw) as Pick<
-    PersistedUiState,
-    "activeWorktreeOverrideKey" | "openConversationTabKeys"
-  >;
+  let parsed: Pick<PersistedUiState, "activeWorktreeOverrideKey" | "openConversationTabKeys">;
+  try {
+    const raw = window.sessionStorage.getItem(WINDOW_STATE_KEY);
+    if (raw === null) return state;
+    parsed = JSON.parse(raw) as typeof parsed;
+    if (!parsed || typeof parsed !== "object") return state;
+  } catch {
+    return state;
+  }
   return {
     ...state,
     activeWorktreeOverrideKey:

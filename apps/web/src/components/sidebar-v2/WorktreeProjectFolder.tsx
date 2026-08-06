@@ -28,7 +28,10 @@ export function WorktreeProjectFolder(props: {
   readonly children: ReactNode;
 }) {
   return (
-    <li data-thread-selection-safe className="list-none">
+    // The pad is the seam between projects: the registry's own 4px gap is tuned
+    // for checkout rows, and at that spacing two projects run together into one
+    // ladder of branches.
+    <li data-thread-selection-safe className="list-none pb-2.5">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the context menu belongs to the composite folder row. */}
       <div
         onContextMenu={props.onContextMenu}
