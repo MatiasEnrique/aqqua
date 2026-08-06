@@ -82,6 +82,11 @@ describe("projectPaths", () => {
     );
   });
 
+  it("resolves dot segments in absolute paths", () => {
+    expect(resolveProjectPathForDispatch("/repo/./packages/../app")).toBe("/repo/app");
+    expect(resolveProjectPathForDispatch("C:\\Work\\.\\Packages\\..\\Repo")).toBe("C:\\Work\\Repo");
+  });
+
   it("navigates browse paths with matching separators", () => {
     expect(appendBrowsePathSegment("/repo/", "src")).toBe("/repo/src/");
     expect(appendBrowsePathSegment("C:\\Work\\", "Repo")).toBe("C:\\Work\\Repo\\");

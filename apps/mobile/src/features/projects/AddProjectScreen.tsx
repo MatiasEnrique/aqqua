@@ -25,7 +25,7 @@ import { CommandId, type EnvironmentId, type ProjectIcon, ProjectId } from "@aqq
 import { remapProjectAvatarSeed } from "@aqqua/shared/projectAvatar";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
@@ -888,47 +888,53 @@ export function AddProjectIconScreen(props: {
   const [clonedProjectRoot, setClonedProjectRoot] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submissionInFlightRef = useRef(false);
 
   const submit = useCallback(async () => {
-    if (!environment || !workspaceRoot || isSubmitting) return;
-    setError(null);
-    setIsSubmitting(true);
+    if (submissionInFlightRef.current) return;
+    submissionInFlightRef.current = true;
 
-    let projectRoot = clonedProjectRoot ?? workspaceRoot;
-    let projectIcon = icon;
-    if (remoteUrl !== null && clonedProjectRoot === null) {
-      const cloneResult = await cloneRepository({
-        environmentId: environment.environmentId,
-        input: { remoteUrl, destinationPath: workspaceRoot },
-      });
-      if (AsyncResult.isFailure(cloneResult)) {
-        setError(errorMessage(Cause.squash(cloneResult.cause)));
-        setIsSubmitting(false);
-        return;
-      }
-      projectRoot = cloneResult.value.cwd;
-      if (projectIcon !== null) {
-        projectIcon = {
-          ...projectIcon,
-          seed: remapProjectAvatarSeed(projectIcon.seed, workspaceRoot, projectRoot),
-        };
-        setIcon(projectIcon);
-      }
-      setClonedProjectRoot(projectRoot);
-    }
+    try {
+      if (!environment || !workspaceRoot) return;
+      setError(null);
+      setIsSubmitting(true);
 
-    const createResult = await createProject(projectRoot, projectIcon);
-    if (createResult && AsyncResult.isFailure(createResult)) {
-      setError(errorMessage(Cause.squash(createResult.cause)));
+      let projectRoot = clonedProjectRoot ?? workspaceRoot;
+      let projectIcon = icon;
+      if (remoteUrl !== null && clonedProjectRoot === null) {
+        const cloneResult = await cloneRepository({
+          environmentId: environment.environmentId,
+          input: { remoteUrl, destinationPath: workspaceRoot },
+        });
+        if (AsyncResult.isFailure(cloneResult)) {
+          setError(errorMessage(Cause.squash(cloneResult.cause)));
+          return;
+        }
+        projectRoot = cloneResult.value.cwd;
+        if (projectIcon !== null) {
+          projectIcon = {
+            ...projectIcon,
+            seed: remapProjectAvatarSeed(projectIcon.seed, workspaceRoot, projectRoot),
+          };
+          setIcon(projectIcon);
+        }
+        setClonedProjectRoot(projectRoot);
+      }
+
+      const createResult = await createProject(projectRoot, projectIcon);
+      if (createResult && AsyncResult.isFailure(createResult)) {
+        setError(errorMessage(Cause.squash(createResult.cause)));
+      }
+    } finally {
+      submissionInFlightRef.current = false;
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }, [
     cloneRepository,
     clonedProjectRoot,
     createProject,
     environment,
     icon,
-    isSubmitting,
     remoteUrl,
     workspaceRoot,
   ]);
@@ -950,7 +956,7 @@ export function AddProjectIconScreen(props: {
             <SectionTitle>Project icon</SectionTitle>
             <ProjectIconPicker
               title={inferProjectTitleFromPath(workspaceRoot)}
-              workspaceRoot={workspaceRoot}
+              workspaceRoot={clonedProjectRoot ?? workspaceRoot}
               value={icon}
               disabled={isSubmitting}
               onChange={setIcon}

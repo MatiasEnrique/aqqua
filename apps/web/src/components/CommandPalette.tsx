@@ -6,6 +6,7 @@ import {
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
   getFilesystemBrowsePath,
+  resolveFilesystemBrowseSubmissionPath,
 } from "@aqqua/client-runtime/state/filesystem";
 import {
   isAtomCommandInterrupted,
@@ -1872,13 +1873,13 @@ function OpenCommandPaletteDialog(props: {
     );
   }, [browseNavigation, browsePath.parentPath, prefetchBrowsePath]);
 
-  // Resolve the add-project path from browse data when available. When the
-  // query has a trailing separator (e.g. "~/projects/foo/"), parentPath is the
-  // directory itself. Otherwise the user typed a partial leaf name, so we need
-  // the exact browse entry's fullPath or fall back to the raw query.
-  const resolvedAddProjectPath = hasTrailingPathSeparator(query)
-    ? (browseResult?.parentPath ?? query.trim())
-    : (exactBrowseEntry?.fullPath ?? query.trim());
+  // Resolve against the server-provided parent so home aliases and dot segments
+  // use the remote environment's filesystem semantics.
+  const resolvedAddProjectPath = resolveFilesystemBrowseSubmissionPath(
+    query,
+    browseResult,
+    exactBrowseEntry,
+  );
 
   const canBrowseUp = !relativePathNeedsActiveProject && browsePath.canBrowseUp;
 

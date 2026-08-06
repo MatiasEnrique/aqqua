@@ -96,17 +96,21 @@ export function isUnsupportedWindowsProjectPath(value: string, platform: string)
 
 export function resolveProjectPathForDispatch(value: string, cwd?: string | null): string {
   const trimmedValue = value.trim();
-  if (!isExplicitRelativePath(trimmedValue) || !cwd) {
-    return normalizeProjectPathForDispatch(trimmedValue);
-  }
-
-  const absoluteBase = splitAbsolutePath(normalizeProjectPathForDispatch(cwd));
+  const isRelative = isExplicitRelativePath(trimmedValue);
+  const normalizedValue = normalizeProjectPathForDispatch(trimmedValue);
+  const absoluteBase = splitAbsolutePath(
+    isRelative && cwd ? normalizeProjectPathForDispatch(cwd) : normalizedValue,
+  );
   if (!absoluteBase) {
-    return normalizeProjectPathForDispatch(trimmedValue);
+    return normalizedValue;
   }
 
   const nextSegments = [...absoluteBase.segments];
-  for (const segment of trimmedValue.split(/[\\/]+/)) {
+  const segmentsToResolve = isRelative ? trimmedValue.split(/[\\/]+/) : absoluteBase.segments;
+  if (!isRelative) {
+    nextSegments.length = 0;
+  }
+  for (const segment of segmentsToResolve) {
     if (segment.length === 0 || segment === ".") continue;
     if (segment === "..") {
       nextSegments.pop();

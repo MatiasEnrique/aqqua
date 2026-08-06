@@ -1,15 +1,22 @@
-import { type FilesystemBrowseEntry, WS_METHODS } from "@aqqua/contracts";
+import {
+  type FilesystemBrowseEntry,
+  type FilesystemBrowseResult,
+  WS_METHODS,
+} from "@aqqua/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import type { EnvironmentConnectionPhase } from "../connection/presentation.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
+  appendBrowsePathSegment,
   canNavigateUp,
+  ensureBrowseDirectoryPath,
   getBrowseDirectoryPath,
   getBrowseLeafPathSegment,
   getBrowseParentPath,
   hasTrailingPathSeparator,
   isFilesystemBrowseQuery,
+  resolveProjectPathForDispatch,
 } from "./projects.ts";
 import { createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
@@ -44,6 +51,29 @@ export function filterFilesystemBrowseEntries(
     query.length > 0 ? (visibleEntries.find((entry) => entry.name === query) ?? null) : null;
 
   return { visibleEntries, exactEntry };
+}
+
+export function resolveFilesystemBrowseSubmissionPath(
+  query: string,
+  browseResult: FilesystemBrowseResult | null | undefined,
+  exactEntry: FilesystemBrowseEntry | null | undefined,
+): string {
+  if (!browseResult) {
+    return resolveProjectPathForDispatch(query);
+  }
+  if (hasTrailingPathSeparator(query)) {
+    return resolveProjectPathForDispatch(browseResult.parentPath);
+  }
+  if (exactEntry) {
+    return resolveProjectPathForDispatch(exactEntry.fullPath);
+  }
+
+  return resolveProjectPathForDispatch(
+    appendBrowsePathSegment(
+      ensureBrowseDirectoryPath(browseResult.parentPath),
+      getBrowseLeafPathSegment(query.trim()),
+    ),
+  );
 }
 
 export function createBrowseNavigationCoordinator() {

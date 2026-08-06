@@ -5,6 +5,7 @@ import {
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
   getFilesystemBrowsePath,
+  resolveFilesystemBrowseSubmissionPath,
 } from "./filesystem.ts";
 
 describe("filesystem browse model", () => {
@@ -34,6 +35,20 @@ describe("filesystem browse model", () => {
     expect(filterFilesystemBrowseEntries(entries, "").visibleEntries).toEqual(entries.slice(1));
     expect(filterFilesystemBrowseEntries(entries, ".").visibleEntries).toEqual(entries.slice(0, 1));
     expect(filterFilesystemBrowseEntries(entries, "Code").exactEntry).toEqual(entries[1]);
+  });
+
+  it("builds canonical submission paths from remote browse results", () => {
+    const browseResult = { parentPath: "/Users/test/projects", entries: [] };
+
+    expect(resolveFilesystemBrowseSubmissionPath("~/projects/new-app", browseResult, null)).toBe(
+      "/Users/test/projects/new-app",
+    );
+    expect(resolveFilesystemBrowseSubmissionPath("~/projects/..", browseResult, null)).toBe(
+      "/Users/test",
+    );
+    expect(resolveFilesystemBrowseSubmissionPath("~/projects/", browseResult, null)).toBe(
+      "/Users/test/projects",
+    );
   });
 });
 
