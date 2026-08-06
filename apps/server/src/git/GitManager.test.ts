@@ -69,6 +69,7 @@ interface FakeGhScenario {
     readonly detailsUrl?: string;
   }>;
   mergeOptions?: GitHubCli.GitHubMergeOptions;
+  autoMergeStateSequence?: Array<boolean | null>;
   failWith?: GitHubCli.GitHubCliError;
   /** Let this many gh calls succeed before failWith kicks in (default 0 = fail immediately). */
   failAfterCalls?: number;
@@ -624,6 +625,10 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
                 defaultMethod: "merge",
               },
             );
+      },
+      getPullRequestAutoMergeState: (input) => {
+        ghCalls.push(`pr view ${input.reference} --json autoMergeRequest`);
+        return Effect.succeed(scenario.autoMergeStateSequence?.shift() ?? null);
       },
       mergePullRequest: (input) => {
         ghCalls.push(`pr merge ${input.reference} --${input.method}`);
@@ -3241,7 +3246,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("caches repository merge options by canonical path", () =>
+  it.effect("caches merge options by canonical path and pull request reference", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("aqqua-git-manager-");
       yield* initRepo(repoDir);
@@ -3253,6 +3258,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             methods: ["merge", "squash"],
             defaultMethod: "squash",
           },
+          autoMergeStateSequence: [true, false],
         },
       });
 
@@ -3262,6 +3268,10 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
       const second = yield* manager.getChangeRequestMergeOptions({
         cwd: symlinkDir,
+        reference: "42",
+      });
+      const otherPullRequest = yield* manager.getChangeRequestMergeOptions({
+        cwd: repoDir,
         reference: "#43",
       });
 
@@ -3269,9 +3279,22 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         methods: ["merge", "squash"],
         defaultMethod: "squash",
         autoMergeSupported: true,
+        autoMergeEnabled: true,
       });
       expect(second).toEqual(first);
-      expect(ghCalls.filter((call) => call === "repo view --json merge options")).toHaveLength(1);
+      expect(otherPullRequest).toEqual({
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+        autoMergeSupported: true,
+        autoMergeEnabled: false,
+      });
+      expect(ghCalls.filter((call) => call === "repo view --json merge options")).toHaveLength(2);
+      expect(ghCalls.filter((call) => call === "pr view 42 --json autoMergeRequest")).toHaveLength(
+        1,
+      );
+      expect(ghCalls.filter((call) => call === "pr view 43 --json autoMergeRequest")).toHaveLength(
+        1,
+      );
     }),
   );
 
@@ -3414,8 +3437,10 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         const repoDir = yield* makeTempDir("aqqua-git-manager-");
         yield* initRepo(repoDir);
         // A well-formed sha that is not in this repository forces the
-        // cat-file miss, the refs/pull fetch attempt, and the warn-and-continue
-        // path. There is no remote configured, so the fetch fails.
+        // cat-file miss. Origin resolves, but the bare remote has no
+        // refs/pull/42/head, so the fetch fails and we warn-and-continue.
+        const remoteDir = yield* createBareRemote();
+        yield* configureRemote(repoDir, "origin", remoteDir, "origin");
         const missingOid = "0".repeat(40);
         const { manager } = yield* makeManager({
           ghScenario: {
@@ -3500,7 +3525,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const first = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
-      const cached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 5 });
+      const cached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
       yield* manager.invalidateStatus(repoDir);
       const refreshed = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
 
@@ -3510,6 +3535,59 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(
         ghCalls.filter((call) => call.startsWith("pr list --state open --limit 30 --json")),
       ).toHaveLength(2);
+    }),
+  );
+
+  it.effect("caches repository change requests per limit and honors the requested limit", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const page = [
+        {
+          number: 41,
+          title: "First pull request",
+          url: "https://github.com/acme/repo/pull/41",
+          baseRefName: "main",
+          headRefName: "feature/first",
+          state: "OPEN",
+          mergedAt: null,
+        },
+      ];
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify(page),
+          ],
+        },
+      });
+
+      const defaultLimit = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const defaultLimitCached = yield* manager.listRepositoryChangeRequests({ cwd: repoDir });
+      const limitFive = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 5 });
+      const limitFiveCached = yield* manager.listRepositoryChangeRequests({
+        cwd: repoDir,
+        limit: 5,
+      });
+      const limitTen = yield* manager.listRepositoryChangeRequests({ cwd: repoDir, limit: 10 });
+
+      expect(defaultLimit.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(defaultLimitCached).toEqual(defaultLimit);
+      expect(limitFive.changeRequests.map((item) => item.number)).toEqual([41]);
+      expect(limitFiveCached).toEqual(limitFive);
+      expect(limitTen.changeRequests.map((item) => item.number)).toEqual([41]);
+
+      const openListCalls = ghCalls.filter((call) =>
+        call.startsWith("pr list --state open --limit "),
+      );
+      expect(openListCalls.filter((call) => call.includes("--limit 30 "))).toHaveLength(1);
+      expect(openListCalls.filter((call) => call.includes("--limit 5 "))).toHaveLength(1);
+      expect(openListCalls.filter((call) => call.includes("--limit 10 "))).toHaveLength(1);
+      expect(openListCalls).toHaveLength(3);
     }),
   );
 
@@ -3704,6 +3782,38 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(ghCalls).toContain("pr merge 42 --auto --merge");
       expect(ghCalls).toContain("pr close 42");
+    }),
+  );
+
+  it.effect("invalidates cached merge options after toggling auto-merge", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("aqqua-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: { autoMergeStateSequence: [false, true] },
+      });
+
+      expect(
+        (yield* manager.getChangeRequestMergeOptions({
+          cwd: repoDir,
+          reference: "#42",
+        })).autoMergeEnabled,
+      ).toBe(false);
+      yield* manager.setAutoMerge({
+        cwd: repoDir,
+        reference: "#42",
+        enabled: true,
+        method: "merge",
+      });
+      expect(
+        (yield* manager.getChangeRequestMergeOptions({
+          cwd: repoDir,
+          reference: "42",
+        })).autoMergeEnabled,
+      ).toBe(true);
+      expect(ghCalls.filter((call) => call === "pr view 42 --json autoMergeRequest")).toHaveLength(
+        2,
+      );
     }),
   );
 

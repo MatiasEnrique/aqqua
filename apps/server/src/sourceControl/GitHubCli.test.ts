@@ -168,6 +168,56 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("reads pull request auto-merge state tolerantly", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({ autoMergeRequest: { enabledAt: "2026-08-05T00:00:00Z" } }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(
+          Effect.succeed(
+            processOutput(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({ autoMergeRequest: null }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(Effect.succeed(processOutput("{}")))
+        .mockReturnValueOnce(Effect.succeed(processOutput("not json")))
+        .mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const github = yield* GitHubCli.GitHubCli;
+
+      expect(yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "#42" })).toBe(
+        true,
+      );
+      expect(yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "43" })).toBe(
+        false,
+      );
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "44" }),
+      ).toBeNull();
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "45" }),
+      ).toBeNull();
+      expect(
+        yield* github.getPullRequestAutoMergeState({ cwd: "/repo", reference: "46" }),
+      ).toBeNull();
+      expect(mockRun.mock.calls.map(([input]) => input.args)).toEqual([
+        ["pr", "view", "#42", "--json", "autoMergeRequest"],
+        ["pr", "view", "43", "--json", "autoMergeRequest"],
+        ["pr", "view", "44", "--json", "autoMergeRequest"],
+        ["pr", "view", "45", "--json", "autoMergeRequest"],
+        ["pr", "view", "46", "--json", "autoMergeRequest"],
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("fetches conversation and commits and maps comment and thread mutations", () =>
     Effect.gen(function* () {
       mockRun
@@ -727,6 +777,75 @@ describe("GitHubCli.layer", () => {
             state: "open",
           },
         ],
+        truncated: false,
+      });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          "2",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+      expect(mockRun.mock.calls[0]?.[0].args).not.toContain("--head");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("marks repository pull requests as truncated when more exist than the limit", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 42,
+                title: "First pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                baseRefName: "main",
+                headRefName: "feature/first",
+                state: "OPEN",
+                mergedAt: null,
+              },
+              {
+                number: 43,
+                title: "Second pull request",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/43",
+                baseRefName: "main",
+                headRefName: "feature/second",
+                state: "OPEN",
+                mergedAt: null,
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [
+          {
+            number: 42,
+            title: "First pull request",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+            baseRefName: "main",
+            headRefName: "feature/first",
+            state: "open",
+          },
+        ],
         truncated: true,
       });
       expect(mockRun).toHaveBeenCalledWith({
@@ -738,14 +857,30 @@ describe("GitHubCli.layer", () => {
           "--state",
           "open",
           "--limit",
-          "1",
+          "2",
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt",
         ],
         cwd: "/repo",
         timeoutMs: 30_000,
       });
-      expect(mockRun.mock.calls[0]?.[0].args).not.toContain("--head");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("returns an empty repository pull request list when stdout is empty", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listRepositoryPullRequests({
+        cwd: "/repo",
+        limit: 1,
+      });
+
+      assert.deepStrictEqual(result, {
+        changeRequests: [],
+        truncated: false,
+      });
     }).pipe(Effect.provide(layer)),
   );
 

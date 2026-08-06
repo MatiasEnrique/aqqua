@@ -54,6 +54,7 @@ export interface SourceControlProviderCheckDetailsCapability {
 export interface ChangeRequestMergeOptions {
   readonly methods: ReadonlyArray<GitChangeRequestMergeMethod>;
   readonly defaultMethod: GitChangeRequestMergeMethod;
+  readonly autoMergeEnabled?: boolean | null;
 }
 
 export interface ChangeRequestOperationInput {

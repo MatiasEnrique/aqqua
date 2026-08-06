@@ -710,6 +710,8 @@ export const GitGetChangeRequestMergeOptionsResult = Schema.Struct({
   methods: Schema.Array(GitChangeRequestMergeMethod).check(Schema.isMinLength(1)),
   defaultMethod: GitChangeRequestMergeMethod,
   autoMergeSupported: Schema.Boolean,
+  /** Current auto-merge state; null when the provider does not report it. */
+  autoMergeEnabled: Schema.NullOr(Schema.Boolean),
 }).check(
   Schema.makeFilter(
     (input) =>

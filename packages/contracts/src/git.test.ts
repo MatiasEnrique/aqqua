@@ -395,17 +395,20 @@ describe("change request mutation contracts", () => {
         methods: ["merge", "squash"],
         defaultMethod: "squash",
         autoMergeSupported: true,
+        autoMergeEnabled: null,
       }),
     ).toEqual({
       methods: ["merge", "squash"],
       defaultMethod: "squash",
       autoMergeSupported: true,
+      autoMergeEnabled: null,
     });
     expect(() =>
       decodeMergeOptionsResult({
         methods: [],
         defaultMethod: "merge",
         autoMergeSupported: false,
+        autoMergeEnabled: null,
       }),
     ).toThrow();
     expect(() =>
@@ -413,6 +416,7 @@ describe("change request mutation contracts", () => {
         methods: ["squash"],
         defaultMethod: "merge",
         autoMergeSupported: false,
+        autoMergeEnabled: true,
       }),
     ).toThrow();
   });

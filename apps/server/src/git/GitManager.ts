@@ -1849,6 +1849,7 @@ export const make = Effect.gen(function* () {
       const options = yield* provider.getChangeRequestMergeOptions({ cwd, reference });
       return {
         ...options,
+        autoMergeEnabled: options.autoMergeEnabled ?? null,
         autoMergeSupported: SourceControlProvider.supportsChangeRequestAutoMerge(provider),
       };
     }),
@@ -2010,7 +2011,10 @@ export const make = Effect.gen(function* () {
 
   const repositoryChangeRequestsCache = yield* Cache.makeWith(
     Effect.fn("GitManager.loadRepositoryChangeRequests")(function* (key: string) {
-      const [cwd = ""] = key.split("\u0000");
+      const [cwd = "", limitRaw = ""] = key.split("\u0000");
+      const limit = Number.parseInt(limitRaw, 10);
+      const resolvedLimit =
+        Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_REPOSITORY_CHANGE_REQUESTS_LIMIT;
       const { provider, context } = yield* sourceControlCapabilityProvider(cwd);
       if (!SourceControlProvider.supportsRepositoryChangeRequestList(provider)) {
         return {
@@ -2021,7 +2025,7 @@ export const make = Effect.gen(function* () {
       }
       const result = yield* provider.listRepositoryChangeRequests({
         cwd,
-        limit: DEFAULT_REPOSITORY_CHANGE_REQUESTS_LIMIT,
+        limit: resolvedLimit,
         ...(context ? { context } : {}),
       });
       return {
@@ -2142,11 +2146,10 @@ export const make = Effect.gen(function* () {
   const listRepositoryChangeRequests: GitManager["Service"]["listRepositoryChangeRequests"] =
     Effect.fn("listRepositoryChangeRequests")(function* (input) {
       const cwd = yield* normalizeStatusCacheKey(input.cwd);
-      // The repository selector always uses the default page size, so limit is
-      // deliberately excluded from this epoch-scoped cache key.
+      const limit = input.limit ?? DEFAULT_REPOSITORY_CHANGE_REQUESTS_LIMIT;
       return yield* Cache.get(
         repositoryChangeRequestsCache,
-        [cwd, String(prLookupEpoch(cwd))].join("\u0000"),
+        [cwd, String(limit), String(prLookupEpoch(cwd))].join("\u0000"),
       );
     });
 
@@ -2236,12 +2239,10 @@ export const make = Effect.gen(function* () {
   const getChangeRequestMergeOptions: GitManager["Service"]["getChangeRequestMergeOptions"] =
     Effect.fn("getChangeRequestMergeOptions")(function* (input) {
       const cwd = yield* normalizeStatusCacheKey(input.cwd);
-      const provider = yield* sourceControlProvider(cwd);
       const normalizedReference = normalizeChangeRequestReference(input.reference);
-      return yield* Cache.get(
-        mergeOptionsCache,
-        `${cwd}\u0000${provider.kind === "github" ? "" : normalizedReference}`,
-      );
+      // Keyed per change request, not per repository: the result now carries
+      // that pull request's auto-merge state alongside the repo-level methods.
+      return yield* Cache.get(mergeOptionsCache, changeRequestCacheKey(cwd, normalizedReference));
     });
 
   const mergeChangeRequest: GitManager["Service"]["mergeChangeRequest"] = Effect.fn(
@@ -2277,7 +2278,9 @@ export const make = Effect.gen(function* () {
 
   const setAutoMerge: GitManager["Service"]["setAutoMerge"] = Effect.fn("setAutoMerge")(
     function* (input) {
-      const provider = yield* sourceControlProvider(input.cwd);
+      const cwd = yield* normalizeStatusCacheKey(input.cwd);
+      const reference = normalizeChangeRequestReference(input.reference);
+      const provider = yield* sourceControlProvider(cwd);
       if (!SourceControlProvider.supportsChangeRequestAutoMerge(provider)) {
         return yield* new SourceControlProviderError({
           provider: provider.kind,
@@ -2301,9 +2304,11 @@ export const make = Effect.gen(function* () {
       }
       yield* provider.setAutoMerge({
         ...input,
-        reference: normalizeChangeRequestReference(input.reference),
+        cwd,
+        reference,
       });
-      yield* bumpPrLookupEpoch(input.cwd);
+      yield* Cache.invalidate(mergeOptionsCache, changeRequestCacheKey(cwd, reference));
+      yield* bumpPrLookupEpoch(cwd);
       return { enabled: input.enabled };
     },
   );

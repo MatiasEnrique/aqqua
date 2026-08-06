@@ -56,6 +56,14 @@ export function createGitEnvironmentAtoms<R, E>(
           };
           registry.refresh(changeRequestChecks(queryTarget));
           registry.refresh(changeRequestMergeOptions(queryTarget));
+          // Merging, closing, or deleting a branch changes which pull requests
+          // are still open, and the selector renders this list unfiltered.
+          registry.refresh(
+            repositoryChangeRequests({
+              environmentId: target.environmentId,
+              input: { cwd: target.input.cwd },
+            }),
+          );
         }),
       ),
     );

@@ -95,6 +95,8 @@ export function PullRequestMergeActionsPopover({
     optionsError: mergeOptionsQuery.error,
     mutationPending: mutation !== null,
   });
+  const effectiveAutoMergeEnabled =
+    autoMergeEnabled ?? mergeOptionsQuery.data?.autoMergeEnabled ?? null;
 
   useEffect(() => {
     setAutoMergeEnabled(null);
@@ -256,9 +258,9 @@ export function PullRequestMergeActionsPopover({
             <ActionItem
               disabledReason={management.autoMergeDisabledReason}
               hint={mutation === "auto-merge" ? "Updating…" : undefined}
-              onClick={() => runAutoMerge(autoMergeEnabled !== true)}
+              onClick={() => runAutoMerge(effectiveAutoMergeEnabled !== true)}
             >
-              {autoMergeEnabled === true
+              {effectiveAutoMergeEnabled === true
                 ? "Disable auto-merge"
                 : `Enable auto-merge (${changeRequestMergeMethodLabel(
                     mergeOptionsQuery.data?.defaultMethod ?? "merge",

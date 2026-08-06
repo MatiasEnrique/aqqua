@@ -231,22 +231,30 @@ export const make = Effect.gen(function* () {
       );
     }),
     getChangeRequestMergeOptions: (input) =>
-      github.getMergeOptions(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "getChangeRequestMergeOptions",
-              command: error.command,
-              cwd: input.cwd,
-              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                input.reference,
-              ),
-              detail: error.detail,
-              cause: error,
-            }),
-        ),
-      ),
+      Effect.all(
+        {
+          options: github.getMergeOptions(input).pipe(
+            Effect.mapError(
+              (error) =>
+                new SourceControlProviderError({
+                  provider: "github",
+                  operation: "getChangeRequestMergeOptions",
+                  command: error.command,
+                  cwd: input.cwd,
+                  reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                    input.reference,
+                  ),
+                  detail: error.detail,
+                  cause: error,
+                }),
+            ),
+          ),
+          autoMergeEnabled: github
+            .getPullRequestAutoMergeState(input)
+            .pipe(Effect.orElseSucceed(() => null)),
+        },
+        { concurrency: 2 },
+      ).pipe(Effect.map(({ options, autoMergeEnabled }) => ({ ...options, autoMergeEnabled }))),
     mergeChangeRequest: (input) =>
       github.mergePullRequest(input).pipe(
         Effect.mapError(

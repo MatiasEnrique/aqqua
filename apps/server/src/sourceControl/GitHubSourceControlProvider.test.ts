@@ -165,6 +165,7 @@ it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
     const provider = yield* makeProvider({
       getMergeOptions: () =>
         Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "squash" }),
+      getPullRequestAutoMergeState: () => Effect.succeed(true),
       mergePullRequest: (input) => {
         calls.push(`merge:${input.reference}:${input.method}`);
         return Effect.void;
@@ -214,8 +215,35 @@ it.effect("advertises merge, auto-merge, and state mutation capabilities", () =>
     assert.deepStrictEqual(options, {
       methods: ["merge", "squash"],
       defaultMethod: "squash",
+      autoMergeEnabled: true,
     });
     assert.deepStrictEqual(calls, ["merge:42:squash", "auto:42:true", "state:42:closed"]);
+  }),
+);
+
+it.effect("keeps merge options when the auto-merge state probe fails", () =>
+  Effect.gen(function* () {
+    const provider = yield* makeProvider({
+      getMergeOptions: () =>
+        Effect.succeed({ methods: ["merge", "squash"], defaultMethod: "squash" }),
+      getPullRequestAutoMergeState: () =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: "/repo",
+            cause: new Error("probe failed"),
+          }),
+        ),
+    });
+
+    assert.deepStrictEqual(
+      yield* provider.getChangeRequestMergeOptions!({ cwd: "/repo", reference: "42" }),
+      {
+        methods: ["merge", "squash"],
+        defaultMethod: "squash",
+        autoMergeEnabled: null,
+      },
+    );
   }),
 );
 

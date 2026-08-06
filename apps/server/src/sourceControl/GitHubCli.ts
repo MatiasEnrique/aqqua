@@ -14,6 +14,7 @@ import {
   type VcsError,
   VcsProcessExitError,
 } from "@aqqua/contracts";
+import { decodeJsonResult } from "@aqqua/shared/schemaJson";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
@@ -375,6 +376,11 @@ export class GitHubCli extends Context.Service<
       readonly cwd: string;
     }) => Effect.Effect<GitHubMergeOptions, GitHubCliError>;
 
+    readonly getPullRequestAutoMergeState: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<boolean | null, GitHubCliError>;
+
     readonly mergePullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
@@ -444,12 +450,16 @@ const RawGitHubMergeOptionsSchema = Schema.Struct({
   rebaseMergeAllowed: Schema.Boolean,
   viewerDefaultMergeMethod: Schema.optional(Schema.NullOr(Schema.String)),
 });
+const RawGitHubAutoMergeStateSchema = Schema.Struct({
+  autoMergeRequest: Schema.optional(Schema.NullOr(Schema.Unknown)),
+});
 const decodeRawGitHubRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubRepositoryCloneUrlsSchema),
 );
 const decodeRawGitHubMergeOptions = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubMergeOptionsSchema),
 );
+const decodeRawGitHubAutoMergeState = decodeJsonResult(RawGitHubAutoMergeStateSchema);
 
 function mergeMethodFlag(method: GitChangeRequestMergeMethod): string {
   switch (method) {
@@ -641,8 +651,9 @@ export const make = Effect.gen(function* () {
           "list",
           "--state",
           "open",
+          // Over-fetch by one as a truncation probe; the extra row is never returned.
           "--limit",
-          String(input.limit),
+          String(input.limit + 1),
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt",
         ],
@@ -664,7 +675,7 @@ export const make = Effect.gen(function* () {
                   }
 
                   return Effect.succeed({
-                    changeRequests: decoded.success.map((item) => ({
+                    changeRequests: decoded.success.slice(0, input.limit).map((item) => ({
                       number: item.number,
                       title: item.title,
                       url: item.url,
@@ -672,7 +683,7 @@ export const make = Effect.gen(function* () {
                       headRefName: item.headRefName,
                       state: item.state,
                     })),
-                    truncated: decoded.success.length >= input.limit,
+                    truncated: decoded.success.length > input.limit,
                   });
                 }),
               ),
@@ -900,6 +911,23 @@ export const make = Effect.gen(function* () {
           ),
         ),
         Effect.map(normalizeGitHubMergeOptions),
+      ),
+    getPullRequestAutoMergeState: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "view", input.reference, "--json", "autoMergeRequest"],
+      }).pipe(
+        Effect.map((result) => {
+          const decoded = decodeRawGitHubAutoMergeState(result.stdout.trim());
+          if (Result.isFailure(decoded)) return null;
+          if (!("autoMergeRequest" in decoded.success)) return null;
+          const request = decoded.success.autoMergeRequest;
+          return request !== null && typeof request === "object"
+            ? true
+            : request === null
+              ? false
+              : null;
+        }),
       ),
     mergePullRequest: Effect.fn("GitHubCli.mergePullRequest")(function* (input) {
       const reference = yield* validatePullRequestMutationReference(input);
