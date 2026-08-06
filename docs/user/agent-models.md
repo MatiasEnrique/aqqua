@@ -1,8 +1,10 @@
 # Agent Models
 
 Every model that every configured provider instance advertises is directly
-selectable. There is no settings record standing in front of it: you name a
-provider instance and a model, and that is what runs.
+selectable when its instance is available. Unavailable rows remain visible
+with their reason but cannot spawn until the instance is ready. There is no
+settings record standing in front of an available row: you name a provider
+instance and a model, and that is what runs.
 
 This is the primary way to say which agent does a piece of work — when you
 delegate to a sub-agent, and when you author a flow step. [Agent

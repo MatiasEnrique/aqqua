@@ -615,6 +615,29 @@ it.effect("prints the canonical schema example as JSON through the CLI command",
   ),
 );
 
+it.effect("documents canonical and legacy step selectors as optional alternatives", () =>
+  Effect.gen(function* () {
+    yield* Command.runWith(flowCommand, { version: "0.0.0" })(["schema"]);
+    const output = (yield* TestConsole.logLines).join("\n");
+
+    assert.include(
+      output,
+      '"agent"?: { "instanceId": string, "model": string, "reasoning"?: string }',
+    );
+    assert.include(output, '"profileName"?: string');
+    assert.include(output, 'A step names its agent exactly one way: "agent" or "profileName".');
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        FetchHttpClient.layer,
+        NetService.layer,
+        TestConsole.layer,
+      ),
+    ),
+  ),
+);
+
 it.effect("exposes the nested card definition schema through the CLI", () =>
   Effect.gen(function* () {
     yield* Command.runWith(flowCommand, { version: "0.0.0" })(["card", "schema", "--json"]);

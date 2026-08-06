@@ -295,7 +295,7 @@ const flowSchemaText = `Flow definition JSON:
   "steps": [{
     "id"?: string,
     "name": string,
-    "agent": { "instanceId": string, "model": string, "reasoning"?: string },
+    "agent"?: { "instanceId": string, "model": string, "reasoning"?: string },
     "profileName"?: string,
     "promptTemplate": string,
     "continuation"?: "auto" | "manual"

@@ -2,7 +2,6 @@
 import * as NodePath from "node:path";
 
 import {
-  type AgentProfileName,
   type BoardSnapshot,
   type BoardStep,
   type CardId,
@@ -193,10 +192,17 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
         : { ok: true as const, launch: resolved.success };
     }
 
+    const profileName = step.profileName;
+    if (profileName === undefined) {
+      return {
+        ok: false as const,
+        reason: `Step '${step.name}' names no agent: it must set 'agent' (instanceId + model).`,
+      };
+    }
     const serverSettings = yield* settings.getSettings;
     const instances = yield* instanceCandidates;
     const resolved = resolveAgentProfile({
-      profile: step.profileName as AgentProfileName,
+      profile: profileName,
       profiles: serverSettings.agentProfiles,
       instances,
       projectDefaultModelSelection,
@@ -204,7 +210,7 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
     return Result.isFailure(resolved)
       ? {
           ok: false as const,
-          reason: `Agent profile '${step.profileName}' is unavailable: ${resolved.failure.message}`,
+          reason: `Agent profile '${profileName}' is unavailable: ${resolved.failure.message}`,
         }
       : { ok: true as const, launch: resolved.success };
   });

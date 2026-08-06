@@ -41,7 +41,7 @@ import { type BoardEditorSubmit, useBoardEditorController } from "./useBoardEdit
 
 export type { BoardEditorSubmit } from "./useBoardEditorController";
 
-/** Deterministic accent for a profile chip, so a profile keeps its color everywhere. */
+/** Deterministic accent for an agent chip, so a selector keeps its color everywhere. */
 const PROFILE_DOT_CLASSES = [
   "bg-violet-500",
   "bg-sky-500",
@@ -57,6 +57,13 @@ function profileDotClass(name: string): string {
     hash = (hash * 31 + name.charCodeAt(i)) | 0;
   }
   return PROFILE_DOT_CLASSES[Math.abs(hash) % PROFILE_DOT_CLASSES.length] ?? "bg-violet-500";
+}
+
+function stepAgentLabel(step: BoardStepDraft): string {
+  return (
+    step.profileName ||
+    (step.agent === undefined ? "agent" : `${step.agent.instanceId}/${step.agent.model}`)
+  );
 }
 
 export function BoardEditorDialog({
@@ -516,7 +523,7 @@ function CollapsedStep({
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <StepChip dotClass={profileDotClass(step.profileName)} label={step.profileName} />
+        <StepChip dotClass={profileDotClass(stepAgentLabel(step))} label={stepAgentLabel(step)} />
         <StepChip
           dotClass={step.continuation === "auto" ? "bg-success" : "bg-warning"}
           label={step.continuation === "auto" ? "auto-continue" : "waits"}
@@ -643,13 +650,13 @@ function ExpandedStep({
           <div className="flex shrink-0 items-center gap-1.5">
             <ChipMenu
               ariaLabel={`Step ${index + 1} agent profile`}
-              dotClass={profileDotClass(step.profileName)}
-              label={step.profileName || "profile"}
+              dotClass={profileDotClass(stepAgentLabel(step))}
+              label={stepAgentLabel(step)}
             >
               <MenuRadioGroup
                 value={step.profileName}
                 onValueChange={(value) => {
-                  if (typeof value === "string") onPatch({ profileName: value });
+                  if (typeof value === "string") onPatch({ profileName: value, agent: undefined });
                 }}
               >
                 {profileNames.map((name) => (

@@ -20,15 +20,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
-import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import * as ServerConfig from "../config.ts";
-import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { AgentCliError } from "./agentCliError.ts";
 import {
   AGENT_API_ENV,
@@ -37,9 +32,8 @@ import {
   type AgentInvocationAncestry,
   detectAgentInvocationAncestry,
 } from "./agentInvocationIdentity.ts";
-import { spawnStandaloneAgent } from "./agentStandalone.ts";
-import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
-import { withEnvironmentCliSessionToken } from "./environmentAccess.ts";
+import { listStandaloneAgentModels, spawnStandaloneAgent } from "./agentStandalone.ts";
+import { projectLocationFlags } from "./config.ts";
 
 export { AgentCliError } from "./agentCliError.ts";
 import {
@@ -60,8 +54,6 @@ import {
   AgentSendResponse,
   AgentSpawnRequest,
   AgentSpawnResponse,
-  AuthOrchestrationReadScope,
-  EnvironmentHttpApi,
   ProviderInstanceId,
 } from "@aqqua/contracts";
 import { findReasoningDescriptor } from "../agent-control/ModelCatalog.ts";
@@ -293,56 +285,6 @@ const emit = (input: { readonly json: boolean; readonly value: unknown; readonly
   Console.log(input.json ? toJsonLine(input.value) : input.text);
 
 const cliRuntime = Layer.merge(FetchHttpClient.layer, NodeServices.layer);
-
-export const listStandaloneAgentModels = Effect.fn("agentCli.listStandaloneModels")(
-  function* (input: { readonly flags: CliAuthLocationFlags; readonly cwd?: string }) {
-    const logLevel = yield* GlobalFlag.LogLevel;
-    const config = yield* resolveCliAuthConfig(input.flags, logLevel);
-    const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    if (Option.isNone(runtimeState)) {
-      return yield* new AgentCliError({
-        detail:
-          "No running aqqua desktop environment was found. Open the desktop app and try again, " +
-          "or pass --base-dir for a non-default aqqua home.",
-      });
-    }
-
-    return yield* Effect.gen(function* () {
-      const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
-      return yield* withEnvironmentCliSessionToken(
-        environmentAuth,
-        { scopes: [AuthOrchestrationReadScope], label: "aqqua agent models cli" },
-        (token) =>
-          Effect.gen(function* () {
-            const client = yield* HttpApiClient.make(EnvironmentHttpApi, {
-              baseUrl: runtimeState.value.origin,
-            });
-            return yield* client.agents.standaloneModels({
-              headers: { authorization: `Bearer ${token}` },
-              payload: { cwd: input.cwd ?? process.cwd() },
-            });
-          }),
-      );
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new AgentCliError({
-            detail:
-              cause instanceof Error
-                ? cause.message
-                : `Could not reach the aqqua desktop environment at ${runtimeState.value.origin}.`,
-          }),
-      ),
-      Effect.provide(
-        EnvironmentAuth.runtimeLayer.pipe(
-          Layer.provideMerge(FetchHttpClient.layer),
-          Layer.provide(ServerConfig.layer(config)),
-          Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),
-        ),
-      ),
-    );
-  },
-);
 
 export const resolveSpawnSelector = Effect.fn("agentCli.resolveSpawnSelector")(function* (input: {
   readonly profile: string | undefined;

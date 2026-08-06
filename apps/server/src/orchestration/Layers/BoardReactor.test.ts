@@ -123,14 +123,13 @@ const codexProviderSnapshot: ServerProvider = {
   skills: [],
 };
 
-const providerRegistryStub = Layer.succeed(ProviderRegistry, {
+const providerRegistryStub = Layer.mock(ProviderRegistry)({
   getProviders: Effect.succeed([codexProviderSnapshot]),
   refresh: () => Effect.succeed([codexProviderSnapshot]),
   refreshInstance: () => Effect.succeed([codexProviderSnapshot]),
-  getProviderMaintenanceCapabilitiesForInstance: () => Effect.die("unused"),
   setProviderMaintenanceActionState: () => Effect.succeed([codexProviderSnapshot]),
   streamChanges: Stream.empty,
-} as unknown as typeof ProviderRegistry.Service);
+} satisfies Partial<ProviderRegistry["Service"]>);
 
 const STEPS: ReadonlyArray<BoardStep> = [
   {

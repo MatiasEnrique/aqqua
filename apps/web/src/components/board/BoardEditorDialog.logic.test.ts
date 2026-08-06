@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { BoardId, BoardStepId, ProjectId } from "@aqqua/contracts";
+import { BoardId, BoardStepId, ProjectId, ProviderInstanceId } from "@aqqua/contracts";
 import type { OrchestrationBoard } from "@aqqua/contracts";
 
 import {
@@ -101,7 +101,7 @@ describe("validateBoardDraft", () => {
     expect(errors.steps).toEqual({
       a: "Give the step a name.",
       b: "Give the step a prompt template.",
-      c: "Pick an agent profile.",
+      c: "Pick an agent.",
     });
   });
 
@@ -144,6 +144,27 @@ describe("board <-> draft round trip", () => {
 
   it("loads an existing board into the editor and back out unchanged", () => {
     expect(toBoardSteps(draftFromBoard(board))).toEqual(board.steps);
+  });
+
+  it("preserves a canonical model selector through the legacy-profile editor", () => {
+    const canonicalBoard: OrchestrationBoard = {
+      ...board,
+      steps: [
+        {
+          id: board.steps[0]!.id,
+          name: board.steps[0]!.name,
+          promptTemplate: board.steps[0]!.promptTemplate,
+          continuation: board.steps[0]!.continuation,
+          agent: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5.6-sol",
+            reasoning: "high",
+          },
+        },
+      ],
+    };
+
+    expect(toBoardSteps(draftFromBoard(canonicalBoard))).toEqual(canonicalBoard.steps);
   });
 
   it("trims whitespace on the way out", () => {

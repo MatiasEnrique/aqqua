@@ -19,6 +19,10 @@ import {
 } from "../auth/http.ts";
 import type { AgentControlError } from "./Errors.ts";
 import { AgentControl } from "./Services/AgentControl.ts";
+import {
+  AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
+  hasAgentSpawnSelectorConflict,
+} from "./SpawnRequest.ts";
 
 const decodeAgentProfileName = Schema.decodeUnknownEffect(AgentProfileName);
 
@@ -59,13 +63,9 @@ export const handleStandaloneSpawn = Effect.fn("environment.agents.handleStandal
   function* (payload: AgentStandaloneSpawnRequest) {
     yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
     const agents = yield* AgentControl;
-    if (
-      payload.profile !== undefined &&
-      (payload.modelSelection !== undefined || payload.reasoning !== undefined)
-    ) {
+    if (hasAgentSpawnSelectorConflict(payload)) {
       return yield* new EnvironmentHttpBadRequestError({
-        message:
-          "'profile' cannot be combined with 'modelSelection' or 'reasoning'. Choose one selector style.",
+        message: AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
       });
     }
     const shared = {
@@ -102,15 +102,6 @@ const runStandaloneModels = Effect.fn("environment.agents.runStandaloneModels")(
     .pipe(Effect.catch(mapStandaloneModelsError));
   return { models };
 });
-
-export const handleStandaloneModels = Effect.fn("environment.agents.handleStandaloneModels")(
-  function* (payload: EnvironmentAgentModelsRequest) {
-    return yield* runStandaloneModels({
-      payload,
-      agents: yield* AgentControl,
-    });
-  },
-);
 
 export const agentEnvironmentHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,

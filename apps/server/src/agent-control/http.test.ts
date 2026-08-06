@@ -18,17 +18,17 @@ const handle = { threadId: ThreadId.make("child-thread"), profile: "model", term
 it.effect("routes canonical, bare, and legacy session spawn requests explicitly", () => {
   const received: Array<{ readonly method: string; readonly input: unknown }> = [];
   const agents = {
-    spawn: (input: unknown) =>
+    spawn: (input) =>
       Effect.sync(() => {
         received.push({ method: "spawn", input });
         return handle;
       }),
-    spawnProfile: (input: unknown) =>
+    spawnProfile: (input) =>
       Effect.sync(() => {
         received.push({ method: "spawnProfile", input });
         return handle;
       }),
-  } as unknown as AgentControl["Service"];
+  } satisfies Pick<AgentControl["Service"], "spawn" | "spawnProfile">;
 
   return Effect.gen(function* () {
     yield* dispatchAgentSpawn({
@@ -80,9 +80,17 @@ it.effect("routes canonical, bare, and legacy session spawn requests explicitly"
 it.effect("rejects conflicting session selectors as a bad request before spawning", () => {
   let spawnCalls = 0;
   const agents = {
-    spawn: () => Effect.sync(() => void (spawnCalls += 1)) as never,
-    spawnProfile: () => Effect.sync(() => void (spawnCalls += 1)) as never,
-  } as unknown as AgentControl["Service"];
+    spawn: () =>
+      Effect.sync(() => {
+        spawnCalls += 1;
+        return handle;
+      }),
+    spawnProfile: () =>
+      Effect.sync(() => {
+        spawnCalls += 1;
+        return handle;
+      }),
+  } satisfies Pick<AgentControl["Service"], "spawn" | "spawnProfile">;
 
   return Effect.gen(function* () {
     const failure = yield* Effect.flip(

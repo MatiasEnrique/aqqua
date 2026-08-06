@@ -34,6 +34,10 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import { AgentControl } from "./Services/AgentControl.ts";
+import {
+  AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
+  hasAgentSpawnSelectorConflict,
+} from "./SpawnRequest.ts";
 
 export const AGENT_API_PREFIX = "/api/agents";
 
@@ -117,12 +121,11 @@ const decodeProfileName = (value: string) =>
 
 const selectorConflict = {
   _tag: CONFLICTING_SELECTORS_TAG,
-  message:
-    "'profile' cannot be combined with 'modelSelection' or 'reasoning'. Choose one selector style.",
+  message: AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
 } as const;
 
 export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(function* (input: {
-  readonly agents: AgentControl["Service"];
+  readonly agents: Pick<AgentControl["Service"], "spawn" | "spawnProfile">;
   readonly parentThreadId: ThreadId;
   readonly body: AgentSpawnRequestType;
 }) {
@@ -132,10 +135,7 @@ export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(functi
     task: body.task,
     ...(body.title === undefined ? {} : { title: body.title }),
   };
-  if (
-    body.profile !== undefined &&
-    (body.modelSelection !== undefined || body.reasoning !== undefined)
-  ) {
+  if (hasAgentSpawnSelectorConflict(body)) {
     return yield* Effect.fail(selectorConflict);
   }
   if (body.profile !== undefined) {
