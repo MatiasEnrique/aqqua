@@ -2,9 +2,16 @@ import * as NodeAssert from "node:assert/strict";
 
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@aqqua/contracts";
+import {
+  DEFAULT_MODEL,
+  ProviderDriverKind,
+  type ProviderSession,
+  ThreadId,
+  TurnId,
+} from "@aqqua/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 
@@ -17,10 +24,34 @@ import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
   hasConfiguredMcpServer,
+  interruptCodexTurn,
   isRecoverableThreadResumeError,
   openCodexThread,
+  shouldSteerCodexTurn,
+  steerCodexTurn,
+  steerCodexTurnOrStart,
+  turnStartSessionUpdates,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
+
+type TurnControlRequest = <M extends "thread/read" | "turn/interrupt" | "turn/steer">(
+  method: M,
+  payload: CodexRpc.ClientRequestParamsByMethod[M],
+) => Effect.Effect<CodexRpc.ClientRequestResponsesByMethod[M], CodexErrors.CodexAppServerError>;
+
+function makeProviderSession(updates: Partial<ProviderSession> = {}): ProviderSession {
+  return {
+    provider: ProviderDriverKind.make("codex"),
+    status: "ready",
+    runtimeMode: "full-access",
+    cwd: "/tmp/project",
+    threadId: ThreadId.make("thread-1"),
+    resumeCursor: { threadId: "provider-thread-1" },
+    createdAt: "2026-04-18T00:00:00.000Z",
+    updatedAt: "2026-04-18T00:00:00.000Z",
+    ...updates,
+  };
+}
 
 describe("CodexSessionRuntimeIdentifierGenerationError", () => {
   it("retains identifier purpose and the random source failure", () => {
@@ -244,6 +275,253 @@ describe("buildTurnStartParams", () => {
       ],
     });
   });
+});
+
+describe("Codex turn control", () => {
+  it.effect("steers a plain prompt into the active turn and reuses its id", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      const session = makeProviderSession({
+        status: "running",
+        activeTurnId,
+        model: "gpt-5.3-codex",
+      });
+      const input = { input: "One more thing" };
+      const calls: Array<{ method: string; payload: unknown }> = [];
+      const request = (<M extends "thread/read" | "turn/interrupt" | "turn/steer">(
+        method: M,
+        payload: CodexRpc.ClientRequestParamsByMethod[M],
+      ) => {
+        calls.push({ method, payload });
+        return Effect.succeed({
+          turnId: "ignored-response-id",
+        } as CodexRpc.ClientRequestResponsesByMethod[M]);
+      }) as TurnControlRequest;
+
+      NodeAssert.equal(shouldSteerCodexTurn(session, input, session.model), true);
+      const returnedTurnId = yield* steerCodexTurn(
+        request,
+        "provider-thread-1",
+        activeTurnId,
+        input.input,
+      );
+
+      NodeAssert.equal(returnedTurnId, activeTurnId);
+      NodeAssert.deepStrictEqual(calls, [
+        {
+          method: "turn/steer",
+          payload: {
+            threadId: "provider-thread-1",
+            expectedTurnId: activeTurnId,
+            input: [{ type: "text", text: "One more thing" }],
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("falls back to turn/start when steering loses the active-turn race", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      const startedTurnId = TurnId.make("started-turn");
+      const mismatch = new CodexErrors.CodexAppServerRequestError({
+        code: -32600,
+        errorMessage: "expected active turn id active-turn but found next-turn",
+      });
+      const request = (() => Effect.fail(mismatch)) as TurnControlRequest;
+      let startCount = 0;
+
+      const result = yield* steerCodexTurnOrStart(
+        request,
+        "provider-thread-1",
+        activeTurnId,
+        "One more thing",
+        () =>
+          Effect.sync(() => {
+            startCount += 1;
+            return startedTurnId;
+          }),
+      );
+
+      NodeAssert.equal(result, startedTurnId);
+      NodeAssert.equal(startCount, 1);
+    }),
+  );
+
+  it.effect("preserves non-mismatch steer failures", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      const failure = new CodexErrors.CodexAppServerRequestError({
+        code: -32603,
+        errorMessage: "Codex App Server unavailable",
+      });
+      const request = (() => Effect.fail(failure)) as TurnControlRequest;
+      let startCount = 0;
+
+      const error = yield* steerCodexTurnOrStart(
+        request,
+        "provider-thread-1",
+        activeTurnId,
+        "One more thing",
+        () =>
+          Effect.sync(() => {
+            startCount += 1;
+            return TurnId.make("started-turn");
+          }),
+      ).pipe(Effect.flip);
+
+      NodeAssert.strictEqual(error, failure);
+      NodeAssert.equal(startCount, 0);
+    }),
+  );
+
+  it("keeps idle and non-plain inputs on the turn/start path", () => {
+    const activeTurnId = TurnId.make("active-turn");
+
+    NodeAssert.equal(
+      shouldSteerCodexTurn(makeProviderSession(), { input: "Start" }, "gpt-5.3-codex"),
+      false,
+    );
+    NodeAssert.equal(
+      shouldSteerCodexTurn(
+        makeProviderSession({ status: "running", activeTurnId, model: "gpt-5.3-codex" }),
+        { input: "Use this", attachments: [{ type: "image", url: "data:image/png;base64,x" }] },
+        "gpt-5.3-codex",
+      ),
+      false,
+    );
+    NodeAssert.deepStrictEqual(
+      turnStartSessionUpdates(makeProviderSession(), TurnId.make("started-turn"), undefined),
+      { status: "running", activeTurnId: TurnId.make("started-turn") },
+    );
+    NodeAssert.deepStrictEqual(
+      turnStartSessionUpdates(
+        makeProviderSession({ status: "running", activeTurnId }),
+        TurnId.make("queued-turn"),
+        undefined,
+      ),
+      {},
+    );
+  });
+
+  it.effect("interrupts a matching active turn on the first request", () =>
+    Effect.gen(function* () {
+      const activeTurnId = TurnId.make("active-turn");
+      const sessionRef = yield* Ref.make(makeProviderSession({ status: "running", activeTurnId }));
+      const calls: Array<{ method: string; payload: unknown }> = [];
+      const request = (<M extends "thread/read" | "turn/interrupt" | "turn/steer">(
+        method: M,
+        payload: CodexRpc.ClientRequestParamsByMethod[M],
+      ) => {
+        calls.push({ method, payload });
+        return Effect.succeed(undefined as unknown as CodexRpc.ClientRequestResponsesByMethod[M]);
+      }) as TurnControlRequest;
+
+      yield* interruptCodexTurn(request, sessionRef, "provider-thread-1", activeTurnId);
+
+      NodeAssert.deepStrictEqual(calls, [
+        {
+          method: "turn/interrupt",
+          payload: { threadId: "provider-thread-1", turnId: activeTurnId },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("re-reads and retries an interrupt with Codex's active turn id", () =>
+    Effect.gen(function* () {
+      const staleTurnId = TurnId.make("stale-turn");
+      const recoveredTurnId = TurnId.make("recovered-turn");
+      const sessionRef = yield* Ref.make(
+        makeProviderSession({ status: "running", activeTurnId: staleTurnId }),
+      );
+      const calls: Array<{ method: string; payload: unknown }> = [];
+      let interruptCount = 0;
+      const mismatch = new CodexErrors.CodexAppServerRequestError({
+        code: -32600,
+        errorMessage: `expected active turn id ${recoveredTurnId} but found ${staleTurnId}`,
+      });
+      const threadReadResponse = {
+        thread: {
+          id: "provider-thread-1",
+          turns: [
+            { id: "completed-turn", status: "completed", items: [] },
+            { id: recoveredTurnId, status: "inProgress", items: [] },
+          ],
+        },
+      } as unknown as CodexRpc.ClientRequestResponsesByMethod["thread/read"];
+      const request = (<M extends "thread/read" | "turn/interrupt" | "turn/steer">(
+        method: M,
+        payload: CodexRpc.ClientRequestParamsByMethod[M],
+      ) => {
+        calls.push({ method, payload });
+        if (method === "thread/read") {
+          return Effect.succeed(threadReadResponse as CodexRpc.ClientRequestResponsesByMethod[M]);
+        }
+        interruptCount += 1;
+        return interruptCount === 1
+          ? Effect.fail(mismatch)
+          : Effect.succeed(undefined as unknown as CodexRpc.ClientRequestResponsesByMethod[M]);
+      }) as TurnControlRequest;
+
+      yield* interruptCodexTurn(request, sessionRef, "provider-thread-1", staleTurnId);
+
+      NodeAssert.deepStrictEqual(
+        calls.map((call) => call.method),
+        ["turn/interrupt", "thread/read", "turn/interrupt"],
+      );
+      NodeAssert.deepStrictEqual(calls.at(-1)?.payload, {
+        threadId: "provider-thread-1",
+        turnId: recoveredTurnId,
+      });
+      NodeAssert.equal((yield* Ref.get(sessionRef)).activeTurnId, recoveredTurnId);
+    }),
+  );
+
+  it.effect("retries an interrupt only once and preserves the original mismatch error", () =>
+    Effect.gen(function* () {
+      const staleTurnId = TurnId.make("stale-turn");
+      const recoveredTurnId = TurnId.make("recovered-turn");
+      const sessionRef = yield* Ref.make(
+        makeProviderSession({ status: "running", activeTurnId: staleTurnId }),
+      );
+      const calls: Array<string> = [];
+      const originalMismatch = new CodexErrors.CodexAppServerRequestError({
+        code: -32600,
+        errorMessage: `expected active turn id ${recoveredTurnId} but found ${staleTurnId}`,
+      });
+      const retryFailure = new CodexErrors.CodexAppServerRequestError({
+        code: -32603,
+        errorMessage: "retry failed",
+      });
+      let interruptCount = 0;
+      const request = (<M extends "thread/read" | "turn/interrupt" | "turn/steer">(
+        method: M,
+        _payload: CodexRpc.ClientRequestParamsByMethod[M],
+      ) => {
+        calls.push(method);
+        if (method === "thread/read") {
+          return Effect.succeed({
+            thread: {
+              turns: [{ id: recoveredTurnId, status: "inProgress", items: [] }],
+            },
+          } as unknown as CodexRpc.ClientRequestResponsesByMethod[M]);
+        }
+        interruptCount += 1;
+        return Effect.fail(interruptCount === 1 ? originalMismatch : retryFailure);
+      }) as TurnControlRequest;
+
+      const error = yield* interruptCodexTurn(
+        request,
+        sessionRef,
+        "provider-thread-1",
+        staleTurnId,
+      ).pipe(Effect.flip);
+
+      NodeAssert.strictEqual(error, originalMismatch);
+      NodeAssert.deepStrictEqual(calls, ["turn/interrupt", "thread/read", "turn/interrupt"]);
+    }),
+  );
 });
 
 describe("buildCodexDeveloperInstructions", () => {
