@@ -3,6 +3,8 @@ import type { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import { normalizeProjectPathForComparison } from "../lib/projectPaths";
 import {
   createEmptySidebarConversationStateCounts,
+  hasUnacknowledgedDoneState,
+  hasUnseenFailure,
   resolveSidebarConversationAggregateState,
   resolveSidebarConversationSummaryState,
   type SidebarConversationStateCounts,
@@ -52,9 +54,9 @@ export interface SidebarWorktreeGroup {
 export type SidebarWorktreeStateCounts = SidebarConversationStateCounts;
 
 /**
- * The one state a worktree reports, in the order it is resolved. A failure
- * outranks everything: it is the only state that needs a human *and* says
- * something already went wrong.
+ * The one state a worktree reports, in the order it is resolved. An
+ * unacknowledged failure outranks everything: it is the only state that needs
+ * a human *and* says something already went wrong.
  */
 export type SidebarWorktreeSummaryState = "failed" | "needsInput" | "working" | "done" | "settled";
 
@@ -73,7 +75,13 @@ export function resolveSidebarWorktreeSummaryState(input: {
   readonly conversations: readonly ThreadPresentationInput[];
   readonly settledCount: number;
 }): SidebarWorktreeSummaryState | null {
-  const states = new Set(input.conversations.map(resolveSidebarConversationAggregateState));
+  const states = new Set<SidebarWorktreeSummaryState>();
+  for (const conversation of input.conversations) {
+    const state = resolveSidebarConversationAggregateState(conversation);
+    if (state === "failed" && !hasUnseenFailure(conversation)) continue;
+    if (state === "done" && !hasUnacknowledgedDoneState(conversation)) continue;
+    states.add(state);
+  }
   for (const state of WORKTREE_LIVE_SUMMARY_PRIORITY) {
     if (states.has(state)) return state;
   }
@@ -301,6 +309,7 @@ export function buildSidebarWorktreeGroups(input: {
   readonly settled?: readonly EnvironmentThreadShell[];
   readonly drafts: readonly WorktreeDraftRow[];
   readonly projectsByKey: ReadonlyMap<string, ProjectWorkspace>;
+  readonly lastVisitedAtByThreadKey?: ReadonlyMap<string, string>;
 }): SidebarWorktreeGroup[] {
   const groups = new Map<
     string,
@@ -474,6 +483,10 @@ export function buildSidebarWorktreeGroups(input: {
       const unsettledConversationCount =
         group.drafts.length + group.active.length + group.snoozed.length;
       const unsettled = [...group.active, ...group.snoozed];
+      const conversations = unsettled.map((thread) => ({
+        ...thread,
+        lastVisitedAt: input.lastVisitedAtByThreadKey?.get(`${thread.environmentId}:${thread.id}`),
+      }));
       return {
         key,
         environmentId: group.environmentId,
@@ -485,7 +498,7 @@ export function buildSidebarWorktreeGroups(input: {
         isProjectCheckout: group.isProjectCheckout,
         stateCounts,
         summaryState: resolveSidebarWorktreeSummaryState({
-          conversations: unsettled,
+          conversations,
           settledCount: group.settledCount,
         }),
         mergedChangeRequestNumber: group.mergedChangeRequestNumber,
