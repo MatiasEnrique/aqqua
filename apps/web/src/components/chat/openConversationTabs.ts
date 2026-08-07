@@ -27,6 +27,39 @@ export function openConversationTab(keys: readonly string[], key: string): strin
   return keys.includes(key) ? [...keys] : [...keys, key];
 }
 
+/**
+ * Opens sub-agent threads that appeared after the previous shell snapshot.
+ *
+ * Worktree-card mode has no individual conversation rows, so a child spawned
+ * from an open orchestrator needs to become a regular tab or it has no visible
+ * entry point. Looking at the transition, rather than every current child,
+ * prevents restored or newly loaded history from unexpectedly filling the
+ * strip.
+ */
+export function openNewSubAgentConversationTabs(input: {
+  readonly openKeys: readonly string[];
+  readonly previousThreads: readonly EnvironmentThreadShell[];
+  readonly threads: readonly EnvironmentThreadShell[];
+}): string[] {
+  const previousKeys = new Set(
+    input.previousThreads.map((thread) =>
+      conversationTabKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+  );
+  const next = [...input.openKeys];
+  const openKeys = new Set(next);
+  for (const thread of input.threads) {
+    const parentThreadId = thread.parentThreadId ?? null;
+    if (parentThreadId === null) continue;
+    const key = conversationTabKey(scopeThreadRef(thread.environmentId, thread.id));
+    if (previousKeys.has(key)) continue;
+    const parentKey = conversationTabKey(scopeThreadRef(thread.environmentId, parentThreadId));
+    if (!openKeys.has(parentKey) || openKeys.has(key)) continue;
+    next.push(key);
+    openKeys.add(key);
+  }
+  return next;
+}
 export type ConversationTab =
   | {
       readonly _tag: "draft";

@@ -5,6 +5,7 @@ import {
   buildConversationTabs,
   conversationTabKey,
   openConversationTab,
+  openNewSubAgentConversationTabs,
   resolveWorktreeFocusTarget,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
@@ -51,6 +52,56 @@ describe("openConversationTab", () => {
   });
 });
 
+describe("openNewSubAgentConversationTabs", () => {
+  it("opens a newly spawned sub-agent beside its already-open parent", () => {
+    const parent = thread("parent");
+    const child = thread("child", { parentThreadId: "parent" } as never);
+
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [key("parent")],
+        previousThreads: [parent],
+        threads: [parent, child],
+      }),
+    ).toEqual([key("parent"), key("child")]);
+  });
+
+  it("does not turn a newly loaded root conversation into an open tab", () => {
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [key("parent")],
+        previousThreads: [thread("parent")],
+        threads: [thread("parent"), thread("unrelated")],
+      }),
+    ).toEqual([key("parent")]);
+  });
+
+  it("does not open an existing sub-agent from restored history", () => {
+    const parent = thread("parent");
+    const child = thread("child", { parentThreadId: "parent" } as never);
+
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [key("parent")],
+        previousThreads: [parent, child],
+        threads: [parent, child],
+      }),
+    ).toEqual([key("parent")]);
+  });
+
+  it("does not attach a child to a same-id parent from another environment", () => {
+    const parent = thread("parent", { environmentId: "other-env" } as never);
+    const child = thread("child", { parentThreadId: "parent" } as never);
+
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [conversationTabKey({ environmentId: "other-env", threadId: "parent" } as never)],
+        previousThreads: [parent],
+        threads: [parent, child],
+      }),
+    ).toEqual([conversationTabKey({ environmentId: "other-env", threadId: "parent" } as never)]);
+  });
+});
 describe("buildConversationTabs", () => {
   it("keeps the order tabs were opened in and marks the routed one active", () => {
     const tabs = buildConversationTabs({

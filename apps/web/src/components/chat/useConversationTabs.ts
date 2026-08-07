@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
   useAllEnvironmentShellsBootstrapped,
@@ -15,6 +15,7 @@ import {
   type ConversationTab,
   conversationTabKey,
   openConversationTab,
+  openNewSubAgentConversationTabs,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
 
@@ -41,6 +42,7 @@ export function useConversationTabs(input: {
   // Pruning mid-bootstrap would wipe the restored strip on every cold start.
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const draftsByDraftId = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const previousThreadsRef = useRef<typeof threads | null>(null);
 
   const existingThreadKeys = useMemo(
     () => new Set(threads.map((thread) => `${thread.environmentId}:${thread.id}`)),
@@ -67,6 +69,20 @@ export function useConversationTabs(input: {
       openConversationTab(useUiStateStore.getState().openConversationTabKeys, routeThreadKey),
     );
   }, [enabled, routeThreadKey, setOpenKeys]);
+
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const previousThreads = previousThreadsRef.current;
+    previousThreadsRef.current = threads;
+    if (!enabled || previousThreads === null) return;
+    const current = useUiStateStore.getState().openConversationTabKeys;
+    const next = openNewSubAgentConversationTabs({
+      openKeys: current,
+      previousThreads,
+      threads,
+    });
+    if (next.length !== current.length) setOpenKeys(next);
+  }, [bootstrapped, enabled, setOpenKeys, threads]);
 
   // Keys outlive their conversation when a thread is deleted or a draft
   // discarded. Rendering already skips them; this keeps the persisted list from
