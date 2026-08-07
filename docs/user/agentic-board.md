@@ -197,9 +197,11 @@ the server state directory), so pipelines never dirty the working tree. Later
 steps receive earlier artifacts only where the template says so — `${artifact}`
 for the previous step's file, `${artifact:Step name}` for any earlier one.
 Opening a card replaces the regular conversation tabs with one tab per flow
-step. A step's menu exposes its conversation, spawned sub-agents, diff, and,
-after the step succeeds, its artifact. This keeps the chat full-width instead
-of adding another sidebar.
+step. Every step stays visible; future steps are muted and become interactive
+only when the card reaches them. A started step's menu exposes its
+conversation, spawned sub-agents, and, after the step succeeds, its artifact.
+This keeps the chat full-width without creating conversations early or adding
+another sidebar.
 Artifacts are not shown as drafts while the agent is still working. You can
 edit a finished artifact in place; edits made while a card is paused are exactly
 what the next step reads.

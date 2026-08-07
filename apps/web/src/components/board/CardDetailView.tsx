@@ -15,7 +15,6 @@ import {
 import type { CardId, EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import { InfoIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { threadPanelOwner, useRightPanelStore } from "../../rightPanelStore";
 import { boardArtifacts, boardEnvironment, useBoard, useCard } from "../../state/boards";
 import {
   useThreadDetail,
@@ -50,7 +49,6 @@ import {
   buildCardTree,
   type CardSelection,
   type CardTreeArtifactStat,
-  type CardTreeDiffStat,
   type CardTreeThread,
   cardComposerOperation,
   cardThreadRecovery,
@@ -147,7 +145,6 @@ export function CardDetailView({
   const board = useBoard(environmentId, card?.boardId ?? null);
   const nowMs = useRelativeTimeTick();
   const allThreadShells = useThreadShells();
-  const openRightPanel = useRightPanelStore((state) => state.open);
 
   const continueCard = useAtomCommand(boardEnvironment.continueCard);
   const retryCard = useAtomCommand(boardEnvironment.retryCard);
@@ -198,35 +195,6 @@ export function CardDetailView({
   const threadShell = useThreadShell(threadRef);
   const threadDetail = useThreadDetail(threadRef);
   const threadStatus = useThreadStatus(threadRef);
-
-  // The step's diff, from the checkpoints the app already keeps for its diff
-  // panel — every file the step's turns touched, deduped across turns.
-  const diffByThreadId = useMemo(() => {
-    const map = new Map<string, CardTreeDiffStat>();
-    if (threadDetail === null || threadId === null) return map;
-    const byPath = new Map<string, { additions: number; deletions: number }>();
-    for (const checkpoint of threadDetail.checkpoints) {
-      for (const file of checkpoint.files) {
-        const existing = byPath.get(file.path) ?? {
-          additions: 0,
-          deletions: 0,
-        };
-        byPath.set(file.path, {
-          additions: existing.additions + file.additions,
-          deletions: existing.deletions + file.deletions,
-        });
-      }
-    }
-    if (byPath.size === 0) return map;
-    let additions = 0;
-    let deletions = 0;
-    for (const stat of byPath.values()) {
-      additions += stat.additions;
-      deletions += stat.deletions;
-    }
-    map.set(threadId, { filesChanged: byPath.size, additions, deletions });
-    return map;
-  }, [threadDetail, threadId]);
 
   const steps = card?.snapshot?.steps ?? board?.steps ?? [];
   const currentStepIndex = card?.position.kind === "step" ? card.position.stepIndex : null;
@@ -300,11 +268,10 @@ export function CardDetailView({
       card,
       board,
       threads,
-      diffByThreadId,
       artifactByStepIndex,
       nowMs,
     });
-  }, [artifactByStepIndex, board, card, diffByThreadId, nowMs, threads]);
+  }, [artifactByStepIndex, board, card, nowMs, threads]);
 
   const select = useCallback(
     (next: CardSelection) => {
@@ -501,17 +468,7 @@ export function CardDetailView({
     );
   }
 
-  const surfaceTabs = (
-    <FlowStepTabs
-      model={tree}
-      selection={selection}
-      onSelect={select}
-      onOpenDiff={(leaf) => {
-        select({ kind: "step", stepIndex: leaf.stepIndex });
-        openRightPanel(threadPanelOwner(scopeThreadRef(environmentId, leaf.threadId)), "diff");
-      }}
-    />
-  );
+  const surfaceTabs = <FlowStepTabs model={tree} selection={selection} onSelect={select} />;
 
   const confirmation =
     pendingConfirmation === null ? null : (

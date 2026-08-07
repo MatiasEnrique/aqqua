@@ -35,6 +35,16 @@ const model: CardTreeModel = {
       trailing: "28s",
       leaves: [],
     },
+    {
+      stepIndex: 2,
+      name: "Review",
+      label: "3 · Review",
+      state: "pending",
+      status: "idle",
+      threadId: null,
+      trailing: null,
+      leaves: [],
+    },
   ],
   done: { reached: false, trailing: "not reached" },
 };
@@ -42,18 +52,15 @@ const model: CardTreeModel = {
 describe("FlowStepTabs", () => {
   it("replaces the flow rail with horizontal step tabs", () => {
     const markup = renderToStaticMarkup(
-      <FlowStepTabs
-        model={model}
-        selection={{ kind: "step", stepIndex: 1 }}
-        onSelect={() => {}}
-        onOpenDiff={() => {}}
-      />,
+      <FlowStepTabs model={model} selection={{ kind: "step", stepIndex: 1 }} onSelect={() => {}} />,
     );
 
     expect(markup).toContain('aria-label="Flow steps"');
     expect(markup).toContain('data-flow-step-tabbar="true"');
     expect(markup).toContain("1 · Plan");
     expect(markup).toContain("2 · Implement");
+    expect(markup).toContain("3 · Review");
+    expect(markup).toContain('<span aria-disabled="true" aria-label="3 · Review: Not started"');
     expect(markup).toContain('aria-current="step"');
     expect(markup).toContain("animate-status-pulse");
     expect(markup).not.toContain("Open conversations");
@@ -66,7 +73,6 @@ describe("FlowStepTabs", () => {
         model={model}
         selection={{ kind: "artifact", stepIndex: 0 }}
         onSelect={() => {}}
-        onOpenDiff={() => {}}
       />,
     );
 
