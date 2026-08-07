@@ -508,12 +508,12 @@ const SCRIPT_TERMINAL_ROWS = 30;
 /**
  * Slots that let another surface reuse the chat view whole rather than clone
  * it. Flows card detail is the only caller: it hangs the card
- * tree in the rail, swaps the timeline for an artifact document, and puts the
- * card's `Resume ⌄` actions in the composer's primary slot.
+ * steps in the tab strip, swaps the timeline for an artifact document, and
+ * puts the card's `Resume ⌄` actions in the composer's primary slot.
  */
 export interface ChatViewSurfaceSlots {
-  /** Rail rendered left of the message column, under the app's top bar. */
-  leftRail?: ReactNode;
+  /** Replaces the conversation tab strip for an embedded surface such as Flows. */
+  surfaceTabs?: ReactNode;
   /** Replaces the timeline and receives the floating composer's measured inset. */
   timelineOverride?: (contentInsetEndAdjustment: number) => ReactNode;
   /** Extra banners stacked above the composer (card status, sub-agent hint). */
@@ -1200,7 +1200,7 @@ function ChatViewContent(props: ChatViewProps) {
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
-    leftRail,
+    surfaceTabs,
     timelineOverride,
     composerBanners,
     renderComposerIdlePrimaryAction,
@@ -1296,6 +1296,7 @@ function ChatViewContent(props: ChatViewProps) {
   const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const worktreeTabsHeader =
+    surfaceTabs === undefined &&
     resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
   const { tabs: conversationTabs, closeTab: closeConversationTab } = useConversationTabs({
@@ -6342,18 +6343,19 @@ function ChatViewContent(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </header>
-        {worktreeTabsHeader ? (
-          <ConversationTabs
-            tabs={conversationTabs}
-            onSelectThread={navigateToThreadRef}
-            onSelectDraft={navigateToDraftId}
-            onCloseTab={closeConversationTab}
-            onArchiveThread={archiveConversationTab}
-            confirmArchive={confirmThreadArchive}
-            onNewThread={handleNewThreadInActiveWorktree}
-            newThreadLabel={newConversationTabLabel}
-          />
-        ) : null}
+        {surfaceTabs ??
+          (worktreeTabsHeader ? (
+            <ConversationTabs
+              tabs={conversationTabs}
+              onSelectThread={navigateToThreadRef}
+              onSelectDraft={navigateToDraftId}
+              onCloseTab={closeConversationTab}
+              onArchiveThread={archiveConversationTab}
+              confirmArchive={confirmThreadArchive}
+              onNewThread={handleNewThreadInActiveWorktree}
+              newThreadLabel={newConversationTabLabel}
+            />
+          ) : null)}
 
         <ThreadErrorBanner
           error={threadError}
@@ -6376,7 +6378,6 @@ function ChatViewContent(props: ChatViewProps) {
         />
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
-          {leftRail}
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Provider status overlays the timeline without changing its content height. */}

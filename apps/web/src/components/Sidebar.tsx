@@ -24,7 +24,7 @@ import {
   ThreadWorktreeIndicator,
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
-import { CONVERSATION_STATE_PRESENTATIONS } from "./conversationStatePresentation";
+import { StatusIndicator } from "./StatusIndicator";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
@@ -876,8 +876,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                   />
                 }
               >
-                <TerminalIcon
-                  className={`size-3 ${terminalStatus.pulse ? "animate-status-pulse" : ""}`}
+                <StatusIndicator
+                  label={terminalStatus.label}
+                  className={terminalStatus.colorClass}
+                  pulse={terminalStatus.pulse}
+                  glyph={<TerminalIcon className="size-3" />}
                 />
               </TooltipTrigger>
               <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
@@ -2446,10 +2449,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 }
               >
                 <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0">
-                  {(() => {
-                    const Icon = CONVERSATION_STATE_PRESENTATIONS[projectStatus.state].icon;
-                    return <Icon aria-hidden className="size-3.5 shrink-0" />;
-                  })()}
+                  <StatusIndicator
+                    state={projectStatus.state}
+                    label={projectStatus.label}
+                    size="size-2"
+                    className={projectStatus.colorClass}
+                  />
                 </span>
                 <ChevronRightIcon className="absolute inset-0 m-auto size-3.5 text-muted-foreground/70 opacity-0 transition-opacity duration-150 group-hover/project-header:opacity-100" />
               </TooltipTrigger>

@@ -1,4 +1,10 @@
 import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
+import {
+  Children,
+  type MouseEvent as ReactMouseEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -8,7 +14,8 @@ vi.mock("../ProjectFavicon", () => ({
   ProjectFavicon: ({ cwd }: { cwd: string }) => <span data-project-favicon={cwd} />,
 }));
 
-const { SidebarProjectScopeChips } = await import("./SidebarProjectScopeChips");
+const { projectKeysFromScopeSelection, SidebarProjectScopeChips, SidebarProjectScopePopup } =
+  await import("./SidebarProjectScopeChips");
 
 const project = (name: string): SidebarProjectSnapshot =>
   ({
@@ -32,6 +39,28 @@ const render = (selected: readonly string[]) =>
       onProjectContextMenu={() => {}}
     />,
   );
+
+const renderPopup = (input?: {
+  readonly selected?: readonly SidebarProjectSnapshot[];
+  readonly onSelectionChange?: (projectKeys: readonly string[]) => void;
+  readonly onProjectActions?: (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    project: SidebarProjectSnapshot,
+  ) => void;
+  readonly onRequestClose?: () => void;
+}) =>
+  SidebarProjectScopePopup({
+    scopedProjectGroups: input?.selected ?? [projectGroups[0]!],
+    onSelectionChange: input?.onSelectionChange ?? (() => {}),
+    onProjectActions: input?.onProjectActions ?? (() => {}),
+    onRequestClose: input?.onRequestClose ?? (() => {}),
+  }) as ReactElement<{ readonly children: ReactNode }>;
+
+function popupChildren(input?: Parameters<typeof renderPopup>[0]) {
+  return Children.toArray(renderPopup(input).props.children) as ReadonlyArray<
+    ReactElement<{ readonly children: ReactNode }>
+  >;
+}
 
 describe("SidebarProjectScopeChips", () => {
   it("reads as every project when nothing is selected", () => {
@@ -78,5 +107,48 @@ describe("SidebarProjectScopeChips", () => {
     // both move, so the icon is the only stable thing to scan for.
     expect(render([])).toContain("lucide-folder");
     expect(render(["docs"])).toContain("lucide-folder");
+  });
+
+  it("maps combobox value changes to project keys", () => {
+    expect(projectKeysFromScopeSelection([projectGroups[2]!, projectGroups[0]!])).toEqual([
+      "docs",
+      "aqqua-web",
+    ]);
+  });
+
+  it("clears a non-empty project scope from the popup", () => {
+    const onSelectionChange = vi.fn();
+    const clearRow = popupChildren({ onSelectionChange })[0]!;
+    const clearButton = Children.toArray(clearRow.props.children)[0] as ReactElement<{
+      readonly onClick: () => void;
+    }>;
+
+    clearButton.props.onClick();
+
+    expect(onSelectionChange).toHaveBeenCalledWith([]);
+    expect(popupChildren({ selected: [] })).toHaveLength(2);
+  });
+
+  it("closes the popup before opening project actions", () => {
+    const calls: string[] = [];
+    const stopPropagation = vi.fn();
+    const list = popupChildren({
+      onRequestClose: () => calls.push("close"),
+      onProjectActions: () => calls.push("actions"),
+    })[2]!;
+    const renderItem = list.props.children as unknown as (
+      project: SidebarProjectSnapshot,
+    ) => ReactElement<{ readonly children: ReactNode }>;
+    const item = renderItem(projectGroups[0]!);
+    const actionButton = Children.toArray(item.props.children)[2] as ReactElement<{
+      readonly onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+    }>;
+
+    actionButton.props.onClick({
+      stopPropagation,
+    } as unknown as ReactMouseEvent<HTMLButtonElement>);
+
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(calls).toEqual(["close", "actions"]);
   });
 });

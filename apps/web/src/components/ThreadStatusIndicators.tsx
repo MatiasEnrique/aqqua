@@ -13,7 +13,7 @@ import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { vcsEnvironment } from "../state/vcs";
 import { useUiStateStore } from "../uiStateStore";
 import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
-import { CONVERSATION_STATE_PRESENTATIONS } from "./conversationStatePresentation";
+import { StatusIndicator } from "./StatusIndicator";
 import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
 import type { SidebarThreadSummary } from "../types";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
@@ -181,8 +181,6 @@ export function ThreadStatusLabel({
   status: ThreadStatusPill;
   compact?: boolean;
 }) {
-  const Icon = CONVERSATION_STATE_PRESENTATIONS[status.state].icon;
-
   if (compact) {
     return (
       <Tooltip>
@@ -194,7 +192,12 @@ export function ThreadStatusLabel({
             />
           }
         >
-          <Icon aria-hidden className="size-3.5 shrink-0" />
+          <StatusIndicator
+            state={status.state}
+            label={status.label}
+            size="size-2"
+            className={status.colorClass}
+          />
         </TooltipTrigger>
         <TooltipPopup side="top">{status.label}</TooltipPopup>
       </Tooltip>
@@ -211,8 +214,15 @@ export function ThreadStatusLabel({
           />
         }
       >
-        <Icon aria-hidden className="size-3 shrink-0" />
-        <span className="hidden md:inline">{status.label}</span>
+        <StatusIndicator
+          state={status.state}
+          label={status.label}
+          size="size-2"
+          className={status.colorClass}
+        />
+        <span aria-hidden className="hidden md:inline">
+          {status.label}
+        </span>
       </TooltipTrigger>
       <TooltipPopup side="top">{status.label}</TooltipPopup>
     </Tooltip>
@@ -320,8 +330,11 @@ export function ThreadRowTrailingStatus({ thread }: { thread: SidebarThreadSumma
               />
             }
           >
-            <TerminalIcon
-              className={`size-3 ${terminalStatus.pulse ? "animate-status-pulse" : ""}`}
+            <StatusIndicator
+              label={terminalStatus.label}
+              className={terminalStatus.colorClass}
+              pulse={terminalStatus.pulse}
+              glyph={<TerminalIcon className="size-3" />}
             />
           </TooltipTrigger>
           <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>

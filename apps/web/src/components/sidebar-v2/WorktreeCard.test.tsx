@@ -50,6 +50,8 @@ describe("WorktreeCard", () => {
     const markup = render(group());
 
     expect(markup).toContain('aria-label="Worktree status: Needs input"');
+    expect(markup).toContain("pr-2 pl-1.5");
+    expect(markup).not.toContain("pr-0.5");
     // The counters would say "2 working conversations, 1 needs input …".
     expect(markup).not.toContain("conversations,");
     expect(markup).not.toContain(">2<");

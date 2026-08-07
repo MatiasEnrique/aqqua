@@ -365,7 +365,7 @@ export function SidebarV2View(props: {
                   ? scopeProjectRef(scopedProjectGroup.environmentId, scopedProjectGroup.id)
                   : null
               }
-              projects={projectGroups}
+              projects={scopedProjectGroups.length > 0 ? scopedProjectGroups : projectGroups}
             />
           </Suspense>
         ) : (

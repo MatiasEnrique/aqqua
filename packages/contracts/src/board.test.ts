@@ -302,8 +302,10 @@ it.effect("roundtrips OrchestrationBoard and OrchestrationCard", () =>
       requestedAt: "2026-01-01T00:00:00.000Z",
       operationId: "op-archive",
       purpose: "archive",
+      deleteWorktree: false,
     });
     assert.strictEqual(archiveRequest.purpose, "archive");
+    assert.strictEqual(archiveRequest.deleteWorktree, false);
 
     const historicalDelete = yield* decodeCardOperation({
       kind: "deleting",
@@ -313,6 +315,41 @@ it.effect("roundtrips OrchestrationBoard and OrchestrationCard", () =>
     assert.strictEqual(historicalDelete.kind, "deleting");
     if (historicalDelete.kind === "deleting") {
       assert.strictEqual(historicalDelete.purpose, undefined);
+    }
+
+    const interruptedLegacyDelete = yield* decodeCardOperation({
+      kind: "deleting",
+      operationId: "archive:legacy-cleanup",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      cleanupStage: "conversations-deleted",
+    });
+    assert.strictEqual(interruptedLegacyDelete.kind, "deleting");
+    if (interruptedLegacyDelete.kind === "deleting") {
+      assert.strictEqual(interruptedLegacyDelete.cleanupStage, "conversations-archived");
+    }
+
+    const legacyCleanupEvent = yield* decodeOrchestrationEvent({
+      sequence: 10,
+      eventId: "event-legacy-cleanup",
+      aggregateKind: "card",
+      aggregateId: "card-1",
+      type: "card.cleanup-progressed",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      commandId: "command-legacy-cleanup",
+      causationEventId: null,
+      correlationId: "command-legacy-cleanup",
+      metadata: {},
+      payload: {
+        cardId: "card-1",
+        operationId: "archive:legacy-cleanup",
+        kind: "deleting",
+        stage: "conversations-deleted",
+        progressedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    assert.strictEqual(legacyCleanupEvent.type, "card.cleanup-progressed");
+    if (legacyCleanupEvent.type === "card.cleanup-progressed") {
+      assert.strictEqual(legacyCleanupEvent.payload.stage, "conversations-archived");
     }
 
     // Legacy step-entry ops without threadId default to null.
@@ -538,6 +575,7 @@ it.effect("decodes board and card event payloads and union membership", () =>
       "card.settled",
       "card.unsettled",
       "card.archived",
+      "card.unarchived",
       "card.delete-requested",
       "card.deleted",
     ] as const;

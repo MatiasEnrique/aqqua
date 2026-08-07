@@ -8,6 +8,8 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type OrchestrationThread,
+  type ThreadId,
 } from "@aqqua/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -146,6 +148,34 @@ type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
 
+function rejectCyclicThreadParent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: Extract<OrchestrationCommand, { type: "thread.create" }>;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const parentThreadId = input.command.parentThreadId ?? null;
+  if (parentThreadId === null) return Effect.void;
+
+  const threadsById = new Map(input.readModel.threads.map((thread) => [thread.id, thread]));
+  const visited = new Set<ThreadId>();
+  let currentThreadId: ThreadId | null = parentThreadId;
+
+  while (currentThreadId !== null) {
+    if (currentThreadId === input.command.threadId) {
+      return Effect.fail(
+        new OrchestrationCommandInvariantError({
+          commandType: input.command.type,
+          detail: `Thread '${input.command.threadId}' cannot use parent '${parentThreadId}' because that parent lineage is cyclic.`,
+        }),
+      );
+    }
+    if (visited.has(currentThreadId)) return Effect.void;
+    visited.add(currentThreadId);
+    currentThreadId = threadsById.get(currentThreadId)?.parentThreadId ?? null;
+  }
+
+  return Effect.void;
+}
+
 function cardOperationIdFromCommand(commandId: string): CardOperationId {
   return CardOperationId.make(commandId);
 }
@@ -227,10 +257,32 @@ function cardIsActivelyRunningStep(card: OrchestrationCard): boolean {
   return card.position.kind === "step" && (card.status === null || card.status === "running");
 }
 
+function listArchivedThreadsOwnedByCard(
+  readModel: OrchestrationReadModel,
+  card: OrchestrationCard,
+): ReadonlyArray<OrchestrationThread> {
+  const rootIds = new Set(card.stepThreads.map((entry) => entry.threadId));
+  const threadsById = new Map(readModel.threads.map((thread) => [thread.id, thread]));
+
+  return readModel.threads.filter((thread) => {
+    if (thread.deletedAt !== null || thread.archivedAt === null) return false;
+    const visited = new Set<ThreadId>();
+    let currentThreadId: ThreadId | null = thread.id;
+    while (currentThreadId !== null && !visited.has(currentThreadId)) {
+      if (rootIds.has(currentThreadId)) return true;
+      visited.add(currentThreadId);
+      currentThreadId = threadsById.get(currentThreadId)?.parentThreadId ?? null;
+    }
+    return false;
+  });
+}
+
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
+  archiveLineage = new Set<ThreadId>(),
   commands,
   readModel,
 }: {
+  readonly archiveLineage?: ReadonlySet<ThreadId>;
   readonly commands: ReadonlyArray<OrchestrationCommand>;
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
@@ -244,6 +296,7 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
 
   for (const nextCommand of commands) {
     const decided = yield* decideOrchestrationCommand({
+      archiveLineage,
       command: nextCommand,
       readModel: nextReadModel,
     });
@@ -262,9 +315,11 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
 });
 
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
+  archiveLineage = new Set<ThreadId>(),
   command,
   readModel,
 }: {
+  readonly archiveLineage?: ReadonlySet<ThreadId>;
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
@@ -410,6 +465,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* rejectCyclicThreadParent({ readModel, command });
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -499,9 +555,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const unarchivedDescendants = listUnarchivedDescendantArchiveRoots(
         readModel,
         command.threadId,
-      );
+      ).filter((thread) => !archiveLineage.has(thread.id));
       if (unarchivedDescendants.length > 0) {
+        const nextArchiveLineage = new Set(archiveLineage);
+        nextArchiveLineage.add(command.threadId);
         return yield* decideCommandSequence({
+          archiveLineage: nextArchiveLineage,
           readModel,
           commands: [
             ...unarchivedDescendants.map(
@@ -2023,14 +2082,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             requestedAt: occurredAt,
             operationId: card.operation.operationId,
             purpose: "archive",
+            deleteWorktree: card.operation.deleteWorktree ?? true,
           },
         };
       }
       yield* rejectIfCardHasOperation(card, command.type);
-      if (card.position.kind !== "done" || card.settledAt === null) {
+      if (card.position.kind !== "done") {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Card '${command.cardId}' must be settled to archive.`,
+          detail: `Card '${command.cardId}' must be done to archive.`,
         });
       }
       const occurredAt = yield* nowIso;
@@ -2048,8 +2108,55 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           requestedAt: occurredAt,
           operationId,
           purpose: "archive",
+          deleteWorktree: command.deleteWorktree ?? true,
         },
       };
+    }
+
+    case "card.unarchive": {
+      const card = yield* requireCard({ readModel, command, cardId: command.cardId });
+      if (card.archivedAt === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' is not archived.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const threadEvents = yield* Effect.forEach(
+        listArchivedThreadsOwnedByCard(readModel, card),
+        (thread) =>
+          Effect.gen(function* () {
+            return {
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: thread.id,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "thread.unarchived" as const,
+              payload: {
+                threadId: thread.id,
+                updatedAt: occurredAt,
+              },
+            };
+          }),
+      );
+      return [
+        ...threadEvents,
+        {
+          ...(yield* withEventBase({
+            aggregateKind: "card",
+            aggregateId: command.cardId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "card.unarchived",
+          payload: {
+            cardId: command.cardId,
+            updatedAt: occurredAt,
+          },
+        },
+      ];
     }
 
     case "card.delete": {
@@ -2073,6 +2180,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             requestedAt: occurredAt,
             operationId: card.operation.operationId,
             purpose: card.operation.purpose ?? "delete",
+            deleteWorktree: card.operation.deleteWorktree ?? true,
           },
         };
       }
@@ -2098,6 +2206,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           requestedAt: occurredAt,
           operationId,
           purpose: "delete",
+          deleteWorktree: true,
         },
       };
     }

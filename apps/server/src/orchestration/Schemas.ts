@@ -3,6 +3,7 @@ import {
   BoardDeletedPayload as ContractsBoardDeletedPayloadSchema,
   BoardUpdatedPayload as ContractsBoardUpdatedPayloadSchema,
   CardArchivedPayload as ContractsCardArchivedPayloadSchema,
+  CardUnarchivedPayload as ContractsCardUnarchivedPayloadSchema,
   CardCancelRequestedPayload as ContractsCardCancelRequestedPayloadSchema,
   CardCleanupProgressedPayload as ContractsCardCleanupProgressedPayloadSchema,
   CardCompletedPayload as ContractsCardCompletedPayloadSchema,
@@ -102,5 +103,6 @@ export const CardCleanupProgressedPayload = ContractsCardCleanupProgressedPayloa
 export const CardSettledPayload = ContractsCardSettledPayloadSchema;
 export const CardUnsettledPayload = ContractsCardUnsettledPayloadSchema;
 export const CardArchivedPayload = ContractsCardArchivedPayloadSchema;
+export const CardUnarchivedPayload = ContractsCardUnarchivedPayloadSchema;
 export const CardDeleteRequestedPayload = ContractsCardDeleteRequestedPayloadSchema;
 export const CardDeletedPayload = ContractsCardDeletedPayloadSchema;

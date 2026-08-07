@@ -7,9 +7,12 @@ import {
   type CardStatus,
   CommandId,
   type OrchestrationCard,
+  type OrchestrationSession,
+  type ThreadId,
 } from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -19,6 +22,7 @@ import { boardArtifactsRoot } from "../../boardArtifacts.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as TerminalManager from "../../terminal/Manager.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { buildBoardCardTitleMessage } from "../../textGeneration/TextGenerationPrompts.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -26,9 +30,10 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import {
   deleteWorktreeOwned,
   listActiveThreadsForWorktreePath,
+  selectTopLevelThreadsForBatchAction,
 } from "../Services/WorktreeDeletion.ts";
 import { WorktreePathCoordination } from "../Services/WorktreePathCoordination.ts";
-import { cardOperationMatches } from "./BoardReactorState.ts";
+import { cardOperationMatches, collectThreadLineage } from "./BoardReactorState.ts";
 import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
 
 export const makeBoardCardResourceSaga = Effect.gen(function* () {
@@ -44,9 +49,46 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const textGeneration = yield* TextGeneration;
   const pathCoordination = yield* WorktreePathCoordination;
+  const terminalManager = yield* Effect.serviceOption(TerminalManager.TerminalManager);
 
   const dispatch = (command: Parameters<typeof orchestrationEngine.dispatch>[0]) =>
     orchestrationEngine.dispatch(command);
+
+  const archiveThreadWithCleanup = Effect.fn("BoardCardResourceSaga.archiveThreadWithCleanup")(
+    function* (
+      threadId: ThreadId,
+      knownSession?: OrchestrationSession | null,
+      archiveCommandId?: CommandId,
+    ) {
+      const session =
+        knownSession === undefined
+          ? yield* projectionSnapshotQuery.getThreadShellById(threadId).pipe(
+              Effect.map(
+                Option.match({
+                  onNone: () => null,
+                  onSome: (thread) => thread.session,
+                }),
+              ),
+            )
+          : knownSession;
+      if (session !== null && session.status !== "stopped") {
+        yield* dispatch({
+          type: "thread.session.stop",
+          commandId: yield* serverCommandId("stop-card-thread"),
+          threadId,
+          createdAt: yield* Effect.map(DateTime.now, DateTime.formatIso),
+        });
+      }
+      if (Option.isSome(terminalManager)) {
+        yield* terminalManager.value.close({ threadId });
+      }
+      yield* dispatch({
+        type: "thread.archive",
+        commandId: archiveCommandId ?? (yield* serverCommandId("archive-card-thread")),
+        threadId,
+      });
+    },
+  );
 
   const setCardStatus = Effect.fn("BoardCardResourceSaga.setCardStatus")(function* (
     cardId: CardId,
@@ -177,6 +219,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
       }
 
       const isArchive = cleanupOperation?.purpose === "archive";
+      const preserveWorktree = isArchive && cleanupOperation?.deleteWorktree === false;
       const operationLabel = isArchive ? "Archive" : "Delete";
       const failCleanup = (reason: string) => failCardOperation(card, reason);
       let cleanupStage = cleanupOperation?.cleanupStage ?? "pending";
@@ -186,7 +229,51 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
         cleanupStage = "cleanup-started";
       }
 
-      if (
+      if (isArchive && cleanupStage === "cleanup-started") {
+        const [live, archived] = yield* Effect.all([
+          projectionSnapshotQuery.getShellSnapshot(),
+          projectionSnapshotQuery.getArchivedShellSnapshot(),
+        ]);
+        const lineage = collectThreadLineage(
+          card.stepThreads.map((entry) => entry.threadId),
+          [...live.threads, ...archived.threads].map((thread) => ({
+            id: thread.id,
+            parentThreadId: thread.parentThreadId ?? null,
+            session: thread.session,
+            archivedAt: thread.archivedAt,
+          })),
+        );
+        const archiveRoots = selectTopLevelThreadsForBatchAction(
+          lineage.filter((member) => member.archivedAt === null),
+        );
+        for (const member of archiveRoots) {
+          const archiveResult = yield* archiveThreadWithCleanup(member.id, member.session).pipe(
+            Effect.result,
+          );
+          if (Result.isFailure(archiveResult)) {
+            yield* failCleanup(
+              `${operationLabel} failed while archiving conversation '${member.id}': ${
+                archiveResult.failure instanceof Error
+                  ? archiveResult.failure.message
+                  : String(archiveResult.failure)
+              }`,
+            );
+            return;
+          }
+        }
+        if (cleanupOperation !== null) {
+          yield* progressCardCleanup(card, cleanupOperation.kind, "conversations-archived");
+        }
+        cleanupStage = "conversations-archived";
+      }
+
+      if (preserveWorktree && cleanupStage === "conversations-archived") {
+        if (cleanupOperation !== null) {
+          yield* progressCardCleanup(card, cleanupOperation.kind, "worktree-removed");
+        }
+        cleanupStage = "worktree-removed";
+      } else if (
+        !preserveWorktree &&
         card.worktreePath !== null &&
         cleanupStage !== "worktree-removed" &&
         cleanupStage !== "artifacts-removed"
@@ -225,7 +312,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
                 })),
               ),
             dispatchThreadArchive: ({ commandId, threadId }) =>
-              orchestrationEngine.dispatch({ type: "thread.archive", commandId, threadId }).pipe(
+              archiveThreadWithCleanup(threadId, undefined, commandId).pipe(
                 Effect.asVoid,
                 Effect.mapError((error) => ({
                   message: error instanceof Error ? error.message : String(error),
@@ -276,6 +363,7 @@ export const makeBoardCardResourceSaga = Effect.gen(function* () {
           yield* progressCardCleanup(card, cleanupOperation.kind, "worktree-removed");
         }
       } else if (
+        !preserveWorktree &&
         card.worktreePath === null &&
         cleanupStage !== "worktree-removed" &&
         cleanupStage !== "artifacts-removed"

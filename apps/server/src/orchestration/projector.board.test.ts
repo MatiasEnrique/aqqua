@@ -303,6 +303,21 @@ it.effect("projects the card lifecycle without moving position on release-reques
       model,
       makeEvent({
         sequence: 10,
+        type: "card.unarchived",
+        aggregateKind: "card",
+        aggregateId: "card-1",
+        payload: {
+          cardId: "card-1",
+          updatedAt: NOW,
+        },
+      }),
+    );
+    expect(model.cards[0]?.archivedAt).toBeNull();
+
+    model = yield* projectEvent(
+      model,
+      makeEvent({
+        sequence: 11,
         type: "card.delete-requested",
         aggregateKind: "card",
         aggregateId: "card-1",
@@ -408,12 +423,18 @@ it.effect("keeps archive cleanup visible until the final archived receipt", () =
           requestedAt: NOW,
           operationId: "cmd-archive",
           purpose: "archive",
+          deleteWorktree: false,
         },
       }),
     );
     expect(model.cards[0]).toMatchObject({
       archivedAt: null,
-      operation: { kind: "deleting", operationId: "cmd-archive", purpose: "archive" },
+      operation: {
+        kind: "deleting",
+        operationId: "cmd-archive",
+        purpose: "archive",
+        deleteWorktree: false,
+      },
     });
 
     for (const [sequence, stage] of [

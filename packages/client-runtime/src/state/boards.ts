@@ -38,6 +38,8 @@ import {
   type SettleCardInput,
   settleCard,
   type UnsettleCardInput,
+  type UnarchiveCardInput,
+  unarchiveCard,
   type UpdateBoardInput,
   unsettleCard,
   updateBoard,
@@ -61,6 +63,7 @@ export type {
   ResetCardInput,
   RetryCardInput,
   SettleCardInput,
+  UnarchiveCardInput,
   UnsettleCardInput,
   UpdateBoardInput,
 } from "../operations/commands.ts";
@@ -770,6 +773,12 @@ export function createBoardEnvironmentAtoms<R, E>(
     archiveCard: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:card:archive",
       execute: (input: ArchiveCardInput) => archiveCard(input),
+      scheduler: cardScheduler,
+      concurrency: cardConcurrency,
+    }),
+    unarchiveCard: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:card:unarchive",
+      execute: (input: UnarchiveCardInput) => unarchiveCard(input),
       scheduler: cardScheduler,
       concurrency: cardConcurrency,
     }),

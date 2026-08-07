@@ -62,7 +62,7 @@ import {
   resolveCardThreadPresence,
   selectionThreadId,
 } from "./CardDetail.logic";
-import { CardTree } from "./CardTree";
+import { FlowStepTabs } from "./FlowStepTabs";
 
 export interface CardDetailViewProps {
   readonly environmentId: EnvironmentId;
@@ -501,8 +501,8 @@ export function CardDetailView({
     );
   }
 
-  const rail = (
-    <CardTree
+  const surfaceTabs = (
+    <FlowStepTabs
       model={tree}
       selection={selection}
       onSelect={select}
@@ -562,9 +562,9 @@ export function CardDetailView({
 
   if (isCardDeleting(card)) {
     return (
-      <div className="flex h-full min-h-0">
-        {rail}
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+      <div className="flex h-full min-h-0 flex-col">
+        {surfaceTabs}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
           <Trash2Icon aria-hidden className="size-5 text-destructive-foreground" />
           <span className="font-medium text-foreground">
             {card.lastError === null ? "Deleting card…" : "Deletion needs another attempt"}
@@ -586,9 +586,9 @@ export function CardDetailView({
 
   if (card.operation?.kind === "resetting") {
     return (
-      <div className="flex h-full min-h-0">
-        {rail}
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+      <div className="flex h-full min-h-0 flex-col">
+        {surfaceTabs}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
           {card.lastError === null ? (
             <Spinner className="size-5" />
           ) : (
@@ -650,9 +650,9 @@ export function CardDetailView({
           : null,
       ].flatMap((action) => (action === null ? [] : [action]));
       return (
-        <div className="flex h-full min-h-0">
-          {rail}
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+        <div className="flex h-full min-h-0 flex-col">
+          {surfaceTabs}
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
             <InfoIcon aria-hidden className="size-5 text-muted-foreground" />
             <span className="font-medium text-foreground">This flow conversation was removed.</span>
             <span className="max-w-md text-muted-foreground">
@@ -683,9 +683,9 @@ export function CardDetailView({
     // Between Start and the first step thread the server is doing real work
     // (worktree, checkout, setup script) — show that instead of a dead pane.
     return (
-      <div className="flex h-full min-h-0">
-        {rail}
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
+      <div className="flex h-full min-h-0 flex-col">
+        {surfaceTabs}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
           {presence === "unreleased" ? (
             "This card has not been released yet — start it from the flow."
           ) : (
@@ -716,7 +716,7 @@ export function CardDetailView({
           shellExists: true,
           status: threadStatus,
         })}
-        leftRail={rail}
+        surfaceTabs={surfaceTabs}
         composerBanners={composerBanners}
         {...(timelineOverride === undefined ? {} : { timelineOverride })}
         {...(renderComposerIdlePrimaryAction === undefined

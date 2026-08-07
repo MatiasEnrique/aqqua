@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import {
   BoardId,
@@ -158,7 +159,7 @@ const CardOperationBase = {
   requestedAt: IsoDateTime,
 } as const;
 
-export const CardCleanupStage = Schema.Literals([
+const CurrentCardCleanupStage = Schema.Literals([
   "pending",
   "cleanup-started",
   "threads-archived",
@@ -166,6 +167,32 @@ export const CardCleanupStage = Schema.Literals([
   "worktree-removed",
   "artifacts-removed",
 ]);
+
+/**
+ * `conversations-deleted` was persisted by pre-archive cleanup operations.
+ * Decode it at the contract boundary so resumed operations and replayed
+ * cleanup-progress events use the current archive-first stage vocabulary.
+ */
+export const CardCleanupStage = Schema.Literals([
+  "pending",
+  "cleanup-started",
+  "threads-archived",
+  "conversations-deleted",
+  "conversations-archived",
+  "worktree-removed",
+  "artifacts-removed",
+]).pipe(
+  Schema.decodeTo(
+    CurrentCardCleanupStage,
+    SchemaTransformation.transformOrFail({
+      decode: (stage) =>
+        Effect.succeed(
+          stage === "conversations-deleted" ? ("conversations-archived" as const) : stage,
+        ),
+      encode: (stage) => Effect.succeed(stage),
+    }),
+  ),
+);
 export type CardCleanupStage = typeof CardCleanupStage.Type;
 
 /**
@@ -211,6 +238,8 @@ export const CardOperation = Schema.Union([
     ...CardOperationBase,
     /** Missing on historical projected rows, which are deletion operations. */
     purpose: Schema.optionalKey(Schema.Literals(["delete", "archive"])),
+    /** Historical archive/delete operations removed their worktree. */
+    deleteWorktree: Schema.optionalKey(Schema.Boolean),
     cleanupStage: Schema.optionalKey(CardCleanupStage),
   }),
 ]);
@@ -504,12 +533,20 @@ export const CardArchivedPayload = Schema.Struct({
 });
 export type CardArchivedPayload = typeof CardArchivedPayload.Type;
 
+export const CardUnarchivedPayload = Schema.Struct({
+  cardId: CardId,
+  updatedAt: IsoDateTime,
+});
+export type CardUnarchivedPayload = typeof CardUnarchivedPayload.Type;
+
 export const CardDeleteRequestedPayload = Schema.Struct({
   cardId: CardId,
   requestedAt: IsoDateTime,
   operationId: Schema.optional(CardOperationId),
   /** Missing on historical events, which are deletion requests. */
   purpose: Schema.optional(Schema.Literals(["delete", "archive"])),
+  /** Missing on historical events, which removed the worktree. */
+  deleteWorktree: Schema.optional(Schema.Boolean),
 });
 export type CardDeleteRequestedPayload = typeof CardDeleteRequestedPayload.Type;
 
@@ -612,10 +649,19 @@ export const CardArchiveCommand = Schema.Struct({
   type: Schema.Literal("card.archive"),
   commandId: CommandId,
   cardId: CardId,
+  /** User choice; omitted internal completion receipts preserve the claim. */
+  deleteWorktree: Schema.optional(Schema.Boolean),
   /** Internal completion receipt; omitted by user-issued archive commands. */
   operationId: Schema.optional(CardOperationId),
 });
 export type CardArchiveCommand = typeof CardArchiveCommand.Type;
+
+export const CardUnarchiveCommand = Schema.Struct({
+  type: Schema.Literal("card.unarchive"),
+  commandId: CommandId,
+  cardId: CardId,
+});
+export type CardUnarchiveCommand = typeof CardUnarchiveCommand.Type;
 
 export const CardDeleteCommand = Schema.Struct({
   type: Schema.Literal("card.delete"),

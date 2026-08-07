@@ -3,10 +3,7 @@ import { ArchiveIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
-import {
-  conversationStateDotClassName,
-  SIDEBAR_STATE_PRESENTATIONS,
-} from "../sidebar-v2/SidebarStatusPresentations";
+import { StatusIndicator } from "../StatusIndicator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ConversationTab } from "./openConversationTabs";
 
@@ -139,13 +136,7 @@ function ConversationTabShell(props: {
           {tab._tag === "draft" ? (
             <SquarePenIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
           ) : (
-            <span
-              aria-hidden
-              className={cn(
-                conversationStateDotClassName({ state: tab.state, size: "size-1.5" }),
-                SIDEBAR_STATE_PRESENTATIONS[tab.state].className,
-              )}
-            />
+            <StatusIndicator state={tab.state} size="size-1.5" />
           )}
           <span className="max-w-44 truncate">{tab.title}</span>
         </button>

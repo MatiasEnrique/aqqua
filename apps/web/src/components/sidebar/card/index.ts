@@ -20,14 +20,7 @@ export {
   SidebarCardDescriptionInput,
   type SidebarCardDescriptionTone,
 } from "./SidebarCardDescription";
-export {
-  FlowCardBranch,
-  FlowCardFailureNote,
-  FlowCardProgress,
-  FlowCardStateBadge,
-  FlowCardStateDot,
-  FlowCardStatusLine,
-} from "./SidebarCardFlows";
+export { FlowCardBranch, FlowCardFailureNote, FlowCardStateBadge } from "./SidebarCardFlows";
 export { SidebarCardProvider } from "./SidebarCardProvider";
 export {
   SidebarCardSubThreadChevron,

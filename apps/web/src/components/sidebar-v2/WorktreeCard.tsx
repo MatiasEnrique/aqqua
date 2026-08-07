@@ -43,7 +43,7 @@ export function WorktreeCard(props: {
     <li data-thread-selection-safe data-testid={`worktree-card-${group.key}`} className="list-none">
       <div
         className={cn(
-          "flex h-8 items-center gap-1.5 rounded-lg pr-0.5 pl-1.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+          "flex h-8 items-center gap-1.5 rounded-lg pr-2 pl-1.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
           // Selection is a *tinted* surface, not a lifted white one: the
           // registry sits on the sidebar's own ground, and hover is the same
           // material at half strength so the two never read as one state.

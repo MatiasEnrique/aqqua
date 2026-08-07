@@ -439,6 +439,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requestedAt: now,
           operationId: "op-archive" as never,
           purpose: "archive",
+          deleteWorktree: false,
         },
       });
       yield* projectionPipeline.projectEvent(archiveRequested);
@@ -465,6 +466,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE card_id = 'card-1'
       `;
       assert.ok(archivingRows[0]?.operationJson?.includes('"purpose":"archive"'));
+      assert.ok(archivingRows[0]?.operationJson?.includes('"deleteWorktree":false'));
 
       const deleted = yield* eventStore.append({
         type: "card.deleted",

@@ -169,7 +169,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
-  --animate-aqqua-ring-dot: aqqua-ring-dot 1.5s ease-in-out infinite;
   /* Product UI, body, anything at or below 16px. */
   --font-sans:
     "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -261,17 +260,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     100% {
       opacity: 0;
       scale: 2;
-    }
-  }
-  @keyframes aqqua-ring-dot {
-    0%,
-    100% {
-      scale: 1;
-      opacity: 1;
-    }
-    50% {
-      scale: 0.5;
-      opacity: 0.3;
     }
   }
   @keyframes sidebar-working-text {

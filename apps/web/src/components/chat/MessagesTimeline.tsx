@@ -40,8 +40,8 @@ import {
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
-import { AqquaWorkingIcon } from "../AqquaWave";
 import ChatMarkdown from "../ChatMarkdown";
+import { StatusIndicator } from "../StatusIndicator";
 import {
   BotIcon,
   CheckIcon,
@@ -1202,7 +1202,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   return (
     <div className="py-0.5 pl-1.5">
       <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70 tabular-nums">
-        <AqquaWorkingIcon className="size-4 text-sky-600 dark:text-sky-400" />
+        <StatusIndicator state="working" size="size-2" />
         <span>
           {row.createdAt ? (
             <>

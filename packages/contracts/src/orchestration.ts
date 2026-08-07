@@ -30,6 +30,8 @@ import {
   BoardUpdatedPayload,
   CardArchiveCommand,
   CardArchivedPayload,
+  CardUnarchiveCommand,
+  CardUnarchivedPayload,
   CardCancelCommand,
   CardCancelRequestedPayload,
   CardCleanupProgressCommand,
@@ -928,6 +930,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   CardSettleCommand,
   CardUnsettleCommand,
   CardArchiveCommand,
+  CardUnarchiveCommand,
   CardDeleteCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
@@ -966,6 +969,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   CardSettleCommand,
   CardUnsettleCommand,
   CardArchiveCommand,
+  CardUnarchiveCommand,
   CardDeleteCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
@@ -1111,6 +1115,7 @@ export const OrchestrationEventType = Schema.Literals([
   "card.settled",
   "card.unsettled",
   "card.archived",
+  "card.unarchived",
   "card.delete-requested",
   "card.deleted",
 ]);
@@ -1574,6 +1579,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("card.archived"),
     payload: CardArchivedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("card.unarchived"),
+    payload: CardUnarchivedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -19,6 +19,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { StatusIndicator } from "~/components/StatusIndicator";
 import { cn } from "~/lib/utils";
 
 interface Props {
@@ -273,7 +274,12 @@ export function PreviewChromeRow({
             >
               <Camera className={cn(recording && "text-destructive")} />
               {recording ? (
-                <span className="absolute right-0.5 top-0.5 size-1.5 animate-status-pulse rounded-full bg-destructive" />
+                <StatusIndicator
+                  label="Recording"
+                  pulse
+                  size="size-1.5"
+                  className="absolute right-0.5 top-0.5 text-destructive"
+                />
               ) : null}
             </TooltipTrigger>
             <TooltipPopup>

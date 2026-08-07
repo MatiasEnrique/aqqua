@@ -7219,6 +7219,123 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("stops worktree-owned sessions before removing their worktree", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-worktree-archive");
+      const worktreePath = "/tmp/worktree-archive";
+      const effects: string[] = [];
+      let archived = false;
+      const now = "2026-01-01T00:00:00.000Z";
+      const thread = makeDefaultOrchestrationThreadShell({
+        id: threadId,
+        worktreePath,
+        updatedAt: now,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+      });
+
+      yield* buildAppUnderTest({
+        config: { cwd: "/tmp/repo" },
+        layers: {
+          terminalManager: {
+            close: (input) =>
+              Effect.sync(() => {
+                effects.push(`terminal.close:${input.threadId}`);
+              }),
+          },
+          vcsDriver: {
+            isInsideWorkTree: () => Effect.succeed(true),
+          },
+          gitVcsDriver: {
+            inspectWorktreeRemoval: () =>
+              Effect.succeed({
+                availability: "available",
+                refName: "feature/archive",
+                headCommit: "abc123",
+                baseRef: "main",
+                mergeStatus: "merged",
+                workingTreeStatus: "clean",
+              }),
+            removeWorktree: () =>
+              Effect.sync(() => {
+                effects.push("worktree.remove");
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                effects.push(`dispatch:${command.type}`);
+                if (command.type === "thread.archive") archived = true;
+                return { sequence: effects.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [],
+                threads: archived ? [] : [thread],
+                boards: [],
+                cards: [],
+                updatedAt: now,
+              }),
+            getArchivedShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [],
+                threads: [],
+                boards: [],
+                cards: [],
+                updatedAt: now,
+              }),
+            getThreadShellById: () => Effect.succeed(Option.some(thread)),
+          },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasPrimaryRemote: true,
+                isDefaultRef: false,
+                refName: "feature/archive",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+                hasUpstream: true,
+                aheadCount: 0,
+                behindCount: 0,
+                pr: null,
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsDeleteWorktree]({
+            cwd: "/tmp/repo",
+            path: worktreePath,
+            force: true,
+          }),
+        ),
+      );
+
+      assert.equal(result.status, "completed");
+      assert.deepEqual(effects.slice(0, 4), [
+        "dispatch:thread.archive",
+        "dispatch:thread.session.stop",
+        `terminal.close:${threadId}`,
+        "worktree.remove",
+      ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect(
     "deletes without websocket-owned session stop or terminal close (reactor owns cleanup)",
     () =>

@@ -682,6 +682,7 @@ const makeWsRpcLayer = (
           case "card.cancel-requested":
           case "card.reset":
           case "card.archived":
+          case "card.unarchived":
           case "card.delete-requested":
             return cardUpsert(event.payload.cardId, event.sequence);
           case "card.deleted":
@@ -1366,66 +1367,71 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const dispatchThreadArchiveWithCleanup = Effect.fn("dispatchThreadArchiveWithCleanup")(
+        function* (command: Extract<OrchestrationCommand, { type: "thread.archive" }>) {
+          // Read session state before the archive removes the thread from active
+          // lookups. This helper is shared by user-driven archive and worktree
+          // deletion so neither path can strand a provider session.
+          const shouldStopSession = yield* projectionSnapshotQuery
+            .getThreadShellById(command.threadId)
+            .pipe(
+              Effect.map(
+                Option.match({
+                  onNone: () => false,
+                  onSome: (thread) =>
+                    thread.session !== null && thread.session.status !== "stopped",
+                }),
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+          const result = yield* dispatchNormalizedCommand(command);
+
+          if (shouldStopSession) {
+            yield* Effect.gen(function* () {
+              const stopCommand: Extract<OrchestrationCommand, { type: "thread.session.stop" }> = {
+                type: "thread.session.stop",
+                commandId: CommandId.make(`session-stop-for-archive:${command.commandId}`),
+                threadId: command.threadId,
+                createdAt: yield* nowIso,
+              };
+
+              yield* dispatchNormalizedCommand(stopCommand);
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to stop provider session during archive", {
+                  threadId: command.threadId,
+                  cause,
+                }),
+              ),
+            );
+          }
+
+          yield* terminalManager.close({ threadId: command.threadId }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("failed to close thread terminals after cleanup", {
+                threadId: command.threadId,
+                commandType: command.type,
+                error: error.message,
+              }),
+            ),
+          );
+
+          return result;
+        },
+      );
+
       return WsRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
               const normalizedCommand = yield* normalizeDispatchCommand(command);
-              const shouldStopSessionAfterArchive =
-                normalizedCommand.type === "thread.archive"
-                  ? yield* projectionSnapshotQuery
-                      .getThreadShellById(normalizedCommand.threadId)
-                      .pipe(
-                        Effect.map(
-                          Option.match({
-                            onNone: () => false,
-                            onSome: (thread) =>
-                              thread.session !== null && thread.session.status !== "stopped",
-                          }),
-                        ),
-                        Effect.orElseSucceed(() => false),
-                      )
-                  : false;
-              const result = yield* dispatchNormalizedCommand(normalizedCommand);
-              // Archive keeps its own inline cleanup (optional session stop +
-              // terminal close). Delete must not: ThreadDeletionReactor is the
-              // sole owner of provider-session stop and terminal close after
-              // `thread.deleted` (including deleteHistory).
-              if (normalizedCommand.type === "thread.archive") {
-                if (shouldStopSessionAfterArchive) {
-                  yield* Effect.gen(function* () {
-                    const stopCommand = yield* normalizeDispatchCommand({
-                      type: "thread.session.stop",
-                      commandId: CommandId.make(
-                        `session-stop-for-archive:${normalizedCommand.commandId}`,
-                      ),
-                      threadId: normalizedCommand.threadId,
-                      createdAt: yield* nowIso,
-                    });
-
-                    yield* dispatchNormalizedCommand(stopCommand);
-                  }).pipe(
-                    Effect.catchCause((cause) =>
-                      Effect.logWarning("failed to stop provider session during archive", {
-                        threadId: normalizedCommand.threadId,
-                        cause,
-                      }),
-                    ),
-                  );
-                }
-
-                yield* terminalManager.close({ threadId: normalizedCommand.threadId }).pipe(
-                  Effect.catch((error) =>
-                    Effect.logWarning("failed to close thread terminals after cleanup", {
-                      threadId: normalizedCommand.threadId,
-                      commandType: normalizedCommand.type,
-                      error: error.message,
-                    }),
-                  ),
-                );
-              }
-              return result;
+              // Delete must not use archive cleanup: ThreadDeletionReactor is
+              // the sole owner of provider-session stop and terminal close
+              // after `thread.deleted` (including deleteHistory).
+              return normalizedCommand.type === "thread.archive"
+                ? yield* dispatchThreadArchiveWithCleanup(normalizedCommand)
+                : yield* dispatchNormalizedCommand(normalizedCommand);
             }).pipe(
               Effect.mapError((cause) =>
                 isOrchestrationDispatchCommandError(cause)
@@ -2437,18 +2443,16 @@ const makeWsRpcLayer = (
                     })),
                   ),
                 dispatchThreadArchive: ({ commandId, threadId }) =>
-                  orchestrationEngine
-                    .dispatch({
-                      type: "thread.archive",
-                      commandId,
-                      threadId,
-                    })
-                    .pipe(
-                      Effect.asVoid,
-                      Effect.mapError((error) => ({
-                        message: error instanceof Error ? error.message : String(error),
-                      })),
-                    ),
+                  dispatchThreadArchiveWithCleanup({
+                    type: "thread.archive",
+                    commandId,
+                    threadId,
+                  }).pipe(
+                    Effect.asVoid,
+                    Effect.mapError((error) => ({
+                      message: error instanceof Error ? error.message : String(error),
+                    })),
+                  ),
                 allocateCommandId: (tag) =>
                   serverCommandId(tag).pipe(
                     Effect.mapError((error) => ({

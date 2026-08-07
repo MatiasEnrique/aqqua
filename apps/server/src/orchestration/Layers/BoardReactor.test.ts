@@ -3368,6 +3368,47 @@ describe("BoardReactor", () => {
     ),
   );
 
+  it.effect("archive can preserve the worktree while archiving every card conversation", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* completeAndSettleCard(harness);
+        const before = yield* harness.readModel;
+        const cardBefore = before.cards.find((entry) => entry.id === harness.cardId)!;
+        const ownedThreadIds = cardBefore.stepThreads.map((entry) => entry.threadId);
+        const liveOwnedThreadId = ownedThreadIds[0]!;
+        yield* harness.sessionSet(liveOwnedThreadId, "running", TurnId.make("turn-archive-live"));
+        yield* harness.drain;
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-card-archive-keep-worktree"),
+          cardId: harness.cardId,
+          deleteWorktree: false,
+        });
+        yield* harness.drain;
+
+        const after = yield* harness.readModel;
+        const cardAfter = after.cards.find((entry) => entry.id === harness.cardId)!;
+        expect(cardAfter).toMatchObject({
+          archivedAt: expect.any(String),
+          operation: null,
+          worktreePath: harness.worktreePath,
+        });
+        expect(harness.removeWorktree).not.toHaveBeenCalled();
+        for (const threadId of ownedThreadIds) {
+          expect(after.threads.find((thread) => thread.id === threadId)?.archivedAt).not.toBeNull();
+        }
+        expect(
+          (yield* harness.readEvents).some(
+            (event) =>
+              event.type === "thread.session-stop-requested" &&
+              event.aggregateId === liveOwnedThreadId,
+          ),
+        ).toBe(true);
+      }),
+    ),
+  );
+
   it.effect("archive worktree failure stays visible and resumes the same cleanup claim", () =>
     withBoardReactorHarness({ removeWorktreeFails: true }, (harness) =>
       Effect.gen(function* () {

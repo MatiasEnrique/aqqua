@@ -1,6 +1,5 @@
 import autoAnimate from "@formkit/auto-animate";
 import {
-  cardStepNames,
   groupBoardCards,
   isCardDeleting,
   selectBoardCards,
@@ -27,11 +26,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import type { BoardEditorSubmit } from "./BoardEditorDialog";
 import { boardCommandFailureDescription, reportBoardCommandResult } from "./boardCommandFeedback";
-import {
-  cardNeedsYou,
-  sidebarBoardChoiceAfterSettle,
-  sidebarFallbackBoard,
-} from "./BoardRunTable.logic";
+import { cardNeedsYou } from "./BoardRunTable.logic";
 import type { CardCreateSubmit } from "./CardCreateDialog";
 
 export type BoardEditorTarget = {
@@ -60,46 +55,68 @@ export function useSidebarProjectBoardController({
   const updateBoard = useAtomCommand(boardEnvironment.updateBoard);
   const createCard = useAtomCommand(boardEnvironment.createCard);
   const releaseCard = useAtomCommand(boardEnvironment.releaseCard);
-  const settleCard = useAtomCommand(boardEnvironment.settleCard);
   const unsettleCard = useAtomCommand(boardEnvironment.unsettleCard);
+  const archiveCard = useAtomCommand(boardEnvironment.archiveCard);
+  const unarchiveCard = useAtomCommand(boardEnvironment.unarchiveCard);
   const deleteCard = useAtomCommand(boardEnvironment.deleteCard);
-  const [chosenBoard, setChosenBoard] = useState<"all" | string | null>(null);
+  // Empty is the resting "All flows" scope, matching the project multi-select.
+  const [chosenBoardIds, setChosenBoardIds] = useState<ReadonlyArray<BoardId>>([]);
   const [editorTarget, setEditorTarget] = useState<BoardEditorTarget | null>(null);
   const [cardDialogOpen, setCardDialogOpen] = useState(false);
   const [settledCollapsed, setSettledCollapsed] = useState(false);
-  const [navigateAfterSettledCardId, setNavigateAfterSettledCardId] = useState<CardId | null>(null);
+  const [archivedCollapsed, setArchivedCollapsed] = useState(true);
   const [navigateAfterDeletedCard, setNavigateAfterDeletedCard] = useState<CardId | null>(null);
+  const [navigateAfterArchivedCard, setNavigateAfterArchivedCard] = useState<CardId | null>(null);
+  const [pendingArchive, setPendingArchive] = useState<{
+    id: CardId;
+    title: string;
+    deleteWorktree: boolean;
+  } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     id: CardId;
     title: string;
   } | null>(null);
-  const [pendingCardIds, setPendingCardIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingCardIds, setPendingCardIds] = useState<ReadonlySet<CardId>>(() => new Set());
   const routedBoardId = useMemo(() => {
     if (selectedCardId === null) return null;
     return projectCards.find((card) => card.id === selectedCardId)?.boardId ?? null;
   }, [projectCards, selectedCardId]);
-  const isAllBoards = chosenBoard === "all" && boards.length > 0;
-  const fallbackBoard = useMemo(
-    () => sidebarFallbackBoard(boards, projectCards),
-    [boards, projectCards],
-  );
-  const board = isAllBoards
-    ? null
-    : (boards.find((candidate) => candidate.id === chosenBoard) ??
-      boards.find((candidate) => candidate.id === routedBoardId) ??
-      fallbackBoard);
-  const boardById = useMemo(
-    () => new Map(boards.map((candidate) => [candidate.id as string, candidate])),
-    [boards],
-  );
   const visibleBoards = useMemo(
-    () => (isAllBoards ? boards : board === null ? [] : [board]),
-    [board, boards, isAllBoards],
+    () =>
+      chosenBoardIds.length === 0
+        ? boards
+        : boards.filter((candidate) => chosenBoardIds.includes(candidate.id)),
+    [boards, chosenBoardIds],
+  );
+  useEffect(() => {
+    if (chosenBoardIds.length === 0) return;
+    const liveIds = new Set(boards.map((candidate) => candidate.id));
+    const next = chosenBoardIds.filter((id) => liveIds.has(id));
+    if (next.length !== chosenBoardIds.length) setChosenBoardIds(next);
+  }, [boards, chosenBoardIds]);
+  const board =
+    visibleBoards.length === 1
+      ? (visibleBoards[0] ?? null)
+      : routedBoardId === null
+        ? null
+        : (visibleBoards.find((candidate) => candidate.id === routedBoardId) ?? null);
+  const boardById = useMemo(
+    () => new Map(boards.map((candidate) => [candidate.id, candidate])),
+    [boards],
   );
   const sections = useMemo(
     () =>
       groupBoardCards(
         visibleBoards.flatMap((candidate) => selectBoardCards(projectCards, candidate.id)),
+      ),
+    [projectCards, visibleBoards],
+  );
+  const archivedCards = useMemo(
+    () =>
+      projectCards.filter(
+        (card) =>
+          card.archivedAt !== null &&
+          visibleBoards.some((candidate) => candidate.id === card.boardId),
       ),
     [projectCards, visibleBoards],
   );
@@ -109,29 +126,6 @@ export function useSidebarProjectBoardController({
     [sections.inFlight],
   );
 
-  useEffect(() => {
-    if (navigateAfterSettledCardId === null) return;
-    if (selectedCardId !== navigateAfterSettledCardId) {
-      setNavigateAfterSettledCardId(null);
-      return;
-    }
-    const projectedCard = projectCards.find(
-      (candidate) => candidate.id === navigateAfterSettledCardId,
-    );
-    if (projectedCard?.settledAt == null) return;
-    setNavigateAfterSettledCardId(null);
-    void navigate({
-      to: "/board/$environmentId/$projectId",
-      params: { environmentId, projectId },
-    });
-  }, [
-    projectCards,
-    environmentId,
-    navigate,
-    navigateAfterSettledCardId,
-    projectId,
-    selectedCardId,
-  ]);
   useEffect(() => {
     if (navigateAfterDeletedCard === null) return;
     if (selectedCardId !== navigateAfterDeletedCard) {
@@ -148,16 +142,28 @@ export function useSidebarProjectBoardController({
       params: { environmentId, projectId },
     });
   }, [projectCards, environmentId, navigate, navigateAfterDeletedCard, projectId, selectedCardId]);
+  useEffect(() => {
+    if (navigateAfterArchivedCard === null) return;
+    if (selectedCardId !== navigateAfterArchivedCard) {
+      setNavigateAfterArchivedCard(null);
+      return;
+    }
+    const projectedCard = projectCards.find(
+      (candidate) => candidate.id === navigateAfterArchivedCard,
+    );
+    if (projectedCard?.archivedAt === null) return;
+    setNavigateAfterArchivedCard(null);
+    void navigate({
+      to: "/board/$environmentId/$projectId",
+      params: { environmentId, projectId },
+    });
+  }, [projectCards, environmentId, navigate, navigateAfterArchivedCard, projectId, selectedCardId]);
 
   const attachAnimatedList = useCallback((node: HTMLElement | null) => {
     if (node) autoAnimate(node, { duration: 150, easing: "ease-out" });
   }, []);
-  const stepNamesFor = (card: OrchestrationCard): ReadonlyArray<string> => {
-    const owner = boardById.get(card.boardId);
-    return owner === undefined ? [] : cardStepNames(card, owner);
-  };
   const boardNameFor = (card: OrchestrationCard): string | null =>
-    isAllBoards ? (boardById.get(card.boardId)?.name ?? null) : null;
+    visibleBoards.length > 1 ? (boardById.get(card.boardId)?.name ?? null) : null;
   const openCard = (cardId: CardId) => {
     void navigate({
       to: "/board/$environmentId/$projectId/card/$cardId",
@@ -175,29 +181,6 @@ export function useSidebarProjectBoardController({
         return next;
       });
     }
-  };
-  const settleDoneCard = async (card: OrchestrationCard) => {
-    const cardId = card.id;
-    const nextWorkingCardId = selectNextCardAfter({ ...sections, settled: [] }, cardId);
-    await withPendingCard(cardId, async () => {
-      const result = await settleCard({ environmentId, input: { cardId } });
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not settle card",
-              description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
-            }),
-          );
-        }
-        return;
-      }
-      setChosenBoard((current) => sidebarBoardChoiceAfterSettle(current, card.boardId));
-      if (selectedCardIdRef.current !== cardId) return;
-      if (nextWorkingCardId !== null) return openCard(nextWorkingCardId);
-      setNavigateAfterSettledCardId(cardId);
-    });
   };
   const deleteCardRun = async (cardId: CardId) => {
     const nextCardId = selectNextCardAfter(sections, cardId);
@@ -218,6 +201,43 @@ export function useSidebarProjectBoardController({
       if (selectedCardIdRef.current !== cardId) return;
       if (nextCardId !== null) return openCard(nextCardId);
       setNavigateAfterDeletedCard(cardId);
+    });
+  };
+  const archiveCardRun = async (cardId: CardId, deleteWorktree: boolean) => {
+    const nextCardId = selectNextCardAfter(sections, cardId);
+    await withPendingCard(cardId, async () => {
+      const result = await archiveCard({
+        environmentId,
+        input: { cardId, deleteWorktree },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not archive card",
+              description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
+            }),
+          );
+        }
+        return;
+      }
+      if (selectedCardIdRef.current !== cardId) return;
+      if (nextCardId !== null) return openCard(nextCardId);
+      setNavigateAfterArchivedCard(cardId);
+    });
+  };
+  const unarchiveCardRun = async (cardId: CardId) => {
+    await withPendingCard(cardId, async () => {
+      const result = await unarchiveCard({ environmentId, input: { cardId } });
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not restore card",
+          description: boardCommandFailureDescription(squashAtomCommandFailure(result)),
+        }),
+      );
     });
   };
   const retryDeleteCleanup = async (cardId: CardId) => {
@@ -242,7 +262,7 @@ export function useSidebarProjectBoardController({
         input: { boardId, projectId, name: input.name, steps: input.steps },
       });
       if (!reportBoardCommandResult(result, "Could not create flow")) return false;
-      setChosenBoard(boardId);
+      setChosenBoardIds([boardId]);
       return true;
     }
     const result = await updateBoard({
@@ -267,20 +287,24 @@ export function useSidebarProjectBoardController({
 
   return {
     activeCards,
+    archivedCards,
+    archivedCollapsed,
+    archiveCardRun,
     attachAnimatedList,
     board,
     boardNameFor,
     boards,
+    chosenBoardIds,
     cardDialogOpen,
     deleteCardRun,
     editorTarget,
     environmentId,
     handleBoardSubmit,
     handleCardSubmit,
-    isAllBoards,
     needsYouCards,
     openCard,
     pendingCardIds,
+    pendingArchive,
     pendingDelete,
     project,
     releaseCard,
@@ -288,14 +312,15 @@ export function useSidebarProjectBoardController({
     sections,
     selectedCardId,
     setCardDialogOpen,
-    setChosenBoard,
+    setArchivedCollapsed,
+    setChosenBoardIds,
     setEditorTarget,
     setPendingDelete,
+    setPendingArchive,
     setSettledCollapsed,
-    settleDoneCard,
     settledCollapsed,
-    stepNamesFor,
     unsettleCard,
+    unarchiveCardRun,
     withPendingCard,
   };
 }
