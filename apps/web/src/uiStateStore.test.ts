@@ -7,12 +7,14 @@ import {
   markThreadVisited,
   parsePersistedState,
   PERSISTED_STATE_KEY,
+  rememberWorktreeOrder,
   WINDOW_STATE_KEY,
   type PersistedUiState,
   persistState,
   readPersistedState,
   retainThreadExpansionForKnownThreads,
   reorderProjects,
+  reorderWorktrees,
   resolveProjectExpanded,
   resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
@@ -27,6 +29,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    worktreeOrder: [],
     threadLastVisitedAtById: {},
     threadExpandedById: {},
     threadChangedFilesExpandedById: {},
@@ -126,6 +129,45 @@ describe("uiStateStore pure functions", () => {
     );
   });
 
+  it("stores a manual worktree order from the currently rendered order", () => {
+    const currentOrder = ["local:/repo", "local:/repo-a", "local:/repo-b"];
+
+    const next = reorderWorktrees(makeUiState(), currentOrder, "local:/repo-b", "local:/repo-a");
+
+    expect(next.worktreeOrder).toEqual(["local:/repo", "local:/repo-b", "local:/repo-a"]);
+  });
+
+  it("preserves saved worktree positions outside the filtered view", () => {
+    const state = makeUiState({
+      worktreeOrder: ["project-a:/one", "project-b:/one", "project-a:/two", "project-b:/two"],
+    });
+
+    const next = reorderWorktrees(
+      state,
+      ["project-a:/one", "project-a:/two"],
+      "project-a:/two",
+      "project-a:/one",
+    );
+
+    expect(next.worktreeOrder).toEqual([
+      "project-a:/two",
+      "project-b:/one",
+      "project-a:/one",
+      "project-b:/two",
+    ]);
+  });
+
+  it("remembers the initial creation order without reacting to later derived reordering", () => {
+    const remembered = rememberWorktreeOrder(makeUiState(), ["local:/older", "local:/newer"]);
+
+    expect(rememberWorktreeOrder(remembered, ["local:/newer", "local:/older"])).toBe(remembered);
+    expect(
+      rememberWorktreeOrder(remembered, ["local:/older", "local:/newer", "local:/latest"]),
+    ).toMatchObject({
+      worktreeOrder: ["local:/older", "local:/newer", "local:/latest"],
+    });
+  });
+
   it("stores explicit changed-file expansion choices", () => {
     const threadId = ThreadId.make("thread-1");
     const collapsed = setThreadChangedFilesExpanded(makeUiState(), threadId, "turn-1", false);
@@ -219,6 +261,7 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
+      worktreeOrder: ["local:/repo-b", "", "local:/repo-a", "local:/repo-b"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -246,6 +289,7 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      worktreeOrder: ["local:/repo-b", "local:/repo-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -382,6 +426,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      worktreeOrder: [],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -404,6 +449,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      worktreeOrder: [],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },

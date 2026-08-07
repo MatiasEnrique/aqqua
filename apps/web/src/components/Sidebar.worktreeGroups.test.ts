@@ -4,6 +4,7 @@ import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models"
 import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
+  canReorderSidebarWorktrees,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
@@ -33,6 +34,7 @@ const thread = (
     projectId: ProjectId.make(projectId),
     worktreePath,
     branch,
+    createdAt: updatedAt,
     updatedAt,
     parentThreadId: parentThreadId ? ThreadId.make(parentThreadId) : null,
     session:
@@ -44,7 +46,33 @@ const thread = (
   }) as EnvironmentThreadShell;
 
 describe("buildSidebarWorktreeGroups", () => {
-  it("separates equal paths by environment and orders project checkouts first", () => {
+  it("orders worktrees by their earliest conversation creation and ignores later activity", () => {
+    const olderWorktree = {
+      ...thread("older", "local", "/repo-older", "older", "2026-01-05T00:00:00.000Z"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const newerWorktree = {
+      ...thread("newer", "local", "/repo-newer", "newer", "2026-01-03T00:00:00.000Z"),
+      createdAt: "2026-01-02T00:00:00.000Z",
+    };
+
+    const groups = buildSidebarWorktreeGroups({
+      active: [newerWorktree, olderWorktree],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups.map((group) => group.label)).toEqual(["older", "newer"]);
+    expect(groups.map((group) => group.createdAt)).toEqual([
+      Date.parse("2026-01-01T00:00:00.000Z"),
+      Date.parse("2026-01-02T00:00:00.000Z"),
+    ]);
+  });
+
+  it("separates equal paths by environment and orders every checkout by creation", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [
         thread("remote", "remote", "/repo-wt", "remote-branch", "2026-01-03T00:00:00.000Z"),
@@ -59,12 +87,28 @@ describe("buildSidebarWorktreeGroups", () => {
       ]),
     });
 
-    expect(groups.map((group) => group.label)).toEqual(["main", "remote-branch", "feature"]);
+    expect(groups.map((group) => group.label)).toEqual(["main", "feature", "remote-branch"]);
     expect(new Set(groups.map((group) => group.key)).size).toBe(3);
     expect(groups.find((group) => group.label === "remote-branch")?.environmentLabel).toBe(
       "Remote",
     );
     expect(groups.find((group) => group.label === "feature")?.environmentLabel).toBe("Local");
+  });
+
+  it("does not pin a newer project checkout above an older worktree", () => {
+    const groups = buildSidebarWorktreeGroups({
+      active: [
+        thread("checkout", "local", null, "main", "2026-01-03T00:00:00.000Z"),
+        thread("worktree", "local", "/repo-wt", "feature", "2026-01-01T00:00:00.000Z"),
+      ],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    });
+
+    expect(groups.map((group) => group.label)).toEqual(["feature", "main"]);
   });
 
   it("uses settled conversations for totals without exposing per-worktree settled rows", () => {
@@ -508,6 +552,45 @@ describe("buildSidebarRepositoryGroups", () => {
       },
     ]);
   });
+
+  it("allows reordering only within one logical repository", () => {
+    const repositories = [
+      { worktrees: [{ key: "aqqua-local:/main" }, { key: "aqqua-remote:/feature" }] },
+      { worktrees: [{ key: "ciber:/main" }, { key: "ciber:/feature" }] },
+    ];
+    const worktrees = [
+      { key: "aqqua-local:/main", environmentId: "local", projectId: "aqqua-local" },
+      { key: "aqqua-remote:/feature", environmentId: "remote", projectId: "aqqua-remote" },
+      { key: "ciber:/main", environmentId: "local", projectId: "ciber" },
+      { key: "orphan:/one", environmentId: "local", projectId: "orphan" },
+      { key: "orphan:/two", environmentId: "local", projectId: "orphan" },
+    ];
+
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "aqqua-local:/main",
+        targetWorktreeKey: "aqqua-remote:/feature",
+      }),
+    ).toBe(true);
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "aqqua-local:/main",
+        targetWorktreeKey: "ciber:/main",
+      }),
+    ).toBe(false);
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "orphan:/one",
+        targetWorktreeKey: "orphan:/two",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("resolveSidebarProjectState", () => {
@@ -667,8 +750,8 @@ describe("resolveSidebarWorktreeConversationLocation", () => {
     });
 
     // When a draft creates the group before any thread does, the checkout flag
-    // has to be derived the same way `addThread` derives it — project checkouts
-    // sort first, so a hardcoded `false` sorted the group below its position.
+    // has to be derived the same way `addThread` derives it so its actions and
+    // presentation remain correct.
     expect(groups[0]?.isProjectCheckout).toBe(true);
   });
 

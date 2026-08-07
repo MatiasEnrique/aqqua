@@ -47,7 +47,7 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { SidebarProjectStateIndicator, SidebarStateCounters } from "./SidebarStatusPresentations";
 import { useSidebarRowRenderers } from "./useSidebarRowRenderers";
 import { WorktreeActionsPopover } from "./WorktreeActionsPopover";
-import { WorktreeCard } from "./WorktreeCard";
+import { SortableWorktreeCardList } from "./WorktreeCard";
 
 const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
@@ -139,6 +139,7 @@ export function SidebarV2View(props: {
     setActiveWorktreeOverrideKey,
     worktreeExpandedByKey,
     setWorktreeExpanded,
+    reorderWorktree,
     removingWorktreeKey,
     settlingWorktreeKey,
   } = worktreesSection;
@@ -398,22 +399,22 @@ export function SidebarV2View(props: {
                     // Conversations, the snoozed shelf and the settled tail are
                     // all reached from the header strip or the command palette
                     // in this mode, so the list stays a registry of checkouts.
-                    const renderCard = (group: SidebarWorktreeGroup) => (
-                      <WorktreeCard
-                        key={`worktree-card:${group.key}`}
-                        group={group}
-                        isSelected={activeWorktreeKey === group.key}
+                    const renderCards = (groups: readonly SidebarWorktreeGroup[]) => (
+                      <SortableWorktreeCardList
+                        groups={groups}
+                        activeWorktreeKey={activeWorktreeKey}
                         removingWorktreeKey={removingWorktreeKey}
                         onSelect={selectWorktree}
                         onDeleteWorktree={attemptDeleteWorktree}
-                        onContextMenu={(event, target) => {
-                          const location = resolveSidebarWorktreeConversationLocation(target);
+                        onContextMenu={(event, group) => {
+                          const location = resolveSidebarWorktreeConversationLocation(group);
                           if (location === null) return;
                           handleLocationContextMenu(event, {
-                            projectRef: scopeProjectRef(target.environmentId, target.projectId),
+                            projectRef: scopeProjectRef(group.environmentId, group.projectId),
                             location,
                           });
                         }}
+                        onReorder={reorderWorktree}
                       />
                     );
                     return buildWorktreeCardGroups({
@@ -427,7 +428,7 @@ export function SidebarV2View(props: {
                       if (project === null) {
                         return (
                           <Fragment key={`worktree-folder:${cardGroup.key}`}>
-                            {cardGroup.worktrees.map(renderCard)}
+                            {renderCards(cardGroup.worktrees)}
                           </Fragment>
                         );
                       }
@@ -463,13 +464,13 @@ export function SidebarV2View(props: {
                             </>
                           }
                         >
-                          {cardGroup.worktrees.map(renderCard)}
+                          {renderCards(cardGroup.worktrees)}
                         </WorktreeProjectFolder>
                       );
                     });
                   }
                   if (sidebarThreadGroupingMode === "worktree") {
-                    const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode[] => {
+                    const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode => {
                       const groupItems: ReactNode[] = [];
                       const hasVisibleChildren = sidebarWorktreeHasVisibleChildren(group);
                       // A routed descendant does not override the user's collapse:
@@ -546,62 +547,55 @@ export function SidebarV2View(props: {
                           />
                         </div>,
                       );
-                      if (!expanded) {
-                        return [
-                          <li
-                            key={`worktree:${group.key}`}
-                            data-thread-selection-safe
-                            className="list-none"
-                          >
-                            {groupItems}
-                          </li>,
-                        ];
-                      }
-                      for (const draft of group.drafts) {
-                        groupItems.push(renderDraftRow(draft));
-                      }
-                      for (const thread of group.active) {
-                        groupItems.push(renderThreadRow(thread, "active"));
-                      }
-                      const visibleGroupSnoozed = snoozedShelfExpanded ? group.snoozed : [];
-                      if (group.snoozed.length > 0) {
-                        groupItems.push(
-                          <li
-                            key={`${group.key}:snoozed`}
-                            data-thread-selection-safe
-                            className="list-none"
-                          >
-                            <button
-                              type="button"
-                              onClick={toggleSnoozedShelf}
-                              aria-expanded={snoozedShelfExpanded}
-                              className="mb-1 mt-2 flex w-full items-center gap-2 px-2.5 text-left"
+                      if (expanded) {
+                        for (const draft of group.drafts) {
+                          groupItems.push(renderDraftRow(draft));
+                        }
+                        for (const thread of group.active) {
+                          groupItems.push(renderThreadRow(thread, "active"));
+                        }
+                        const visibleGroupSnoozed = snoozedShelfExpanded ? group.snoozed : [];
+                        if (group.snoozed.length > 0) {
+                          groupItems.push(
+                            <li
+                              key={`${group.key}:snoozed`}
+                              data-thread-selection-safe
+                              className="list-none"
                             >
-                              <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                                {snoozedShelfExpanded
-                                  ? "Snoozed"
-                                  : `Snoozed (${group.snoozed.length})`}
-                              </span>
-                              <span className="h-px flex-1 bg-blue-500/20" />
-                            </button>
-                          </li>,
-                        );
+                              <button
+                                type="button"
+                                onClick={toggleSnoozedShelf}
+                                aria-expanded={snoozedShelfExpanded}
+                                className="mb-1 mt-2 flex w-full items-center gap-2 px-2.5 text-left"
+                              >
+                                <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                                  {snoozedShelfExpanded
+                                    ? "Snoozed"
+                                    : `Snoozed (${group.snoozed.length})`}
+                                </span>
+                                <span className="h-px flex-1 bg-blue-500/20" />
+                              </button>
+                            </li>,
+                          );
+                        }
+                        for (const thread of visibleGroupSnoozed) {
+                          groupItems.push(renderThreadRow(thread, "snoozed"));
+                        }
                       }
-                      for (const thread of visibleGroupSnoozed) {
-                        groupItems.push(renderThreadRow(thread, "snoozed"));
-                      }
-                      return [
+                      return (
                         <li
                           key={`worktree:${group.key}`}
                           data-thread-selection-safe
                           className="list-none"
                         >
                           {groupItems[0]}
-                          <ul className="ml-2 border-l border-sidebar-border/60 pl-1.5">
-                            {groupItems.slice(1)}
-                          </ul>
-                        </li>,
-                      ];
+                          {expanded ? (
+                            <ul className="ml-2 border-l border-sidebar-border/60 pl-1.5">
+                              {groupItems.slice(1)}
+                            </ul>
+                          ) : null}
+                        </li>
+                      );
                     };
 
                     if (repositoryHierarchyVisible) {
@@ -668,7 +662,7 @@ export function SidebarV2View(props: {
                             </div>
                             {expanded ? (
                               <ul className="ml-2 border-l border-sidebar-border/60 pl-1.5">
-                                {repository.worktrees.flatMap(renderWorktreeGroup)}
+                                {repository.worktrees.map(renderWorktreeGroup)}
                               </ul>
                             ) : null}
                           </li>,
@@ -676,7 +670,7 @@ export function SidebarV2View(props: {
                       }
                     } else {
                       for (const group of worktreeGroups) {
-                        items.push(...renderWorktreeGroup(group));
+                        items.push(renderWorktreeGroup(group));
                       }
                     }
                   } else {

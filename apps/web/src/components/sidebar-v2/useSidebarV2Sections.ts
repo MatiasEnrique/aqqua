@@ -72,6 +72,7 @@ import {
   buildProjectRootByProjectKey,
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
+  canReorderSidebarWorktrees,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
   sidebarProjectKey,
@@ -114,6 +115,8 @@ export type SidebarV2SectionsOptions = {
    * `sidebarThreadGroupingMode` — the worktree view's own preference.
    */
   readonly groupingMode?: SidebarThreadsSection["sidebarThreadGroupingMode"];
+  /** The worktree-card entry is the only surface that exposes persisted drag ordering. */
+  readonly enableManualWorktreeOrdering?: boolean;
 };
 
 export type SidebarV2Sections = {
@@ -167,6 +170,9 @@ export type SidebarV2Runtime = {
 export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): SidebarV2Sections {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const worktreeOrder = useUiStateStore((store) => store.worktreeOrder);
+  const reorderWorktrees = useUiStateStore((store) => store.reorderWorktrees);
+  const rememberWorktreeOrder = useUiStateStore((store) => store.rememberWorktreeOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -816,13 +822,49 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       return next ?? current;
     });
   }, [unfilteredWorktreeGroups]);
-  const worktreeGroups = useMemo(
+  const visibleWorktreeGroups = useMemo(
     () => filterHiddenSidebarWorktreeGroups(unfilteredWorktreeGroups, hiddenWorktreeKeys),
     [hiddenWorktreeKeys, unfilteredWorktreeGroups],
+  );
+  useEffect(() => {
+    if (options.enableManualWorktreeOrdering !== true) return;
+    rememberWorktreeOrder(visibleWorktreeGroups.map((worktree) => worktree.key));
+  }, [options.enableManualWorktreeOrdering, rememberWorktreeOrder, visibleWorktreeGroups]);
+  const worktreeGroups = useMemo(
+    () =>
+      options.enableManualWorktreeOrdering === true
+        ? orderItemsByPreferredIds({
+            items: visibleWorktreeGroups,
+            preferredIds: worktreeOrder,
+            getId: (worktree) => worktree.key,
+          })
+        : visibleWorktreeGroups,
+    [options.enableManualWorktreeOrdering, visibleWorktreeGroups, worktreeOrder],
   );
   const repositoryGroups = useMemo(
     () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
     [projectGroups, worktreeGroups],
+  );
+  const reorderWorktree = useCallback(
+    (draggedWorktreeKey: string, targetWorktreeKey: string) => {
+      if (options.enableManualWorktreeOrdering !== true) return;
+      if (
+        !canReorderSidebarWorktrees({
+          repositories: repositoryGroups,
+          worktrees: worktreeGroups,
+          draggedWorktreeKey,
+          targetWorktreeKey,
+        })
+      ) {
+        return;
+      }
+      reorderWorktrees(
+        worktreeGroups.map((worktree) => worktree.key),
+        draggedWorktreeKey,
+        targetWorktreeKey,
+      );
+    },
+    [options.enableManualWorktreeOrdering, reorderWorktrees, repositoryGroups, worktreeGroups],
   );
   const scopedProjectState = useMemo(
     () =>
@@ -1091,6 +1133,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     setActiveWorktreeOverrideKey,
     worktreeExpandedByKey,
     setWorktreeExpanded,
+    reorderWorktree,
     removingWorktreeKey,
     settlingWorktreeKey,
     setRemovingWorktreeKey,

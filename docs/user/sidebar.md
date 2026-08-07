@@ -66,6 +66,10 @@ until a later turn changes its state. Live **Working** and **Needs input** statu
 underlying condition changes. Archiving or deleting a conversation removes all of its status from
 the worktree summary.
 
+Worktrees start in creation order, oldest first, and conversation activity does not move them.
+In the worktree-card sidebar, drag the grip on a card to save a custom order for that browser or
+desktop client. Worktrees stay within their project while being rearranged.
+
 Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
 button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
 When a merged pull request is known for the worktree, its pull-request icon and `#number` are shown
