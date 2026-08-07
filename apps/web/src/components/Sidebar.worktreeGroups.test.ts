@@ -799,6 +799,75 @@ describe("session error aggregates", () => {
     expect(groups[0]?.summaryState).toBe("failed");
     expect(resolveSidebarProjectState(groups)).toBe("failed");
   });
+
+  it("recomputes the worktree status when opening acknowledges the failure", () => {
+    const failedThread = {
+      ...thread(
+        "errored",
+        "local",
+        "/repo-wt",
+        "feature",
+        "2026-01-04T00:00:00.000Z",
+        null,
+        "ready",
+      ),
+      latestTurn: {
+        state: "error",
+        completedAt: "2026-01-04T00:00:00.000Z",
+      },
+    } as EnvironmentThreadShell;
+    const input = {
+      active: [failedThread],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo-wt", environmentLabel: "Local" }],
+      ]),
+    };
+
+    expect(buildSidebarWorktreeGroups(input)[0]?.summaryState).toBe("failed");
+    const acknowledged = buildSidebarWorktreeGroups({
+      ...input,
+      lastVisitedAtByThreadKey: new Map([["local:errored", "2026-01-04T00:00:01.000Z"]]),
+    });
+    expect(acknowledged[0]?.summaryState).toBeNull();
+    expect(resolveSidebarProjectState(acknowledged)).toBe("idle");
+    expect(buildSidebarWorktreeGroups({ ...input, active: [] })).toEqual([]);
+  });
+
+  it("recomputes the worktree status when opening acknowledges completion", () => {
+    const completedThread = {
+      ...thread(
+        "completed",
+        "local",
+        "/repo-wt",
+        "feature",
+        "2026-01-04T00:00:00.000Z",
+        null,
+        "ready",
+      ),
+      latestTurn: {
+        state: "completed",
+        completedAt: "2026-01-04T00:00:00.000Z",
+      },
+    } as EnvironmentThreadShell;
+    const input = {
+      active: [completedThread],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo-wt", environmentLabel: "Local" }],
+      ]),
+    };
+
+    expect(buildSidebarWorktreeGroups(input)[0]?.summaryState).toBe("done");
+    const acknowledged = buildSidebarWorktreeGroups({
+      ...input,
+      lastVisitedAtByThreadKey: new Map([["local:completed", "2026-01-04T00:00:01.000Z"]]),
+    });
+    expect(acknowledged[0]?.summaryState).toBeNull();
+    expect(resolveSidebarProjectState(acknowledged)).toBe("idle");
+  });
 });
 
 describe("resolveSidebarWorktreeSummaryState", () => {
@@ -818,6 +887,56 @@ describe("resolveSidebarWorktreeSummaryState", () => {
         settledCount: 3,
       }),
     ).toBe("failed");
+  });
+
+  it("clears terminal statuses after their conversation is opened", () => {
+    const openedAt = "2026-01-04T00:00:01.000Z";
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [
+          conversation({
+            latestTurn: {
+              state: "error",
+              completedAt: "2026-01-04T00:00:00.000Z",
+            },
+            session: { status: "ready" },
+            lastVisitedAt: openedAt,
+          }),
+        ],
+        settledCount: 0,
+      }),
+    ).toBeNull();
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [
+          conversation({
+            latestTurn: {
+              state: "completed",
+              completedAt: "2026-01-04T00:00:00.000Z",
+            },
+            session: { status: "ready" },
+            lastVisitedAt: openedAt,
+          }),
+        ],
+        settledCount: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps live statuses visible after their conversation is opened", () => {
+    const lastVisitedAt = "2026-01-04T00:00:01.000Z";
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [{ ...working, lastVisitedAt }],
+        settledCount: 0,
+      }),
+    ).toBe("working");
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [{ ...needsInput, lastVisitedAt }],
+        settledCount: 0,
+      }),
+    ).toBe("needsInput");
   });
 
   it("resolves needs input ahead of working and done", () => {

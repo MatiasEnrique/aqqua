@@ -1,5 +1,7 @@
 export {
   classifyThreadPresentation,
+  hasUnacknowledgedDoneState,
+  hasUnseenFailure,
   hasUnseenCompletion,
   resolveSidebarConversationAggregateState,
   resolveSidebarConversationSummaryState,

@@ -10,6 +10,7 @@ import {
 import type { ServerConfig, SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "@tanstack/react-router";
+import { useShallow } from "zustand/react/shallow";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../../logicalProject";
 import {
   buildSidebarProjectSnapshots,
@@ -234,6 +235,35 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
+  const threadLastVisitedAts = useUiStateStore(
+    useShallow((state) =>
+      sidebarThreadGroupingMode === "flat"
+        ? []
+        : threads.map(
+            (thread) =>
+              state.threadLastVisitedAtById[
+                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+              ] ?? null,
+          ),
+    ),
+  );
+  const lastVisitedAtByThreadKey = useMemo(
+    () =>
+      new Map(
+        threads.flatMap((thread, index) => {
+          const lastVisitedAt = threadLastVisitedAts[index];
+          return lastVisitedAt === null || lastVisitedAt === undefined
+            ? []
+            : [
+                [
+                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                  lastVisitedAt,
+                ] as const,
+              ];
+        }),
+      ),
+    [threadLastVisitedAts, threads],
+  );
   // Shared with sidebar v1: collapsing an orchestrator in one sidebar keeps it
   // collapsed in the other, and the preference survives a reload.
   const threadExpandedById = useUiStateStore((s) => s.threadExpandedById);
@@ -768,10 +798,12 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
         settled: settledThreads,
         drafts: groupedDraftRows,
         projectsByKey: worktreeProjectsByKey,
+        lastVisitedAtByThreadKey,
       }),
     [
       activeThreads,
       groupedDraftRows,
+      lastVisitedAtByThreadKey,
       settledThreads,
       snoozedThreads,
       visibleActiveThreads,
@@ -1018,11 +1050,13 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
           settled: unscopedSettledThreads,
           drafts: unscopedDraftRows,
           projectsByKey: worktreeProjectsByKey,
+          lastVisitedAtByThreadKey,
         }),
         hiddenWorktreeKeys,
       ),
     [
       hiddenWorktreeKeys,
+      lastVisitedAtByThreadKey,
       unscopedActiveThreads,
       unscopedDraftRows,
       unscopedSettledThreads,

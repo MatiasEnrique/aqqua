@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_RUNTIME_MODE, ProviderInstanceId, ThreadId } from "@aqqua/contracts";
 import {
   classifyThreadPresentation,
+  hasUnacknowledgedDoneState,
+  hasUnseenFailure,
   resolveSidebarConversationAggregateState,
   resolveSidebarConversationSummaryState,
   resolveSidebarV2Status,
@@ -108,6 +110,64 @@ describe("canonical projections stay consistent", () => {
     expect(toConversationSummaryState(presentation, thread)).toBe("stale");
     expect(resolveSidebarV2Status(thread)).toBe("failed");
     expect(resolveSidebarConversationSummaryState(thread)).toBe("stale");
+  });
+});
+
+describe("hasUnseenFailure", () => {
+  it("clears a session failure once its conversation has been opened", () => {
+    const failedSession = { ...session, status: "error" as const };
+
+    expect(hasUnseenFailure({ session: failedSession })).toBe(true);
+    expect(
+      hasUnseenFailure({
+        session: failedSession,
+        lastVisitedAt: "2026-03-09T09:59:59.000Z",
+      }),
+    ).toBe(true);
+    expect(
+      hasUnseenFailure({
+        session: failedSession,
+        lastVisitedAt: failedSession.updatedAt,
+      }),
+    ).toBe(false);
+  });
+
+  it("uses the failed turn timestamp when the session has returned to ready", () => {
+    expect(
+      hasUnseenFailure({
+        latestTurn: { ...completedTurn, state: "interrupted" },
+        session: { ...session, status: "ready" },
+        lastVisitedAt: "2026-03-09T10:05:01.000Z",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("hasUnacknowledgedDoneState", () => {
+  it("keeps completion visible until the conversation is opened", () => {
+    expect(hasUnacknowledgedDoneState({ latestTurn: completedTurn })).toBe(true);
+    expect(
+      hasUnacknowledgedDoneState({
+        latestTurn: completedTurn,
+        lastVisitedAt: "2026-03-09T10:04:59.000Z",
+      }),
+    ).toBe(true);
+    expect(
+      hasUnacknowledgedDoneState({
+        latestTurn: completedTurn,
+        lastVisitedAt: completedTurn.completedAt,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps an initial Done signal until a never-run conversation is opened", () => {
+    expect(hasUnacknowledgedDoneState({ latestTurn: null })).toBe(true);
+    expect(
+      hasUnacknowledgedDoneState({
+        latestTurn: null,
+        lastVisitedAt: "2026-03-09T10:05:00.000Z",
+      }),
+    ).toBe(false);
   });
 });
 

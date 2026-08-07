@@ -60,6 +60,12 @@ persisted conversation tab has separate close and **Archive** controls; closing 
 conversation, while archiving moves the conversation to **Settings → Archive**. Archiving a parent
 conversation archives its complete sub-agent tree. Draft tabs cannot be archived.
 
+A worktree reports terminal **Done** or **Failed** status until the relevant conversation is opened.
+Opening acknowledges the worktree alert, while a failed conversation itself stays visibly failed
+until a later turn changes its state. Live **Working** and **Needs input** status remains until the
+underlying condition changes. Archiving or deleting a conversation removes all of its status from
+the worktree summary.
+
 Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
 button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
 When a merged pull request is known for the worktree, its pull-request icon and `#number` are shown

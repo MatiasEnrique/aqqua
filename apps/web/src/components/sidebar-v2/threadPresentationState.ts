@@ -44,6 +44,7 @@ export type ThreadPresentationInput = {
       | "error";
     readonly activeTurnId?: unknown;
     readonly lastError?: string | null;
+    readonly updatedAt?: string;
   } | null;
   readonly lastVisitedAt?: string | undefined;
 };
@@ -74,6 +75,49 @@ export function hasUnseenCompletion(thread: ThreadPresentationInput): boolean {
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
   return completedAt > lastVisitedAt;
+}
+
+/**
+ * Worktree summaries treat Done as an alert that remains until opened. Unlike
+ * row unread styling, a missing visit marker is unacknowledged: this preserves
+ * the existing initial Done signal even for conversations that have not run.
+ */
+export function hasUnacknowledgedDoneState(thread: ThreadPresentationInput): boolean {
+  if (!thread.lastVisitedAt) return true;
+  if (thread.latestTurn?.state !== "completed" || !thread.latestTurn.completedAt) return false;
+
+  const completedAt = Date.parse(thread.latestTurn.completedAt);
+  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  if (Number.isNaN(completedAt) || Number.isNaN(lastVisitedAt)) return true;
+  return completedAt > lastVisitedAt;
+}
+
+/**
+ * Whether the failure still needs attention outside the conversation row.
+ *
+ * A failed row stays failed until a later turn changes its state, but aggregate
+ * worktree/project status is an inbox signal: opening the conversation
+ * acknowledges that failure. Missing or malformed timestamps fail open so a
+ * real crash is never silently hidden.
+ */
+export function hasUnseenFailure(thread: ThreadPresentationInput): boolean {
+  const failureTimestamps = [
+    thread.session?.status === "error" || thread.session?.status === "interrupted"
+      ? thread.session.updatedAt
+      : undefined,
+    thread.latestTurn?.state === "error" || thread.latestTurn?.state === "interrupted"
+      ? (thread.latestTurn.completedAt ?? thread.latestTurn.startedAt)
+      : undefined,
+  ].filter((value): value is string => value !== undefined && value !== null);
+
+  if (failureTimestamps.length === 0 || thread.lastVisitedAt === undefined) return true;
+  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  if (Number.isNaN(lastVisitedAt)) return true;
+
+  return failureTimestamps.some((value) => {
+    const failedAt = Date.parse(value);
+    return Number.isNaN(failedAt) || failedAt > lastVisitedAt;
+  });
 }
 
 function isPresentationTurnSettled(
