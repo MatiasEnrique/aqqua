@@ -28,9 +28,9 @@ const BUILDS = [
   { os: "linux", name: "Linux", arch: "x86_64", format: "AppImage", asset: "x86_64.AppImage", detect: true },
 ] as const;
 
-const PRODUCT_SHOT = "/product/flows-v2.webp";
-const PRODUCT_SHOT_WIDTH = 3120;
-const PRODUCT_SHOT_HEIGHT = 1880;
+const PRODUCT_SHOT = "/demos/flows.webp";
+const PRODUCT_SHOT_WIDTH = 2560;
+const PRODUCT_SHOT_HEIGHT = 1600;
 
 const publicFile = (path: string) =>
   NodeFS.existsSync(NodePath.join(process.cwd(), "public", path)) ? `/${path}` : null;
@@ -184,7 +184,7 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
           <figure class="product-shot reveal">
             <img
               src={productShot}
-              alt="aqqua's Flows screen: a card on its own worktree has finished step two of three — analysis and design artifacts written, sub-agent tool calls listed beside the pipeline — and paused for review while four more cards wait in the backlog"
+              alt="aqqua's Flows screen showing a card paused after its Plan step, with the Plan artifact written and Resume ready while another card waits in the backlog"
               width={PRODUCT_SHOT_WIDTH}
               height={PRODUCT_SHOT_HEIGHT}
               loading="lazy"
