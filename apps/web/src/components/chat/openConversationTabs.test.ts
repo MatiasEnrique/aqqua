@@ -3,10 +3,8 @@ import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models"
 
 import {
   buildConversationTabs,
-  closeConversationTab,
   conversationTabKey,
   openConversationTab,
-  resolveConversationTabCloseTarget,
   resolveWorktreeFocusTarget,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
@@ -50,38 +48,6 @@ describe("openConversationTab", () => {
 
   it("keeps an already-open conversation in place rather than reordering", () => {
     expect(openConversationTab(["a", "b", "c"], "a")).toEqual(["a", "b", "c"]);
-  });
-});
-
-describe("closeConversationTab", () => {
-  it("removes only the closed conversation", () => {
-    expect(closeConversationTab(["a", "b", "c"], "b")).toEqual(["a", "c"]);
-  });
-});
-
-describe("resolveConversationTabCloseTarget", () => {
-  it("moves to the tab on the right when closing the routed one", () => {
-    expect(
-      resolveConversationTabCloseTarget({ keys: ["a", "b", "c"], closingKey: "b", activeKey: "b" }),
-    ).toBe("c");
-  });
-
-  it("falls back to the tab on the left at the end of the strip", () => {
-    expect(
-      resolveConversationTabCloseTarget({ keys: ["a", "b"], closingKey: "b", activeKey: "b" }),
-    ).toBe("a");
-  });
-
-  it("reports nothing to route to when the last tab closes", () => {
-    expect(
-      resolveConversationTabCloseTarget({ keys: ["a"], closingKey: "a", activeKey: "a" }),
-    ).toBeNull();
-  });
-
-  it("leaves the route alone when closing a background tab", () => {
-    expect(
-      resolveConversationTabCloseTarget({ keys: ["a", "b"], closingKey: "a", activeKey: "b" }),
-    ).toBeNull();
   });
 });
 

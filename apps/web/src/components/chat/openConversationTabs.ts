@@ -27,36 +27,6 @@ export function openConversationTab(keys: readonly string[], key: string): strin
   return keys.includes(key) ? [...keys] : [...keys, key];
 }
 
-/**
- * Removes a conversation from the open set.
- *
- * Closing a tab is *only* this. It never settles, snoozes or deletes: the
- * conversation stays exactly where it was, and reopening it costs one click in
- * the sidebar or the command palette.
- */
-export function closeConversationTab(keys: readonly string[], key: string): string[] {
-  return keys.filter((candidate) => candidate !== key);
-}
-
-/**
- * Where to route after closing a tab, or null to stay put.
- *
- * Closing the tab you are looking at has to land somewhere; an editor answers
- * "the neighbour", preferring the one on the right so repeated closes walk in a
- * single direction. Closing any other tab leaves the route alone.
- */
-export function resolveConversationTabCloseTarget(input: {
-  readonly keys: readonly string[];
-  readonly closingKey: string;
-  readonly activeKey: string | null;
-}): string | null {
-  if (input.activeKey !== input.closingKey) return null;
-  const index = input.keys.indexOf(input.closingKey);
-  if (index < 0) return null;
-  const remaining = closeConversationTab(input.keys, input.closingKey);
-  return remaining[index] ?? remaining[index - 1] ?? null;
-}
-
 export type ConversationTab =
   | {
       readonly _tag: "draft";

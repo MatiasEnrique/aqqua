@@ -1,6 +1,5 @@
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
   useAllEnvironmentShellsBootstrapped,
@@ -14,21 +13,17 @@ import { buildProjectRootByProjectKey } from "../Sidebar.worktreeGroups";
 import {
   buildConversationTabs,
   type ConversationTab,
-  closeConversationTab,
   conversationTabKey,
   openConversationTab,
-  resolveConversationTabCloseTarget,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
 
 /**
- * The header tab strip's state: which conversations are open, and what closing
- * one does.
+ * The header tab strip's state: which conversations are open.
  *
  * Opening is implicit — routing to a conversation puts it in the strip, so
  * every existing way in (sidebar, command palette, deep link, notification,
- * new-thread) fills the strip without knowing it exists. Only the close control
- * takes one back out.
+ * new-thread) fills the strip without knowing it exists.
  */
 export function useConversationTabs(input: {
   /** The scoped thread key of the routed conversation, draft routes included. */
@@ -37,9 +32,7 @@ export function useConversationTabs(input: {
   readonly enabled: boolean;
 }): {
   readonly tabs: readonly ConversationTab[];
-  readonly closeTab: (tabKey: string) => void;
 } {
-  const navigate = useNavigate();
   const openKeys = useUiStateStore((store) => store.openConversationTabKeys);
   const setOpenKeys = useUiStateStore((store) => store.setOpenConversationTabKeys);
   const threads = useThreadShells();
@@ -129,40 +122,5 @@ export function useConversationTabs(input: {
     ],
   );
 
-  const closeTab = useCallback(
-    (tabKey: string) => {
-      const current = useUiStateStore.getState().openConversationTabKeys;
-      const target = resolveConversationTabCloseTarget({
-        keys: current,
-        closingKey: tabKey,
-        activeKey: routeThreadKey,
-      });
-      setOpenKeys(closeConversationTab(current, tabKey));
-      if (routeThreadKey !== tabKey) return;
-      const nextTab = target === null ? undefined : tabs.find((tab) => tab.key === target);
-      if (nextTab === undefined) {
-        // Nothing left to fall back to: the index route starts a fresh draft
-        // rather than stranding the user on a closed conversation.
-        void navigate({ to: "/" });
-        return;
-      }
-      if (nextTab._tag === "draft") {
-        void navigate({
-          to: "/draft/$draftId",
-          params: { draftId: nextTab.draftId },
-        });
-        return;
-      }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: nextTab.threadRef.environmentId,
-          threadId: nextTab.threadRef.threadId,
-        },
-      });
-    },
-    [navigate, routeThreadKey, setOpenKeys, tabs],
-  );
-
-  return { tabs, closeTab };
+  return { tabs };
 }

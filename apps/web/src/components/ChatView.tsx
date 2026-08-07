@@ -1299,7 +1299,7 @@ function ChatViewContent(props: ChatViewProps) {
     surfaceTabs === undefined &&
     resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
-  const { tabs: conversationTabs, closeTab: closeConversationTab } = useConversationTabs({
+  const { tabs: conversationTabs } = useConversationTabs({
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
@@ -6349,7 +6349,6 @@ function ChatViewContent(props: ChatViewProps) {
               tabs={conversationTabs}
               onSelectThread={navigateToThreadRef}
               onSelectDraft={navigateToDraftId}
-              onCloseTab={closeConversationTab}
               onArchiveThread={archiveConversationTab}
               confirmArchive={confirmThreadArchive}
               onNewThread={handleNewThreadInActiveWorktree}

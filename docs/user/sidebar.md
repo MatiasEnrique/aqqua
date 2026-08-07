@@ -56,9 +56,9 @@ In worktree mode:
   inside individual worktree groups. These history rows omit the extra project/message glyph.
 
 In the worktree-card layout, conversations move to the tab strip below the chat header. Each
-persisted conversation tab has separate close and **Archive** controls; closing keeps the
-conversation, while archiving moves the conversation to **Settings → Archive**. Archiving a parent
-conversation archives its complete sub-agent tree. Draft tabs cannot be archived.
+persisted conversation tab has an **Archive** control, which moves the conversation to
+**Settings → Archive**. Archiving a parent conversation archives its complete sub-agent tree. Draft
+tabs cannot be archived.
 
 Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
 button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
