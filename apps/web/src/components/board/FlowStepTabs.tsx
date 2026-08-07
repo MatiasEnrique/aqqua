@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { StatusIndicator } from "../StatusIndicator";
-import { TabFamilyCountIcon, TabFamilyPopover } from "../TabFamilyPopover";
+import { TabFamilyCountTrigger, TabFamilyPopover } from "../TabFamilyPopover";
 import { ScrollArea } from "../ui/scroll-area";
 import type {
   CardSelection,
@@ -106,6 +106,7 @@ function FlowStepTabFamily(props: {
     <FlowStepTabShell
       step={props.step}
       active={parentActive}
+      selection={props.selection}
       onSelect={props.onSelect}
       details={
         props.step.leaves.length === 0
@@ -114,8 +115,6 @@ function FlowStepTabFamily(props: {
               count: props.step.leaves.length,
               holdsActiveLeaf,
               leaves: props.step.leaves,
-              selection: props.selection,
-              onSelect: props.onSelect,
             }
       }
     />
@@ -127,14 +126,13 @@ function FlowStepTabFamily(props: {
 function FlowStepTabShell(props: {
   readonly step: CardTreeStepRow;
   readonly active: boolean;
+  readonly selection: CardSelection;
   readonly onSelect: (selection: CardSelection) => void;
   readonly details?:
     | {
         readonly count: number;
         readonly holdsActiveLeaf: boolean;
         readonly leaves: readonly CardTreeLeaf[];
-        readonly selection: CardSelection;
-        readonly onSelect: (selection: CardSelection) => void;
       }
     | undefined;
 }) {
@@ -180,7 +178,12 @@ function FlowStepTabShell(props: {
         </button>
       )}
       {props.details === undefined ? null : (
-        <FlowStepDetailCountChip stepName={props.step.name} {...props.details} />
+        <FlowStepDetailCountChip
+          stepName={props.step.name}
+          selection={props.selection}
+          onSelect={props.onSelect}
+          {...props.details}
+        />
       )}
     </div>
   );
@@ -201,25 +204,20 @@ function FlowStepDetailCountChip(props: {
     <TabFamilyPopover
       title={`${props.stepName} details`}
       trigger={
-        <button
-          type="button"
-          aria-label={
+        <TabFamilyCountTrigger
+          label={
             activeLeafLabel === null
               ? `Open ${detailsLabel} of ${props.stepName}`
               : `Open ${detailsLabel} of ${props.stepName}, current ${activeLeafLabel}`
           }
-          data-flow-step-count
-          data-active-flow-step={props.holdsActiveLeaf ? true : undefined}
-          className={cn(
-            "ml-1 inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
-            props.holdsActiveLeaf
-              ? "bg-foreground text-background"
-              : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-        >
-          <TabFamilyCountIcon />
-          {props.count}
-        </button>
+          count={props.count}
+          active={props.holdsActiveLeaf}
+          markerAttributes={{
+            "data-flow-step-count": true,
+            "data-active-flow-step": props.holdsActiveLeaf ? true : undefined,
+          }}
+          leadingMargin
+        />
       }
       items={props.leaves.map((leaf) => ({
         key: leafKey(leaf),

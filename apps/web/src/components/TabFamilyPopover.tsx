@@ -69,6 +69,34 @@ export function TabFamilyPopover(props: {
   );
 }
 
+export function TabFamilyCountTrigger(props: {
+  readonly label: string;
+  readonly count: number;
+  readonly active: boolean;
+  readonly markerAttributes: Readonly<
+    Record<`data-${string}`, string | number | boolean | undefined>
+  >;
+  readonly leadingMargin?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      {...props.markerAttributes}
+      className={cn(
+        "inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
+        props.leadingMargin && "ml-1",
+        props.active
+          ? "bg-foreground text-background"
+          : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      <TabFamilyCountIcon />
+      {props.count}
+    </button>
+  );
+}
+
 /** The shared fan-out mark used by both descendant-count triggers. */
 export function TabFamilyCountIcon() {
   return (

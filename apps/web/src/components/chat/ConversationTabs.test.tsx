@@ -1,30 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../TabFamilyPopover", () => ({
-  TabFamilyCountIcon: () => <span aria-hidden>family</span>,
-  TabFamilyPopover: (props: {
-    readonly trigger: ReactElement;
-    readonly items: readonly {
-      readonly key: string;
-      readonly label: string;
-      readonly leading: ReactNode;
-    }[];
-  }) => (
-    <>
-      {props.trigger}
-      <div data-tab-family-popover>
-        {props.items.map((item) => (
-          <span key={item.key} data-tab-family-popover-item={item.key}>
-            {item.leading}
-            {item.label}
-          </span>
-        ))}
-      </div>
-    </>
-  ),
-}));
+import { createTabFamilyPopoverMock } from "../TabFamilyPopover.test-utils";
+
+vi.mock("../TabFamilyPopover", () => createTabFamilyPopoverMock());
 
 import { ConversationTabs } from "./ConversationTabs";
 import type { ConversationTab } from "./openConversationTabs";
@@ -119,9 +98,9 @@ describe("ConversationTabs", () => {
   it("keeps sub-agents out of the tab strip", () => {
     const markup = render([
       tab({ key: "parent", title: "Worktree card list" }),
-      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" } as never),
+      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" }),
       tab({ key: "peer", title: "Two-row header stack" }),
-      tab({ key: "peer-child", title: "Check header spacing", parentKey: "peer" } as never),
+      tab({ key: "peer-child", title: "Check header spacing", parentKey: "peer" }),
     ]);
 
     expect(markup).not.toContain("data-conversation-tab-family");
@@ -140,7 +119,7 @@ describe("ConversationTabs", () => {
   it("archives from the orchestrator, not from the sub-agent's chip", () => {
     const markup = render([
       tab({ key: "parent", title: "Worktree card list" }),
-      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" } as never),
+      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" }),
     ]);
 
     expect(markup).toContain('aria-label="Archive Worktree card list"');
@@ -159,17 +138,18 @@ describe("ConversationTabs", () => {
         title: "Audit card tokens",
         parentKey: "parent",
         isActive: true,
-      } as never),
+      }),
     ]);
 
     expect(markup).toContain('data-active-tab="true"');
     expect(markup).toContain("holding the open conversation Audit card tokens");
+    expect(markup).toContain('data-tab-family-popover-item="child" aria-current="page"');
   });
 
   it("offers the orchestrator a count chip that opens its sub-agent picker", () => {
     const markup = render([
       tab({ key: "parent", title: "Worktree card list" }),
-      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" } as never),
+      tab({ key: "child", title: "Audit card tokens", parentKey: "parent" }),
     ]);
 
     expect(markup).toContain("data-sub-agent-count");

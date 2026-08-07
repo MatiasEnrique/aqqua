@@ -460,6 +460,49 @@ describe("uiStateStore persistence", () => {
     expect(persisted).not.toHaveProperty("worktreeExpandedByKey");
   });
 
+  it("drops legacy collapsed conversation families when restoring and rewriting state", () => {
+    localStorageStub.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+        collapsedConversationTabFamilyKeys: ["environment:parent"],
+      } satisfies PersistedUiState),
+    );
+    sessionStorageStub.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        activeWorktreeOverrideKey: "local:/worktrees/window",
+        openConversationTabKeys: ["environment:parent"],
+        collapsedConversationTabFamilyKeys: ["environment:parent"],
+      }),
+    );
+
+    const restored = readPersistedState();
+
+    expect(restored).not.toHaveProperty("collapsedConversationTabFamilyKeys");
+    expect(restored.projectOrder).toEqual(["physical-a", "physical-b"]);
+    expect(restored.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+    expect(restored.activeWorktreeOverrideKey).toBe("local:/worktrees/window");
+    expect(restored.openConversationTabKeys).toEqual(["environment:parent"]);
+
+    persistState(restored);
+
+    expect(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")).toEqual(
+      expect.objectContaining({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      }),
+    );
+    expect(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")).not.toHaveProperty(
+      "collapsedConversationTabFamilyKeys",
+    );
+    expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
+      activeWorktreeOverrideKey: "local:/worktrees/window",
+      openConversationTabKeys: ["environment:parent"],
+    });
+  });
+
   it("persists only the bounded inactive worktree-order history", () => {
     const inactiveKeys = Array.from(
       { length: MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + 2 },

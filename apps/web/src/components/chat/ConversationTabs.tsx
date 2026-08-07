@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { StatusIndicator } from "../StatusIndicator";
-import { TabFamilyCountIcon, TabFamilyPopover } from "../TabFamilyPopover";
+import { TabFamilyCountTrigger, TabFamilyPopover } from "../TabFamilyPopover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   type ConversationTab,
@@ -159,21 +159,15 @@ function SubAgentCountChip(props: {
     <TabFamilyPopover
       title={`${props.familyTitle} sub-agents`}
       trigger={
-        <button
-          type="button"
-          aria-label={triggerLabel}
-          data-sub-agent-count
-          data-active-tab={activeTab === undefined ? undefined : true}
-          className={cn(
-            "inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
-            activeTab === undefined
-              ? "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
-              : "bg-foreground text-background",
-          )}
-        >
-          <TabFamilyCountIcon />
-          {count}
-        </button>
+        <TabFamilyCountTrigger
+          label={triggerLabel}
+          count={count}
+          active={activeTab !== undefined}
+          markerAttributes={{
+            "data-sub-agent-count": true,
+            "data-active-tab": activeTab === undefined ? undefined : true,
+          }}
+        />
       }
       items={props.tabs.map((tab) => ({
         key: tab.key,

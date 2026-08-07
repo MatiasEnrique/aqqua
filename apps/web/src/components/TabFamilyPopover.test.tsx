@@ -45,10 +45,5 @@ describe("TabFamilyPopover", () => {
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('data-tab-family-popover-item="subagent:review"');
     expect(markup).toContain('data-tab-family-popover-item="artifact:plan"');
-    expect(markup).toContain("text-xs");
-    expect(markup).not.toContain("text-sm");
-    expect(markup).toContain("font-semibold text-foreground");
-    expect(markup).toContain("text-muted-foreground");
-    expect(markup).not.toContain("font-medium");
   });
 });

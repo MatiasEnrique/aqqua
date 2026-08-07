@@ -1,31 +1,10 @@
 import { ThreadId } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../TabFamilyPopover", () => ({
-  TabFamilyCountIcon: () => <span aria-hidden>family</span>,
-  TabFamilyPopover: (props: {
-    readonly trigger: ReactElement;
-    readonly items: readonly {
-      readonly key: string;
-      readonly label: string;
-      readonly leading: ReactNode;
-    }[];
-  }) => (
-    <>
-      {props.trigger}
-      <div data-tab-family-popover>
-        {props.items.map((item) => (
-          <span key={item.key} data-tab-family-popover-item={item.key}>
-            {item.leading}
-            {item.label}
-          </span>
-        ))}
-      </div>
-    </>
-  ),
-}));
+import { createTabFamilyPopoverMock } from "../TabFamilyPopover.test-utils";
+
+vi.mock("../TabFamilyPopover", () => createTabFamilyPopoverMock());
 
 import type { CardTreeModel } from "./CardDetail.logic";
 import { FlowStepTabs } from "./FlowStepTabs";
@@ -120,6 +99,25 @@ describe("FlowStepTabs", () => {
 
     expect(markup).toContain("Plan.md");
     expect(markup).toContain('data-active-flow-step="true"');
+  });
+
+  it("names the current leaf on its owning step trigger", () => {
+    const markup = renderToStaticMarkup(
+      <FlowStepTabs
+        model={model}
+        selection={{
+          kind: "subagent",
+          stepIndex: 0,
+          threadId: ThreadId.make("thread-plan-reviewer"),
+        }}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Open 2 details of Plan, current Review the plan"');
+    expect(markup).toContain(
+      'data-tab-family-popover-item="subagent:thread-plan-reviewer" aria-current="page"',
+    );
   });
 
   it("keeps step details out of the tab strip behind a compact picker", () => {
