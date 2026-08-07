@@ -3,6 +3,7 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  changeRequestActionsTriggerLabel,
   changeRequestMergeMethodLabel,
   orderChangeRequestMergeMethods,
   requiresDefaultBranchConfirmation,
@@ -29,10 +30,32 @@ describe("change request management", () => {
     assert.equal(changeRequestMergeMethodLabel("merge"), "Merge commit");
   });
 
+  it("removes the merge label from the actions trigger while conflicts exist", () => {
+    assert.equal(
+      changeRequestActionsTriggerLabel({
+        state: "open",
+        hasConflicts: true,
+        mergePending: false,
+        shortLabel: "Pull Request",
+      }),
+      "Actions",
+    );
+    assert.equal(
+      changeRequestActionsTriggerLabel({
+        state: "open",
+        hasConflicts: false,
+        mergePending: false,
+        shortLabel: "Pull Request",
+      }),
+      "Merge Pull Request",
+    );
+  });
+
   it("enables open change request actions when repository options are available", () => {
     assert.deepEqual(
       resolveChangeRequestManagementState({
         state: "open",
+        hasConflicts: false,
         options,
         optionsPending: false,
         optionsError: null,
@@ -43,6 +66,23 @@ describe("change request management", () => {
         autoMergeDisabledReason: null,
         stateAction: "close",
         stateActionDisabledReason: null,
+      },
+    );
+  });
+
+  it("disables direct merge actions while conflicts exist", () => {
+    assert.deepInclude(
+      resolveChangeRequestManagementState({
+        state: "open",
+        hasConflicts: true,
+        options,
+        optionsPending: false,
+        optionsError: null,
+        mutationPending: false,
+      }),
+      {
+        mergeDisabledReason: "Resolve merge conflicts before merging.",
+        autoMergeDisabledReason: null,
       },
     );
   });

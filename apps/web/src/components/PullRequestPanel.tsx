@@ -27,6 +27,7 @@ import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
 import { DeleteBranchDialog } from "./pullRequest/DeleteBranchDialog";
 import { PullRequestMergeActionsPopover } from "./pullRequest/PullRequestMergeActionsPopover";
 import { PullRequestChecksSection } from "./pullRequest/PullRequestChecksSection";
+import { PullRequestConflictWarning } from "./pullRequest/PullRequestConflictWarning";
 import { PullRequestCommitsSection } from "./pullRequest/PullRequestCommitsSection";
 import { PullRequestConversationSection } from "./pullRequest/PullRequestConversationSection";
 import { PullRequestDescriptionSection } from "./pullRequest/PullRequestDescriptionSection";
@@ -291,6 +292,7 @@ export function PullRequestPanel({
             conversation={conversationQuery.data}
             conversationPending={conversationQuery.isPending}
           />
+          {activePr.hasConflicts ? <PullRequestConflictWarning baseRef={activePr.baseRef} /> : null}
           <div className="flex gap-2 px-4 pb-4">
             {visibility.merge || visibility.manage ? (
               <PullRequestMergeActionsPopover

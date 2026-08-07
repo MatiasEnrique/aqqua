@@ -47,6 +47,7 @@ layer("GitLabCli.layer", (it) => {
               target_branch: "main",
               source_branch: "feature/mr-threads",
               state: "opened",
+              detailed_merge_status: "conflict",
               source_project_id: 101,
               target_project_id: 100,
               source_project: {
@@ -72,6 +73,7 @@ layer("GitLabCli.layer", (it) => {
         baseRefName: "main",
         headRefName: "feature/mr-threads",
         state: "open",
+        hasConflicts: true,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/aqqua",
         headRepositoryOwnerLogin: "octocat",

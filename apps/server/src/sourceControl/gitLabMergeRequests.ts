@@ -14,6 +14,7 @@ export interface NormalizedGitLabMergeRequestRecord {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean;
   readonly updatedAt: Option.Option<DateTime.Utc>;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
@@ -43,6 +44,8 @@ const GitLabMergeRequestSchema = Schema.Struct({
   source_branch: TrimmedNonEmptyString,
   target_branch: TrimmedNonEmptyString,
   state: Schema.optional(Schema.NullOr(Schema.String)),
+  detailed_merge_status: Schema.optional(Schema.NullOr(Schema.String)),
+  has_conflicts: Schema.optional(Schema.Boolean),
   updated_at: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
   source_project_id: Schema.optional(Schema.NullOr(Schema.Number)),
   target_project_id: Schema.optional(Schema.NullOr(Schema.Number)),
@@ -66,6 +69,24 @@ function normalizeGitLabMergeRequestState(
     return "closed";
   }
   return "open";
+}
+
+function normalizeGitLabConflictStatus(input: {
+  readonly detailed_merge_status?: string | null | undefined;
+  readonly has_conflicts?: boolean | undefined;
+}): boolean | undefined {
+  switch (input.detailed_merge_status?.trim().toLowerCase()) {
+    case "conflict":
+      return true;
+    case "checking":
+    case "unchecked":
+      return undefined;
+    case undefined:
+    case "":
+      return input.has_conflicts;
+    default:
+      return false;
+  }
 }
 
 function projectPathWithNamespace(
@@ -102,6 +123,7 @@ function normalizeGitLabMergeRequestRecord(
         ? sourceProjectPath.toLowerCase() !== targetProjectPath.toLowerCase()
         : undefined;
   const headRepositoryOwnerLogin = ownerLoginFromPathWithNamespace(sourceProjectPath);
+  const hasConflicts = normalizeGitLabConflictStatus(raw);
 
   return {
     number: raw.iid,
@@ -110,6 +132,7 @@ function normalizeGitLabMergeRequestRecord(
     baseRefName: raw.target_branch,
     headRefName: raw.source_branch,
     state: normalizeGitLabMergeRequestState(raw.state),
+    ...(hasConflicts !== undefined ? { hasConflicts } : {}),
     updatedAt: raw.updated_at ?? Option.none(),
     ...(typeof isCrossRepository === "boolean" ? { isCrossRepository } : {}),
     ...(sourceProjectPath ? { headRepositoryNameWithOwner: sourceProjectPath } : {}),

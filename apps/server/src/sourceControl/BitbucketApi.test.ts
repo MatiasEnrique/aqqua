@@ -175,10 +175,12 @@ function requestJsonBody(request: HttpClientRequest.HttpClientRequest): unknown 
 
 it.effect("parses pull request responses from the Bitbucket REST API", () => {
   const { execute, layer } = makeLayer({
-    response: () =>
-      Response.json({
-        ...bitbucketPullRequest,
-      }),
+    response: (request) =>
+      request.url.endsWith("/conflicts")
+        ? Response.json({ values: [{ path: "src/app.ts", scenario: "content" }] })
+        : Response.json({
+            ...bitbucketPullRequest,
+          }),
   });
 
   return Effect.gen(function* () {
@@ -196,6 +198,7 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
       headRefName: "feature/source-control",
       state: "open",
       updatedAt: Option.some(DateTime.makeUnsafe("2026-01-02T00:00:00.000Z")),
+      hasConflicts: true,
       isCrossRepository: true,
       headRepositoryNameWithOwner: "octocat/aqqua",
       headRepositoryOwnerLogin: "octocat",
@@ -203,6 +206,10 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
     assert.strictEqual(
       execute.mock.calls[0]?.[0].url,
       "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42",
+    );
+    assert.strictEqual(
+      execute.mock.calls[1]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/conflicts",
     );
   }).pipe(Effect.provide(layer));
 });
@@ -419,6 +426,31 @@ it.effect("lists pull requests with Bitbucket state and source branch query para
       ["q", 'source.branch.name = "feature/merged" AND state = "MERGED"'],
       ["state", "MERGED"],
     ]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("adds conflict status to open pull request listings", () => {
+  const { execute, layer } = makeLayer({
+    response: (request) =>
+      request.url.endsWith("/conflicts")
+        ? Response.json({ values: [] })
+        : Response.json({ values: [bitbucketPullRequest] }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const result = yield* bitbucket.listPullRequests({
+      cwd: "/repo",
+      headSelector: "feature/source-control",
+      state: "open",
+      limit: 10,
+    });
+
+    assert.strictEqual(result[0]?.hasConflicts, false);
+    assert.strictEqual(
+      execute.mock.calls[1]?.[0].url,
+      "https://api.test.local/2.0/repositories/pingdotgg/aqqua/pullrequests/42/conflicts",
+    );
   }).pipe(Effect.provide(layer));
 });
 

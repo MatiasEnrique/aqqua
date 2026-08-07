@@ -282,6 +282,7 @@ export interface GitHubPullRequestSummary {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state?: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
@@ -617,7 +618,7 @@ export const make = Effect.gen(function* () {
           "--limit",
           String(input.limit ?? 1),
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,mergeable,isCrossRepository,headRepository,headRepositoryOwner",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -655,7 +656,7 @@ export const make = Effect.gen(function* () {
           "--limit",
           String(input.limit + 1),
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,mergeable",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -682,6 +683,9 @@ export const make = Effect.gen(function* () {
                       baseRefName: item.baseRefName,
                       headRefName: item.headRefName,
                       state: item.state,
+                      ...(item.hasConflicts !== undefined
+                        ? { hasConflicts: item.hasConflicts }
+                        : {}),
                     })),
                     truncated: decoded.success.length > input.limit,
                   });
@@ -697,7 +701,7 @@ export const make = Effect.gen(function* () {
           "view",
           input.reference,
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,mergeable,isCrossRepository,headRepository,headRepositoryOwner",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),

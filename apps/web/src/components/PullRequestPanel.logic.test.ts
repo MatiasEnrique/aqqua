@@ -48,18 +48,19 @@ const summary = (
 
 describe("panel pull request normalization", () => {
   it("preserves the branch pull request shape and its aggregate checks status", () => {
-    expect(branchPanelPullRequest(pr())).toEqual(pr());
+    expect(branchPanelPullRequest(pr({ hasConflicts: true }))).toEqual(pr({ hasConflicts: true }));
     expect(branchPanelPullRequest(null)).toBeNull();
   });
 
   it("normalizes repository summaries without inventing a checks status", () => {
-    expect(summaryPanelPullRequest(summary())).toEqual({
+    expect(summaryPanelPullRequest(summary({ hasConflicts: true }))).toEqual({
       number: 43,
       title: "Make pull requests selectable",
       url: "https://example.test/pulls/43",
       baseRef: "main",
       headRef: "feature/pr-selector",
       state: "open",
+      hasConflicts: true,
     });
   });
 
@@ -102,6 +103,12 @@ describe("pullRequestFingerprint", () => {
   it("changes when streamed aggregate state changes", () => {
     expect(pullRequestFingerprint(pr({ checksStatus: "pending" }))).not.toBe(
       pullRequestFingerprint(pr({ checksStatus: "success" })),
+    );
+  });
+
+  it("changes when merge conflicts appear", () => {
+    expect(pullRequestFingerprint(pr())).not.toBe(
+      pullRequestFingerprint(pr({ hasConflicts: true })),
     );
   });
 

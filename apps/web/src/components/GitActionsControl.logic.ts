@@ -24,6 +24,16 @@ export function changeRequestMergeMethodLabel(method: GitChangeRequestMergeMetho
   return MERGE_METHOD_LABELS[method];
 }
 
+export function changeRequestActionsTriggerLabel(input: {
+  readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean | undefined;
+  readonly mergePending: boolean;
+  readonly shortLabel: string;
+}): string {
+  if (input.state !== "open" || input.hasConflicts === true) return "Actions";
+  return input.mergePending ? "Merging…" : `Merge ${input.shortLabel}`;
+}
+
 export function orderChangeRequestMergeMethods(
   options: GitGetChangeRequestMergeOptionsResult,
 ): ReadonlyArray<GitChangeRequestMergeMethod> {
@@ -42,6 +52,7 @@ export interface ChangeRequestManagementState {
 
 export function resolveChangeRequestManagementState(input: {
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean | undefined;
   readonly options: GitGetChangeRequestMergeOptionsResult | null;
   readonly optionsPending: boolean;
   readonly optionsError: string | null;
@@ -58,7 +69,8 @@ export function resolveChangeRequestManagementState(input: {
     ? "Loading repository merge settings."
     : (input.optionsError ??
       (input.options === null ? "Merge capabilities are unavailable for this repository." : null));
-  const mergeDisabledReason = busyReason ?? stateReason ?? optionsReason;
+  const conflictReason = input.hasConflicts ? "Resolve merge conflicts before merging." : null;
+  const mergeDisabledReason = busyReason ?? stateReason ?? conflictReason ?? optionsReason;
   const autoMergeDisabledReason =
     busyReason ??
     stateReason ??

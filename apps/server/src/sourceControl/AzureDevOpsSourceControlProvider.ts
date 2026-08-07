@@ -57,6 +57,7 @@ function toChangeRequest(summary: {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean;
   readonly updatedAt: ChangeRequest["updatedAt"];
 }): ChangeRequest {
   return {
@@ -67,6 +68,7 @@ function toChangeRequest(summary: {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state,
+    ...(summary.hasConflicts !== undefined ? { hasConflicts: summary.hasConflicts } : {}),
     updatedAt: summary.updatedAt,
     isCrossRepository: false,
   };

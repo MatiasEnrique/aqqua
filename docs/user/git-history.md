@@ -23,6 +23,9 @@ base and head refs, aggregate CI status, and each check reported by the remote h
 arrive through the workspace's live Git status stream; the check list refreshes when that remote
 state changes. Use the panel's refresh button to request both a fresh repository status and fresh
 per-check details, or **Manage** to merge, configure auto-merge, close, or reopen the change request.
+When the remote host confirms that the source and target branches conflict, the panel shows a
+prominent **Merge conflicts** warning and disables direct merge methods until the conflicts are
+resolved. Auto-merge remains available when the host supports it.
 The Git actions toolbar also shows the aggregate checks status whenever the branch has a change
 request. Mobile thread lists show the same aggregate status beside the change request number.
 

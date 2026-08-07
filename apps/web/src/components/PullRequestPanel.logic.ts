@@ -16,6 +16,7 @@ export interface PanelPullRequest {
   readonly baseRef: string;
   readonly headRef: string;
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean | undefined;
   readonly checksStatus?: "success" | "failure" | "pending" | null | undefined;
 }
 
@@ -28,6 +29,7 @@ export function branchPanelPullRequest(pr: VcsStatusResult["pr"]): PanelPullRequ
     baseRef: pr.baseRef,
     headRef: pr.headRef,
     state: pr.state,
+    ...(pr.hasConflicts !== undefined ? { hasConflicts: pr.hasConflicts } : {}),
     checksStatus: pr.checksStatus,
   };
 }
@@ -42,6 +44,7 @@ export function summaryPanelPullRequest(
     baseRef: summary.baseRefName,
     headRef: summary.headRefName,
     state: summary.state,
+    ...(summary.hasConflicts !== undefined ? { hasConflicts: summary.hasConflicts } : {}),
   };
 }
 
@@ -85,6 +88,7 @@ export function pullRequestFingerprint(pr: VcsStatusResult["pr"]): string {
     pr.baseRef,
     pr.headRef,
     pr.state,
+    pr.hasConflicts ?? null,
     pr.checksStatus ?? null,
   ]);
 }

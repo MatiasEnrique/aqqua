@@ -46,6 +46,7 @@ describe("AzureDevOpsCli.layer", () => {
               sourceRefName: "refs/heads/feature/source-control",
               targetRefName: "refs/heads/main",
               status: "active",
+              mergeStatus: "conflicts",
               creationDate: "2026-01-02T00:00:00.000Z",
               closedDate: null,
               _links: {
@@ -70,6 +71,7 @@ describe("AzureDevOpsCli.layer", () => {
       assert.strictEqual(result.baseRefName, "main");
       assert.strictEqual(result.headRefName, "feature/source-control");
       assert.strictEqual(result.state, "open");
+      assert.strictEqual(result.hasConflicts, true);
       assert.deepStrictEqual(result.updatedAt._tag, Option.some(1)._tag);
       assert.deepStrictEqual(mockRun.mock.calls.at(-1)?.[0], {
         operation: "AzureDevOpsCli.execute",

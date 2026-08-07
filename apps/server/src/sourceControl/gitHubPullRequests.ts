@@ -14,6 +14,7 @@ export interface NormalizedGitHubPullRequestRecord {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean;
   readonly updatedAt: Option.Option<DateTime.Utc>;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
@@ -30,6 +31,7 @@ const GitHubPullRequestSchema = Schema.Struct({
   headRefName: TrimmedNonEmptyString,
   state: Schema.optional(Schema.NullOr(Schema.String)),
   mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  mergeable: Schema.optional(Schema.NullOr(Schema.String)),
   updatedAt: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
   isCrossRepository: Schema.optional(Schema.Boolean),
   // gh < 2.47 exports headRepository as {id, name} only; nameWithOwner was
@@ -74,6 +76,17 @@ function normalizeGitHubPullRequestState(input: {
   return "open";
 }
 
+function normalizeGitHubConflictStatus(value: string | null | undefined): boolean | undefined {
+  switch (value?.trim().toUpperCase()) {
+    case "CONFLICTING":
+      return true;
+    case "MERGEABLE":
+      return false;
+    default:
+      return undefined;
+  }
+}
+
 function normalizeGitHubPullRequestRecord(
   raw: Schema.Schema.Type<typeof GitHubPullRequestSchema>,
 ): NormalizedGitHubPullRequestRecord {
@@ -87,6 +100,7 @@ function normalizeGitHubPullRequestRecord(
     (headRepositoryOwnerLogin && headRepositoryName
       ? `${headRepositoryOwnerLogin}/${headRepositoryName}`
       : null);
+  const hasConflicts = normalizeGitHubConflictStatus(raw.mergeable);
 
   return {
     number: raw.number,
@@ -95,6 +109,7 @@ function normalizeGitHubPullRequestRecord(
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
     state: normalizeGitHubPullRequestState(raw),
+    ...(hasConflicts !== undefined ? { hasConflicts } : {}),
     updatedAt: raw.updatedAt ?? Option.none(),
     ...(typeof raw.isCrossRepository === "boolean"
       ? { isCrossRepository: raw.isCrossRepository }

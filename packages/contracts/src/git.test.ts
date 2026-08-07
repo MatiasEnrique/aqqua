@@ -497,10 +497,20 @@ describe("VcsStatusRemoteResult", () => {
     expect(parsed.pr?.checksStatus).toBe("pending");
   });
 
+  it("decodes merge conflicts when supplied", () => {
+    const parsed = decodeVcsStatusRemoteResult({
+      ...remote,
+      pr: { ...remote.pr, hasConflicts: true },
+    });
+
+    expect(parsed.pr?.hasConflicts).toBe(true);
+  });
+
   it("keeps checks status optional for older server payloads", () => {
     const parsed = decodeVcsStatusRemoteResult(remote);
 
     expect(parsed.pr?.checksStatus).toBeUndefined();
+    expect(parsed.pr?.hasConflicts).toBeUndefined();
   });
 });
 
