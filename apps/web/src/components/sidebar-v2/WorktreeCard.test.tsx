@@ -118,6 +118,15 @@ describe("WorktreeCard", () => {
     expect(markup).not.toContain("Worktree actions for");
   });
 
+  it("keeps the delete column reserved on the undeletable project checkout", () => {
+    const markup = render(group({ isProjectCheckout: true }));
+
+    // No control, but the column still has to exist: without it the checkout's
+    // state label sits a trash button further right than every other row's.
+    expect(markup).not.toContain("Delete worktree");
+    expect(markup).toContain('<span aria-hidden="true" class="size-7 shrink-0"></span>');
+  });
+
   it("shows the merged pull request number and icon in violet", () => {
     const markup = render(group({ mergedChangeRequestNumber: 42, summaryState: "settled" }));
 

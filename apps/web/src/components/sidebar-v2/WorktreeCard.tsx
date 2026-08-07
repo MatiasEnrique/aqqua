@@ -104,7 +104,11 @@ export function WorktreeCard(props: {
               {deleteAction.enabled ? "Delete worktree" : deleteAction.disabledReason}
             </TooltipPopup>
           </Tooltip>
-        ) : null}
+        ) : (
+          // The project checkout has nothing to delete, but its state label
+          // still has to land on the same column as every other row's.
+          <span aria-hidden className="size-7 shrink-0" />
+        )}
       </div>
     </li>
   );
