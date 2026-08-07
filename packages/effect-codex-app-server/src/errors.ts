@@ -128,6 +128,19 @@ export interface CodexAppServerProtocolErrorShape {
   readonly data?: unknown;
 }
 
+/**
+ * The reason inside a defect, when it has one worth reading.
+ *
+ * A spawn failure is rarely about the binary. A missing working directory, a
+ * permission bit, a `CODEX_HOME` that does not exist — each arrives here having
+ * already named itself, and the name is the whole diagnosis.
+ */
+function describeSpawnCause(cause: unknown): string | null {
+  const message = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : null;
+  const trimmed = message?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? null : trimmed;
+}
+
 export class CodexAppServerSpawnError extends Schema.TaggedErrorClass<CodexAppServerSpawnError>()(
   "CodexAppServerSpawnError",
   {
@@ -135,10 +148,18 @@ export class CodexAppServerSpawnError extends Schema.TaggedErrorClass<CodexAppSe
     cause: Schema.Defect(),
   },
 ) {
+  /**
+   * Carries the cause, because callers reduce this to `error.message` and
+   * everything below it is lost. Without the reason, a working directory that
+   * does not exist reads as "failed to spawn codex app-server" and sends people
+   * to check their PATH for a binary that was never the problem.
+   */
   override get message() {
-    return this.command
+    const base = this.command
       ? `Failed to spawn Codex App Server process for command: ${this.command}`
       : "Failed to spawn Codex App Server process";
+    const reason = describeSpawnCause(this.cause);
+    return reason === null ? base : `${base}: ${reason}`;
   }
 }
 

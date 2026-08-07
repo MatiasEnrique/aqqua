@@ -16,6 +16,7 @@ import type {
   SidebarProjectGroupMember,
   SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
+import type { ProjectScopeSelection } from "./projectScopeSelection";
 import type { SidebarDraftRow } from "../Sidebar.logic";
 import type { SnoozePreset } from "../Sidebar.snooze";
 import type {
@@ -44,15 +45,17 @@ export type SidebarProjectsSection = {
     readonly workspaceRoot: string;
   }[];
   readonly projectGroups: readonly SidebarProjectSnapshot[];
-  readonly projectScopeKey: string | null;
-  readonly setProjectScopeKey: (key: string | null) => void;
+  /** The projects the list is filtered to. Empty means every project. */
+  readonly projectScopeSelection: ProjectScopeSelection;
+  readonly setProjectScope: (projectKeys: readonly string[]) => void;
+  readonly clearProjectScope: () => void;
+  readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
+  /** The one project in scope, or null when the scope is zero or many. */
   readonly scopedProjectGroup: SidebarProjectSnapshot | null;
   readonly scopedProjectKeys: ReadonlySet<string> | null;
   readonly scopedProjectState: SidebarProjectState | null;
   readonly projectExpandedById: Readonly<Record<string, boolean>>;
   readonly setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
-  readonly projectScopeMenuOpen: boolean;
-  readonly setProjectScopeMenuOpen: (open: boolean) => void;
   readonly projectActionsTarget: SidebarProjectSnapshot | null;
   readonly setProjectActionsTarget: (target: SidebarProjectSnapshot | null) => void;
   readonly projectGroupingSettings: {
@@ -126,6 +129,10 @@ export type SidebarWorktreesSection = {
   readonly expandedWorktreeGroups: readonly SidebarWorktreeGroup[];
   readonly repositoryGroups: readonly SidebarRepositoryGroup<SidebarProjectSnapshot>[];
   readonly repositoryHierarchyVisible: boolean;
+  /** Derived from the route, with a persisted fallback for empty worktrees. */
+  readonly activeWorktreeKey: string | null;
+  readonly activeWorktreeGroup: SidebarWorktreeGroup | null;
+  readonly setActiveWorktreeOverrideKey: (key: string | null) => void;
   readonly worktreeExpandedByKey: Readonly<Record<string, boolean>>;
   readonly setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
   readonly removingWorktreeKey: string | null;

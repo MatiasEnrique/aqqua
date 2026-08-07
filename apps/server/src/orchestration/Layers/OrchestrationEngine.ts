@@ -91,6 +91,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "card.settle":
     case "card.unsettle":
     case "card.archive":
+    case "card.unarchive":
     case "card.delete":
     case "card.delete.complete":
     case "card.delete.fail":

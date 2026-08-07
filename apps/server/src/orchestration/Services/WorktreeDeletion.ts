@@ -1,8 +1,8 @@
 /**
  * Server-owned worktree deletion saga.
  *
- * Resolves live + archived membership at execution time, dispatches existing
- * `thread.delete` roots (cascade owned by the decider), then removes the
+ * Resolves live + archived membership at execution time, archives every live
+ * conversation family (cascade owned by the decider), then removes the
  * worktree filesystem path. Partial progress always reports the true filesystem
  * outcome so clients and cleanup can react correctly.
  *
@@ -29,7 +29,7 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 
 import {
-  selectTopLevelThreadsForBatchDelete,
+  selectTopLevelThreadsForBatchAction,
   type WorktreeMemberThread,
 } from "../threadDeletion.ts";
 import {
@@ -42,7 +42,7 @@ export type { WorktreeMemberThread } from "../threadDeletion.ts";
 export {
   comparableWorktreePath,
   listActiveThreadsForWorktreePath,
-  selectTopLevelThreadsForBatchDelete,
+  selectTopLevelThreadsForBatchAction,
 } from "../threadDeletion.ts";
 
 export type WorktreeDeletionStepError = {
@@ -66,13 +66,13 @@ export interface WorktreeDeletionDeps {
   }) => Effect.Effect<void, GitCommandError>;
   /**
    * Authoritative membership snapshot: live + archived, non-deleted shells.
-   * Re-read after each delete wave. A successful saga ends only after a final
-   * empty read (pre-remove and again post-remove when the filesystem was removed).
+   * Re-read after each archive wave. Already archived members remain as durable
+   * history and are ignored by the drain.
    */
   readonly listMemberThreads: (
     worktreePath: string,
   ) => Effect.Effect<ReadonlyArray<WorktreeMemberThread>, WorktreeDeletionStepError>;
-  readonly dispatchThreadDelete: (input: {
+  readonly dispatchThreadArchive: (input: {
     readonly commandId: CommandId;
     readonly threadId: ThreadId;
   }) => Effect.Effect<void, WorktreeDeletionStepError>;
@@ -85,13 +85,13 @@ export interface WorktreeDeletionDeps {
 }
 
 const conversationPartial = (
-  deletedThreadIds: ReadonlyArray<ThreadId>,
+  archivedThreadIds: ReadonlyArray<ThreadId>,
   detail: string,
   worktreeRemoval: "not_attempted" | "removed",
 ): VcsDeleteWorktreeResult => ({
   status: "partial",
   stage: "conversation",
-  deletedThreadIds: [...deletedThreadIds],
+  archivedThreadIds: [...archivedThreadIds],
   retryable: true,
   detail,
   worktreeRemoval,
@@ -110,7 +110,7 @@ const sameRemovalInspection = (
   confirmed.worktreeIdentity === current.worktreeIdentity;
 
 /**
- * Delete every conversation for a worktree path, then remove the worktree.
+ * Archive every live conversation for a worktree path, then remove the worktree.
  *
  * Under deletion ownership: wait for create-lease drain → pre-remove membership
  * drain → filesystem remove → post-remove drain. Release outcome drives
@@ -129,8 +129,8 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
   return yield* deps.pathCoordination.withDeletion(
     input.path,
     Effect.gen(function* () {
-      const deletedThreadIds: ThreadId[] = [];
-      const deletedSet = new Set<string>();
+      const archivedThreadIds: ThreadId[] = [];
+      const archivedSet = new Set<string>();
 
       const drainMembers = Effect.fn("deleteWorktreeOwned.drainMembers")(function* (
         allocateTag: string,
@@ -140,53 +140,55 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
           const membersResult = yield* deps.listMemberThreads(input.path).pipe(Effect.result);
           if (Result.isFailure(membersResult)) {
             return conversationPartial(
-              deletedThreadIds,
+              archivedThreadIds,
               membersResult.failure.message,
               worktreeRemoval,
             );
           }
-          const remaining = membersResult.success.filter((thread) => !deletedSet.has(thread.id));
+          const remaining = membersResult.success.filter(
+            (thread) => thread.archivedAt === null && !archivedSet.has(thread.id),
+          );
           if (remaining.length === 0) return null;
 
-          const roots = selectTopLevelThreadsForBatchDelete(remaining);
+          const roots = selectTopLevelThreadsForBatchAction(remaining);
           for (const root of roots) {
-            if (deletedSet.has(root.id)) continue;
+            if (archivedSet.has(root.id)) continue;
             const commandIdResult = yield* deps.allocateCommandId(allocateTag).pipe(Effect.result);
             if (Result.isFailure(commandIdResult)) {
               return conversationPartial(
-                deletedThreadIds,
+                archivedThreadIds,
                 commandIdResult.failure.message,
                 worktreeRemoval,
               );
             }
-            const deleteResult = yield* deps
-              .dispatchThreadDelete({
+            const archiveResult = yield* deps
+              .dispatchThreadArchive({
                 commandId: commandIdResult.success,
                 threadId: root.id,
               })
               .pipe(Effect.result);
-            if (Result.isFailure(deleteResult)) {
+            if (Result.isFailure(archiveResult)) {
               return conversationPartial(
-                deletedThreadIds,
-                deleteResult.failure.message,
+                archivedThreadIds,
+                archiveResult.failure.message,
                 worktreeRemoval,
               );
             }
-            deletedSet.add(root.id);
-            deletedThreadIds.push(root.id);
+            archivedSet.add(root.id);
+            archivedThreadIds.push(root.id);
           }
         }
       });
 
       // Drain until empty while the path fence is held so same-path creates
       // cannot become durable until we release.
-      const preRemovePartial = yield* drainMembers("worktree-thread-delete", "not_attempted");
+      const preRemovePartial = yield* drainMembers("worktree-thread-archive", "not_attempted");
       if (preRemovePartial !== null) return preRemovePartial;
 
       if (inspection.availability !== "available") {
         return {
           status: "completed" as const,
-          deletedThreadIds,
+          archivedThreadIds,
           worktreeRemoval: "already_missing" as const,
           ...(inspection.availability === "not_worktree"
             ? { preservedUnverifiedPath: true as const }
@@ -205,7 +207,7 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
         return {
           status: "partial" as const,
           stage: "worktree" as const,
-          deletedThreadIds,
+          archivedThreadIds,
           retryable: true,
           detail: reinspectionResult.failure.message,
           worktreeRemoval: "not_attempted" as const,
@@ -215,7 +217,7 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
         return {
           status: "partial" as const,
           stage: "worktree" as const,
-          deletedThreadIds,
+          archivedThreadIds,
           retryable: true,
           detail: "Worktree changed after deletion confirmation; inspect it again before retrying.",
           worktreeRemoval: "not_attempted" as const,
@@ -242,7 +244,7 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
         return {
           status: "partial" as const,
           stage: "worktree" as const,
-          deletedThreadIds,
+          archivedThreadIds,
           retryable: true,
           detail: removeResult.failure.message,
           worktreeRemoval: "failed" as const,
@@ -276,14 +278,14 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
 
       // Stragglers that were already durable before the fence are still drained
       // here; fence-held creates cannot become durable mid-saga.
-      const postRemovePartial = yield* drainMembers("worktree-thread-delete-straggler", "removed");
+      const postRemovePartial = yield* drainMembers("worktree-thread-archive-straggler", "removed");
       if (postRemovePartial !== null) return postRemovePartial;
 
       if (branchFailure !== null) {
         return {
           status: "partial" as const,
           stage: "branch" as const,
-          deletedThreadIds,
+          archivedThreadIds,
           retryable: false,
           detail: branchFailure.message,
           worktreeRemoval: "removed" as const,
@@ -293,7 +295,7 @@ export const deleteWorktreeOwned = Effect.fn("deleteWorktreeOwned")(function* (
 
       return {
         status: "completed" as const,
-        deletedThreadIds,
+        archivedThreadIds,
         worktreeRemoval: "removed" as const,
         ...(branchRemoval === null ? {} : { branchRemoval }),
       };

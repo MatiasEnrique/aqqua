@@ -885,14 +885,14 @@ export function useThreadActions() {
               outcome.stage === "branch"
                 ? "Worktree deleted, but the local branch was kept"
                 : worktreeAlreadyRemoved
-                  ? "Worktree removed, but some conversations could not be cleaned up"
+                  ? "Worktree removed, but some conversations could not be archived"
                   : outcome.stage === "conversation"
-                    ? "Worktree kept because conversation history could not be deleted"
-                    : "Conversation history deleted, but worktree removal failed",
+                    ? "Worktree kept because conversations could not be archived"
+                    : "Conversations archived, but worktree removal failed",
             description:
               outcome.detail ||
               (worktreeAlreadyRemoved
-                ? "Retry to finish conversation cleanup. The worktree is already gone from disk."
+                ? "Retry to finish archiving conversations. The worktree is already gone from disk."
                 : outcome.stage === "conversation"
                   ? "No worktree files were removed."
                   : "The worktree remains on disk. Retry to finish removal."),

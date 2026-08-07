@@ -51,6 +51,17 @@ export type ThreadPresentationInput = {
 /** Aggregate counters for worktree/project summaries. */
 export type SidebarConversationSummaryState = "working" | "needsInput" | "done" | "stale";
 
+/**
+ * Mutually exclusive conversation state for surfaces that show one state and
+ * no counters.
+ *
+ * Unlike `toConversationSummaryState`, failure survives here. A counter row can
+ * afford to fold a failed session into `stale` because the neighbouring numbers
+ * still say something happened; a single label cannot — the worktree card would
+ * report a crashed agent exactly like a conversation that never ran.
+ */
+export type SidebarConversationAggregateState = "failed" | "needsInput" | "working" | "done";
+
 /** Edge-strip / row status used by Sidebar V2 cards. */
 export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "ready";
 
@@ -166,6 +177,32 @@ export function toConversationSummaryState(
   }
 }
 
+/**
+ * Conversation state for single-state aggregates.
+ *
+ * Failure comes from the canonical `failed` phase and nowhere else: a thread
+ * that never ran, or that reports no turn state at all, is resting — reporting
+ * it as a failure would turn every fresh worktree red.
+ */
+export function toConversationAggregateState(
+  state: ThreadPresentationState,
+  thread: ThreadPresentationInput,
+): SidebarConversationAggregateState {
+  switch (state.phase) {
+    case "approval":
+    case "input":
+      return "needsInput";
+    case "working":
+    case "starting":
+      return "working";
+    case "failed":
+      return "failed";
+    case "ready":
+      // A running turn with no live session still counts as work in flight.
+      return thread.latestTurn?.state === "running" ? "working" : "done";
+  }
+}
+
 export function resolveSidebarV2Status(thread: ThreadPresentationInput): SidebarV2Status {
   return toSidebarV2Status(classifyThreadPresentation(thread));
 }
@@ -175,4 +212,10 @@ export function resolveSidebarConversationSummaryState(
 ): SidebarConversationSummaryState {
   const presentation = classifyThreadPresentation(thread);
   return toConversationSummaryState(presentation, thread);
+}
+
+export function resolveSidebarConversationAggregateState(
+  thread: ThreadPresentationInput,
+): SidebarConversationAggregateState {
+  return toConversationAggregateState(classifyThreadPresentation(thread), thread);
 }

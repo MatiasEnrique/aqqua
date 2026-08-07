@@ -832,19 +832,23 @@ describe("selectSidebarDraftRows", () => {
       {
         draftId: "newer",
         environmentId: "local",
+        threadId: "thread-newer",
         projectId: "project-a",
         envMode: "worktree",
         title: SIDEBAR_DRAFT_ROW_FALLBACK_TITLE,
         baseBranch: null,
+        worktreePath: null,
         createdAt: "2026-03-09T11:00:00.000Z",
       },
       {
         draftId: "older",
         environmentId: "local",
+        threadId: "thread-older",
         projectId: "project-a",
         envMode: "worktree",
         title: "feature/older",
         baseBranch: "main",
+        worktreePath: null,
         createdAt: "2026-03-09T10:00:00.000Z",
       },
     ]);

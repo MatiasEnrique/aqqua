@@ -1907,6 +1907,23 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             return;
           }
 
+          case "card.unarchived": {
+            const existingRow = yield* projectionCardRepository.getById({
+              cardId: event.payload.cardId,
+            });
+            if (Option.isNone(existingRow)) {
+              return;
+            }
+            yield* projectionCardRepository.upsert({
+              ...existingRow.value,
+              archivedAt: null,
+              lastError: null,
+              operation: null,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
           case "card.delete-requested": {
             const existingRow = yield* projectionCardRepository.getById({
               cardId: event.payload.cardId,
@@ -1935,6 +1952,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 operationId: event.payload.operationId,
                 requestedAt: event.payload.requestedAt,
                 purpose: event.payload.purpose ?? matchingOperation?.purpose ?? "delete",
+                deleteWorktree:
+                  event.payload.deleteWorktree ?? matchingOperation?.deleteWorktree ?? true,
                 cleanupStage: matchingOperation?.cleanupStage ?? "pending",
               },
               updatedAt: event.payload.requestedAt,

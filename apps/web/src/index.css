@@ -84,6 +84,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --glass-saturation: 1.14;
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
+  /* The conversation tab strip, when the tabbed header is on. Deliberately a
+     separate token: --workspace-topbar-height is read by the floating sidebar
+     toggle, the sidebar chrome, settings and usage panes, all of which must
+     stay aligned to row one no matter how tall the header grows. */
+  --workspace-tabbar-height: 42px;
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
@@ -119,30 +124,34 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 }
 
 @theme inline {
-  /* Aqqua ink ramp. A single low-chroma bluish-grey scale replaces zinc and
-     neutral across the app: the blue cast is present at every step, so the
-     whole surface hierarchy reads as one family rather than a recolored
-     accent sitting on top of a neutral gray. */
-  --color-ink-25: oklch(0.988 0.003 258);
-  --color-ink-50: oklch(0.97 0.004 258);
-  --color-ink-100: oklch(0.93 0.005 258);
-  --color-ink-200: oklch(0.87 0.006 258);
-  --color-ink-300: oklch(0.775 0.007 258);
-  --color-ink-400: oklch(0.655 0.008 258);
+  /* Aqqua ink ramp. A single low-chroma warm-grey scale replaces zinc and
+     neutral across the app: bone-warm at the light end (hue 85), fading to a
+     near-neutral graphite at the dark end (hue 70, chroma 0.002), so light
+     surfaces read as paper while dark surfaces stay an untinted charcoal. */
+  --color-ink-25: oklch(0.988 0.006 85);
+  --color-ink-50: oklch(0.97 0.006 85);
+  --color-ink-100: oklch(0.93 0.006 84);
+  --color-ink-200: oklch(0.87 0.006 83);
+  --color-ink-300: oklch(0.775 0.005 82);
+  --color-ink-400: oklch(0.655 0.004 80);
   /* Anchored to the landing's #666 muted value. Most muted text in the app is
      rendered through an opacity modifier (text-muted-foreground/65 and
      friends, 200+ call sites), so this step has to start dark enough to
      survive being knocked back. */
-  --color-ink-500: oklch(0.508 0.01 258);
-  --color-ink-600: oklch(0.435 0.012 258);
+  --color-ink-500: oklch(0.508 0.004 78);
+  --color-ink-600: oklch(0.435 0.003 76);
   /* The landing's #313131 body value. */
-  --color-ink-700: oklch(0.363 0.014 258);
-  --color-ink-800: oklch(0.28 0.016 258);
-  --color-ink-900: oklch(0.22 0.014 258);
-  --color-ink-950: oklch(0.17 0.012 258);
+  --color-ink-700: oklch(0.363 0.003 74);
+  --color-ink-800: oklch(0.28 0.002 72);
+  --color-ink-900: oklch(0.22 0.002 70);
+  --color-ink-950: oklch(0.17 0.002 70);
   /* Retained so existing bg-zinc-25 utilities keep resolving; new work should
      reach for the ink ramp instead. */
   --color-zinc-25: var(--color-ink-25);
+  /* Raised-surface white. Pure #fff reads cold against the bone ramp, so cards,
+     popovers, and the composer lift onto this barely-warm paper instead. Text
+     on saturated fills (primary-foreground) stays --color-white. */
+  --color-paper: oklch(0.997 0.003 85);
   /* Brand ink — the primary action color. Deliberately not a step on the ramp:
      the ramp stays near-neutral so body text and surfaces read as paper, while
      this carries enough chroma (0.038 vs the ramp's 0.016) to actually look
@@ -160,7 +169,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
-  --animate-aqqua-ring-dot: aqqua-ring-dot 1.5s ease-in-out infinite;
   /* Product UI, body, anything at or below 16px. */
   --font-sans:
     "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -252,17 +260,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     100% {
       opacity: 0;
       scale: 2;
-    }
-  }
-  @keyframes aqqua-ring-dot {
-    0%,
-    100% {
-      scale: 1;
-      opacity: 1;
-    }
-    50% {
-      scale: 0.5;
-      opacity: 0.3;
     }
   }
   @keyframes sidebar-working-text {
@@ -809,9 +806,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --app-chrome-background: var(--background);
   --surface-raised: color-mix(in srgb, var(--card) 20%, transparent);
   --foreground: var(--color-ink-800);
-  --card: var(--color-white);
+  --card: var(--color-paper);
   --card-foreground: var(--color-ink-800);
-  --popover: var(--color-white);
+  --popover: var(--color-paper);
   --popover-foreground: var(--color-ink-800);
   --primary: var(--color-brand-ink);
   --primary-foreground: var(--color-white);
@@ -842,8 +839,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --sidebar-muted-foreground: var(--muted-foreground);
   --sidebar-control-surface: var(--color-ink-100);
   --sidebar-row-hover: var(--color-ink-25);
-  --sidebar-row-active: var(--color-white);
-  --sidebar-row-selected: var(--color-white);
+  --sidebar-row-active: var(--color-paper);
+  --sidebar-row-selected: var(--color-paper);
   --sidebar-border: var(--border);
   /* A conversation card is the composer's shell, reused: same surface, same
      hairline, same radius. These mirror .chat-composer-glass-shell so the two
@@ -928,7 +925,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 [data-sidebar-version="v2"] {
   --background: var(--color-ink-25);
   --foreground: var(--color-ink-800);
-  --card: var(--color-white);
+  --card: var(--color-paper);
   --card-foreground: var(--color-ink-800);
   --accent: var(--color-ink-100);
   --accent-foreground: var(--color-ink-900);
@@ -941,8 +938,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --sidebar-muted-foreground: var(--color-ink-500);
   --sidebar-control-surface: var(--color-ink-100);
   --sidebar-row-hover: var(--color-ink-25);
-  --sidebar-row-active: var(--color-white);
-  --sidebar-row-selected: var(--color-white);
+  --sidebar-row-active: var(--color-paper);
+  --sidebar-row-selected: var(--color-paper);
   --sidebar-border: var(--color-ink-200);
   background-color: var(--sidebar);
 }

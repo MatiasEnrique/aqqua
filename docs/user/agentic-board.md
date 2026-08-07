@@ -154,9 +154,11 @@ To-Do; it also requires the running server.
 
 ## Position and status
 
-In Flows the sidebar lists the selected flow's cards, grouped by urgency: **Needs
-you** (paused, needs input, or failed), **Active** (running), **To-Do** (the
-backlog, with Start inline), **Done**, and **Settled** at the bottom.
+In Flows the sidebar can filter several projects and several flows at once. It
+lists their cards as compact one-line rows, grouped by urgency: **Needs you**
+(paused, needs input, or failed), **Active** (running), **To-Do** (the backlog,
+with Start inline), **Done**, and collapsed **Settled** and **Archived** history
+at the bottom.
 When active cards exist, opening a flow lands on the most urgent one. If the
 flow contains only settled cards, its landing stays empty until you choose
 **Settled** history. A card's
@@ -194,8 +196,12 @@ Steps write their output to markdown files kept outside your repository (under
 the server state directory), so pipelines never dirty the working tree. Later
 steps receive earlier artifacts only where the template says so — `${artifact}`
 for the previous step's file, `${artifact:Step name}` for any earlier one.
-Opening a card shows everything it owns: each step's conversation, the
-sub-agents it spawned, its diff, and, after the step succeeds, its artifact.
+Opening a card replaces the regular conversation tabs with one tab per flow
+step. Every step stays visible; future steps are muted and become interactive
+only when the card reaches them. A started step's menu exposes its
+conversation, spawned sub-agents, and, after the step succeeds, its artifact.
+This keeps the chat full-width without creating conversations early or adding
+another sidebar.
 Artifacts are not shown as drafts while the agent is still working. You can
 edit a finished artifact in place; edits made while a card is paused are exactly
 what the next step reads.
@@ -214,22 +220,27 @@ Every path stays inside the model:
   its artifacts, and returns the card to To-Do. Starting it again captures the
   latest flow configuration while keeping the card's worktree changes.
 
-## Done, Settled, Archive, and Delete
+## Done, Archive, and Delete
 
 Done keeps everything — worktree, branch, artifacts — so you can push
-follow-ups from the step conversations. Settle a Done card to move it out of
-the active flow and into reversible history; un-settling returns it to Done
-without changing its worktree, threads, or artifacts. **Delete card** removes a
-stable card from the flow and deletes its conversations, worktree, and artifact
-directory. Running cards must be reset first, and a starting card must finish
-starting before it can be reset, so cleanup cannot race an active agent. Commits
-on the card's branch remain in the repository.
+follow-ups from the step conversations. **Archive** is available as soon as the
+card reaches Done. It archives every conversation owned by the card and removes
+its artifact directory. The confirmation optionally removes the worktree;
+leaving that option off preserves the checkout and its changes. The branch and
+its commits always remain in the repository.
 
-**Archive** is available after a Done card is settled. It removes the card's
-conversations, worktree, and artifact directory before the card becomes finally
-archived. The branch and its commits remain in the repository. Cleanup progress
-is saved, so a failure stays visible as a cleanup receipt with its reason and
-can be retried without repeating stages that already finished.
+Archived cards stay visible in the collapsed Archived shelf and can be restored.
+Restore returns the card and all of its conversations to Done. Removed artifacts
+are not recreated; if archive also removed the worktree, the restored card is
+historical and its old checkout remains absent.
+
+Historical Settled cards can also be archived or returned to Done.
+**Delete card** removes a stable card from the flow and deletes its
+conversations, worktree, and artifact directory. Running cards must be reset
+first, and a starting card must finish starting before it can be reset, so
+cleanup cannot race an active agent. Cleanup progress is saved, so a failure
+stays visible as a cleanup receipt with its reason and can be retried without
+repeating stages that already finished.
 
 Delete also waits for cleanup. While it runs, the card remains as a **Deleting**
 receipt/retry row instead of disappearing from every visible section. If cleanup

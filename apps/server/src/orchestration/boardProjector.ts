@@ -30,6 +30,7 @@ import {
   CardStepAdvanceRequestedPayload,
   CardStepEnteredPayload,
   CardTitleUpdatedPayload,
+  CardUnarchivedPayload,
   CardUnsettledPayload,
 } from "./Schemas.ts";
 
@@ -424,6 +425,19 @@ export function projectBoardEvent(
         })),
       );
 
+    case "card.unarchived":
+      return decodeForEvent(CardUnarchivedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          cards: updateCard(nextBase.cards ?? [], payload.cardId, {
+            archivedAt: null,
+            lastError: null,
+            operation: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
     case "card.delete-requested":
       return decodeForEvent(CardDeleteRequestedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -445,6 +459,8 @@ export function projectBoardEvent(
               : null;
           const cleanupStage = matchingOperation?.cleanupStage ?? "pending";
           const purpose = payload.purpose ?? matchingOperation?.purpose ?? "delete";
+          const deleteWorktree =
+            payload.deleteWorktree ?? matchingOperation?.deleteWorktree ?? true;
           return {
             ...nextBase,
             cards: updateCard(nextBase.cards ?? [], payload.cardId, {
@@ -454,6 +470,7 @@ export function projectBoardEvent(
                 operationId: payload.operationId,
                 requestedAt: payload.requestedAt,
                 purpose,
+                deleteWorktree,
                 cleanupStage,
               },
               updatedAt: payload.requestedAt,

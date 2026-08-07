@@ -1,10 +1,13 @@
 export {
   classifyThreadPresentation,
   hasUnseenCompletion,
+  resolveSidebarConversationAggregateState,
   resolveSidebarConversationSummaryState,
   resolveSidebarV2Status,
+  toConversationAggregateState,
   toConversationSummaryState,
   toSidebarV2Status,
+  type SidebarConversationAggregateState,
   type SidebarConversationSummaryState,
   type SidebarV2Status,
   type ThreadPresentationInput,

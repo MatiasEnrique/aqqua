@@ -140,6 +140,7 @@ export function makeBoardReconciliationEvents(
             requestedAt: operation.requestedAt,
             operationId: operation.operationId,
             purpose: operation.purpose ?? "delete",
+            deleteWorktree: operation.deleteWorktree ?? true,
           },
         } as BoardReactorEvent);
         break;

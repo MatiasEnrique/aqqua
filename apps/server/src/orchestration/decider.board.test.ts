@@ -11,6 +11,8 @@ import {
   type OrchestrationBoard,
   type OrchestrationCard,
   type OrchestrationReadModel,
+  type OrchestrationThread,
+  ProviderInstanceId,
   ProjectId,
   ThreadId,
 } from "@aqqua/contracts";
@@ -112,6 +114,7 @@ function makeReadModel(input: {
   readonly boards?: ReadonlyArray<OrchestrationBoard>;
   readonly cards?: ReadonlyArray<OrchestrationCard>;
   readonly projects?: OrchestrationReadModel["projects"];
+  readonly threads?: ReadonlyArray<OrchestrationThread>;
 }): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -127,7 +130,7 @@ function makeReadModel(input: {
         deletedAt: null,
       },
     ],
-    threads: [],
+    threads: input.threads ?? [],
     boards: input.boards ?? [],
     cards: input.cards ?? [],
     updatedAt: NOW,
@@ -712,6 +715,7 @@ it.layer(NodeServices.layer)("board/card decider", (it) => {
         expect(archiveEvents[0].payload).toMatchObject({
           operationId: "cmd-archive",
           purpose: "archive",
+          deleteWorktree: true,
         });
       }
 
@@ -734,6 +738,61 @@ it.layer(NodeServices.layer)("board/card decider", (it) => {
         readModel: makeReadModel({ boards: [makeBoard()], cards: [archiving] }),
       });
       expect(asEvents(completedArchive).map((event) => event.type)).toEqual(["card.archived"]);
+
+      const archivedRootId = ThreadId.make("thread-archived-root");
+      const archivedChildId = ThreadId.make("thread-archived-child");
+      const makeArchivedThread = (
+        id: ThreadId,
+        parentThreadId: ThreadId | null,
+      ): OrchestrationThread => ({
+        id,
+        projectId: ProjectId.make("project-1"),
+        parentThreadId,
+        title: id,
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        archivedAt: NOW,
+        settledOverride: null,
+        settledAt: null,
+        deletedAt: null,
+        messages: [],
+        proposedPlans: [],
+        activities: [],
+        checkpoints: [],
+        session: null,
+      });
+      const restored = yield* decideOrchestrationCommand({
+        command: {
+          type: "card.unarchive",
+          commandId: CommandId.make("cmd-unarchive"),
+          cardId: CardId.make("card-1"),
+        },
+        readModel: makeReadModel({
+          boards: [makeBoard()],
+          cards: [
+            makeCard({
+              position: { kind: "done" },
+              archivedAt: NOW,
+              stepThreads: [{ stepIndex: 0, threadId: archivedRootId, spawnedAt: NOW }],
+            }),
+          ],
+          threads: [
+            makeArchivedThread(archivedRootId, null),
+            makeArchivedThread(archivedChildId, archivedRootId),
+          ],
+        }),
+      });
+      expect(asEvents(restored).map((event) => event.type)).toEqual([
+        "thread.unarchived",
+        "thread.unarchived",
+        "card.unarchived",
+      ]);
 
       const retryArchive = yield* decideOrchestrationCommand({
         command: {
@@ -765,13 +824,20 @@ it.layer(NodeServices.layer)("board/card decider", (it) => {
           type: "card.archive",
           commandId: CommandId.make("cmd-archive-unsettled"),
           cardId: CardId.make("card-1"),
+          deleteWorktree: false,
         },
         readModel: makeReadModel({
           boards: [makeBoard()],
           cards: [makeCard({ position: { kind: "done" }, completedAt: NOW })],
         }),
-      }).pipe(Effect.flip);
-      expect(archiveUnsettled._tag).toBe("OrchestrationCommandInvariantError");
+      });
+      expect(asEvents(archiveUnsettled)[0]).toMatchObject({
+        type: "card.delete-requested",
+        payload: {
+          purpose: "archive",
+          deleteWorktree: false,
+        },
+      });
 
       const archiveTodo = yield* decideOrchestrationCommand({
         command: {

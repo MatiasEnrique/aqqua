@@ -20,7 +20,7 @@ import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 import {
   listActiveThreadsForWorktreePath,
-  selectTopLevelThreadsForBatchDelete,
+  selectTopLevelThreadsForBatchAction,
 } from "./threadDeletion.ts";
 
 const asCommandId = (value: string): CommandId => CommandId.make(value);
@@ -342,6 +342,98 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
     }),
   );
 
+  it.effect("archiving a thread cascades to its sub-agent threads, deepest first", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: asCommandId("cmd-thread-archive-parent"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.archived", aggregateId: asThreadId("thread-grandchild") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-child") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-parent") },
+        ],
+      );
+    }),
+  );
+
+  it.effect("archives malformed cyclic parent graphs once per thread", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedHierarchyReadModel;
+      const cyclicReadModel = {
+        ...readModel,
+        threads: readModel.threads.map((thread) =>
+          thread.id === asThreadId("thread-parent")
+            ? { ...thread, parentThreadId: asThreadId("thread-child") }
+            : thread,
+        ),
+      };
+
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: asCommandId("cmd-thread-archive-cycle"),
+          threadId: asThreadId("thread-parent"),
+        },
+        readModel: cyclicReadModel,
+      });
+      const events = Array.isArray(result) ? result : [result];
+
+      expect(events.map((event) => ({ type: event.type, aggregateId: event.aggregateId }))).toEqual(
+        [
+          { type: "thread.archived", aggregateId: asThreadId("thread-grandchild") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-child") },
+          { type: "thread.archived", aggregateId: asThreadId("thread-parent") },
+        ],
+      );
+    }),
+  );
+
+  it.effect("rejects creating a thread whose parent lineage points back to it", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedReadModel;
+      const threadId = asThreadId("thread-cycle");
+      const cyclicReadModel = {
+        ...readModel,
+        threads: readModel.threads.map((thread) =>
+          thread.id === asThreadId("thread-delete-1")
+            ? { ...thread, parentThreadId: threadId }
+            : thread,
+        ),
+      };
+
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.create",
+          commandId: asCommandId("cmd-thread-create-cycle"),
+          threadId,
+          projectId: asProjectId("project-delete"),
+          parentThreadId: asThreadId("thread-delete-1"),
+          title: "Cyclic child",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: NOW,
+        },
+        readModel: cyclicReadModel,
+      }).pipe(Effect.flip);
+
+      expect(error.message).toContain("parent lineage is cyclic");
+    }),
+  );
+
   it.effect("rejects deleting a flow step thread or its descendant", () =>
     Effect.gen(function* () {
       const readModel = yield* seedHierarchyReadModel;
@@ -547,7 +639,7 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
         [asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort(),
       );
       expect(
-        selectTopLevelThreadsForBatchDelete(members)
+        selectTopLevelThreadsForBatchAction(members)
           .map((thread) => thread.id)
           .sort(),
       ).toEqual([asThreadId("thread-wt-live"), asThreadId("thread-wt-archived")].sort());

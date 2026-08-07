@@ -59,6 +59,7 @@ export type ResetCardInput = CommandInput<"card.reset">;
 export type SettleCardInput = CommandInput<"card.settle">;
 export type UnsettleCardInput = CommandInput<"card.unsettle">;
 export type ArchiveCardInput = CommandInput<"card.archive">;
+export type UnarchiveCardInput = CommandInput<"card.unarchive">;
 export type DeleteCardInput = CommandInput<"card.delete">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
@@ -417,6 +418,16 @@ export const archiveCard: (input: ArchiveCardInput) => CommandEffect = Effect.fn
   return yield* dispatch({
     ...input,
     type: "card.archive",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const unarchiveCard: (input: UnarchiveCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.unarchiveCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.unarchive",
     commandId: yield* commandId(input),
   });
 });

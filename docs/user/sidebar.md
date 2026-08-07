@@ -55,19 +55,28 @@ In worktree mode:
 - Settled conversations live in one shared **Settled** section below every worktree rather than
   inside individual worktree groups. These history rows omit the extra project/message glyph.
 
+In the worktree-card layout, conversations move to the tab strip below the chat header. Each
+persisted conversation tab has separate close and **Archive** controls; closing keeps the
+conversation, while archiving moves the conversation to **Settings → Archive**. Archiving a parent
+conversation archives its complete sub-agent tree. Draft tabs cannot be archived.
+
+Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
+button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
+When a merged pull request is known for the worktree, its pull-request icon and `#number` are shown
+in violet. The project checkout itself cannot be deleted.
+
 The worktree three-dot menu contains only **Settle all** and **Delete**. Snoozed conversations are
 woken first; no conversations to settle, running conversations, or conversations waiting for
 attention keep the batch action disabled. Settling preserves every conversation in the shared
 **Settled** shelf.
 
-Secondary worktrees can use **Delete** from the same menu. aqqua inspects the worktree and asks
-for confirmation before permanently deleting both the filesystem worktree and its live, settled,
-and archived conversations. Deleted conversation history does not appear in **Settled**. The
-confirmation also offers an unchecked **Also delete local branch** option; selecting it removes
-the exact inspected local branch after the worktree, while remote branches are always preserved.
-The current project checkout shows the action disabled. If the directory was already removed
-outside aqqua, retrying the action deletes its remaining conversation history, leaves any
-unverified directory untouched, and cleans up the stale sidebar entry.
+Deleting a secondary worktree first archives every live or settled conversation under that path,
+including sub-agent descendants, then removes the filesystem worktree. Already archived history is
+preserved. The confirmation also offers an unchecked **Also delete local branch** option; selecting
+it removes the exact inspected local branch after the worktree, while remote branches are always
+preserved. If the directory was already removed outside aqqua, retrying the action archives its
+remaining conversations, leaves any unverified directory untouched, and cleans up the stale
+sidebar entry.
 
 ## The Settled shelf
 

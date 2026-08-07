@@ -1330,7 +1330,7 @@ describe("BoardReactor", () => {
             }
             expect(NodeFS.existsSync(artifactDir)).toBe(false);
             expect(removeWorktree).toHaveBeenCalledTimes(
-              cleanupStage === "cleanup-started" || cleanupStage === "conversations-deleted"
+              cleanupStage === "cleanup-started" || cleanupStage === "conversations-archived"
                 ? 1
                 : 0,
             );
@@ -1338,7 +1338,7 @@ describe("BoardReactor", () => {
               Effect.map((chunk) => Array.from(chunk)),
               Effect.orDie,
             );
-            expect(events.filter((event) => event.type === "thread.deleted")).toHaveLength(
+            expect(events.filter((event) => event.type === "thread.archived")).toHaveLength(
               cleanupStage === "cleanup-started" ? 1 : 0,
             );
           }).pipe(Effect.provide(makeProcessLayer()), Effect.orDie),
@@ -1922,15 +1922,10 @@ describe("BoardReactor", () => {
 
         const eventsAfterFinalize = yield* harness.readEvents;
         expect(
-          eventsAfterFinalize.some(
-            (event) => event.type === "thread.archived" && event.aggregateId === firstThreadId,
-          ),
-        ).toBe(true);
-        expect(
-          eventsAfterFinalize.some(
-            (event) => event.type === "thread.archived" && event.aggregateId === subAgentThreadId,
-          ),
-        ).toBe(true);
+          eventsAfterFinalize
+            .filter((event) => event.type === "thread.archived")
+            .map((event) => event.aggregateId),
+        ).toEqual(expect.arrayContaining([firstThreadId, subAgentThreadId]));
 
         yield* harness.dispatch({
           type: "card.release",
@@ -3373,6 +3368,47 @@ describe("BoardReactor", () => {
     ),
   );
 
+  it.effect("archive can preserve the worktree while archiving every card conversation", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* completeAndSettleCard(harness);
+        const before = yield* harness.readModel;
+        const cardBefore = before.cards.find((entry) => entry.id === harness.cardId)!;
+        const ownedThreadIds = cardBefore.stepThreads.map((entry) => entry.threadId);
+        const liveOwnedThreadId = ownedThreadIds[0]!;
+        yield* harness.sessionSet(liveOwnedThreadId, "running", TurnId.make("turn-archive-live"));
+        yield* harness.drain;
+
+        yield* harness.dispatch({
+          type: "card.archive",
+          commandId: CommandId.make("cmd-card-archive-keep-worktree"),
+          cardId: harness.cardId,
+          deleteWorktree: false,
+        });
+        yield* harness.drain;
+
+        const after = yield* harness.readModel;
+        const cardAfter = after.cards.find((entry) => entry.id === harness.cardId)!;
+        expect(cardAfter).toMatchObject({
+          archivedAt: expect.any(String),
+          operation: null,
+          worktreePath: harness.worktreePath,
+        });
+        expect(harness.removeWorktree).not.toHaveBeenCalled();
+        for (const threadId of ownedThreadIds) {
+          expect(after.threads.find((thread) => thread.id === threadId)?.archivedAt).not.toBeNull();
+        }
+        expect(
+          (yield* harness.readEvents).some(
+            (event) =>
+              event.type === "thread.session-stop-requested" &&
+              event.aggregateId === liveOwnedThreadId,
+          ),
+        ).toBe(true);
+      }),
+    ),
+  );
+
   it.effect("archive worktree failure stays visible and resumes the same cleanup claim", () =>
     withBoardReactorHarness({ removeWorktreeFails: true }, (harness) =>
       Effect.gen(function* () {
@@ -3395,7 +3431,7 @@ describe("BoardReactor", () => {
             kind: "deleting",
             operationId: "cmd-archive-worktree-failure",
             purpose: "archive",
-            cleanupStage: "conversations-deleted",
+            cleanupStage: "conversations-archived",
           },
         });
         expect(card.lastError).toMatch(/Archive failed/i);
@@ -3491,7 +3527,7 @@ describe("BoardReactor", () => {
 
   for (const cleanupStage of [
     "cleanup-started",
-    "conversations-deleted",
+    "conversations-archived",
     "worktree-removed",
     "artifacts-removed",
   ] as const satisfies ReadonlyArray<CardCleanupStage>) {
@@ -3599,15 +3635,15 @@ describe("BoardReactor", () => {
 
         const model = yield* harness.readModel;
         expect(model.cards.find((entry) => entry.id === harness.cardId)).toBeUndefined();
-        for (const deletedThreadId of [
+        for (const archivedThreadId of [
           stepThreadId,
           childThreadId,
           grandchildThreadId,
           siblingRootThreadId,
         ]) {
-          expect(
-            model.threads.find((thread) => thread.id === deletedThreadId)?.deletedAt,
-          ).not.toBeNull();
+          const archivedThread = model.threads.find((thread) => thread.id === archivedThreadId);
+          expect(archivedThread?.archivedAt).not.toBeNull();
+          expect(archivedThread?.deletedAt).toBeNull();
         }
         expect(
           model.threads.find((thread) => thread.id === unrelatedThreadId)?.deletedAt,
@@ -3646,7 +3682,7 @@ describe("BoardReactor", () => {
         expect(card?.operation).toMatchObject({
           kind: "deleting",
           operationId: "cmd-delete-retry-first",
-          cleanupStage: "conversations-deleted",
+          cleanupStage: "conversations-archived",
         });
         expect(card?.status).toBe("cancelled");
         expect(card?.lastError).toMatch(/Delete failed/i);

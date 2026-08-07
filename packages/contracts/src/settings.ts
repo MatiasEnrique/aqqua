@@ -34,9 +34,20 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
-export const SidebarThreadGroupingMode = Schema.Literals(["worktree", "flat"]);
+/**
+ * `worktree_cards` groups exactly like `worktree` — it changes only who renders
+ * the group. The sidebar collapses each worktree into a single card and the
+ * chat header grows a tab strip for that worktree's conversations.
+ */
+export const SidebarThreadGroupingMode = Schema.Literals(["worktree", "worktree_cards", "flat"]);
 export type SidebarThreadGroupingMode = typeof SidebarThreadGroupingMode.Type;
-export const DEFAULT_SIDEBAR_THREAD_GROUPING_MODE: SidebarThreadGroupingMode = "worktree";
+/**
+ * The worktree registry plus header tabs is the shape of the app: the sidebar
+ * answers "which checkouts exist", the header answers "which conversations am I
+ * holding open". `worktree` (every conversation inline in the sidebar) and
+ * `flat` remain in Settings → General for anyone who prefers them.
+ */
+export const DEFAULT_SIDEBAR_THREAD_GROUPING_MODE: SidebarThreadGroupingMode = "worktree_cards";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",

@@ -15,10 +15,11 @@ import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useSidebarV2Enabled } from "../hooks/useSettings";
+import { useClientSettings, useSidebarV2Enabled } from "../hooks/useSettings";
 import SettingsSidebar from "./Sidebar";
 import ThreadSidebar from "./SidebarV2";
 import WorktreeSidebar from "./SidebarWorktree";
+import WorktreeCardSidebar from "./SidebarWorktreeCards";
 import { resolveAppSidebarVariant, type AppSidebarVariant } from "./AppSidebarLayout.logic";
 import {
   resolveInitialThreadSidebarWidth,
@@ -36,6 +37,7 @@ export const APP_SIDEBAR_COMPONENTS = {
   settings: SettingsSidebar,
   regular: ThreadSidebar,
   worktree: WorktreeSidebar,
+  "worktree-cards": WorktreeCardSidebar,
 } satisfies Record<AppSidebarVariant, ComponentType>;
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
@@ -109,9 +111,14 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Opt-in beta: off in every build stage until the user flips Settings →
   // Beta → Worktree view.
   const worktreeViewEnabled = useSidebarV2Enabled();
+  const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const pathname = useLocation({ select: (location) => location.pathname });
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-  const sidebarVariant = resolveAppSidebarVariant({ isOnSettings, worktreeViewEnabled });
+  const sidebarVariant = resolveAppSidebarVariant({
+    isOnSettings,
+    worktreeViewEnabled,
+    threadGroupingMode,
+  });
   const ThreadSidebarComponent = APP_SIDEBAR_COMPONENTS[sidebarVariant];
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);

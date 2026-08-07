@@ -3,6 +3,15 @@ import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "aqqua:ui-state:v1";
+/**
+ * State that belongs to ONE window, kept in `sessionStorage`.
+ *
+ * `localStorage` is shared by every same-origin window, so two open windows
+ * overwrote each other's selected worktree and tab order, and a reload could
+ * restore whichever wrote last. `sessionStorage` is per-window and still
+ * survives a reload, which is exactly the documented behaviour of these two.
+ */
+export const WINDOW_STATE_KEY = "aqqua:ui-window-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 1;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "aqqua:renderer-state:v8",
@@ -23,6 +32,8 @@ export interface PersistedUiState {
   threadLastVisitedAtById?: Record<string, string>;
   threadExpandedById?: Record<string, boolean>;
   worktreeExpandedByKey?: Record<string, boolean>;
+  activeWorktreeOverrideKey?: string | null;
+  openConversationTabKeys?: string[];
   /** @deprecated Ignored on read; never written. Tombstones are ephemeral request state. */
   removedWorktreeAtByKey?: Record<string, string>;
   collapsedProjectCwds?: string[];
@@ -43,6 +54,21 @@ export interface UiThreadState {
   threadExpandedById: Record<string, boolean>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
   worktreeExpandedByKey: Record<string, boolean>;
+  /**
+   * Which worktree card is selected when the route cannot say — a worktree
+   * clicked before it holds anything routable. The route always wins over
+   * this; see `resolveActiveWorktreeKey`.
+   */
+  activeWorktreeOverrideKey: string | null;
+  /**
+   * The conversations the header keeps as tabs, in the order they were opened.
+   *
+   * Local and durable on purpose: which conversations you are juggling is a
+   * property of this window, like a browser's tabs — not of the thread, which
+   * every other device and client shares. Membership changes only when you open
+   * a conversation or close its tab; settling or snoozing leaves it alone.
+   */
+  openConversationTabKeys: string[];
 }
 
 export interface UiEndpointState {
@@ -58,6 +84,8 @@ const initialState: UiState = {
   threadExpandedById: {},
   threadChangedFilesExpandedById: {},
   worktreeExpandedByKey: {},
+  activeWorktreeOverrideKey: null,
+  openConversationTabKeys: [],
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -136,6 +164,11 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadExpandedById: sanitizeBooleanRecord(parsed.threadExpandedById),
     worktreeExpandedByKey: sanitizeBooleanRecord(parsed.worktreeExpandedByKey),
+    activeWorktreeOverrideKey:
+      typeof parsed.activeWorktreeOverrideKey === "string"
+        ? parsed.activeWorktreeOverrideKey
+        : null,
+    openConversationTabKeys: sanitizeStringArray(parsed.openConversationTabKeys),
     // Legacy removedWorktreeAtByKey tombstones are intentionally dropped: hide
     // state after deleteWorktree is request-local, not a durable preference.
     threadChangedFilesExpandedById:
@@ -150,7 +183,8 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   };
 }
 
-function readPersistedState(): UiState {
+/** Exported for the persistence suite: the store itself only reads it at init. */
+export function readPersistedState(): UiState {
   if (typeof window === "undefined") {
     return initialState;
   }
@@ -162,14 +196,45 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        return parsePersistedState(JSON.parse(legacyRaw) as PersistedUiState);
+        return withWindowLocalState(parsePersistedState(JSON.parse(legacyRaw) as PersistedUiState));
       }
-      return initialState;
+      return withWindowLocalState(initialState);
     }
-    return parsePersistedState(JSON.parse(raw) as PersistedUiState);
+    return withWindowLocalState(parsePersistedState(JSON.parse(raw) as PersistedUiState));
   } catch {
     return initialState;
   }
+}
+
+/**
+ * Overlays this window's own copy of the window-local fields.
+ *
+ * With nothing stored yet, whatever `parsePersistedState` read from the shared
+ * blob stands — so a window open across the change keeps the strip it already
+ * had rather than blanking once on the way over.
+ *
+ * A malformed session blob is contained here rather than thrown at the caller:
+ * failing outwards would drop the shared state this window just parsed, and the
+ * next mutation would write that loss back over `localStorage` for every window.
+ */
+function withWindowLocalState(state: UiState): UiState {
+  let parsed: Pick<PersistedUiState, "activeWorktreeOverrideKey" | "openConversationTabKeys">;
+  try {
+    const raw = window.sessionStorage.getItem(WINDOW_STATE_KEY);
+    if (raw === null) return state;
+    parsed = JSON.parse(raw) as typeof parsed;
+    if (!parsed || typeof parsed !== "object") return state;
+  } catch {
+    return state;
+  }
+  return {
+    ...state,
+    activeWorktreeOverrideKey:
+      typeof parsed.activeWorktreeOverrideKey === "string"
+        ? parsed.activeWorktreeOverrideKey
+        : null,
+    openConversationTabKeys: sanitizeStringArray(parsed.openConversationTabKeys),
+  };
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -222,6 +287,13 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
+    );
+    window.sessionStorage.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        activeWorktreeOverrideKey: state.activeWorktreeOverrideKey,
+        openConversationTabKeys: state.openConversationTabKeys,
+      } satisfies Pick<PersistedUiState, "activeWorktreeOverrideKey" | "openConversationTabKeys">),
     );
     if (!legacyKeysCleanedUp) {
       legacyKeysCleanedUp = true;
@@ -365,6 +437,22 @@ export function setWorktreeExpanded(
   };
 }
 
+export function setActiveWorktreeOverrideKey(state: UiState, key: string | null): UiState {
+  if (state.activeWorktreeOverrideKey === key) return state;
+  return { ...state, activeWorktreeOverrideKey: key };
+}
+
+export function setOpenConversationTabKeys(state: UiState, keys: readonly string[]): UiState {
+  const next = [...keys];
+  if (
+    next.length === state.openConversationTabKeys.length &&
+    next.every((key, index) => key === state.openConversationTabKeys[index])
+  ) {
+    return state;
+  }
+  return { ...state, openConversationTabKeys: next };
+}
+
 export function retainThreadExpansionForKnownThreads(
   state: UiState,
   knownThreadIds: readonly string[],
@@ -475,6 +563,8 @@ interface UiStateStore extends UiState {
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadExpanded: (threadIds: string | readonly string[], expanded: boolean) => void;
   setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
+  setActiveWorktreeOverrideKey: (key: string | null) => void;
+  setOpenConversationTabKeys: (keys: readonly string[]) => void;
   retainThreadExpansionForKnownThreads: (knownThreadIds: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
@@ -496,6 +586,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setThreadExpanded(state, threadIds, expanded)),
   setWorktreeExpanded: (worktreeKey, expanded) =>
     set((state) => setWorktreeExpanded(state, worktreeKey, expanded)),
+  setActiveWorktreeOverrideKey: (key) => set((state) => setActiveWorktreeOverrideKey(state, key)),
+  setOpenConversationTabKeys: (keys) => set((state) => setOpenConversationTabKeys(state, keys)),
   retainThreadExpansionForKnownThreads: (knownThreadIds) =>
     set((state) => retainThreadExpansionForKnownThreads(state, knownThreadIds)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>

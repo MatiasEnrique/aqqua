@@ -24,7 +24,6 @@ import {
   type PendingCardOperation,
   formatArtifactSize,
   formatCardSelection,
-  formatDiffFilesLabel,
   parseCardSelection,
   resolveCardSelection,
   resolveCardThreadPresence,
@@ -146,6 +145,16 @@ describe("resolveCardSelection", () => {
     expect(resolved).toEqual({ kind: "step", stepIndex: 1 });
   });
 
+  it("falls back when a URL selects a phase that has not started", () => {
+    const resolved = resolveCardSelection({
+      card: card(),
+      board: board(),
+      requested: { kind: "step", stepIndex: 2 },
+      subAgentThreadIds: noSubAgents,
+    });
+    expect(resolved).toEqual({ kind: "step", stepIndex: 1 });
+  });
+
   it("drops a sub-agent selection that no longer exists, keeping its step", () => {
     const resolved = resolveCardSelection({
       card: card(),
@@ -206,9 +215,6 @@ describe("buildCardTree", () => {
       card: card(),
       board: board(),
       threads,
-      diffByThreadId: new Map([
-        ["thread-implement", { filesChanged: 14, additions: 214, deletions: 31 }],
-      ]),
       artifactByStepIndex: new Map([[0, { exists: true, sizeBytes: 3482 }]]),
       nowMs: NOW,
       ...overrides,
@@ -236,20 +242,13 @@ describe("buildCardTree", () => {
     expect(deleting.steps[1]?.status).toBe("idle");
   });
 
-  it("hangs sub-agents and the diff off active steps, and artifacts only off finished steps", () => {
+  it("hangs sub-agents off active steps and artifacts only off finished steps", () => {
     const rows = tree().steps;
 
-    expect(rows[0]?.leaves.map((leaf) => leaf.kind)).toEqual(["diff", "artifact"]);
-    expect(rows[1]?.leaves.map((leaf) => leaf.kind)).toEqual(["subagent", "diff"]);
+    expect(rows[0]?.leaves.map((leaf) => leaf.kind)).toEqual(["artifact"]);
+    expect(rows[1]?.leaves.map((leaf) => leaf.kind)).toEqual(["subagent"]);
     // A step that has not run has no thread and no artifact on disk yet.
     expect(rows[2]?.leaves).toHaveLength(0);
-  });
-
-  it("labels the diff leaf from the thread's own stats", () => {
-    const diff = tree().steps[1]?.leaves.find((leaf) => leaf.kind === "diff");
-    expect(diff).toMatchObject({ label: "14 files changed" });
-    const unknown = tree().steps[0]?.leaves.find((leaf) => leaf.kind === "diff");
-    expect(unknown).toMatchObject({ label: "Changes", stat: null });
   });
 
   it("shows an artifact's size once its step is done and never exposes a draft row", () => {
@@ -309,13 +308,6 @@ describe("tree labels", () => {
     expect(formatArtifactSize(512)).toBe("512 B");
     expect(formatArtifactSize(3482)).toBe("3.4 KB");
     expect(formatArtifactSize(204_800)).toBe("200 KB");
-  });
-
-  it("singularizes a one-file diff", () => {
-    expect(formatDiffFilesLabel({ filesChanged: 1, additions: 2, deletions: 0 })).toBe(
-      "1 file changed",
-    );
-    expect(formatDiffFilesLabel(null)).toBe("Changes");
   });
 });
 

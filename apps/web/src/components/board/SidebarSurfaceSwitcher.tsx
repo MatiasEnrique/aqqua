@@ -1,6 +1,5 @@
 import type { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { LayoutGridIcon, MessageSquareIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -94,14 +93,17 @@ export function SidebarSurfaceSwitcher(props: {
   return (
     <nav
       aria-label="Workspace view"
-      /* Bleeds past the header group's p-2 so the bar spans the full sidebar
-         width and sits flush against its edges. */
-      className="-mx-2 -mt-2 mb-1 grid grid-cols-2 border-b border-sidebar-border"
+      /* Word-only, and no rule beneath it. Two surfaces do not need a tab bar:
+         at this size the words carry the switch, and the sidebar's first
+         hairline is better spent on something the eye has to find. */
+      /* `gap-0.5` plus each tab's own `px-1.5` is the design's 14px between
+         words; `-mr-1.5` cancels the last tab's padding so the words still end
+         flush with the header's edge. */
+      className="-mr-1.5 flex shrink-0 items-center gap-0.5"
     >
       <SurfaceTab
         active={displayedSurface === "threads"}
         current={!isBoard}
-        icon={<MessageSquareIcon aria-hidden className="size-3.5 shrink-0" />}
         label="Threads"
         onClick={() => {
           requestSidebarSurfaceNavigation({
@@ -115,7 +117,6 @@ export function SidebarSurfaceSwitcher(props: {
       <SurfaceTab
         active={displayedSurface === "flows"}
         current={isBoard}
-        icon={<LayoutGridIcon aria-hidden className="size-3.5 shrink-0" />}
         label="Flows"
         aria-label={boardProjectRef ? "Open Flows" : "Select a project to open its flows"}
         disabled={boardProjectRef === null}
@@ -144,13 +145,11 @@ export function SidebarSurfaceSwitcher(props: {
 function SurfaceTab({
   active,
   current,
-  icon,
   label,
   ...props
 }: React.ComponentProps<"button"> & {
   readonly active: boolean;
   readonly current: boolean;
-  readonly icon: React.ReactNode;
   readonly label: string;
 }) {
   return (
@@ -158,18 +157,20 @@ function SurfaceTab({
       type="button"
       aria-current={current ? "page" : undefined}
       className={cn(
-        "relative flex h-9 min-w-0 items-center justify-center gap-1.5 px-2 text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 [&_svg]:text-sidebar-muted-foreground [&_svg]:opacity-60",
-        // Underline indicator rather than a raised chip: at full bleed there is
-        // no track left for a chip to sit in, and the brand carries separation
-        // with hairlines instead of elevation.
+        // Word-only, but not a word-sized target: a bare `text-xs` button is a
+        // 12px-tall hit area, and this is the primary surface switch — reachable
+        // by thumb in the sidebar header. Padding brings it to WCAG 2.5.8's
+        // 24px without changing how it reads.
+        "inline-flex min-h-6 shrink-0 cursor-pointer items-center rounded-sm px-1.5 py-1 text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:pointer-events-none disabled:opacity-50",
+        // Weight is the whole indicator. It reads at a glance without spending
+        // a rule, a chip or a colour on a two-item switch.
         active
-          ? "font-medium text-sidebar-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground [&_svg]:text-sidebar-foreground [&_svg]:opacity-100"
-          : "text-sidebar-muted-foreground hover:text-sidebar-foreground hover:[&_svg]:text-sidebar-foreground hover:[&_svg]:opacity-100",
+          ? "font-semibold text-sidebar-foreground"
+          : "text-sidebar-muted-foreground hover:text-sidebar-foreground",
       )}
       {...props}
     >
-      {icon}
-      <span className="truncate">{label}</span>
+      {label}
     </button>
   );
 }

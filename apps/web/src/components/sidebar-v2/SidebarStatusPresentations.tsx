@@ -2,28 +2,74 @@ import type {
   SidebarConversationStateCounts,
   SidebarConversationSummaryState,
 } from "../Sidebar.summaryState";
-import type { SidebarProjectState, SidebarWorktreeStateCounts } from "../Sidebar.worktreeGroups";
+import type {
+  SidebarProjectState,
+  SidebarWorktreeStateCounts,
+  SidebarWorktreeSummaryState,
+} from "../Sidebar.worktreeGroups";
 import { cn } from "~/lib/utils";
 import { CONVERSATION_STATE_PRESENTATIONS } from "../conversationStatePresentation";
+import { StatusIndicator } from "../StatusIndicator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export type SidebarSummaryState = SidebarConversationSummaryState | "settled";
+
+/**
+ * Every state with a presentation, including `failed` — which is not a
+ * `SidebarSummaryState` but is what a worktree card and a header tab report.
+ */
+export type SidebarStatePresentationKey = keyof typeof SIDEBAR_STATE_PRESENTATIONS;
 
 export const SIDEBAR_STATE_PRESENTATIONS = {
   working: CONVERSATION_STATE_PRESENTATIONS.working,
   needsInput: CONVERSATION_STATE_PRESENTATIONS.needsInput,
   done: CONVERSATION_STATE_PRESENTATIONS.done,
+  failed: CONVERSATION_STATE_PRESENTATIONS.failed,
   stale: CONVERSATION_STATE_PRESENTATIONS.stale,
   settled: CONVERSATION_STATE_PRESENTATIONS.settled,
 } as const;
+
+/**
+ * A worktree's one state: a dot and a micro-label, no count.
+ *
+ * Deliberately not `SidebarSummaryStateLabel` — that one leads with the state
+ * icon at row scale. On a 32px registry row the dot is the whole signal and the
+ * word is the caption, so the label is set as small caps rather than body text.
+ */
+export function SidebarWorktreeSummaryStateLabel(props: {
+  state: SidebarWorktreeSummaryState;
+  className?: string;
+}) {
+  const presentation = SIDEBAR_STATE_PRESENTATIONS[props.state];
+
+  return (
+    <span
+      role="status"
+      aria-label={`Worktree status: ${presentation.label}`}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1",
+        presentation.className,
+        props.className,
+      )}
+    >
+      <StatusIndicator
+        state={props.state}
+        label={`Worktree status: ${presentation.label}`}
+        size="size-[7px]"
+        pulse={false}
+      />
+      <span aria-hidden className="text-[8px] leading-[10px] font-semibold tracking-wide uppercase">
+        {presentation.label}
+      </span>
+    </span>
+  );
+}
 
 export function SidebarProjectStateIndicator(props: { state: SidebarProjectState }) {
   const presentation =
     props.state === "idle"
       ? { ...SIDEBAR_STATE_PRESENTATIONS.stale, label: "Idle" }
       : SIDEBAR_STATE_PRESENTATIONS[props.state];
-  const Icon = presentation.icon;
-
   return (
     <Tooltip>
       <TooltipTrigger
@@ -38,7 +84,12 @@ export function SidebarProjectStateIndicator(props: { state: SidebarProjectState
           />
         }
       >
-        <Icon aria-hidden className="size-3.5" />
+        <StatusIndicator
+          state={props.state === "idle" ? "stale" : props.state}
+          label={`Project status: ${presentation.label}`}
+          size="size-2"
+          pulse={props.state !== "idle"}
+        />
       </TooltipTrigger>
       <TooltipPopup side="right">{presentation.label}</TooltipPopup>
     </Tooltip>
@@ -50,8 +101,6 @@ export function SidebarSummaryStateLabel(props: {
   className?: string;
 }) {
   const presentation = SIDEBAR_STATE_PRESENTATIONS[props.state];
-  const Icon = presentation.icon;
-
   return (
     <span
       className={cn(
@@ -60,8 +109,8 @@ export function SidebarSummaryStateLabel(props: {
         props.className,
       )}
     >
-      <Icon aria-hidden className="size-3.5 shrink-0" />
-      <span role="status" className="leading-none">
+      <StatusIndicator state={props.state} size="size-2" pulse={false} />
+      <span aria-hidden className="leading-none">
         {presentation.label}
       </span>
     </span>
@@ -100,14 +149,18 @@ export function SidebarStateCounters(props: { counts: SidebarConversationStateCo
         }
       >
         {counters.map((counter) => {
-          const Icon = counter.icon;
           return (
             <span
               key={counter.key}
               aria-hidden
               className={cn("inline-flex items-center gap-0.5 font-medium", counter.className)}
             >
-              <Icon className="size-3.5 shrink-0" />
+              <StatusIndicator
+                state={counter.key}
+                label={counter.label}
+                size="size-2"
+                pulse={false}
+              />
               <span>{counter.count}</span>
             </span>
           );
@@ -125,7 +178,6 @@ export function SidebarWorktreeStateDetails(props: { counts: SidebarWorktreeStat
   return (
     <div className="grid gap-1 p-1">
       {states.map((state) => {
-        const Icon = state.icon;
         return (
           <div
             key={state.key}
@@ -137,7 +189,7 @@ export function SidebarWorktreeStateDetails(props: { counts: SidebarWorktreeStat
                 state.className,
               )}
             >
-              <Icon aria-hidden className="size-3.5" />
+              <StatusIndicator state={state.key} label={state.label} size="size-2" pulse={false} />
             </span>
             <span className="min-w-0">
               <span className="block text-xs font-medium text-foreground">{state.label}</span>

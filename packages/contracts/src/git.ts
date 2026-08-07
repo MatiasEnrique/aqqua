@@ -425,7 +425,8 @@ export type VcsDeleteBranchRemoval = typeof VcsDeleteBranchRemoval.Type;
 export const VcsDeleteWorktreeResult = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("completed"),
-    deletedThreadIds: Schema.Array(ThreadId),
+    /** Live conversation-family roots archived before filesystem removal. */
+    archivedThreadIds: Schema.Array(ThreadId),
     worktreeRemoval: Schema.Literals(["removed", "already_missing"]),
     preservedUnverifiedPath: Schema.optional(Schema.Boolean),
     branchRemoval: Schema.optional(VcsDeleteBranchRemoval),
@@ -433,7 +434,7 @@ export const VcsDeleteWorktreeResult = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("partial"),
     stage: Schema.Literals(["conversation", "worktree", "branch"]),
-    deletedThreadIds: Schema.Array(ThreadId),
+    archivedThreadIds: Schema.Array(ThreadId),
     retryable: Schema.Boolean,
     detail: Schema.String,
     worktreeRemoval: Schema.Literals(["not_attempted", "failed", "removed"]),

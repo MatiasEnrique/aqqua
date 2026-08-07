@@ -353,6 +353,25 @@ describe("OrchestrationEngine", () => {
         createdAt,
       }),
     );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-archive-child-create"),
+        threadId: ThreadId.make("thread-archive-child"),
+        projectId: asProjectId("project-archive"),
+        parentThreadId: ThreadId.make("thread-archive"),
+        title: "Archive child",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
 
     await system.run(
       engine.dispatch({
@@ -363,6 +382,10 @@ describe("OrchestrationEngine", () => {
     );
     expect(
       (await system.readModel()).threads.find((thread) => thread.id === "thread-archive")
+        ?.archivedAt,
+    ).not.toBeNull();
+    expect(
+      (await system.readModel()).threads.find((thread) => thread.id === "thread-archive-child")
         ?.archivedAt,
     ).not.toBeNull();
 

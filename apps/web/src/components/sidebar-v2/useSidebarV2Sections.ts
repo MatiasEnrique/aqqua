@@ -17,6 +17,15 @@ import {
 } from "../../sidebarProjectGrouping";
 import { shortcutLabelForCommand, threadJumpCommandForIndex } from "../../keybindings";
 import {
+  EMPTY_PROJECT_SCOPE_SELECTION,
+  type ProjectScopeSelection,
+  projectScopeSelectionFromKeys,
+  projectScopeSelectionKey,
+  pruneProjectScopeSelection,
+  resolveSelectedProjectGroups,
+  resolveSoleScopedProjectGroup,
+} from "./projectScopeSelection";
+import {
   legacyProjectCwdPreferenceKey,
   resolveProjectExpanded,
   resolveThreadExpanded,
@@ -59,11 +68,15 @@ import {
 } from "../Sidebar.threadTree";
 import { resolveSidebarConversationSummaryState } from "../Sidebar.summaryState";
 import {
+  buildProjectRootByProjectKey,
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
+  sidebarProjectKey,
 } from "../Sidebar.worktreeGroups";
+import { resolveActiveWorktreeKey } from "./activeWorktree";
+import { resolveSidebarGroupingMode } from "./groupingMode";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { useSidebar } from "../ui/sidebar";
@@ -164,7 +177,10 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // The entry component owns grouping: the regular sidebar is flat by
   // definition, so it pins the mode rather than reading a setting that only
   // the worktree view exposes.
-  const sidebarThreadGroupingMode = options.groupingMode ?? settingsThreadGroupingMode;
+  // `worktree_cards` buckets exactly like `worktree`; only the renderer differs,
+  // so it normalizes here rather than forking every `=== "worktree"` check below.
+  const sidebarThreadGroupingMode =
+    options.groupingMode ?? resolveSidebarGroupingMode(settingsThreadGroupingMode);
   const {
     settleThread,
     settleThreads,
@@ -205,7 +221,6 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const [projectActionsTarget, setProjectActionsTarget] = useState<SidebarProjectSnapshot | null>(
     null,
   );
-  const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -227,6 +242,8 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const setProjectExpanded = useUiStateStore((s) => s.setProjectExpanded);
   const worktreeExpandedByKey = useUiStateStore((s) => s.worktreeExpandedByKey);
   const setWorktreeExpanded = useUiStateStore((s) => s.setWorktreeExpanded);
+  const activeWorktreeOverrideKey = useUiStateStore((s) => s.activeWorktreeOverrideKey);
+  const setActiveWorktreeOverrideKey = useUiStateStore((s) => s.setActiveWorktreeOverrideKey);
   const [hiddenWorktreeKeys, setHiddenWorktreeKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -305,21 +322,12 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       ),
     [serverProviders],
   );
-  const projectCwdByKey = useMemo(
-    () =>
-      new Map(
-        projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
-          project.workspaceRoot,
-        ]),
-      ),
-    [projects],
-  );
+  const projectCwdByKey = useMemo(() => buildProjectRootByProjectKey(projects), [projects]);
   const worktreeProjectsByKey = useMemo(
     () =>
       new Map(
         projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
+          sidebarProjectKey(project.environmentId, project.id),
           {
             workspaceRoot: project.workspaceRoot,
             environmentLabel: environmentLabelById.get(project.environmentId) ?? null,
@@ -370,26 +378,40 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     },
     [],
   );
-  // Project scope: one menu above the list. Scoping filters the list without
+  // Project scope: a chip row above the list. Scoping filters the list without
   // making the header width depend on the number or length of project names.
-  const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
-  const scopedProjectGroup = useMemo(
-    () =>
-      projectScopeKey === null
-        ? null
-        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
-    [projectGroups, projectScopeKey],
+  // The selection is a set — someone working across two repositories wants both
+  // registries at once, and one-at-a-time forced a round trip through a menu to
+  // see either.
+  const [projectScopeSelection, setProjectScopeSelection] = useState<ProjectScopeSelection>(
+    EMPTY_PROJECT_SCOPE_SELECTION,
   );
+  const scopedProjectGroups = useMemo(
+    () => resolveSelectedProjectGroups(projectScopeSelection, projectGroups),
+    [projectGroups, projectScopeSelection],
+  );
+  const scopedProjectGroup = useMemo(
+    () => resolveSoleScopedProjectGroup(scopedProjectGroups),
+    [scopedProjectGroups],
+  );
+  const setProjectScope = useCallback((keys: readonly string[]) => {
+    setProjectScopeSelection(projectScopeSelectionFromKeys(keys));
+  }, []);
+  const clearProjectScope = useCallback(() => {
+    setProjectScopeSelection(EMPTY_PROJECT_SCOPE_SELECTION);
+  }, []);
   const scopedProjectKeys = useMemo(
     () =>
-      scopedProjectGroup === null
+      scopedProjectGroups.length === 0
         ? null
         : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+            scopedProjectGroups.flatMap((group) =>
+              group.memberProjectRefs.map(
+                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+              ),
             ),
           ),
-    [scopedProjectGroup],
+    [scopedProjectGroups],
   );
   // Rows can unmount while they remain visible (for example when the settled
   // shelf collapses), so row cleanup must not erase the PR state that put them
@@ -416,13 +438,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       return changed ? next : current;
     });
   }, [scopedProjectKeys, threads]);
+  // A project that disappears — deleted, or regrouped under a new key by
+  // Settings → General — must not keep filtering the list from a chip that is
+  // no longer rendered.
   useEffect(() => {
-    if (projectScopeKey !== null && scopedProjectGroup === null) {
-      setProjectScopeKey(null);
-    }
-  }, [projectScopeKey, scopedProjectGroup]);
+    setProjectScopeSelection((current) => pruneProjectScopeSelection(current, projectGroups));
+  }, [projectGroups]);
   // Scope flips drop the selection: rows selected under the old scope may be
   // hidden now, and bulk actions must never count or touch invisible rows.
+  const projectScopeKey = useMemo(
+    () => projectScopeSelectionKey(projectScopeSelection),
+    [projectScopeSelection],
+  );
   useEffect(() => {
     clearSelection();
   }, [clearSelection, projectScopeKey]);
@@ -432,7 +459,15 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // merging, no optimistic holds. Archived threads remain hidden here —
   // archive keeps its original "remove from sidebar" meaning.
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
-  const { activeThreads, snoozedThreads, settledThreads, snoozeNow } = useMemo(() => {
+  const {
+    activeThreads,
+    snoozedThreads,
+    settledThreads,
+    unscopedActiveThreads,
+    unscopedSnoozedThreads,
+    unscopedSettledThreads,
+    snoozeNow,
+  } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -440,14 +475,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
+    // Partitioned before the project scope is applied, not after. The route can
+    // point at a conversation the scope hides, and "which worktree am I in"
+    // must still have an answer — the chat header names that worktree and fills
+    // its tab strip from it. Orchestrator inheritance also reads truer over the
+    // whole set: a scope that hides an orchestrator should not change how its
+    // sub-agents classify.
+    const unarchived = threads.filter((thread) => thread.archivedAt === null);
+    const inScope = (thread: EnvironmentThreadShell) =>
+      scopedProjectKeys === null ||
+      scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
     const sectionById = inheritSettledFromOrchestrators({
-      threads: visible,
+      threads: unarchived,
       classify: (thread) => {
         const supportsSettlement =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
@@ -469,7 +508,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
-    for (const thread of visible) {
+    for (const thread of unarchived) {
       const section = sectionById.get(thread.id) ?? "active";
       if (section === "snoozed") {
         snoozed.push(thread);
@@ -479,15 +518,21 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
         active.push(thread);
       }
     }
+    // Soonest wake first: "what comes back next" is the shelf's question.
+    const bySoonestWake = (left: EnvironmentThreadShell, right: EnvironmentThreadShell) =>
+      firstValidTimestampMs(left.snoozedUntil ?? null) -
+      firstValidTimestampMs(right.snoozedUntil ?? null);
+    const unscopedActive = sortThreadsForSidebarV2(active);
+    const unscopedSnoozed = snoozed.toSorted(bySoonestWake);
+    const unscopedSettled = sortSettledThreadsForSidebarV2(settled);
     return {
-      activeThreads: sortThreadsForSidebarV2(active),
-      // Soonest wake first: "what comes back next" is the shelf's question.
-      snoozedThreads: snoozed.toSorted(
-        (left, right) =>
-          firstValidTimestampMs(left.snoozedUntil ?? null) -
-          firstValidTimestampMs(right.snoozedUntil ?? null),
-      ),
-      settledThreads: sortSettledThreadsForSidebarV2(settled),
+      // Filtering after the sort keeps both views in one order.
+      activeThreads: unscopedActive.filter(inScope),
+      snoozedThreads: unscopedSnoozed.filter(inScope),
+      settledThreads: unscopedSettled.filter(inScope),
+      unscopedActiveThreads: unscopedActive,
+      unscopedSnoozedThreads: unscopedSnoozed,
+      unscopedSettledThreads: unscopedSettled,
       snoozeNow: preciseNow,
     };
   }, [
@@ -622,6 +667,18 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       }),
     [draftThreadsByDraftId, scopedProjectKeys, shellThreadIdKeys],
   );
+  // Same reason as the thread partition: the route can name a draft the scope
+  // hides, and its worktree still has to resolve.
+  const unscopedDraftRows = useMemo(
+    () =>
+      selectSidebarDraftRows({
+        draftsByDraftId: draftThreadsByDraftId,
+        existingThreadKeys: shellThreadIdKeys,
+        scopedProjectKeys: null,
+        includeLocal: true,
+      }),
+    [draftThreadsByDraftId, shellThreadIdKeys],
+  );
   const draftRows = useMemo(
     () => groupedDraftRows.filter((draft) => draft.envMode === "worktree"),
     [groupedDraftRows],
@@ -632,7 +689,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
-  const settledResetKey = projectScopeKey ?? "all";
+  const settledResetKey = projectScopeKey;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -745,7 +802,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     [repositoryGroups, scopedProjectGroup],
   );
   const repositoryHierarchyVisible =
-    sidebarThreadGroupingMode === "worktree" && projectScopeKey === null;
+    sidebarThreadGroupingMode === "worktree" && projectScopeSelection.size === 0;
   const expandedWorktreeGroups = useMemo(
     () =>
       filterExpandedSidebarWorktreeGroups({
@@ -876,15 +933,15 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
   const projectsSection: SidebarProjectsSection = {
     projects,
     projectGroups,
-    projectScopeKey,
-    setProjectScopeKey,
+    projectScopeSelection,
+    setProjectScope,
+    clearProjectScope,
+    scopedProjectGroups,
     scopedProjectGroup,
     scopedProjectKeys,
     scopedProjectState,
     projectExpandedById,
     setProjectExpanded,
-    projectScopeMenuOpen,
-    setProjectScopeMenuOpen,
     projectActionsTarget,
     setProjectActionsTarget,
     projectGroupingSettings,
@@ -943,11 +1000,61 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     setHiddenWorktreeKeys((current) => addEphemeralHiddenWorktreeKey(current, key));
   }, []);
 
+  // Built WITHOUT `renderedActive`: that argument filters and orders by what
+  // the sidebar currently renders, so a collapsed orchestrator would drop its
+  // sub-agents. Both the header strip and the route→worktree match need the
+  // complete set — a tab you cannot see is a conversation you cannot reach, and
+  // deep-linking straight to a collapsed sub-agent must still select its card.
+  // Also built from UNSCOPED conversations: `worktreeGroups` above is what the
+  // sidebar renders, but this one answers the route. Narrowing the project
+  // filter must not make the routed conversation's worktree unresolvable, which
+  // would blank the chat header's name and its tab strip.
+  const completeWorktreeGroups = useMemo(
+    () =>
+      filterHiddenSidebarWorktreeGroups(
+        buildSidebarWorktreeGroups({
+          active: unscopedActiveThreads,
+          snoozed: unscopedSnoozedThreads,
+          settled: unscopedSettledThreads,
+          drafts: unscopedDraftRows,
+          projectsByKey: worktreeProjectsByKey,
+        }),
+        hiddenWorktreeKeys,
+      ),
+    [
+      hiddenWorktreeKeys,
+      unscopedActiveThreads,
+      unscopedDraftRows,
+      unscopedSettledThreads,
+      unscopedSnoozedThreads,
+      worktreeProjectsByKey,
+    ],
+  );
+  // One source of truth for "which worktree am I in", shared by the card list
+  // and the header tab strip so the two surfaces can never disagree.
+  const activeWorktreeKey = useMemo(
+    () =>
+      resolveActiveWorktreeKey({
+        routeThreadKey,
+        routeDraftId,
+        worktreeGroups: completeWorktreeGroups,
+        overrideKey: activeWorktreeOverrideKey,
+      }),
+    [activeWorktreeOverrideKey, completeWorktreeGroups, routeDraftId, routeThreadKey],
+  );
+  const activeWorktreeGroup = useMemo(
+    () => completeWorktreeGroups.find((group) => group.key === activeWorktreeKey) ?? null,
+    [activeWorktreeKey, completeWorktreeGroups],
+  );
+
   const worktreesSection: SidebarWorktreesSection = {
     worktreeGroups,
     expandedWorktreeGroups,
     repositoryGroups,
     repositoryHierarchyVisible,
+    activeWorktreeKey,
+    activeWorktreeGroup,
+    setActiveWorktreeOverrideKey,
     worktreeExpandedByKey,
     setWorktreeExpanded,
     removingWorktreeKey,

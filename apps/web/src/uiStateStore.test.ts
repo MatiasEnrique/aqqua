@@ -7,13 +7,16 @@ import {
   markThreadVisited,
   parsePersistedState,
   PERSISTED_STATE_KEY,
+  WINDOW_STATE_KEY,
   type PersistedUiState,
   persistState,
+  readPersistedState,
   retainThreadExpansionForKnownThreads,
   reorderProjects,
   resolveProjectExpanded,
   resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
+  setOpenConversationTabKeys,
   setProjectExpanded,
   setThreadExpanded,
   setThreadChangedFilesExpanded,
@@ -28,6 +31,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadExpandedById: {},
     threadChangedFilesExpandedById: {},
     worktreeExpandedByKey: {},
+    activeWorktreeOverrideKey: null,
+    openConversationTabKeys: [],
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -248,6 +253,8 @@ describe("parsePersistedState", () => {
         "environment:thread-1": false,
       },
       worktreeExpandedByKey: {},
+      activeWorktreeOverrideKey: null,
+      openConversationTabKeys: [],
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -258,6 +265,30 @@ describe("parsePersistedState", () => {
     });
     // Legacy tombstones are dropped on read; hide state is request-local only.
     expect(parsed).not.toHaveProperty("removedWorktreeAtByKey");
+  });
+
+  it("restores the open conversation tabs in the order they were opened", () => {
+    expect(
+      parsePersistedState({
+        openConversationTabKeys: ["environment:thread-2", "environment:thread-1"],
+      }).openConversationTabKeys,
+    ).toEqual(["environment:thread-2", "environment:thread-1"]);
+    expect(
+      parsePersistedState({
+        openConversationTabKeys: ["environment:thread-1", "", 7, "environment:thread-1"] as never,
+      }).openConversationTabKeys,
+    ).toEqual(["environment:thread-1"]);
+  });
+
+  it("replaces the open tab set only when its order or membership changes", () => {
+    const state = makeUiState({ openConversationTabKeys: ["a", "b"] });
+
+    expect(setOpenConversationTabKeys(state, ["a", "b"])).toBe(state);
+    expect(setOpenConversationTabKeys(state, ["b", "a"]).openConversationTabKeys).toEqual([
+      "b",
+      "a",
+    ]);
+    expect(setOpenConversationTabKeys(state, ["a"]).openConversationTabKeys).toEqual(["a"]);
   });
 
   it("ignores changed-file expansion values saved with legacy folder semantics", () => {
@@ -328,10 +359,17 @@ function createLocalStorageStub(): Storage {
 describe("uiStateStore persistence", () => {
   let localStorageStub: Storage;
 
+  let sessionStorageStub: Storage;
+
   beforeEach(() => {
     localStorageStub = createLocalStorageStub();
-    vi.stubGlobal("window", { localStorage: localStorageStub });
+    sessionStorageStub = createLocalStorageStub();
+    vi.stubGlobal("window", {
+      localStorage: localStorageStub,
+      sessionStorage: sessionStorageStub,
+    });
     vi.stubGlobal("localStorage", localStorageStub);
+    vi.stubGlobal("sessionStorage", sessionStorageStub);
   });
 
   afterEach(() => {
@@ -381,6 +419,14 @@ describe("uiStateStore persistence", () => {
       },
     });
     expect(persisted).not.toHaveProperty("removedWorktreeAtByKey");
+    // Window-local: `localStorage` is shared by every same-origin window, so
+    // two windows would overwrite each other's selection and tab order.
+    expect(persisted).not.toHaveProperty("activeWorktreeOverrideKey");
+    expect(persisted).not.toHaveProperty("openConversationTabKeys");
+    expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
+      activeWorktreeOverrideKey: null,
+      openConversationTabKeys: [],
+    });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
@@ -418,5 +464,55 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(rewritten).not.toHaveProperty("removedWorktreeAtByKey");
+  });
+
+  it("overlays the window-local fields onto the shared blob when loading", () => {
+    localStorageStub.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+        // A stale copy from before the split. The session blob wins.
+        activeWorktreeOverrideKey: "local:/worktrees/shared",
+        openConversationTabKeys: ["environment:shared"],
+      } satisfies PersistedUiState),
+    );
+    sessionStorageStub.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        activeWorktreeOverrideKey: "local:/worktrees/window",
+        openConversationTabKeys: ["environment:thread-1", "environment:thread-2"],
+      }),
+    );
+
+    const loaded = readPersistedState();
+
+    expect(loaded.activeWorktreeOverrideKey).toBe("local:/worktrees/window");
+    expect(loaded.openConversationTabKeys).toEqual([
+      "environment:thread-1",
+      "environment:thread-2",
+    ]);
+    expect(loaded.projectOrder).toEqual(["physical-a", "physical-b"]);
+    expect(loaded.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+  });
+
+  it("keeps the shared state when the window-local blob is unreadable", () => {
+    localStorageStub.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify({
+        projectOrder: ["physical-a", "physical-b"],
+        defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      } satisfies PersistedUiState),
+    );
+    sessionStorageStub.setItem(WINDOW_STATE_KEY, '{"openConversationTabKeys":[');
+
+    const loaded = readPersistedState();
+
+    // The window loses only its own strip, not the shared preferences it just
+    // parsed — otherwise the next mutation writes the loss back for everyone.
+    expect(loaded.projectOrder).toEqual(["physical-a", "physical-b"]);
+    expect(loaded.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+    expect(loaded.activeWorktreeOverrideKey).toBeNull();
+    expect(loaded.openConversationTabKeys).toEqual([]);
   });
 });

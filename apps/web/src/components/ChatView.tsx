@@ -114,7 +114,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@aqqua/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
@@ -171,12 +171,24 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
-import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
+import {
+  useClientSettings,
+  useEnvironmentSettings,
+  useSidebarV2Enabled,
+} from "../hooks/useSettings";
+import { resolveChatHeaderMode } from "./chat/chatHeaderMode";
+import { ConversationTabs } from "./chat/ConversationTabs";
+import { useConversationTabs } from "./chat/useConversationTabs";
+import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
-import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import {
+  resolveConversationTabNewThreadAction,
+  resolveNewDraftStartFromOrigin,
+} from "../lib/chatThreadActions";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -496,12 +508,12 @@ const SCRIPT_TERMINAL_ROWS = 30;
 /**
  * Slots that let another surface reuse the chat view whole rather than clone
  * it. Flows card detail is the only caller: it hangs the card
- * tree in the rail, swaps the timeline for an artifact document, and puts the
- * card's `Resume ⌄` actions in the composer's primary slot.
+ * steps in the tab strip, swaps the timeline for an artifact document, and
+ * puts the card's `Resume ⌄` actions in the composer's primary slot.
  */
 export interface ChatViewSurfaceSlots {
-  /** Rail rendered left of the message column, under the app's top bar. */
-  leftRail?: ReactNode;
+  /** Replaces the conversation tab strip for an embedded surface such as Flows. */
+  surfaceTabs?: ReactNode;
   /** Replaces the timeline and receives the floating composer's measured inset. */
   timelineOverride?: (contentInsetEndAdjustment: number) => ReactNode;
   /** Extra banners stacked above the composer (card status, sub-agent hint). */
@@ -1188,7 +1200,7 @@ function ChatViewContent(props: ChatViewProps) {
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
-    leftRail,
+    surfaceTabs,
     timelineOverride,
     composerBanners,
     renderComposerIdlePrimaryAction,
@@ -1278,6 +1290,64 @@ function ChatViewContent(props: ChatViewProps) {
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
+  // The tabbed header rides the same setting as the worktree-card sidebar, so
+  // the two surfaces turn on together or not at all.
+  const worktreeViewEnabled = useSidebarV2Enabled();
+  const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
+  const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
+  const worktreeTabsHeader =
+    surfaceTabs === undefined &&
+    resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
+  const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
+  const { tabs: conversationTabs, closeTab: closeConversationTab } = useConversationTabs({
+    routeThreadKey,
+    enabled: worktreeTabsHeader,
+  });
+  const { archiveThread } = useThreadActions();
+  const archiveConversationTab = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const result = await archiveThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to archive conversation",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [archiveThread],
+  );
+  const newConversationTabLabel = headerWorktreeGroup
+    ? `New conversation in ${headerWorktreeGroup.label}`
+    : "New conversation";
+  const worktreeCount = useWorktreeHeaderStore((store) => store.worktreeCount);
+  const workspaceSummaryLabel = `${worktreeCount} worktree${worktreeCount === 1 ? "" : "s"} · ${conversationTabs.length} open conversation${conversationTabs.length === 1 ? "" : "s"}`;
+  const navigateToThreadRef = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: threadRef.environmentId,
+          threadId: threadRef.threadId,
+        },
+      });
+    },
+    [navigate],
+  );
+  const navigateToDraftId = useCallback(
+    (nextDraftId: string) => {
+      void navigate({
+        to: "/draft/$draftId",
+        params: { draftId: nextDraftId },
+      });
+    },
+    [navigate],
+  );
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -1750,6 +1820,21 @@ function ChatViewContent(props: ChatViewProps) {
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
+  // The tab strip's `+` means "another conversation *here*", so it pins the
+  // worktree explicitly — `handleNewThread` never carries branch/worktree
+  // implicitly, and without this the new thread would land in the project
+  // checkout while sitting in a worktree's strip.
+  const handleNewThreadInActiveWorktree = useCallback(() => {
+    const action = resolveConversationTabNewThreadAction({
+      activeProjectRef,
+      activeWorktree: headerWorktreeGroup,
+    });
+    if (action._tag === "choose-project") {
+      openCommandPalette({ open: "new-thread-in" });
+      return;
+    }
+    void handleNewThread(action.projectRef, action.options);
+  }, [activeProjectRef, handleNewThread, headerWorktreeGroup]);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -6207,7 +6292,10 @@ function ChatViewContent(props: ChatViewProps) {
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
-        {/* Top bar */}
+        {/* Top bar. In worktree-tabs mode this is row one only — the tab strip
+            below is a separate, non-drag sub-bar, so the native window-control
+            inset and the drag region stay bound to a 52px row exactly as
+            before. */}
         <header
           data-chat-header
           className={cn(
@@ -6241,6 +6329,12 @@ function ChatViewContent(props: ChatViewProps) {
             rightPanelOpen={rightPanelOpen}
             rightPanelSurfaceControls={rightPanelSurfaceControls}
             gitCwd={gitCwd}
+            {...(worktreeTabsHeader && headerWorktreeGroup
+              ? {
+                  worktreeLabel: headerWorktreeGroup.label,
+                  worktreeSummary: workspaceSummaryLabel,
+                }
+              : {})}
             onOpenPullRequest={addPullRequestSurface}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
@@ -6249,6 +6343,19 @@ function ChatViewContent(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </header>
+        {surfaceTabs ??
+          (worktreeTabsHeader ? (
+            <ConversationTabs
+              tabs={conversationTabs}
+              onSelectThread={navigateToThreadRef}
+              onSelectDraft={navigateToDraftId}
+              onCloseTab={closeConversationTab}
+              onArchiveThread={archiveConversationTab}
+              confirmArchive={confirmThreadArchive}
+              onNewThread={handleNewThreadInActiveWorktree}
+              newThreadLabel={newConversationTabLabel}
+            />
+          ) : null)}
 
         <ThreadErrorBanner
           error={threadError}
@@ -6271,7 +6378,6 @@ function ChatViewContent(props: ChatViewProps) {
         />
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
-          {leftRail}
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Provider status overlays the timeline without changing its content height. */}

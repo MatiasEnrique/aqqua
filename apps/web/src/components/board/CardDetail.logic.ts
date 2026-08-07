@@ -90,7 +90,8 @@ export function resolveCardSelection(input: {
 }): CardSelection {
   const { card, board, requested } = input;
   const steps = selectCardSteps(card, board);
-  if (requested === null || steps[requested.stepIndex] === undefined) {
+  const requestedStep = requested === null ? undefined : steps[requested.stepIndex];
+  if (requested === null || requestedStep === undefined || requestedStep.state === "pending") {
     return defaultCardSelection(card, board);
   }
   if (requested.kind === "subagent" && !input.subAgentThreadIds.has(requested.threadId)) {
@@ -234,12 +235,6 @@ export interface CardTreeThread {
   readonly needsInput: boolean;
 }
 
-export interface CardTreeDiffStat {
-  readonly filesChanged: number;
-  readonly additions: number;
-  readonly deletions: number;
-}
-
 export interface CardTreeArtifactStat {
   readonly exists: boolean;
   readonly sizeBytes: number;
@@ -253,13 +248,6 @@ export type CardTreeLeaf =
       readonly title: string;
       readonly status: CardTreeIconState;
       readonly elapsed: string | null;
-    }
-  | {
-      readonly kind: "diff";
-      readonly stepIndex: number;
-      readonly threadId: ThreadId;
-      readonly label: string;
-      readonly stat: CardTreeDiffStat | null;
     }
   | {
       readonly kind: "artifact";
@@ -330,12 +318,6 @@ export function formatArtifactSize(sizeBytes: number): string {
   return kilobytes < 100 ? `${kilobytes.toFixed(1)} KB` : `${Math.round(kilobytes)} KB`;
 }
 
-/** `14 files changed` / `1 file changed` — the diff leaf's own label. */
-export function formatDiffFilesLabel(stat: CardTreeDiffStat | null): string {
-  if (stat === null) return "Changes";
-  return `${stat.filesChanged} file${stat.filesChanged === 1 ? "" : "s"} changed`;
-}
-
 /**
  * The revision at which a step's artifact is stable enough to inspect. A
  * successful manual continuation parks the step as `paused`; automatic
@@ -363,15 +345,14 @@ export function artifactVisibilityRevision(
 }
 
 /**
- * The card tree: steps as top-level rows, with their sub-agent threads, diff,
- * and artifact as leaves. Threads and artifacts are the same kind of thing to
- * the tree, which is what makes one detail slot work.
+ * The card tree: steps as top-level rows, with their sub-agent threads and
+ * artifacts as leaves. Both bind to the same detail slot without adding a
+ * second navigation surface.
  */
 export function buildCardTree(input: {
   readonly card: OrchestrationCard;
   readonly board: OrchestrationBoard;
   readonly threads: ReadonlyArray<CardTreeThread>;
-  readonly diffByThreadId: ReadonlyMap<string, CardTreeDiffStat>;
   readonly artifactByStepIndex: ReadonlyMap<number, CardTreeArtifactStat>;
   readonly nowMs: number;
 }): CardTreeModel {
@@ -395,17 +376,6 @@ export function buildCardTree(input: {
           subAgent.createdAt,
           subAgent.isWorking ? nowMs : Date.parse(subAgent.updatedAt),
         ),
-      });
-    }
-
-    if (step.threadId !== null) {
-      const stat = input.diffByThreadId.get(step.threadId) ?? null;
-      leaves.push({
-        kind: "diff",
-        stepIndex: step.stepIndex,
-        threadId: step.threadId,
-        label: formatDiffFilesLabel(stat),
-        stat,
       });
     }
 

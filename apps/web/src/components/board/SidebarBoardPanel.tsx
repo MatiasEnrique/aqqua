@@ -1,7 +1,13 @@
 import { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import { canDeleteCard, cardOperation } from "@aqqua/client-runtime/state/boards";
 import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@aqqua/contracts";
-import { CheckCircle2Icon, CheckIcon, ChevronDownIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import {
+  ArchiveIcon,
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  Trash2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import { lazy, Suspense, useMemo } from "react";
 
 import { cn } from "~/lib/utils";
@@ -16,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { SidebarGroup } from "../ui/sidebar";
 import {
   FlowCardBranch,
@@ -23,7 +30,7 @@ import {
   SidebarCardActionButton,
   SidebarCardHoverActionSlot,
 } from "../sidebar/card";
-import { Spinner } from "../ui/spinner";
+import { StatusIndicator } from "../StatusIndicator";
 import { cardOperationPresentation, formatElapsed } from "./BoardRunTable.logic";
 import { CardCreateDialog } from "./CardCreateDialog";
 import { BoardSelector, FlowSlimRow, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
@@ -171,20 +178,24 @@ function ProjectBoardSection({
   const controller = useSidebarProjectBoardController({ projectRef });
   const {
     activeCards,
+    archivedCards,
+    archivedCollapsed,
+    archiveCardRun,
     attachAnimatedList,
     board,
     boardNameFor,
     boards,
     cardDialogOpen,
+    chosenBoardIds,
     deleteCardRun,
     editorTarget,
     environmentId,
     handleBoardSubmit,
     handleCardSubmit,
-    isAllBoards,
     needsYouCards,
     openCard,
     pendingCardIds,
+    pendingArchive,
     pendingDelete,
     project,
     releaseCard,
@@ -192,14 +203,15 @@ function ProjectBoardSection({
     sections,
     selectedCardId,
     setCardDialogOpen,
-    setChosenBoard,
+    setArchivedCollapsed,
+    setChosenBoardIds,
     setEditorTarget,
     setPendingDelete,
+    setPendingArchive,
     setSettledCollapsed,
-    settleDoneCard,
     settledCollapsed,
-    stepNamesFor,
     unsettleCard,
+    unarchiveCardRun,
     withPendingCard,
   } = controller;
 
@@ -209,14 +221,11 @@ function ProjectBoardSection({
     <SidebarGroup className="gap-3 px-2 pt-0 pb-4">
       <BoardSelector
         boards={boards}
-        board={board}
-        allSelected={isAllBoards}
+        selectedBoardIds={chosenBoardIds}
         projectTitle={projectTitle}
-        onSelectBoard={setChosenBoard}
+        onSelectionChange={setChosenBoardIds}
         onNewCard={() => setCardDialogOpen(true)}
-        onEditBoard={() => {
-          if (board !== null) setEditorTarget({ board });
-        }}
+        onEditBoard={(candidate) => setEditorTarget({ board: candidate })}
         onNewBoard={() => setEditorTarget({ board: null })}
       />
 
@@ -226,6 +235,7 @@ function ProjectBoardSection({
         sections.todo.length +
         sections.done.length +
         sections.settled.length +
+        archivedCards.length +
         sections.deleting.length ===
         0 ? (
         <p className="px-2 text-sidebar-muted-foreground text-xs">
@@ -240,12 +250,11 @@ function ProjectBoardSection({
           </SectionLabel>
           {/* Panels need air between them to read as separate objects — the
               same gap the conversation list keeps. */}
-          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {needsYouCards.map((card) => (
               <InFlightCardRow
                 key={card.id}
                 card={card}
-                stepNames={stepNamesFor(card)}
                 boardName={boardNameFor(card)}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
@@ -266,12 +275,11 @@ function ProjectBoardSection({
           <SectionLabel className="text-info-foreground">
             Active · {activeCards.length}
           </SectionLabel>
-          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {activeCards.map((card) => (
               <InFlightCardRow
                 key={card.id}
                 card={card}
-                stepNames={stepNamesFor(card)}
                 boardName={boardNameFor(card)}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
@@ -295,7 +303,7 @@ function ProjectBoardSection({
           >
             To-Do · {sections.todo.length}
           </SectionLabel>
-          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.todo.map((card) => {
               // Release is claimed before the snapshot lands, so the operation —
               // not the snapshot — is what says this card is already on its way.
@@ -319,12 +327,17 @@ function ProjectBoardSection({
                         // Release runs server-side (worktree + checkout + setup)
                         // after the RPC returns — the row keeps saying so until
                         // the card enters its first step and leaves To-Do.
-                        <span className="flex shrink-0 items-center gap-1 px-1 text-sidebar-muted-foreground text-xs">
-                          <Spinner className="size-3" />
-                          {operation === null
-                            ? "Starting…"
-                            : `${cardOperationPresentation(operation).label}…`}
-                        </span>
+                        <StatusIndicator
+                          state="working"
+                          label={
+                            operation === null
+                              ? "Starting…"
+                              : `${cardOperationPresentation(operation).label}…`
+                          }
+                          showLabel
+                          size="size-2"
+                          className="px-1 text-sidebar-muted-foreground text-xs"
+                        />
                       ) : (
                         <>
                           <button
@@ -367,7 +380,7 @@ function ProjectBoardSection({
           <SectionLabel className="text-success-foreground">
             Done · {sections.done.length}
           </SectionLabel>
-          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.done.map((card) => {
               const busy = pendingCardIds.has(card.id) || cardOperation(card) !== null;
               return (
@@ -396,14 +409,18 @@ function ProjectBoardSection({
                         actions={
                           <>
                             <SidebarCardActionButton
-                              icon={CheckIcon}
-                              label={`Settle '${card.title}'`}
-                              title={`Settle ${card.title}`}
+                              icon={ArchiveIcon}
+                              label={`Archive '${card.title}'`}
+                              title={`Archive ${card.title}`}
                               disabled={busy}
                               shape="inline"
-                              onClick={() => {
-                                void settleDoneCard(card);
-                              }}
+                              onClick={() =>
+                                setPendingArchive({
+                                  id: card.id,
+                                  title: card.title,
+                                  deleteWorktree: false,
+                                })
+                              }
                             />
                             <SidebarCardActionButton
                               icon={Trash2Icon}
@@ -454,7 +471,7 @@ function ProjectBoardSection({
             )}
           >
             <div className="overflow-hidden">
-              <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+              <ul ref={attachAnimatedList} className="flex flex-col gap-1">
                 {sections.settled.map((card) => {
                   const busy = pendingCardIds.has(card.id) || cardOperation(card) !== null;
                   return (
@@ -481,6 +498,20 @@ function ProjectBoardSection({
                           }
                           actions={
                             <>
+                              <SidebarCardActionButton
+                                icon={ArchiveIcon}
+                                label={`Archive '${card.title}'`}
+                                title={`Archive ${card.title}`}
+                                disabled={busy}
+                                shape="inline"
+                                onClick={() =>
+                                  setPendingArchive({
+                                    id: card.id,
+                                    title: card.title,
+                                    deleteWorktree: false,
+                                  })
+                                }
+                              />
                               <SidebarCardActionButton
                                 icon={Undo2Icon}
                                 label={`Un-settle '${card.title}'`}
@@ -518,6 +549,78 @@ function ProjectBoardSection({
         </section>
       ) : null}
 
+      {archivedCards.length > 0 ? (
+        <section className="flex flex-col gap-0.5">
+          <button
+            type="button"
+            aria-expanded={!archivedCollapsed}
+            className="flex items-center gap-2 rounded-sm px-2 pb-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => setArchivedCollapsed((current) => !current)}
+          >
+            <span className="shrink-0 text-[13px] text-sidebar-muted-foreground">
+              {archivedCollapsed ? `Archived (${archivedCards.length})` : "Archived"}
+            </span>
+            <span aria-hidden className="h-px min-w-0 flex-1 bg-sidebar-border" />
+            <ChevronDownIcon
+              aria-hidden
+              className={cn(
+                "size-3.5 shrink-0 text-sidebar-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+                archivedCollapsed && "-rotate-90",
+              )}
+            />
+          </button>
+          <div
+            inert={archivedCollapsed}
+            className={cn(
+              "grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+              archivedCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+            )}
+          >
+            <div className="overflow-hidden">
+              <ul ref={attachAnimatedList} className="flex flex-col gap-1">
+                {archivedCards.map((card) => (
+                  <FlowSlimRow
+                    key={card.id}
+                    card={card}
+                    selected={false}
+                    interactive={false}
+                    onOpen={() => undefined}
+                    recede
+                    titleClassName="text-sidebar-muted-foreground"
+                    leading={
+                      <ArchiveIcon
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-sidebar-muted-foreground"
+                      />
+                    }
+                    trailing={
+                      <SidebarCardHoverActionSlot
+                        reserveWidth
+                        resting={
+                          <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                            <RelativeCardAge at={card.archivedAt} />
+                          </span>
+                        }
+                        actions={
+                          <SidebarCardActionButton
+                            icon={Undo2Icon}
+                            label={`Restore '${card.title}'`}
+                            title={`Restore ${card.title}`}
+                            disabled={pendingCardIds.has(card.id)}
+                            shape="inline"
+                            onClick={() => void unarchiveCardRun(card.id)}
+                          />
+                        }
+                      />
+                    }
+                  />
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {/* Cards the server has taken for deletion. They are off the working
           board already — this is a receipt, not a place to act. */}
       {sections.deleting.length > 0 ? (
@@ -525,7 +628,7 @@ function ProjectBoardSection({
           <SectionLabel className="text-sidebar-muted-foreground">
             Deleting · {sections.deleting.length}
           </SectionLabel>
-          <ul ref={attachAnimatedList} className="flex flex-col gap-1.5">
+          <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.deleting.map((card) => (
               <FlowSlimRow
                 key={card.id}
@@ -604,6 +707,51 @@ function ProjectBoardSection({
               }}
             >
               Delete card
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+      <AlertDialog
+        open={pendingArchive !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingArchive(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive '{pendingArchive?.title}'?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This archives the card and every conversation it owns, then removes its artifacts. The
+              branch and its commits stay in the repository.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border/70 p-3 text-sm">
+            <Checkbox
+              checked={pendingArchive?.deleteWorktree ?? false}
+              onCheckedChange={(checked) =>
+                setPendingArchive((current) =>
+                  current === null ? null : { ...current, deleteWorktree: checked === true },
+                )
+              }
+            />
+            <span className="grid gap-0.5">
+              <span className="font-medium text-foreground">Delete worktree</span>
+              <span className="text-muted-foreground text-xs">
+                Remove the checkout too. Uncommitted changes in it will be lost.
+              </span>
+            </span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <Button
+              onClick={() => {
+                const target = pendingArchive;
+                setPendingArchive(null);
+                if (target === null) return;
+                void archiveCardRun(target.id, target.deleteWorktree);
+              }}
+            >
+              Archive card
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

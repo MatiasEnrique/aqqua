@@ -33,6 +33,7 @@ import {
   isProviderTurnLive,
   resolveStepEntryThreadId,
 } from "../boardCardHelpers.ts";
+import { selectTopLevelThreadsForBatchAction } from "../threadDeletion.ts";
 import { BoardReactor, type BoardReactorShape } from "../Services/BoardReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -323,10 +324,10 @@ const make = Effect.gen(function* () {
     if (oldRoot !== undefined) {
       const allThreads = yield* loadAllThreadShells();
       const lineage = collectThreadLineage([oldRoot], allThreads);
-      for (const member of lineage) {
-        if (member.archivedAt != null) {
-          continue;
-        }
+      const archiveRoots = selectTopLevelThreadsForBatchAction(
+        lineage.filter((member) => member.archivedAt === null),
+      );
+      for (const member of archiveRoots) {
         // Missing-from-shell roots still need an archive attempt when present live.
         const archiveResult = yield* dispatch({
           type: "thread.archive",
@@ -389,8 +390,10 @@ const make = Effect.gen(function* () {
       const allThreads = yield* loadAllThreadShells();
       const lineage = collectThreadLineage(operation.threadIds, allThreads);
 
-      for (const member of lineage) {
-        if (member.archivedAt != null) continue;
+      const archiveRoots = selectTopLevelThreadsForBatchAction(
+        lineage.filter((member) => member.archivedAt === null),
+      );
+      for (const member of archiveRoots) {
         const archiveResult = yield* dispatch({
           type: "thread.archive",
           commandId: yield* serverCommandId("reset-archive"),
