@@ -44,6 +44,7 @@ export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
 export type EnqueueThreadMessageInput = CommandInput<"thread.message.enqueue">;
 export type DequeueThreadMessageInput = CommandInput<"thread.message.dequeue">;
+export type SubmitThreadMessagesInput = CommandInput<"thread.message.submit">;
 export type StartThreadTurnInput = CommandInput<"thread.turn.start">;
 export type InterruptThreadTurnInput = CommandInput<"thread.turn.interrupt">;
 export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond">;
@@ -276,6 +277,18 @@ export const dequeueThreadMessage: (input: DequeueThreadMessageInput) => Command
   return yield* dispatch({
     ...input,
     type: "thread.message.dequeue",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const submitThreadMessages: (input: SubmitThreadMessagesInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.submitThreadMessages",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.message.submit",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
   });

@@ -31,7 +31,9 @@ import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
 export type EnvironmentAccessMode = "live" | "offline";
 export type EnvironmentOrchestrationCommand = Exclude<
   ClientOrchestrationCommand,
-  { readonly type: "thread.message.enqueue" | "thread.turn.start" }
+  {
+    readonly type: "thread.message.enqueue" | "thread.message.submit" | "thread.turn.start";
+  }
 >;
 
 const EnvironmentCliRuntimeLive = Layer.mergeAll(

@@ -813,8 +813,8 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={handleStopThread}
           onSendMessage={composer.onSendMessage}
-          onQueueMessage={composer.onQueueMessage}
           onDequeueQueuedMessage={composer.onDequeueQueuedMessage}
+          onSubmitQueuedMessages={composer.onSubmitQueuedMessages}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}

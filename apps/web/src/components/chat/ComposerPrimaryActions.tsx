@@ -1,5 +1,5 @@
 import { memo, type PointerEventHandler, type ReactNode } from "react";
-import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon, ListPlusIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -46,7 +46,6 @@ interface ComposerPrimaryActionsProps {
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
-  onQueue: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
 }
@@ -66,8 +65,8 @@ export const resolveRunningComposerActions = (input: {
     input.isConnecting ||
     input.isEnvironmentUnavailable;
   return {
-    queueDisabled: !input.messageQueueSupported || disabled,
-    steerDisabled: disabled,
+    submitDisabled: disabled,
+    submitLabel: "Send message",
   };
 };
 
@@ -109,7 +108,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
   onPreviousPendingQuestion,
-  onQueue,
   onInterrupt,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
@@ -178,29 +176,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     });
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {messageQueueSupported ? (
-          <Button
-            type="button"
-            size={compact ? "icon-sm" : "sm"}
-            variant="outline"
-            {...pointerFocusProps}
-            onClick={onQueue}
-            disabled={runningActions.queueDisabled}
-            aria-label="Queue message"
-          >
-            <ListPlusIcon className="size-3.5" aria-hidden="true" />
-            {!compact ? "Queue" : null}
-          </Button>
-        ) : null}
         <Button
           type="submit"
-          size={compact ? "icon-sm" : "sm"}
+          size="icon-sm"
           {...pointerFocusProps}
-          disabled={runningActions.steerDisabled}
-          aria-label="Steer conversation"
+          disabled={runningActions.submitDisabled}
+          aria-label={runningActions.submitLabel}
         >
           <ArrowUpIcon className="size-3.5" aria-hidden="true" />
-          {!compact ? "Steer" : null}
         </Button>
         <Button
           type="button"

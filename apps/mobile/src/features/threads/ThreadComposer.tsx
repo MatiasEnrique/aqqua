@@ -121,9 +121,9 @@ export interface ThreadComposerProps {
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSendMessage: () => Promise<MessageId | null>;
-  readonly onQueueMessage: () => Promise<MessageId | null>;
+  readonly onSendMessage: (deliveryMode: "queue" | "steer") => Promise<MessageId | null>;
   readonly onDequeueQueuedMessage: (messageId: MessageId) => Promise<void>;
+  readonly onSubmitQueuedMessages: (messageIds: ReadonlyArray<MessageId>) => Promise<void>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -551,33 +551,30 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       projectTitle: props.environmentLabel ?? "Aqqua",
     });
     try {
-      await onSendMessage();
+      await onSendMessage(primaryActions.deliveryMode);
     } finally {
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [
     onSendMessage,
+    primaryActions.deliveryMode,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
   ]);
-  const handleQueue = useCallback(async () => {
-    const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
-    if (inFlightThreadIdsRef.current.has(threadKey)) return;
-    inFlightThreadIdsRef.current.add(threadKey);
-    try {
-      await props.onQueueMessage();
-    } finally {
-      inFlightThreadIdsRef.current.delete(threadKey);
-    }
-  }, [props.environmentId, props.onQueueMessage, props.selectedThread.id]);
-  const { onDequeueQueuedMessage } = props;
+  const { onDequeueQueuedMessage, onSubmitQueuedMessages } = props;
   const handleDequeueQueuedMessage = useCallback(
     (messageId: MessageId) => {
       void onDequeueQueuedMessage(messageId);
     },
     [onDequeueQueuedMessage],
+  );
+  const handleSubmitQueuedMessages = useCallback(
+    (messageIds: ReadonlyArray<MessageId>) => {
+      void onSubmitQueuedMessages(messageIds);
+    },
+    [onSubmitQueuedMessages],
   );
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {
@@ -950,11 +947,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 ) : null}
               </ComposerToolbarScroller>
               <ComposerToolbarActions
-                showQueue={primaryActions.showQueue}
-                queueDisabled={primaryActions.queueDisabled}
                 sendDisabled={primaryActions.sendDisabled}
                 sendLabel={primaryActions.sendLabel}
-                onQueue={handleQueue}
                 onSend={handleSend}
               />
             </ComposerToolbarRow>
@@ -964,6 +958,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         <ComposerMessageQueue
           messages={props.queuedMessages}
           onDequeue={handleDequeueQueuedMessage}
+          onSubmit={handleSubmitQueuedMessages}
+          submitSupported={
+            props.serverConfig?.environment.capabilities.threadMessageQueueSteering === true
+          }
         />
       </Animated.View>
 

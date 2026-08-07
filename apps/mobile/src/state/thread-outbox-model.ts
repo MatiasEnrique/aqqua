@@ -18,7 +18,10 @@ import {
 import * as Schema from "effect/Schema";
 
 import { DraftComposerImageAttachmentSchema } from "../lib/composer-image-schema";
-import type { DraftComposerImageAttachment } from "../lib/composerImages";
+import {
+  toUploadChatImageAttachments,
+  type DraftComposerImageAttachment,
+} from "../lib/composerAttachmentWire";
 import { scopedThreadKey } from "../lib/scopedEntities";
 
 const THREAD_OUTBOX_SCHEMA_VERSION = 3;
@@ -96,6 +99,27 @@ export function resolveQueuedThreadSettings(
     modelSelection: message.modelSelection ?? thread.modelSelection,
     runtimeMode: message.runtimeMode ?? thread.runtimeMode,
     interactionMode: message.interactionMode ?? thread.interactionMode,
+  };
+}
+
+export function buildQueuedThreadMessageEnqueueInput(
+  message: QueuedThreadMessage,
+  thread: ThreadSettingsSnapshot,
+) {
+  const settings = resolveQueuedThreadSettings(message, thread);
+  return {
+    commandId: message.commandId,
+    threadId: message.threadId,
+    message: {
+      messageId: message.messageId,
+      role: "user" as const,
+      text: message.text,
+      attachments: toUploadChatImageAttachments(message.attachments),
+    },
+    modelSelection: settings.modelSelection,
+    runtimeMode: settings.runtimeMode,
+    interactionMode: settings.interactionMode,
+    createdAt: message.createdAt,
   };
 }
 

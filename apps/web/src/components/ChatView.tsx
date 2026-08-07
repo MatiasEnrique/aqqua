@@ -1243,6 +1243,9 @@ function ChatViewContent(props: ChatViewProps) {
   const dequeueThreadMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
     reportFailure: false,
   });
+  const submitThreadMessages = useAtomCommand(threadEnvironment.submitMessages, {
+    reportFailure: false,
+  });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -2129,6 +2132,8 @@ function ChatViewContent(props: ChatViewProps) {
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
   const messageQueueSupported = serverConfig?.environment.capabilities.threadMessageQueue === true;
+  const messageQueueSteeringSupported =
+    serverConfig?.environment.capabilities.threadMessageQueueSteering === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -5025,10 +5030,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (
-    e?: { preventDefault: () => void },
-    submissionIntent: "send" | "queue" = "send",
-  ) => {
+  const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -5039,12 +5041,6 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (
-      submissionIntent === "queue" &&
-      (phase !== "running" || !isServerThread || !messageQueueSupported)
-    ) {
-      return;
-    }
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -5176,8 +5172,8 @@ function ChatViewContent(props: ChatViewProps) {
       ? (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.resumeSession ??
         null)
       : null;
-    // What this submission takes out of the composer. Both intents restore
-    // from it on failure; only the restore *strategy* differs.
+    // Snapshot everything this submission takes out of the composer so either
+    // immediate delivery or queueing can restore it on failure.
     const submissionSnapshot: ComposerDraftContent = {
       prompt: promptForSend,
       images: composerImagesSnapshot,
@@ -5225,7 +5221,8 @@ function ChatViewContent(props: ChatViewProps) {
       sizeBytes: image.sizeBytes,
       previewUrl: image.previewUrl,
     }));
-    if (submissionIntent === "queue") {
+    const shouldQueueSubmission = phase === "running" && isServerThread && messageQueueSupported;
+    if (shouldQueueSubmission) {
       setThreadError(threadIdForSend, null);
       // Release the submitted draft before attachment encoding and the RPC so
       // anything typed while those are in flight belongs to the next message.
@@ -5504,10 +5501,6 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
-  const onQueue = () => {
-    void onSend(undefined, "queue");
-  };
-
   const onDequeueQueuedMessage = useCallback(
     async (messageId: MessageId) => {
       if (!activeThread) return;
@@ -5527,6 +5520,27 @@ function ChatViewContent(props: ChatViewProps) {
       }
     },
     [activeThread, dequeueThreadMessage, environmentId, setThreadError],
+  );
+
+  const onSubmitQueuedMessages = useCallback(
+    async (messageIds: ReadonlyArray<MessageId>) => {
+      if (!activeThread || messageIds.length === 0) return;
+      const result = await submitThreadMessages({
+        environmentId,
+        input: {
+          threadId: activeThread.id,
+          messageIds,
+        },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to submit queued messages.",
+        );
+      }
+    },
+    [activeThread, environmentId, setThreadError, submitThreadMessages],
   );
 
   const onInterrupt = async () => {
@@ -6640,6 +6654,7 @@ function ChatViewContent(props: ChatViewProps) {
                             sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
                             isPreparingWorktree={isPreparingWorktree}
                             messageQueueSupported={messageQueueSupported}
+                            messageQueueSteeringSupported={messageQueueSteeringSupported}
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             pendingApprovals={pendingApprovals}
@@ -6677,8 +6692,8 @@ function ChatViewContent(props: ChatViewProps) {
                             composerTerminalContextsRef={composerTerminalContextsRef}
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
-                            onQueue={onQueue}
                             onDequeueQueuedMessage={onDequeueQueuedMessage}
+                            onSubmitQueuedMessages={onSubmitQueuedMessages}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}

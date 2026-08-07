@@ -898,6 +898,50 @@ const ThreadMessageDequeueCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadMessageSubmitCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.submit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+  messages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        enqueueCommandId: CommandId,
+        messageId: MessageId,
+        text: Schema.String,
+        attachments: Schema.Array(ChatAttachment),
+        modelSelection: ModelSelection,
+        runtimeMode: RuntimeMode,
+        interactionMode: ProviderInteractionMode,
+        createdAt: IsoDateTime,
+      }),
+    ),
+  ),
+  createdAt: IsoDateTime,
+});
+
+const ClientThreadMessageSubmitCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.submit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+  messages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        enqueueCommandId: CommandId,
+        messageId: MessageId,
+        text: Schema.String,
+        attachments: Schema.Array(UploadChatAttachment),
+        modelSelection: ModelSelection,
+        runtimeMode: RuntimeMode,
+        interactionMode: ProviderInteractionMode,
+        createdAt: IsoDateTime,
+      }),
+    ),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const ClientThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
@@ -975,6 +1019,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ThreadMessageEnqueueCommand,
   ThreadMessageDequeueCommand,
+  ThreadMessageSubmitCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -1016,6 +1061,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ClientThreadMessageEnqueueCommand,
   ThreadMessageDequeueCommand,
+  ClientThreadMessageSubmitCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,

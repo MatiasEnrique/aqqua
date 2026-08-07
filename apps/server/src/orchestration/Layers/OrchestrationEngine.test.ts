@@ -316,6 +316,90 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("records atomic mobile queue submissions under their original enqueue command ids", async () => {
+    const createdAt = now();
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const modelSelection = {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5-codex",
+    };
+    const threadId = ThreadId.make("thread-queue-alias");
+    const messageId = asMessageId("message-queue-alias");
+    const enqueueCommandId = CommandId.make("enqueue-queue-alias");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("create-project-queue-alias"),
+        projectId: asProjectId("project-queue-alias"),
+        title: "Queue alias",
+        workspaceRoot: "/tmp/project-queue-alias",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-thread-queue-alias"),
+        threadId,
+        projectId: asProjectId("project-queue-alias"),
+        title: "Queue alias",
+        modelSelection,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    const submitResult = await system.run(
+      engine.dispatch({
+        type: "thread.message.submit",
+        commandId: CommandId.make("submit-queue-alias"),
+        threadId,
+        messageIds: [messageId],
+        messages: [
+          {
+            enqueueCommandId,
+            messageId,
+            text: "one combined message",
+            attachments: [],
+            modelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            createdAt,
+          },
+        ],
+        createdAt,
+      }),
+    );
+    const duplicateEnqueueResult = await system.run(
+      engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: enqueueCommandId,
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "one combined message",
+          attachments: [],
+        },
+        modelSelection,
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt,
+      }),
+    );
+
+    expect(duplicateEnqueueResult.sequence).toBe(submitResult.sequence);
+    const readModel = await system.readModel();
+    expect(readModel.threads[0]?.messages).toHaveLength(1);
+    expect(readModel.threads[0]?.queuedMessages).toEqual([]);
+    await system.dispose();
+  });
+
   it("archives and unarchives threads through orchestration commands", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

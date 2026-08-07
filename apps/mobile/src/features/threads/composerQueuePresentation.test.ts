@@ -36,22 +36,22 @@ describe("composer primary actions", () => {
   it("offers send only while the thread is idle", () => {
     expect(resolveComposerPrimaryActions(base)).toMatchObject({
       showStop: false,
-      showQueue: false,
       sendLabel: "Send",
+      deliveryMode: "steer",
     });
   });
 
-  it("offers stop and queue while a turn runs", () => {
+  it("makes the primary action queue while a supported turn runs", () => {
     expect(
       resolveComposerPrimaryActions({ ...base, turnRunning: true, threadBusy: true }),
     ).toMatchObject({
       showStop: true,
-      showQueue: true,
-      sendLabel: "Steer",
+      sendLabel: "Queue message",
+      deliveryMode: "queue",
     });
   });
 
-  it("hides queue when the server cannot queue messages", () => {
+  it("falls back to steering when the server cannot queue messages", () => {
     expect(
       resolveComposerPrimaryActions({
         ...base,
@@ -59,23 +59,28 @@ describe("composer primary actions", () => {
         threadBusy: true,
         messageQueueSupported: false,
       }),
-    ).toMatchObject({ showStop: true, showQueue: false });
-  });
-
-  it("labels a send as a steer whenever the thread is busy, even before the session reports running", () => {
-    expect(resolveComposerPrimaryActions({ ...base, threadBusy: true })).toMatchObject({
-      showStop: false,
-      sendLabel: "Steer",
+    ).toMatchObject({
+      showStop: true,
+      sendLabel: "Steer conversation",
+      deliveryMode: "steer",
     });
   });
 
-  it("disables both submit paths without sendable content", () => {
+  it("queues whenever the thread is busy, even before the session reports running", () => {
+    expect(resolveComposerPrimaryActions({ ...base, threadBusy: true })).toMatchObject({
+      showStop: false,
+      sendLabel: "Queue message",
+      deliveryMode: "queue",
+    });
+  });
+
+  it("disables the submit path without sendable content", () => {
     expect(
       resolveComposerPrimaryActions({
         ...base,
         turnRunning: true,
         hasSendableContent: false,
       }),
-    ).toMatchObject({ sendDisabled: true, queueDisabled: true });
+    ).toMatchObject({ sendDisabled: true });
   });
 });

@@ -171,7 +171,7 @@ const buildTurnStartEvents = Effect.fn("buildTurnStartEvents")(function* (input:
     readonly threadId: ThreadId;
     readonly planId: string;
   };
-  readonly dequeue?: boolean;
+  readonly dequeueMessageIds?: ReadonlyArray<OrchestrationQueuedMessage["messageId"]>;
   readonly syncSettings?: boolean;
 }) {
   const settingsEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
@@ -261,26 +261,24 @@ const buildTurnStartEvents = Effect.fn("buildTurnStartEvents")(function* (input:
     });
   }
 
-  const dequeueEvents: Array<Omit<OrchestrationEvent, "sequence">> =
-    input.dequeue === true
-      ? [
-          {
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: input.thread.id,
-              occurredAt: input.createdAt,
-              commandId: input.commandId,
-            })),
-            type: "thread.message-dequeued",
-            payload: {
-              threadId: input.thread.id,
-              messageId: input.message.messageId,
-              reason: "submitted",
-              dequeuedAt: input.createdAt,
-            },
-          },
-        ]
-      : [];
+  const dequeueEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+  for (const messageId of input.dequeueMessageIds ?? []) {
+    dequeueEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.message-dequeued",
+      payload: {
+        threadId: input.thread.id,
+        messageId,
+        reason: "submitted",
+        dequeuedAt: input.createdAt,
+      },
+    });
+  }
   const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
     ...(yield* withEventBase({
       aggregateKind: "thread",
@@ -1237,6 +1235,65 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.message.submit": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const requestedMessageIds = new Set(command.messageIds);
+      const queuedMessagesById = new Map(
+        (thread.queuedMessages ?? []).map((message) => [message.messageId, message]),
+      );
+      const additionalMessages = command.messages ?? [];
+      const additionalMessageIds = new Set(additionalMessages.map((message) => message.messageId));
+      const messagesById = new Map([
+        ...queuedMessagesById,
+        ...additionalMessages.map((message) => [message.messageId, message] as const),
+      ]);
+      const selectedMessages = command.messageIds.flatMap((messageId) => {
+        const message = messagesById.get(messageId);
+        return message ? [message] : [];
+      });
+      if (
+        command.messageIds.length === 0 ||
+        requestedMessageIds.size !== command.messageIds.length ||
+        additionalMessageIds.size !== additionalMessages.length ||
+        additionalMessages.some((message) => !requestedMessageIds.has(message.messageId)) ||
+        selectedMessages.length !== requestedMessageIds.size
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Submitted queued messages must be a non-empty, unique selection from the thread queue.",
+        });
+      }
+      const firstMessage = selectedMessages[0];
+      if (!firstMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Submitted queued messages must include at least one message.",
+        });
+      }
+      return yield* buildTurnStartEvents({
+        thread,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        message: {
+          messageId: firstMessage.messageId,
+          text: selectedMessages.map((message) => message.text).join("\n"),
+          attachments: selectedMessages.flatMap((message) => message.attachments),
+        },
+        modelSelection: firstMessage.modelSelection,
+        runtimeMode: firstMessage.runtimeMode,
+        interactionMode: firstMessage.interactionMode,
+        dequeueMessageIds: selectedMessages
+          .filter((message) => queuedMessagesById.has(message.messageId))
+          .map((message) => message.messageId),
+        syncSettings: true,
+      });
+    }
+
     case "thread.turn.interrupt": {
       yield* requireThread({
         readModel,
@@ -1419,7 +1476,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         modelSelection: nextQueuedMessage.modelSelection,
         runtimeMode: nextQueuedMessage.runtimeMode,
         interactionMode: nextQueuedMessage.interactionMode,
-        dequeue: true,
+        dequeueMessageIds: [nextQueuedMessage.messageId],
         syncSettings: true,
       });
       return [...sessionEvents, ...queuedTurnEvents];

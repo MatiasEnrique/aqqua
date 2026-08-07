@@ -6,7 +6,7 @@ import {
 } from "./ComposerPrimaryActions";
 
 describe("resolveRunningComposerActions", () => {
-  it("keeps steer and queue available while a turn is running", () => {
+  it("makes the single running-turn submit action queue by default", () => {
     expect(
       resolveRunningComposerActions({
         messageQueueSupported: true,
@@ -17,12 +17,12 @@ describe("resolveRunningComposerActions", () => {
         sendDisabledReason: null,
       }),
     ).toEqual({
-      queueDisabled: false,
-      steerDisabled: false,
+      submitDisabled: false,
+      submitLabel: "Send message",
     });
   });
 
-  it("disables both message actions without sendable content", () => {
+  it("disables the running-turn submit action without sendable content", () => {
     expect(
       resolveRunningComposerActions({
         messageQueueSupported: true,
@@ -33,12 +33,12 @@ describe("resolveRunningComposerActions", () => {
         sendDisabledReason: null,
       }),
     ).toEqual({
-      queueDisabled: true,
-      steerDisabled: true,
+      submitDisabled: true,
+      submitLabel: "Send message",
     });
   });
 
-  it("keeps steering available when an older server does not advertise the queue", () => {
+  it("falls back to steering when an older server does not advertise the queue", () => {
     expect(
       resolveRunningComposerActions({
         messageQueueSupported: false,
@@ -49,8 +49,8 @@ describe("resolveRunningComposerActions", () => {
         sendDisabledReason: null,
       }),
     ).toEqual({
-      queueDisabled: true,
-      steerDisabled: false,
+      submitDisabled: false,
+      submitLabel: "Send message",
     });
   });
 });

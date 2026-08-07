@@ -38,34 +38,20 @@ export const ComposerCollapsedActions = memo(function ComposerCollapsedActions(p
   );
 });
 
-/** Expanded toolbar trailing actions: queue (while running) then send/steer. */
+/** Expanded toolbar trailing action: send, or queue while a supported turn runs. */
 export const ComposerToolbarActions = memo(function ComposerToolbarActions(props: {
-  readonly showQueue: boolean;
-  readonly queueDisabled: boolean;
   readonly sendDisabled: boolean;
   readonly sendLabel: string;
-  readonly onQueue: () => void;
   readonly onSend: () => void;
 }) {
   return (
-    <>
-      {props.showQueue ? (
-        <ComposerToolbarButton
-          accessibilityLabel="Queue message"
-          icon="text.badge.plus"
-          disabled={props.queueDisabled}
-          onPress={props.onQueue}
-          showChevron={false}
-        />
-      ) : null}
-      <ComposerToolbarButton
-        accessibilityLabel={props.sendLabel}
-        icon="arrow.up"
-        variant="primary"
-        disabled={props.sendDisabled}
-        onPress={props.onSend}
-        showChevron={false}
-      />
-    </>
+    <ComposerToolbarButton
+      accessibilityLabel={props.sendLabel}
+      icon="arrow.up"
+      variant="primary"
+      disabled={props.sendDisabled}
+      onPress={props.onSend}
+      showChevron={false}
+    />
   );
 });

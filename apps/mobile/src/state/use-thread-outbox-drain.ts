@@ -24,6 +24,7 @@ import {
   removeThreadOutboxMessage,
 } from "./thread-outbox";
 import {
+  buildQueuedThreadMessageEnqueueInput,
   isQueuedThreadCreationSendable,
   modelSelectionsEqual,
   resolveThreadOutboxDeliveryAction,
@@ -35,6 +36,7 @@ import {
   type ThreadOutboxCommandStage,
 } from "./thread-outbox-model";
 import { threadEnvironment } from "./threads";
+import { trackQueuedMessageDispatch } from "./thread-outbox-coordination";
 import { useAtomCommand } from "./use-atom-command";
 import {
   editingQueuedMessageIdsAtom,
@@ -50,7 +52,6 @@ export const dispatchingQueuedMessageIdAtom = Atom.make<MessageId | null>(null).
 export const cancelledQueuedMessageIdsAtom = Atom.make<ReadonlySet<MessageId>>(
   new Set<MessageId>(),
 ).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-outbox:cancelled-message-ids"));
-
 export function cancelDispatchingQueuedMessage(messageId: MessageId): boolean {
   if (appAtomRegistry.get(dispatchingQueuedMessageIdAtom) !== messageId) {
     return false;
@@ -276,24 +277,10 @@ export function useThreadOutboxDrain(): void {
 
   const enqueueQueuedMessage = useCallback(
     async (queuedMessage: QueuedThreadMessage, thread: EnvironmentThreadShell) => {
-      const settings = resolveQueuedThreadSettings(queuedMessage, thread);
       const { completeDelivery, reportFailure } = makeDeliveryHelpers(queuedMessage);
       const deliveryResult = await enqueueMessage({
         environmentId: queuedMessage.environmentId,
-        input: {
-          commandId: queuedMessage.commandId,
-          threadId: queuedMessage.threadId,
-          message: {
-            messageId: queuedMessage.messageId,
-            role: "user",
-            text: queuedMessage.text,
-            attachments: toUploadChatImageAttachments(queuedMessage.attachments),
-          },
-          modelSelection: settings.modelSelection,
-          runtimeMode: settings.runtimeMode,
-          interactionMode: settings.interactionMode,
-          createdAt: queuedMessage.createdAt,
-        },
+        input: buildQueuedThreadMessageEnqueueInput(queuedMessage, thread),
       });
       if (
         !AsyncResult.isFailure(deliveryResult) &&
@@ -487,6 +474,7 @@ export function useThreadOutboxDrain(): void {
                 ? enqueueQueuedMessage(nextQueuedMessage, thread)
                 : sendQueuedMessage(nextQueuedMessage, thread)
               : Promise.resolve(false);
+      const finishTrackedDispatch = trackQueuedMessageDispatch(nextQueuedMessage.messageId);
       void delivery
         .then((sent) => {
           if (sent) {
@@ -516,6 +504,7 @@ export function useThreadOutboxDrain(): void {
         })
         .finally(() => {
           finishDispatchingQueuedMessage(nextQueuedMessage.messageId);
+          finishTrackedDispatch();
         });
       return;
     }

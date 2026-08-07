@@ -10,6 +10,7 @@ import {
 import { AtomRegistry } from "effect/unstable/reactivity";
 
 import {
+  buildQueuedThreadMessageEnqueueInput,
   decodeQueuedThreadMessage,
   encodeQueuedThreadMessage,
   groupQueuedThreadMessages,
@@ -107,6 +108,34 @@ describe("thread outbox", () => {
       modelSelection: selectedMessage.modelSelection,
       runtimeMode: selectedMessage.runtimeMode,
       interactionMode: selectedMessage.interactionMode,
+    });
+  });
+
+  it("builds the same durable enqueue input for every outbox delivery path", () => {
+    const message = queuedMessage({
+      messageId: "message-1",
+      createdAt: "2026-06-08T10:00:01.000Z",
+    });
+    const settings = {
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+    };
+
+    expect(buildQueuedThreadMessageEnqueueInput(message, settings)).toEqual({
+      commandId: message.commandId,
+      threadId: message.threadId,
+      message: {
+        messageId: message.messageId,
+        role: "user",
+        text: "message-1",
+        attachments: [],
+      },
+      ...settings,
+      createdAt: "2026-06-08T10:00:01.000Z",
     });
   });
 

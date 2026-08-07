@@ -71,6 +71,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.connectionProbe).toBe(true);
       expect(second.capabilities.boardCardReset).toBe(true);
       expect(second.capabilities.threadMessageQueue).toBe(true);
+      expect(second.capabilities.threadMessageQueueSteering).toBe(true);
     }),
   );
 

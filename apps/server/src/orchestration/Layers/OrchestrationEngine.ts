@@ -233,15 +233,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   });
                 }
 
-                yield* commandReceiptRepository.upsert({
-                  commandId: envelope.command.commandId,
-                  aggregateKind: lastSavedEvent.aggregateKind,
-                  aggregateId: lastSavedEvent.aggregateId,
-                  acceptedAt: lastSavedEvent.occurredAt,
-                  resultSequence: lastSavedEvent.sequence,
-                  status: "accepted",
-                  error: null,
-                });
+                const receiptCommandIds = new Set([
+                  envelope.command.commandId,
+                  ...(envelope.command.type === "thread.message.submit"
+                    ? (envelope.command.messages ?? []).map((message) => message.enqueueCommandId)
+                    : []),
+                ]);
+                for (const commandId of receiptCommandIds) {
+                  yield* commandReceiptRepository.upsert({
+                    commandId,
+                    aggregateKind: lastSavedEvent.aggregateKind,
+                    aggregateId: lastSavedEvent.aggregateId,
+                    acceptedAt: lastSavedEvent.occurredAt,
+                    resultSequence: lastSavedEvent.sequence,
+                    status: "accepted",
+                    error: null,
+                  });
+                }
 
                 return {
                   committedEvents,

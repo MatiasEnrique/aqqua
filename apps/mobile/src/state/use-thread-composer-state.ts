@@ -43,6 +43,8 @@ import { setPendingConnectionError } from "../state/use-remote-environment-regis
 import { useSelectedThreadDetail } from "../state/use-thread-detail";
 import { useThreadSelection } from "../state/use-thread-selection";
 import { enqueueThreadOutboxMessage, removeThreadOutboxMessage } from "./thread-outbox";
+import { claimThreadOutboxMessages } from "./thread-outbox-coordination";
+import { buildQueuedThreadMessageEnqueueInput } from "./thread-outbox-model";
 import { useThreadOutboxMessages } from "./use-thread-outbox";
 import { threadEnvironment } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
@@ -96,6 +98,9 @@ export function useThreadComposerState() {
   const queuedMessagesByThreadKey = useThreadOutboxMessages();
   const cancelledQueuedMessageIds = useAtomValue(cancelledQueuedMessageIdsAtom);
   const dequeueThreadMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
+    reportFailure: false,
+  });
+  const submitThreadMessages = useAtomCommand(threadEnvironment.submitMessages, {
     reportFailure: false,
   });
 
@@ -249,8 +254,10 @@ export function useThreadComposerState() {
     [selectedThreadDetail, selectedThreadShell],
   );
 
-  const onSendMessage = useCallback(() => submitDraft("steer"), [submitDraft]);
-  const onQueueMessage = useCallback(() => submitDraft("queue"), [submitDraft]);
+  const onSendMessage = useCallback(
+    (deliveryMode: "queue" | "steer") => submitDraft(deliveryMode),
+    [submitDraft],
+  );
 
   const onDequeueQueuedMessage = useCallback(
     async (messageId: MessageId) => {
@@ -295,6 +302,70 @@ export function useThreadComposerState() {
       selectedThreadDetail?.queuedMessages,
       selectedThreadLocalQueuedMessages,
       selectedThreadShell,
+    ],
+  );
+
+  const onSubmitQueuedMessages = useCallback(
+    async (messageIds: ReadonlyArray<MessageId>) => {
+      if (!selectedThreadShell || messageIds.length === 0) {
+        return;
+      }
+      const selectedMessageIds = new Set(messageIds);
+      const thread = selectedThreadDetail ?? selectedThreadShell;
+      const serverMessageIds = new Set(
+        (selectedThreadDetail?.queuedMessages ?? []).map((message) => message.messageId),
+      );
+      const localMessages = selectedThreadLocalQueuedMessages.filter((message) =>
+        selectedMessageIds.has(message.messageId),
+      );
+      const claim = await claimThreadOutboxMessages(localMessages);
+      try {
+        const messages = claim.messages
+          .filter((message) => !serverMessageIds.has(message.messageId))
+          .map((message) => {
+            const input = buildQueuedThreadMessageEnqueueInput(message, thread);
+            return {
+              enqueueCommandId: input.commandId,
+              messageId: input.message.messageId,
+              text: input.message.text,
+              attachments: input.message.attachments,
+              modelSelection: input.modelSelection,
+              runtimeMode: input.runtimeMode,
+              interactionMode: input.interactionMode,
+              createdAt: input.createdAt,
+            };
+          });
+
+        const submitResult = await submitThreadMessages({
+          environmentId: selectedThreadShell.environmentId,
+          input: {
+            threadId: selectedThreadShell.id,
+            messageIds,
+            messages,
+          },
+        });
+        if (submitResult._tag === "Failure" && !isAtomCommandInterrupted(submitResult)) {
+          throw squashAtomCommandFailure(submitResult);
+        }
+        if (submitResult._tag === "Failure") {
+          return;
+        }
+        for (const message of localMessages) {
+          await removeThreadOutboxMessage(message);
+        }
+      } catch (error) {
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to submit the queued message.",
+        );
+      } finally {
+        claim.release();
+      }
+    },
+    [
+      selectedThreadDetail,
+      selectedThreadLocalQueuedMessages,
+      selectedThreadShell,
+      submitThreadMessages,
     ],
   );
 
@@ -433,8 +504,8 @@ export function useThreadComposerState() {
     onNativePasteImages,
     onRemoveDraftImage,
     onSendMessage,
-    onQueueMessage,
     onDequeueQueuedMessage,
+    onSubmitQueuedMessages,
     onUpdateModelSelection,
     onUpdateRuntimeMode,
     onUpdateInteractionMode,

@@ -18,10 +18,9 @@ export function queuedMessagePreview(message: {
 
 export interface ComposerPrimaryActionState {
   readonly showStop: boolean;
-  readonly showQueue: boolean;
   readonly sendDisabled: boolean;
-  readonly queueDisabled: boolean;
   readonly sendLabel: string;
+  readonly deliveryMode: "queue" | "steer";
 }
 
 /**
@@ -42,9 +41,12 @@ export function resolveComposerPrimaryActions(input: {
 }): ComposerPrimaryActionState {
   return {
     showStop: input.turnRunning,
-    showQueue: input.turnRunning && input.messageQueueSupported,
     sendDisabled: !input.hasSendableContent,
-    queueDisabled: !input.hasSendableContent,
-    sendLabel: input.threadBusy ? "Steer" : "Send",
+    sendLabel: input.threadBusy
+      ? input.messageQueueSupported
+        ? "Queue message"
+        : "Steer conversation"
+      : "Send",
+    deliveryMode: input.threadBusy && input.messageQueueSupported ? "queue" : "steer",
   };
 }
