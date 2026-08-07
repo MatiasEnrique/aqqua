@@ -58,7 +58,11 @@ In worktree mode:
 In the worktree-card layout, conversations move to the tab strip below the chat header. Each
 persisted conversation tab has an **Archive** control, which moves the conversation to
 **Settings → Archive**. Archiving a parent conversation archives its complete sub-agent tree. Draft
-tabs cannot be archived.
+tabs cannot be archived. An orchestrator and its open sub-agent conversations share one family tray.
+Use the numbered sub-agent control to collapse or expand that tray. A family can stay collapsed
+while one of its sub-agents is open; the count control then marks that the conversation being read
+is inside the collapsed family. Collapse state belongs to the current window and is forgotten when
+the orchestrator is no longer in the tab strip.
 
 A worktree reports terminal **Done** or **Failed** status until the relevant conversation is opened.
 Opening acknowledges the worktree alert, while a failed conversation itself stays visibly failed

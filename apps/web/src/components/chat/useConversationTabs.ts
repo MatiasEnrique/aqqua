@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
   useAllEnvironmentShellsBootstrapped,
@@ -15,6 +15,7 @@ import {
   type ConversationTab,
   conversationTabKey,
   openConversationTab,
+  openNewSubAgentConversationTabs,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
 
@@ -32,15 +33,25 @@ export function useConversationTabs(input: {
   readonly enabled: boolean;
 }): {
   readonly tabs: readonly ConversationTab[];
+  readonly collapsedFamilyKeys: readonly string[];
+  readonly toggleFamilyCollapsed: (familyKey: string) => void;
 } {
   const openKeys = useUiStateStore((store) => store.openConversationTabKeys);
   const setOpenKeys = useUiStateStore((store) => store.setOpenConversationTabKeys);
+  const collapsedFamilyKeys = useUiStateStore((store) => store.collapsedConversationTabFamilyKeys);
+  const toggleFamilyCollapsed = useUiStateStore(
+    (store) => store.toggleCollapsedConversationTabFamily,
+  );
+  const retainCollapsedFamilies = useUiStateStore(
+    (store) => store.retainCollapsedConversationTabFamilies,
+  );
   const threads = useThreadShells();
   const projects = useProjects();
   // Every environment has to have reported before a missing key means anything.
   // Pruning mid-bootstrap would wipe the restored strip on every cold start.
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const draftsByDraftId = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const previousThreadsRef = useRef<typeof threads | null>(null);
 
   const existingThreadKeys = useMemo(
     () => new Set(threads.map((thread) => `${thread.environmentId}:${thread.id}`)),
@@ -68,6 +79,20 @@ export function useConversationTabs(input: {
     );
   }, [enabled, routeThreadKey, setOpenKeys]);
 
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const previousThreads = previousThreadsRef.current;
+    previousThreadsRef.current = threads;
+    if (!enabled || previousThreads === null) return;
+    const current = useUiStateStore.getState().openConversationTabKeys;
+    const next = openNewSubAgentConversationTabs({
+      openKeys: current,
+      previousThreads,
+      threads,
+    });
+    if (next.length !== current.length) setOpenKeys(next);
+  }, [bootstrapped, enabled, setOpenKeys, threads]);
+
   // Keys outlive their conversation when a thread is deleted or a draft
   // discarded. Rendering already skips them; this keeps the persisted list from
   // growing forever. The routed key is exempt because its detail may still be
@@ -88,7 +113,10 @@ export function useConversationTabs(input: {
     const current = useUiStateStore.getState().openConversationTabKeys;
     const retained = retainKnownConversationTabs({ keys: current, knownKeys });
     if (retained.length !== current.length) setOpenKeys(retained);
-  }, [bootstrapped, enabled, knownKeys, setOpenKeys]);
+    // Collapse is a fact about a tab, so it dies with the tab. A family that
+    // comes back comes back open.
+    retainCollapsedFamilies(new Set(retained));
+  }, [bootstrapped, enabled, knownKeys, retainCollapsedFamilies, setOpenKeys]);
 
   // The strip belongs to one worktree: switching checkouts is switching the set
   // of conversations you are holding open, not adding to a global pile. Open
@@ -122,5 +150,5 @@ export function useConversationTabs(input: {
     ],
   );
 
-  return { tabs };
+  return { tabs, collapsedFamilyKeys, toggleFamilyCollapsed };
 }

@@ -1299,7 +1299,11 @@ function ChatViewContent(props: ChatViewProps) {
     surfaceTabs === undefined &&
     resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
-  const { tabs: conversationTabs } = useConversationTabs({
+  const {
+    tabs: conversationTabs,
+    collapsedFamilyKeys: collapsedConversationTabFamilyKeys,
+    toggleFamilyCollapsed: toggleConversationTabFamilyCollapsed,
+  } = useConversationTabs({
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
@@ -6353,6 +6357,8 @@ function ChatViewContent(props: ChatViewProps) {
               confirmArchive={confirmThreadArchive}
               onNewThread={handleNewThreadInActiveWorktree}
               newThreadLabel={newConversationTabLabel}
+              collapsedFamilyKeys={collapsedConversationTabFamilyKeys}
+              onToggleFamilyCollapsed={toggleConversationTabFamilyCollapsed}
             />
           ) : null)}
 
