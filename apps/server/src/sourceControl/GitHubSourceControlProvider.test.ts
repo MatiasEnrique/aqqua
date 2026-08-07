@@ -41,6 +41,7 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
           baseRefName: "main",
           headRefName: "feature/source-control",
           state: "open",
+          hasConflicts: true,
           isCrossRepository: true,
           headRepositoryNameWithOwner: "fork/aqqua",
           headRepositoryOwnerLogin: "fork",
@@ -60,6 +61,7 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
       baseRefName: "main",
       headRefName: "feature/source-control",
       state: "open",
+      hasConflicts: true,
       updatedAt: Option.none(),
       isCrossRepository: true,
       headRepositoryNameWithOwner: "fork/aqqua",
@@ -389,7 +391,7 @@ it.effect("uses gh json listing for non-open change request state queries", () =
       "--limit",
       "10",
       "--json",
-      "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+      "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,mergeable,isCrossRepository,headRepository,headRepositoryOwner",
     ]);
     assert.strictEqual(changeRequests[0]?.provider, "github");
     assert.strictEqual(changeRequests[0]?.state, "merged");

@@ -480,6 +480,8 @@ const VcsStatusChangeRequest = Schema.Struct({
   baseRef: TrimmedNonEmptyStringSchema,
   headRef: TrimmedNonEmptyStringSchema,
   state: VcsStatusChangeRequestState,
+  /** Whether the provider has confirmed that the source and target refs conflict. Omitted when unknown. */
+  hasConflicts: Schema.optional(Schema.Boolean),
   checksStatus: Schema.optional(Schema.NullOr(Schema.Literals(["success", "failure", "pending"]))),
 });
 
@@ -663,6 +665,8 @@ export const GitRepositoryChangeRequestSummary = Schema.Struct({
   baseRefName: TrimmedNonEmptyStringSchema,
   headRefName: TrimmedNonEmptyStringSchema,
   state: Schema.Literals(["open", "closed", "merged"]),
+  /** Whether the provider has confirmed that the source and target refs conflict. Omitted when unknown. */
+  hasConflicts: Schema.optional(Schema.Boolean),
 });
 export type GitRepositoryChangeRequestSummary = typeof GitRepositoryChangeRequestSummary.Type;
 

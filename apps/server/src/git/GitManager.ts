@@ -198,6 +198,7 @@ interface OpenPrInfo {
 
 interface PullRequestInfo extends OpenPrInfo, PullRequestHeadRemoteInfo {
   state: "open" | "closed" | "merged";
+  hasConflicts?: boolean;
   updatedAt: Option.Option<DateTime.Utc>;
 }
 
@@ -431,6 +432,7 @@ function toPullRequestInfo(summary: ChangeRequest): PullRequestInfo {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
+    ...(summary.hasConflicts !== undefined ? { hasConflicts: summary.hasConflicts } : {}),
     updatedAt: summary.updatedAt,
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
@@ -588,6 +590,7 @@ function toStatusPr(
   baseRef: string;
   headRef: string;
   state: "open" | "closed" | "merged";
+  hasConflicts?: boolean;
   checksStatus: SourceControlProvider.ChangeRequestChecksStatus;
 } {
   return {
@@ -597,6 +600,7 @@ function toStatusPr(
     baseRef: pr.baseRefName,
     headRef: pr.headRefName,
     state: pr.state,
+    ...(pr.hasConflicts !== undefined ? { hasConflicts: pr.hasConflicts } : {}),
     checksStatus,
   };
 }
@@ -1337,6 +1341,9 @@ export const make = Effect.gen(function* () {
           baseRefName: firstPullRequest.baseRefName,
           headRefName: firstPullRequest.headRefName,
           state: "open",
+          ...(firstPullRequest.hasConflicts !== undefined
+            ? { hasConflicts: firstPullRequest.hasConflicts }
+            : {}),
           updatedAt: Option.none(),
         } satisfies PullRequestInfo;
       }

@@ -18,6 +18,7 @@ function toChangeRequest(summary: NormalizedBitbucketPullRequestRecord): ChangeR
     headRefName: summary.headRefName,
     state: summary.state,
     updatedAt: summary.updatedAt ?? Option.none(),
+    ...(summary.hasConflicts !== undefined ? { hasConflicts: summary.hasConflicts } : {}),
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),

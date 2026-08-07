@@ -49,6 +49,7 @@ const BitbucketApiOperation = Schema.Literals([
   "getRepository",
   "getBranchingModel",
   "getPullRequest",
+  "getPullRequestConflicts",
   "listPullRequests",
   "listChecks",
   "listCheckDetails",
@@ -260,6 +261,10 @@ const BitbucketUserSchema = Schema.Struct({
   username: Schema.optional(TrimmedNonEmptyString),
   display_name: Schema.optional(TrimmedNonEmptyString),
   account_id: Schema.optional(TrimmedNonEmptyString),
+});
+
+const BitbucketFileConflictListSchema = Schema.Struct({
+  values: Schema.Array(Schema.Unknown),
 });
 
 export interface BitbucketRepositoryLocator {
@@ -741,14 +746,29 @@ export const make = Effect.gen(function* () {
       BitbucketPullRequestSchema,
     );
 
-  const getRawPullRequest = (input: {
-    readonly cwd: string;
-    readonly context?: SourceControlProvider.SourceControlProviderContext;
-    readonly reference: string;
-  }) =>
-    resolveRepository(input).pipe(
-      Effect.flatMap((repository) => getRawPullRequestFromRepository(repository, input.reference)),
-    );
+  const getPullRequestConflictStatus = (
+    repository: BitbucketRepositoryLocator,
+    reference: string,
+  ) =>
+    executeJson(
+      "getPullRequestConflicts",
+      HttpClientRequest.get(
+        apiUrl(
+          `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(reference))}/conflicts`,
+        ),
+      ),
+      BitbucketFileConflictListSchema,
+    ).pipe(Effect.map((conflicts) => conflicts.values.length > 0));
+
+  const addPullRequestConflictStatus = (
+    repository: BitbucketRepositoryLocator,
+    pullRequest: NormalizedBitbucketPullRequestRecord,
+  ) =>
+    pullRequest.state === "open"
+      ? getPullRequestConflictStatus(repository, String(pullRequest.number)).pipe(
+          Effect.map((hasConflicts) => ({ ...pullRequest, hasConflicts })),
+        )
+      : Effect.succeed(pullRequest);
 
   const fetchAllStatuses = Effect.fn("BitbucketApi.fetchAllStatuses")(function* (input: {
     readonly operation: "listChecks" | "listCheckDetails";
@@ -857,12 +877,27 @@ export const make = Effect.gen(function* () {
               { urlParams: query },
             ),
             BitbucketPullRequestListSchema,
+          ).pipe(
+            Effect.map((list) => list.values.map(normalizeBitbucketPullRequestRecord)),
+            Effect.flatMap((pullRequests) =>
+              Effect.forEach(
+                pullRequests,
+                (pullRequest) => addPullRequestConflictStatus(repository, pullRequest),
+                { concurrency: 5 },
+              ),
+            ),
           );
         }),
-        Effect.map((list) => list.values.map(normalizeBitbucketPullRequestRecord)),
       ),
     getPullRequest: (input) =>
-      getRawPullRequest(input).pipe(Effect.map(normalizeBitbucketPullRequestRecord)),
+      resolveRepository(input).pipe(
+        Effect.flatMap((repository) =>
+          getRawPullRequestFromRepository(repository, input.reference).pipe(
+            Effect.map(normalizeBitbucketPullRequestRecord),
+            Effect.flatMap((pullRequest) => addPullRequestConflictStatus(repository, pullRequest)),
+          ),
+        ),
+      ),
     listChecks: (input) =>
       resolveRepository(input).pipe(
         Effect.flatMap((repository) =>

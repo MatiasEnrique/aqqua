@@ -14,6 +14,7 @@ export interface NormalizedAzureDevOpsPullRequestRecord {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state: "open" | "closed" | "merged";
+  readonly hasConflicts?: boolean;
   readonly updatedAt: Option.Option<DateTime.Utc>;
 }
 
@@ -37,6 +38,7 @@ const AzureDevOpsPullRequestSchema = Schema.Struct({
   sourceRefName: TrimmedNonEmptyString,
   targetRefName: TrimmedNonEmptyString,
   status: Schema.String,
+  mergeStatus: Schema.optional(Schema.NullOr(Schema.String)),
   creationDate: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
   closedDate: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
   _links: Schema.optional(
@@ -67,6 +69,19 @@ function normalizeAzureDevOpsPullRequestState(status: string): "open" | "closed"
       return "closed";
     default:
       return "open";
+  }
+}
+
+function normalizeAzureDevOpsConflictStatus(
+  mergeStatus: string | null | undefined,
+): boolean | undefined {
+  switch (mergeStatus?.trim().toLowerCase()) {
+    case "conflicts":
+      return true;
+    case "succeeded":
+      return false;
+    default:
+      return undefined;
   }
 }
 
@@ -134,6 +149,7 @@ function normalizeAzureDevOpsPullRequestUrl(
 function normalizeAzureDevOpsPullRequestRecord(
   raw: Schema.Schema.Type<typeof AzureDevOpsPullRequestSchema>,
 ): NormalizedAzureDevOpsPullRequestRecord {
+  const hasConflicts = normalizeAzureDevOpsConflictStatus(raw.mergeStatus);
   return {
     number: raw.pullRequestId,
     title: raw.title,
@@ -141,6 +157,7 @@ function normalizeAzureDevOpsPullRequestRecord(
     baseRefName: normalizeRefName(raw.targetRefName),
     headRefName: normalizeRefName(raw.sourceRefName),
     state: normalizeAzureDevOpsPullRequestState(raw.status),
+    ...(hasConflicts !== undefined ? { hasConflicts } : {}),
     updatedAt: (raw.closedDate ?? Option.none()).pipe(
       Option.orElse(() => raw.creationDate ?? Option.none()),
     ),

@@ -15,6 +15,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import {
+  changeRequestActionsTriggerLabel,
   changeRequestMergeMethodLabel,
   orderChangeRequestMergeMethods,
   resolveChangeRequestManagementState,
@@ -90,6 +91,7 @@ export function PullRequestMergeActionsPopover({
   });
   const management = resolveChangeRequestManagementState({
     state: changeRequest.state,
+    hasConflicts: changeRequest.hasConflicts,
     options: mergeOptionsQuery.data,
     optionsPending: mergeOptionsQuery.isPending,
     optionsError: mergeOptionsQuery.error,
@@ -199,6 +201,7 @@ export function PullRequestMergeActionsPopover({
   };
 
   const isOpenState = changeRequest.state === "open";
+  const mergeTriggerVisible = isOpenState && changeRequest.hasConflicts !== true;
   const methods = mergeOptionsQuery.data
     ? orderChangeRequestMergeMethods(mergeOptionsQuery.data)
     : [];
@@ -216,21 +219,22 @@ export function PullRequestMergeActionsPopover({
         render={
           <Button
             className="w-full"
-            variant={isOpenState ? "default" : "outline"}
+            variant={mergeTriggerVisible ? "default" : "outline"}
             aria-label={`${terminology.shortLabel} actions`}
           />
         }
       >
         {mutation !== null ? <Spinner className="size-3.5" /> : null}
-        {isOpenState
-          ? mutation === "merge"
-            ? "Merging…"
-            : `Merge ${terminology.shortLabel}`
-          : "Actions"}
+        {changeRequestActionsTriggerLabel({
+          state: changeRequest.state,
+          hasConflicts: changeRequest.hasConflicts,
+          mergePending: mutation === "merge",
+          shortLabel: terminology.shortLabel,
+        })}
         <ChevronDownIcon className="size-3.5 opacity-70" aria-hidden />
       </PopoverTrigger>
       <PopoverPopup
-        align="center"
+        align="start"
         className="w-(--anchor-width) min-w-64"
         viewportClassName="py-1.5 [--viewport-inline-padding:--spacing(1.5)]"
       >

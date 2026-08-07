@@ -66,12 +66,14 @@ export function PullRequestChecksSection(props: {
                   <a
                     href={check.detailsUrl}
                     aria-label={`Open details for ${check.name}`}
-                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={(event) => openPrLink(event, check.detailsUrl!)}
                   >
                     <ExternalLinkIcon className="size-3.5" />
                   </a>
-                ) : null}
+                ) : (
+                  <span aria-hidden className="size-[22px] shrink-0" />
+                )}
               </li>
             );
           })}
