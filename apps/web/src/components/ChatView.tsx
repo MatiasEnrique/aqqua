@@ -1234,6 +1234,12 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const enqueueThreadMessage = useAtomCommand(threadEnvironment.enqueueMessage, {
+    reportFailure: false,
+  });
+  const dequeueThreadMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
+    reportFailure: false,
+  });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -4999,7 +5005,10 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (e?: { preventDefault: () => void }) => {
+  const onSend = async (
+    e?: { preventDefault: () => void },
+    submissionIntent: "send" | "queue" = "send",
+  ) => {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -5010,6 +5019,9 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
+    if (submissionIntent === "queue" && (phase !== "running" || !isServerThread)) {
+      return;
+    }
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -5179,6 +5191,64 @@ function ChatViewContent(props: ChatViewProps) {
       sizeBytes: image.sizeBytes,
       previewUrl: image.previewUrl,
     }));
+    if (submissionIntent === "queue") {
+      setThreadError(threadIdForSend, null);
+      const turnAttachmentsResult = await settlePromise(() => turnAttachmentsPromise);
+      let failure: AtomCommandResult<unknown, unknown> | null =
+        turnAttachmentsResult._tag === "Failure" ? turnAttachmentsResult : null;
+
+      if (turnAttachmentsResult._tag === "Success") {
+        const enqueueResult = await enqueueThreadMessage({
+          environmentId,
+          input: {
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              role: "user",
+              text: outgoingMessageText,
+              attachments: turnAttachmentsResult.value,
+            },
+            modelSelection: ctxSelectedModelSelection,
+            runtimeMode,
+            interactionMode,
+            createdAt: messageCreatedAt,
+          },
+        });
+        if (enqueueResult._tag === "Failure") {
+          failure = enqueueResult;
+        }
+      }
+
+      if (failure === null) {
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        setComposerResumeSession(composerDraftTarget, null);
+        composerRef.current?.resetCursorState();
+        if (expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            expiredTerminalContextCount,
+            "omitted",
+          );
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: toastCopy.title,
+              description: toastCopy.description,
+            }),
+          );
+        }
+      } else if (!isAtomCommandInterrupted(failure)) {
+        const error = squashAtomCommandFailure(failure);
+        setThreadError(
+          threadIdForSend,
+          error instanceof Error ? error.message : "Failed to queue message.",
+        );
+      }
+
+      sendInFlightRef.current = false;
+      resetLocalDispatch();
+      return;
+    }
     // Sending always returns to the live edge. The new row becomes the
     // anchored end-space target so it lands near the top while the response
     // streams into the reserved space below it.
@@ -5417,6 +5487,31 @@ function ChatViewContent(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  const onQueue = () => {
+    void onSend(undefined, "queue");
+  };
+
+  const onDequeueQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!activeThread) return;
+      const result = await dequeueThreadMessage({
+        environmentId,
+        input: {
+          threadId: activeThread.id,
+          messageId,
+        },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to remove queued message.",
+        );
+      }
+    },
+    [activeThread, dequeueThreadMessage, environmentId, setThreadError],
+  );
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -6565,6 +6660,8 @@ function ChatViewContent(props: ChatViewProps) {
                             composerTerminalContextsRef={composerTerminalContextsRef}
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
+                            onQueue={onQueue}
+                            onDequeueQueuedMessage={onDequeueQueuedMessage}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}

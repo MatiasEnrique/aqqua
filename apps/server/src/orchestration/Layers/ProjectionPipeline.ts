@@ -24,6 +24,7 @@ import { ProjectionBoardRepositoryLive } from "../../persistence/Layers/Projecti
 import { ProjectionCardRepositoryLive } from "../../persistence/Layers/ProjectionCards.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
+import { ProjectionQueuedMessageRepositoryLive } from "../../persistence/Layers/ProjectionQueuedMessages.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
@@ -36,6 +37,7 @@ import { ProjectionBoardRepository } from "../../persistence/Services/Projection
 import { ProjectionCardRepository } from "../../persistence/Services/ProjectionCards.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionQueuedMessageRepository } from "../../persistence/Services/ProjectionQueuedMessages.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import {
   type ProjectionThreadActivity,
@@ -344,7 +346,9 @@ function retainProjectionProposedPlansAfterRevert(
 
 function collectThreadAttachmentRelativePaths(
   threadId: string,
-  messages: ReadonlyArray<ProjectionThreadMessage>,
+  messages: ReadonlyArray<{
+    readonly attachments?: ReadonlyArray<ChatAttachment> | null;
+  }>,
 ): Set<string> {
   const threadSegment = toSafeThreadAttachmentSegment(threadId);
   if (!threadSegment) {
@@ -492,6 +496,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionCardRepository = yield* ProjectionCardRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
+    const projectionQueuedMessageRepository = yield* ProjectionQueuedMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
@@ -1031,6 +1036,49 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyThreadMessagesProjection",
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
+        case "thread.message-enqueued":
+          yield* projectionQueuedMessageRepository.upsert({
+            threadId: event.payload.threadId,
+            ...event.payload.message,
+          });
+          return;
+
+        case "thread.message-dequeued": {
+          if (event.payload.reason === "user") {
+            const [messageRows, queuedMessageRows] = yield* Effect.all([
+              projectionThreadMessageRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              }),
+              projectionQueuedMessageRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              }),
+            ]);
+            const retainedRelativePaths = collectThreadAttachmentRelativePaths(
+              event.payload.threadId,
+              [
+                ...messageRows,
+                ...queuedMessageRows.filter(
+                  (queuedMessage) => queuedMessage.messageId !== event.payload.messageId,
+                ),
+              ],
+            );
+            attachmentSideEffects.prunedThreadRelativePaths.set(
+              event.payload.threadId,
+              retainedRelativePaths,
+            );
+          }
+          yield* projectionQueuedMessageRepository.deleteByMessageId({
+            messageId: event.payload.messageId,
+          });
+          return;
+        }
+
+        case "thread.deleted":
+          yield* projectionQueuedMessageRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
         case "thread.message-sent": {
           const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
             messageId: event.payload.messageId,
@@ -2334,6 +2382,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionCardRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
+  Layer.provideMerge(ProjectionQueuedMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),

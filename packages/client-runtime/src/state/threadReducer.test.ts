@@ -38,6 +38,7 @@ const baseThread: OrchestrationThread = {
   settledAt: null,
   deletedAt: null,
   messages: [],
+  queuedMessages: [],
   proposedPlans: [],
   activities: [],
   checkpoints: [],
@@ -392,6 +393,85 @@ describe("applyThreadDetailEvent", () => {
       if (result.kind === "updated") {
         expect(result.thread.latestTurn?.state).toBe("running");
         expect(result.thread.latestTurn?.completedAt).toBeNull();
+      }
+    });
+  });
+
+  describe("thread message queue", () => {
+    it("adds queued messages in enqueue order", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T08:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-enqueued",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: MessageId.make("queued-1"),
+            text: "Do this next",
+            attachments: [],
+            modelSelection: baseThread.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: "2026-04-01T08:00:00.000Z",
+          },
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect((result.thread.queuedMessages ?? []).map((message) => message.messageId)).toEqual([
+          "queued-1",
+        ]);
+      }
+    });
+
+    it("removes only the dequeued message", () => {
+      const threadWithQueue: OrchestrationThread = {
+        ...baseThread,
+        queuedMessages: [
+          {
+            messageId: MessageId.make("queued-1"),
+            text: "First",
+            attachments: [],
+            modelSelection: baseThread.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: "2026-04-01T08:00:00.000Z",
+          },
+          {
+            messageId: MessageId.make("queued-2"),
+            text: "Second",
+            attachments: [],
+            modelSelection: baseThread.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: "2026-04-01T08:01:00.000Z",
+          },
+        ],
+      };
+      const result = applyThreadDetailEvent(threadWithQueue, {
+        ...baseEventFields,
+        sequence: 10,
+        occurredAt: "2026-04-01T08:02:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-dequeued",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("queued-1"),
+          reason: "user",
+          dequeuedAt: "2026-04-01T08:02:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect((result.thread.queuedMessages ?? []).map((message) => message.messageId)).toEqual([
+          "queued-2",
+        ]);
       }
     });
   });

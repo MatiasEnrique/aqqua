@@ -19,6 +19,8 @@ import {
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
+  ThreadMessageDequeuedPayload,
+  ThreadMessageEnqueuedPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRevertedPayload,
@@ -305,6 +307,7 @@ export function projectEvent(
             snoozedAt: null,
             deletedAt: null,
             messages: [],
+            queuedMessages: [],
             activities: [],
             checkpoints: [],
             session: null,
@@ -508,6 +511,62 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.message-enqueued":
+      return decodeForEvent(
+        ThreadMessageEnqueuedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const queuedMessages = [
+            ...(thread.queuedMessages ?? []).filter(
+              (message) => message.messageId !== payload.message.messageId,
+            ),
+            payload.message,
+          ].toSorted(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) ||
+              left.messageId.localeCompare(right.messageId),
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queuedMessages,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.message-dequeued":
+      return decodeForEvent(
+        ThreadMessageDequeuedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queuedMessages: (thread.queuedMessages ?? []).filter(
+                (message) => message.messageId !== payload.messageId,
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.session-set":
       return Effect.gen(function* () {

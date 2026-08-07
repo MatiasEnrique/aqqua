@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import {
+  formatPendingPrimaryActionLabel,
+  resolveRunningComposerActions,
+} from "./ComposerPrimaryActions";
+
+describe("resolveRunningComposerActions", () => {
+  it("keeps steer and queue available while a turn is running", () => {
+    expect(
+      resolveRunningComposerActions({
+        hasSendableContent: true,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      queueDisabled: false,
+      steerDisabled: false,
+    });
+  });
+
+  it("disables both message actions without sendable content", () => {
+    expect(
+      resolveRunningComposerActions({
+        hasSendableContent: false,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      queueDisabled: true,
+      steerDisabled: true,
+    });
+  });
+});
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
