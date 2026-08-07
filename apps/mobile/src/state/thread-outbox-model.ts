@@ -218,7 +218,11 @@ export function shouldRetryThreadOutboxDelivery(error: unknown): boolean {
   return isTransportConnectionErrorMessage(errorMessage(error));
 }
 
-export type ThreadOutboxCommandStage = "settings-sync" | "start-turn" | "enqueue-message";
+export type ThreadOutboxCommandStage =
+  | "settings-sync"
+  | "start-turn"
+  | "enqueue-message"
+  | "dequeue";
 export type ThreadOutboxFailureAction = "retry" | "discard";
 
 export function resolveThreadOutboxFailureAction(input: {
@@ -226,6 +230,14 @@ export function resolveThreadOutboxFailureAction(input: {
   readonly error: unknown;
   readonly interrupted: boolean;
 }): ThreadOutboxFailureAction {
+  // "dequeue" is a compensating command, not a delivery attempt: it undoes an
+  // enqueue the user cancelled mid-flight. The server rejects it outright once
+  // the message left the queue — most often because the running turn ended and
+  // the message was auto-submitted. That is terminal, and retrying it spins
+  // forever against a hidden outbox item, so only transport faults are retried.
+  if (input.stage === "dequeue") {
+    return input.interrupted || shouldRetryThreadOutboxDelivery(input.error) ? "retry" : "discard";
+  }
   if (
     input.stage === "settings-sync" ||
     input.stage === "enqueue-message" ||

@@ -541,4 +541,45 @@ describe("thread outbox", () => {
       }),
     ).toBe("discard");
   });
+
+  it("stops compensating a dequeue the server rejects as already submitted", () => {
+    // The server raises this the moment a queued message is promoted into a
+    // turn, which races a cancellation issued as the previous turn ends.
+    const alreadySubmitted = new Error(
+      "Orchestration command invariant failed (thread.message.dequeue): " +
+        "Queued message 'message-1' does not belong to thread 'thread-1'.",
+    );
+
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: alreadySubmitted,
+        interrupted: false,
+      }),
+    ).toBe("discard");
+  });
+
+  it("still retries a compensating dequeue that fails on transport", () => {
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: new Error("Socket is not connected"),
+        interrupted: false,
+      }),
+    ).toBe("retry");
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: { _tag: "ConnectionTransientError", message: "temporarily unavailable" },
+        interrupted: false,
+      }),
+    ).toBe("retry");
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: new Error("Socket is not connected"),
+        interrupted: true,
+      }),
+    ).toBe("retry");
+  });
 });

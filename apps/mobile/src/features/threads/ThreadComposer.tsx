@@ -50,7 +50,7 @@ import {
   ComposerToolbarScroller,
   ComposerToolbarTrigger,
 } from "../../components/ComposerToolbarTrigger";
-import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
+import { ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { ThreadQueuedMessagePresentation } from "../../state/use-thread-composer-state";
@@ -78,6 +78,9 @@ import {
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { useProviderWorkspaceSkills } from "../../state/use-provider-skills";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
+import { ComposerMessageQueue } from "./ComposerMessageQueue";
+import { ComposerCollapsedActions, ComposerToolbarActions } from "./ComposerPrimaryActions";
+import { resolveComposerPrimaryActions } from "./composerQueuePresentation";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -90,8 +93,6 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
  * Used by the parent to compute the larger feed bottom inset when the composer is focused.
  */
 export const COMPOSER_EXPANDED_CHROME = 174;
-const IMAGE_ONLY_BOOTSTRAP_PROMPT =
-  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 
 export interface ThreadComposerProps {
   readonly draftMessage: string;
@@ -318,13 +319,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     setIsFocused(false);
     onExpandedChange?.(false);
   }, [onExpandedChange]);
-  const showStopAction =
-    props.selectedThread.session?.status === "running" ||
-    props.selectedThread.session?.status === "starting";
-
-  const sendLabel = props.activeThreadBusy ? "Steer" : "Send";
-  const messageQueueSupported =
-    props.serverConfig?.environment.capabilities.threadMessageQueue === true;
+  const primaryActions = resolveComposerPrimaryActions({
+    turnRunning:
+      props.selectedThread.session?.status === "running" ||
+      props.selectedThread.session?.status === "starting",
+    threadBusy: props.activeThreadBusy,
+    messageQueueSupported: props.serverConfig?.environment.capabilities.threadMessageQueue === true,
+    hasSendableContent: canSend,
+  });
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
@@ -570,6 +572,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [props.environmentId, props.onQueueMessage, props.selectedThread.id]);
+  const { onDequeueQueuedMessage } = props;
+  const handleDequeueQueuedMessage = useCallback(
+    (messageId: MessageId) => {
+      void onDequeueQueuedMessage(messageId);
+    },
+    [onDequeueQueuedMessage],
+  );
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!composerTrigger) return;
@@ -885,26 +894,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </View>
           ) : null}
           {!isExpanded ? (
-            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
-              {showStopAction ? (
-                <View className="flex-row gap-1">
-                  <ControlPill
-                    icon="arrow.up"
-                    variant="primary"
-                    disabled={!canSend}
-                    onPress={handleSend}
-                  />
-                  <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
-                </View>
-              ) : (
-                <ControlPill
-                  icon="arrow.up"
-                  variant="primary"
-                  disabled={!canSend}
-                  onPress={handleSend}
-                />
-              )}
-            </Animated.View>
+            <ComposerCollapsedActions
+              showStop={primaryActions.showStop}
+              sendDisabled={primaryActions.sendDisabled}
+              onSend={handleSend}
+              onStop={props.onStopThread}
+            />
           ) : null}
         </ComposerSurface>
 
@@ -944,7 +939,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     label={configurationLabel}
                   />
                 </ControlPillMenu>
-                {showStopAction ? (
+                {primaryActions.showStop ? (
                   <ComposerToolbarButton
                     accessibilityLabel="Stop"
                     icon="stop.fill"
@@ -954,63 +949,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : null}
               </ComposerToolbarScroller>
-              {showStopAction && messageQueueSupported ? (
-                <ComposerToolbarButton
-                  accessibilityLabel="Queue message"
-                  icon="text.badge.plus"
-                  disabled={!canSend}
-                  onPress={handleQueue}
-                  showChevron={false}
-                />
-              ) : null}
-              <ComposerToolbarButton
-                accessibilityLabel={sendLabel}
-                icon="arrow.up"
-                variant="primary"
-                disabled={!canSend}
-                onPress={handleSend}
-                showChevron={false}
+              <ComposerToolbarActions
+                showQueue={primaryActions.showQueue}
+                queueDisabled={primaryActions.queueDisabled}
+                sendDisabled={primaryActions.sendDisabled}
+                sendLabel={primaryActions.sendLabel}
+                onQueue={handleQueue}
+                onSend={handleSend}
               />
             </ComposerToolbarRow>
           </Animated.View>
         ) : null}
 
-        {props.queuedMessages.length > 0 ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-            <Text className="pt-2 text-xs font-aqqua-bold text-foreground-muted">
-              Queued · {props.queuedMessages.length}
-            </Text>
-            <View className="gap-1 pt-1">
-              {props.queuedMessages.map((message) => {
-                const trimmedText = message.text.trim();
-                const preview =
-                  trimmedText.length > 0 && trimmedText !== IMAGE_ONLY_BOOTSTRAP_PROMPT
-                    ? trimmedText
-                    : message.attachmentCount === 1
-                      ? "1 image"
-                      : `${message.attachmentCount} images`;
-                return (
-                  <View
-                    key={message.messageId}
-                    className="flex-row items-center gap-2 rounded-lg bg-subtle px-2 py-1.5"
-                  >
-                    <Text className="min-w-0 flex-1 text-xs text-foreground" numberOfLines={1}>
-                      {preview}
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove queued message: ${preview}`}
-                      onPress={() => void props.onDequeueQueuedMessage(message.messageId)}
-                      className="size-6 items-center justify-center rounded-full active:bg-subtle-strong"
-                    >
-                      <Text className="text-base leading-none text-foreground-muted">×</Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </View>
-          </Animated.View>
-        ) : null}
+        <ComposerMessageQueue
+          messages={props.queuedMessages}
+          onDequeue={handleDequeueQueuedMessage}
+        />
       </Animated.View>
 
       <ImageViewing

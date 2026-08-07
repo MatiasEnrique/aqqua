@@ -76,6 +76,9 @@ export const ProjectionPendingTurnStart = Schema.Struct({
   messageId: MessageId,
   sourceProposedPlanThreadId: Schema.NullOr(ThreadId),
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
+  // Carried so a crash-recovered turn start replays the original title intent
+  // rather than a reconstruction that silently drops it.
+  titleSeed: Schema.NullOr(Schema.String),
   requestedAt: IsoDateTime,
 });
 export type ProjectionPendingTurnStart = typeof ProjectionPendingTurnStart.Type;

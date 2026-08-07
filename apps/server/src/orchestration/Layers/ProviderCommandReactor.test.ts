@@ -479,12 +479,16 @@ describe("ProviderCommandReactor", () => {
         : []),
     ];
 
+    const dispatch = (command: Parameters<typeof engine.dispatch>[0]) =>
+      Effect.runPromise(engine.dispatch(command));
+
     for (const command of seedCommands) {
-      await Effect.runPromise(engine.dispatch(command));
+      await dispatch(command);
     }
 
     return {
       engine,
+      dispatch,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       startSession,
       sendTurn,
@@ -630,6 +634,51 @@ describe("ProviderCommandReactor", () => {
 
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       input: "resume the committed queue handoff",
+    });
+  });
+
+  it("replays the original title seed when recovering a pending turn start", async () => {
+    const harness = await createHarness({ deferReactorStart: true });
+    const seededTitle = "Investigate reconnect failures";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
+
+    await harness.dispatch({
+      type: "thread.meta.update",
+      commandId: CommandId.make("cmd-thread-title-recovered-seed"),
+      threadId: ThreadId.make("thread-1"),
+      title: seededTitle,
+    });
+
+    // Committed before the crash: the pending projection row is written but the
+    // reactor never saw the event, so recovery is the only path that runs it.
+    await harness.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make("cmd-turn-start-recovered-seed"),
+      threadId: ThreadId.make("thread-1"),
+      message: {
+        messageId: asMessageId("user-message-recovered-seed"),
+        role: "user",
+        text: "Investigate reconnect failures after restarting the session.",
+        attachments: [],
+      },
+      titleSeed: seededTitle,
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    // The thread title is not the default, so the rename can only be unlocked
+    // by the seed the recovered event carried.
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.title ===
+        "Generated title"
+      );
     });
   });
 

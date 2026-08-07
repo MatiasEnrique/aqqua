@@ -1287,6 +1287,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             messageId: event.payload.messageId,
             sourceProposedPlanThreadId: event.payload.sourceProposedPlan?.threadId ?? null,
             sourceProposedPlanId: event.payload.sourceProposedPlan?.planId ?? null,
+            titleSeed: event.payload.titleSeed ?? null,
             requestedAt: event.payload.createdAt,
           });
           return;

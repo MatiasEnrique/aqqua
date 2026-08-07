@@ -307,7 +307,9 @@ export function useThreadOutboxDrain(): void {
             messageId: queuedMessage.messageId,
           },
         });
-        const completed = await completeDelivery(dequeueResult, "enqueue-message");
+        // A terminal dequeue rejection still resolves this item: the message is
+        // no longer queued, which is what the cancellation asked for.
+        const completed = await completeDelivery(dequeueResult, "dequeue");
         if (completed) {
           clearQueuedMessageCancellation(queuedMessage.messageId);
         }
@@ -330,7 +332,14 @@ export function useThreadOutboxDrain(): void {
         },
       });
       if (AsyncResult.isFailure(dequeueResult)) {
-        reportFailure(dequeueResult, "enqueue-message");
+        if (!reportFailure(dequeueResult, "dequeue")) {
+          // Terminal: the server refused because the message already left the
+          // queue — the running turn ended and it was auto-submitted before the
+          // cancellation landed. There is nothing left to compensate, so drop
+          // the tombstone rather than re-arming a retry that can never succeed.
+          clearQueuedMessageCancellation(queuedMessage.messageId);
+          return true;
+        }
         try {
           await enqueueThreadOutboxMessage(queuedMessage);
           return false;

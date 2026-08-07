@@ -21,7 +21,9 @@ import {
   dismissBranchMismatchForSession,
   getStartedThreadModelChangeBlockReason,
   getThreadErrorIdentity,
+  isComposerDraftUntouched,
   hasServerAcknowledgedLocalDispatch,
+  mergeComposerDraftForRetry,
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
@@ -793,5 +795,106 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+});
+
+describe("composer submission restore", () => {
+  const image = (id: string) =>
+    ({
+      id,
+      name: `${id}.png`,
+      mimeType: "image/png",
+      sizeBytes: 1,
+      previewUrl: `blob:${id}`,
+    }) as never;
+
+  const emptyCurrent = {
+    prompt: "",
+    imageCount: 0,
+    terminalContextCount: 0,
+    elementContextCount: 0,
+    previewAnnotationCount: 0,
+    reviewCommentCount: 0,
+  };
+
+  it("treats a fully empty composer as untouched", () => {
+    expect(isComposerDraftUntouched(emptyCurrent)).toBe(true);
+  });
+
+  it("treats any refilled slice as touched", () => {
+    expect(isComposerDraftUntouched({ ...emptyCurrent, prompt: "next" })).toBe(false);
+    expect(isComposerDraftUntouched({ ...emptyCurrent, imageCount: 1 })).toBe(false);
+    expect(isComposerDraftUntouched({ ...emptyCurrent, terminalContextCount: 1 })).toBe(false);
+    expect(isComposerDraftUntouched({ ...emptyCurrent, elementContextCount: 1 })).toBe(false);
+    expect(isComposerDraftUntouched({ ...emptyCurrent, previewAnnotationCount: 1 })).toBe(false);
+    expect(isComposerDraftUntouched({ ...emptyCurrent, reviewCommentCount: 1 })).toBe(false);
+  });
+
+  const snapshot = {
+    prompt: "queued message",
+    images: [image("a"), image("b")],
+    terminalContexts: ["term-1"],
+    elementContexts: ["el-1"],
+    previewAnnotations: ["note-1"],
+    reviewComments: ["review-1"],
+    resumeSession: "snapshot-session",
+  };
+
+  it("restores the submitted content when nothing was typed during the request", () => {
+    const merged = mergeComposerDraftForRetry({ snapshot, currentDraft: null });
+    expect(merged.prompt).toBe("queued message");
+    expect(merged.images.map((entry) => entry.id)).toEqual(["a", "b"]);
+    expect(merged.terminalContexts).toEqual(["term-1"]);
+    expect(merged.resumeSession).toBe("snapshot-session");
+  });
+
+  it("puts the submitted message ahead of a draft typed while the request was in flight", () => {
+    const merged = mergeComposerDraftForRetry({
+      snapshot,
+      currentDraft: {
+        prompt: "typed after",
+        images: [image("c")],
+        terminalContexts: ["term-2"],
+        elementContexts: ["el-2"],
+        previewAnnotations: ["note-2"],
+        reviewComments: ["review-2"],
+        resumeSession: null,
+      },
+    });
+    expect(merged.prompt).toBe("queued message\n\ntyped after");
+    expect(merged.images.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+    expect(merged.terminalContexts).toEqual(["term-1", "term-2"]);
+    expect(merged.elementContexts).toEqual(["el-1", "el-2"]);
+    expect(merged.previewAnnotations).toEqual(["note-1", "note-2"]);
+    expect(merged.reviewComments).toEqual(["review-1", "review-2"]);
+  });
+
+  it("does not duplicate an attachment the draft still holds", () => {
+    const merged = mergeComposerDraftForRetry({
+      snapshot,
+      currentDraft: { prompt: "", images: [image("b"), image("c")] },
+    });
+    expect(merged.images.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("omits the separator when only one side has text", () => {
+    expect(mergeComposerDraftForRetry({ snapshot, currentDraft: { prompt: "" } }).prompt).toBe(
+      "queued message",
+    );
+    expect(
+      mergeComposerDraftForRetry({
+        snapshot: { ...snapshot, prompt: "" },
+        currentDraft: { prompt: "typed after" },
+      }).prompt,
+    ).toBe("typed after");
+  });
+
+  it("prefers a resume session the user picked during the request", () => {
+    expect(
+      mergeComposerDraftForRetry({
+        snapshot,
+        currentDraft: { resumeSession: "current-session" },
+      }).resumeSession,
+    ).toBe("current-session");
   });
 });

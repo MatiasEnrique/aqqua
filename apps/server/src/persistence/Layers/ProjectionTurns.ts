@@ -121,6 +121,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           pending_message_id,
           source_proposed_plan_thread_id,
           source_proposed_plan_id,
+          pending_title_seed,
           assistant_message_id,
           state,
           requested_at,
@@ -138,6 +139,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           ${row.messageId},
           ${row.sourceProposedPlanThreadId},
           ${row.sourceProposedPlanId},
+          ${row.titleSeed},
           NULL,
           'pending',
           ${row.requestedAt},
@@ -162,6 +164,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           pending_message_id AS "messageId",
           source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
           source_proposed_plan_id AS "sourceProposedPlanId",
+          pending_title_seed AS "titleSeed",
           requested_at AS "requestedAt"
         FROM projection_turns
         WHERE thread_id = ${threadId}
@@ -183,6 +186,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           pending_message_id AS "messageId",
           source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
           source_proposed_plan_id AS "sourceProposedPlanId",
+          pending_title_seed AS "titleSeed",
           requested_at AS "requestedAt"
         FROM projection_turns
         WHERE turn_id IS NULL

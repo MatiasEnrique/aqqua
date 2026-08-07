@@ -1190,9 +1190,15 @@ const make = Effect.gen(function* () {
         payload: {
           threadId: pending.threadId,
           messageId: pending.messageId,
+          // The turn-start command syncs these onto the thread in the same
+          // committed event batch that wrote this pending row, so reading them
+          // back reproduces the settings the turn was requested with.
           modelSelection: thread.modelSelection,
           runtimeMode: thread.runtimeMode,
           interactionMode: thread.interactionMode,
+          // Not derivable from the thread — replayed from the pending row so a
+          // recovered turn keeps the title intent the original command carried.
+          ...(pending.titleSeed !== null ? { titleSeed: pending.titleSeed } : {}),
           ...(pending.sourceProposedPlanThreadId !== null && pending.sourceProposedPlanId !== null
             ? {
                 sourceProposedPlan: {
