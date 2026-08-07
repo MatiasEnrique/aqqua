@@ -25,8 +25,6 @@ import {
   type UnifiedSettings,
 } from "@aqqua/contracts/settings";
 import { safeErrorLogAttributes } from "@aqqua/client-runtime/errors";
-import { APP_STAGE_LABEL } from "~/branding";
-import { resolveSidebarV2Enabled } from "~/branding.logic";
 import { ensureLocalApi } from "~/localApi";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
@@ -237,26 +235,6 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   const settingsHydrated = useClientSettingsHydrated();
   const mode = useClientSettingsValue().environmentIdentificationMode;
   return resolveEnvironmentIdentificationMode({ mode, settingsHydrated });
-}
-
-/**
- * `settings.sidebarV2Enabled`, which is only meaningful alongside
- * `sidebarV2ConfiguredByUser`.
- *
- */
-export function useSidebarV2Enabled(): boolean {
-  const settingsHydrated = useClientSettingsHydrated();
-  const settings = useClientSettingsValue();
-  return useMemo(
-    () =>
-      resolveSidebarV2Enabled({
-        enabled: settings.sidebarV2Enabled,
-        configuredByUser: settings.sidebarV2ConfiguredByUser,
-        settingsHydrated,
-        stageLabel: APP_STAGE_LABEL,
-      }),
-    [settings.sidebarV2Enabled, settings.sidebarV2ConfiguredByUser, settingsHydrated],
-  );
 }
 
 /** Read current settings for one environment, merged with client-local preferences. */

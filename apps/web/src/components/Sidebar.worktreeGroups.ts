@@ -116,37 +116,6 @@ export interface SidebarWorktreeActionAvailability {
   readonly disabledReason: string | null;
 }
 
-export function resolveSidebarWorktreeSettleAction(input: {
-  readonly conversationCount: number;
-  readonly settlementSupported: boolean;
-  readonly hasBlockedConversation: boolean;
-  readonly isSettling: boolean;
-  readonly isRemoving: boolean;
-}): SidebarWorktreeActionAvailability {
-  if (input.conversationCount === 0) {
-    return { enabled: false, disabledReason: "No conversations to settle." };
-  }
-  if (!input.settlementSupported) {
-    return {
-      enabled: false,
-      disabledReason: "Settlement is unavailable for this environment.",
-    };
-  }
-  if (input.hasBlockedConversation) {
-    return {
-      enabled: false,
-      disabledReason: "Finish or interrupt active conversations before settling.",
-    };
-  }
-  if (input.isSettling) {
-    return { enabled: false, disabledReason: "Another worktree is being settled." };
-  }
-  if (input.isRemoving) {
-    return { enabled: false, disabledReason: "A worktree is being deleted." };
-  }
-  return { enabled: true, disabledReason: null };
-}
-
 export function resolveSidebarWorktreeDeleteAction(input: {
   readonly isProjectCheckout: boolean;
   readonly worktreeCreated: boolean;
@@ -154,13 +123,22 @@ export function resolveSidebarWorktreeDeleteAction(input: {
   readonly isSettling: boolean;
 }): SidebarWorktreeActionAvailability {
   if (input.isProjectCheckout) {
-    return { enabled: false, disabledReason: "The current checkout cannot be deleted." };
+    return {
+      enabled: false,
+      disabledReason: "The current checkout cannot be deleted.",
+    };
   }
   if (!input.worktreeCreated) {
-    return { enabled: false, disabledReason: "This worktree has not been created yet." };
+    return {
+      enabled: false,
+      disabledReason: "This worktree has not been created yet.",
+    };
   }
   if (input.isRemoving) {
-    return { enabled: false, disabledReason: "Another worktree is being deleted." };
+    return {
+      enabled: false,
+      disabledReason: "Another worktree is being deleted.",
+    };
   }
   if (input.isSettling) {
     return { enabled: false, disabledReason: "A worktree is being settled." };
@@ -618,23 +596,6 @@ export function canReorderSidebarWorktrees(input: {
     dragged.projectId === target.projectId
   );
 }
-
-export function filterExpandedSidebarWorktreeGroups<TWorktree, TRepository>(input: {
-  readonly worktrees: readonly TWorktree[];
-  readonly repositories: readonly TRepository[];
-  readonly repositoryHierarchyVisible: boolean;
-  readonly getRepositoryWorktrees: (repository: TRepository) => readonly TWorktree[];
-  readonly isRepositoryExpanded: (repository: TRepository) => boolean;
-  readonly isWorktreeExpanded: (worktree: TWorktree) => boolean;
-}): TWorktree[] {
-  const repositoryVisibleWorktrees = input.repositoryHierarchyVisible
-    ? input.repositories
-        .filter(input.isRepositoryExpanded)
-        .flatMap((repository) => input.getRepositoryWorktrees(repository))
-    : input.worktrees;
-  return repositoryVisibleWorktrees.filter(input.isWorktreeExpanded);
-}
-
 export function sidebarWorktreeHasVisibleChildren(
   worktree: Pick<SidebarWorktreeGroup, "drafts" | "active" | "snoozed">,
 ): boolean {

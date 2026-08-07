@@ -1,21 +1,19 @@
-import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
+import { describe, expect, it } from "vite-plus/test";
 import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
   canReorderSidebarWorktrees,
-  filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
   resolveSidebarProjectState,
-  resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeConversationLocation,
-  resolveSidebarWorktreeSettleAction,
+  resolveSidebarWorktreeDeleteAction,
   resolveSidebarWorktreeSummaryState,
+  type SidebarWorktreeGroup,
   sidebarLocationContextMenuItems,
   sidebarWorktreeHasVisibleChildren,
-  type SidebarWorktreeGroup,
 } from "./Sidebar.worktreeGroups";
 
 const thread = (
@@ -413,33 +411,6 @@ describe("buildSidebarWorktreeGroups", () => {
 });
 
 describe("worktree action availability", () => {
-  it("disables settlement with a visible reason when there is nothing to settle", () => {
-    expect(
-      resolveSidebarWorktreeSettleAction({
-        conversationCount: 0,
-        settlementSupported: true,
-        hasBlockedConversation: false,
-        isSettling: false,
-        isRemoving: false,
-      }),
-    ).toEqual({
-      enabled: false,
-      disabledReason: "No conversations to settle.",
-    });
-  });
-
-  it("enables settlement only when conversations are ready", () => {
-    expect(
-      resolveSidebarWorktreeSettleAction({
-        conversationCount: 2,
-        settlementSupported: true,
-        hasBlockedConversation: false,
-        isSettling: false,
-        isRemoving: false,
-      }),
-    ).toEqual({ enabled: true, disabledReason: null });
-  });
-
   it("explains why the current checkout cannot be deleted", () => {
     expect(
       resolveSidebarWorktreeDeleteAction({
@@ -608,42 +579,6 @@ describe("resolveSidebarProjectState", () => {
     expect(resolveSidebarProjectState([worktree(null), worktree("settled")])).toBe("settled");
     expect(resolveSidebarProjectState([worktree(null)])).toBe("idle");
     expect(resolveSidebarProjectState([])).toBe("idle");
-  });
-});
-
-describe("filterExpandedSidebarWorktreeGroups", () => {
-  const ciberMain = { key: "ciber:main" };
-  const ciberDev = { key: "ciber:dev" };
-  const aqquaMain = { key: "aqqua:main" };
-  const repositories = [
-    { key: "ciber", worktrees: [ciberMain, ciberDev] },
-    { key: "aqqua", worktrees: [aqquaMain] },
-  ];
-
-  it("omits every worktree inside a collapsed repository", () => {
-    expect(
-      filterExpandedSidebarWorktreeGroups({
-        worktrees: [ciberMain, ciberDev, aqquaMain],
-        repositories,
-        repositoryHierarchyVisible: true,
-        getRepositoryWorktrees: (repository) => repository.worktrees,
-        isRepositoryExpanded: (repository) => repository.key !== "ciber",
-        isWorktreeExpanded: () => true,
-      }),
-    ).toEqual([aqquaMain]);
-  });
-
-  it("omits conversations inside a collapsed worktree without repository grouping", () => {
-    expect(
-      filterExpandedSidebarWorktreeGroups({
-        worktrees: [ciberMain, ciberDev, aqquaMain],
-        repositories,
-        repositoryHierarchyVisible: false,
-        getRepositoryWorktrees: (repository) => repository.worktrees,
-        isRepositoryExpanded: () => true,
-        isWorktreeExpanded: (worktree) => worktree.key !== "ciber:dev",
-      }),
-    ).toEqual([ciberMain, aqquaMain]);
   });
 });
 
@@ -958,10 +893,19 @@ describe("resolveSidebarWorktreeSummaryState", () => {
     overrides: Parameters<typeof resolveSidebarWorktreeSummaryState>[0]["conversations"][number],
   ) => overrides;
   const runningSession = { status: "running" as const };
-  const failed = conversation({ session: { status: "error" }, latestTurn: { state: "completed" } });
-  const needsInput = conversation({ hasPendingUserInput: true, session: runningSession });
+  const failed = conversation({
+    session: { status: "error" },
+    latestTurn: { state: "completed" },
+  });
+  const needsInput = conversation({
+    hasPendingUserInput: true,
+    session: runningSession,
+  });
   const working = conversation({ session: runningSession });
-  const done = conversation({ session: null, latestTurn: { state: "completed" } });
+  const done = conversation({
+    session: null,
+    latestTurn: { state: "completed" },
+  });
 
   it("resolves failed ahead of every other state", () => {
     expect(
@@ -1033,29 +977,46 @@ describe("resolveSidebarWorktreeSummaryState", () => {
 
   it("resolves working ahead of done", () => {
     expect(
-      resolveSidebarWorktreeSummaryState({ conversations: [done, working], settledCount: 3 }),
+      resolveSidebarWorktreeSummaryState({
+        conversations: [done, working],
+        settledCount: 3,
+      }),
     ).toBe("working");
   });
 
   it("resolves done ahead of settled", () => {
-    expect(resolveSidebarWorktreeSummaryState({ conversations: [done], settledCount: 3 })).toBe(
-      "done",
-    );
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [done],
+        settledCount: 3,
+      }),
+    ).toBe("done");
   });
 
   it("falls back to settled only when nothing is unsettled", () => {
-    expect(resolveSidebarWorktreeSummaryState({ conversations: [], settledCount: 3 })).toBe(
-      "settled",
-    );
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [],
+        settledCount: 3,
+      }),
+    ).toBe("settled");
   });
 
   it("reports no state for a worktree with nothing in it", () => {
-    expect(resolveSidebarWorktreeSummaryState({ conversations: [], settledCount: 0 })).toBeNull();
+    expect(
+      resolveSidebarWorktreeSummaryState({
+        conversations: [],
+        settledCount: 0,
+      }),
+    ).toBeNull();
   });
 
   it("reads a never-run conversation as done rather than failed", () => {
     expect(
-      resolveSidebarWorktreeSummaryState({ conversations: [{ session: null }], settledCount: 0 }),
+      resolveSidebarWorktreeSummaryState({
+        conversations: [{ session: null }],
+        settledCount: 0,
+      }),
     ).toBe("done");
   });
 });

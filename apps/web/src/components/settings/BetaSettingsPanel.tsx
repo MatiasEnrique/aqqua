@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 
-import {
-  useClientSettings,
-  useSidebarV2Enabled,
-  useUpdateClientSettings,
-} from "../../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
@@ -55,7 +51,6 @@ function AutoSettleDaysInput({
 }
 
 export function BetaSettingsPanel() {
-  const worktreeViewEnabled = useSidebarV2Enabled();
   const sidebarAutoSettleAfterDays = useClientSettings(
     (settings) => settings.sidebarAutoSettleAfterDays,
   );
@@ -65,52 +60,31 @@ export function BetaSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection title="Beta features">
         <SettingsRow
-          title="Worktree view"
-          description="On by default. The sidebar lists your worktrees and the chat header holds your open conversations as tabs; Settings → General picks which of the worktree layouts you get. Turn this off for one flat thread list. Settling requires an up-to-date server — on older servers threads simply stay active."
+          title="Auto-settle inactive threads"
+          description="Threads with no activity for this long settle automatically. Threads on merged or closed PRs always settle."
           control={
             <Switch
-              checked={worktreeViewEnabled}
-              // Touching the switch pins the choice, so future default changes
+              checked={sidebarAutoSettleAfterDays !== null}
               onCheckedChange={(checked) =>
                 updateSettings({
-                  sidebarV2Enabled: Boolean(checked),
-                  sidebarV2ConfiguredByUser: true,
+                  sidebarAutoSettleAfterDays: checked ? AUTO_SETTLE_DEFAULT_DAYS : null,
                 })
               }
-              aria-label="Enable the worktree view beta"
+              aria-label="Auto-settle inactive threads"
             />
           }
         />
-        {worktreeViewEnabled ? (
-          <>
-            <SettingsRow
-              title="Auto-settle inactive threads"
-              description="Threads with no activity for this long settle automatically. Threads on merged or closed PRs always settle."
-              control={
-                <Switch
-                  checked={sidebarAutoSettleAfterDays !== null}
-                  onCheckedChange={(checked) =>
-                    updateSettings({
-                      sidebarAutoSettleAfterDays: checked ? AUTO_SETTLE_DEFAULT_DAYS : null,
-                    })
-                  }
-                  aria-label="Auto-settle inactive threads"
-                />
-              }
-            />
-            {sidebarAutoSettleAfterDays !== null ? (
-              <SettingsRow
-                title="Days of inactivity before auto-settle"
-                description="Any new activity un-settles a thread automatically."
-                control={
-                  <AutoSettleDaysInput
-                    value={sidebarAutoSettleAfterDays}
-                    onCommit={(days) => updateSettings({ sidebarAutoSettleAfterDays: days })}
-                  />
-                }
+        {sidebarAutoSettleAfterDays !== null ? (
+          <SettingsRow
+            title="Days of inactivity before auto-settle"
+            description="Any new activity un-settles a thread automatically."
+            control={
+              <AutoSettleDaysInput
+                value={sidebarAutoSettleAfterDays}
+                onCommit={(days) => updateSettings({ sidebarAutoSettleAfterDays: days })}
               />
-            ) : null}
-          </>
+            }
+          />
         ) : null}
       </SettingsSection>
     </SettingsPageContainer>

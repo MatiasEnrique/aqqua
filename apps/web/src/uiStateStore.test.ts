@@ -5,26 +5,23 @@ import {
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
-  parsePersistedState,
   PERSISTED_STATE_KEY,
   rememberWorktreeOrder,
-  WINDOW_STATE_KEY,
   type PersistedUiState,
+  parsePersistedState,
   persistState,
   readPersistedState,
-  retainThreadExpansionForKnownThreads,
   reorderProjects,
   reorderWorktrees,
   resolveProjectExpanded,
-  resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
   retainCollapsedConversationTabFamilies,
   setOpenConversationTabKeys,
   toggleCollapsedConversationTabFamily,
   setProjectExpanded,
-  setThreadExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
+  WINDOW_STATE_KEY,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
@@ -33,9 +30,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     worktreeOrder: [],
     threadLastVisitedAtById: {},
-    threadExpandedById: {},
     threadChangedFilesExpandedById: {},
-    worktreeExpandedByKey: {},
     activeWorktreeOverrideKey: null,
     openConversationTabKeys: [],
     collapsedConversationTabFamilyKeys: [],
@@ -190,61 +185,6 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
-  it("resolves thread expansion from the first matching preference key", () => {
-    const threadKey = "environment-a:thread-1";
-    const aliasKey = "legacy:thread-1";
-
-    expect(resolveThreadExpanded({ [threadKey]: false, [aliasKey]: true }, [threadKey])).toBe(
-      false,
-    );
-    expect(resolveThreadExpanded({ [aliasKey]: false }, ["new-key", aliasKey])).toBe(false);
-    expect(resolveThreadExpanded({}, [threadKey])).toBe(true);
-  });
-
-  it("applies the caller's fallback only when no preference is recorded", () => {
-    const threadKey = "environment-a:thread-1";
-
-    expect(resolveThreadExpanded({}, [threadKey], { fallback: false })).toBe(false);
-    expect(resolveThreadExpanded({ [threadKey]: true }, [threadKey], { fallback: false })).toBe(
-      true,
-    );
-    expect(resolveThreadExpanded({ [threadKey]: false }, [threadKey], { fallback: true })).toBe(
-      false,
-    );
-  });
-
-  it("sets expansion for every stable key belonging to a thread", () => {
-    const initialState = makeUiState();
-    const keys = ["environment-a:thread-1", "environment-b:thread-1"];
-
-    const next = setThreadExpanded(initialState, keys, false);
-
-    expect(next.threadExpandedById).toEqual({
-      "environment-a:thread-1": false,
-      "environment-b:thread-1": false,
-    });
-    expect(setThreadExpanded(next, keys, false)).toBe(next);
-  });
-
-  it("retains expansion preferences only for currently known threads", () => {
-    const initialState = makeUiState({
-      threadExpandedById: {
-        "environment-a:thread-current": false,
-        "environment-a:thread-removed": true,
-      },
-    });
-
-    const next = retainThreadExpansionForKnownThreads(initialState, [
-      "environment-a:thread-current",
-      "environment-a:thread-new",
-    ]);
-
-    expect(next.threadExpandedById).toEqual({
-      "environment-a:thread-current": false,
-    });
-    expect(retainThreadExpansionForKnownThreads(next, ["environment-a:thread-current"])).toBe(next);
-  });
-
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -269,10 +209,6 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
       },
-      threadExpandedById: {
-        "environment:thread-1": false,
-        invalid: "no" as unknown as boolean,
-      },
       removedWorktreeAtByKey: {
         "local:/worktrees/ciber/dev-22": "2026-07-29T22:00:00.000Z",
         invalid: "not-a-date",
@@ -296,10 +232,6 @@ describe("parsePersistedState", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
-      threadExpandedById: {
-        "environment:thread-1": false,
-      },
-      worktreeExpandedByKey: {},
       activeWorktreeOverrideKey: null,
       openConversationTabKeys: [],
       collapsedConversationTabFamilyKeys: [],
@@ -462,8 +394,6 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
-      threadExpandedById: {},
-      worktreeExpandedByKey: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {

@@ -1,5 +1,4 @@
 import type { LucideIcon } from "lucide-react";
-import { AlarmClockOffIcon, CheckIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
@@ -45,70 +44,6 @@ export function SidebarCardActionButton(props: {
     >
       <Icon aria-hidden className={isSquare ? "size-3.5" : "size-3"} />
     </button>
-  );
-}
-
-export function SidebarCardSettleButton(props: {
-  readonly onSettle: (event: MouseEvent) => void;
-  readonly description: string;
-  readonly disabled?: boolean;
-  readonly shape?: "square" | "inline";
-  readonly className?: string;
-}) {
-  return (
-    <SidebarCardActionButton
-      icon={CheckIcon}
-      label={`Settle ${props.description}`}
-      title={
-        props.disabled === true
-          ? `${props.description} is still working or needs attention`
-          : `Settle ${props.description}`
-      }
-      {...(props.disabled === undefined ? {} : { disabled: props.disabled })}
-      {...(props.shape === undefined ? {} : { shape: props.shape })}
-      {...(props.className === undefined ? {} : { className: props.className })}
-      onClick={props.onSettle}
-    />
-  );
-}
-
-export function SidebarCardUnsettleButton(props: {
-  readonly onUnsettle: (event: MouseEvent) => void;
-}) {
-  return (
-    <SidebarCardActionButton
-      icon={Undo2Icon}
-      label="Un-settle thread"
-      onClick={props.onUnsettle}
-      shape="inline"
-    />
-  );
-}
-
-/** Deletion needs no server capability, so it renders wherever it's offered. */
-export function SidebarCardDeleteButton(props: {
-  readonly onDelete: (event: MouseEvent) => void;
-  readonly label?: string;
-}) {
-  return (
-    <SidebarCardActionButton
-      icon={Trash2Icon}
-      label={props.label ?? "Delete thread"}
-      onClick={props.onDelete}
-      tone="destructive"
-      shape="inline"
-    />
-  );
-}
-
-export function SidebarCardWakeButton(props: { readonly onWake: (event: MouseEvent) => void }) {
-  return (
-    <SidebarCardActionButton
-      icon={AlarmClockOffIcon}
-      label="Wake thread now"
-      onClick={props.onWake}
-      shape="inline"
-    />
   );
 }
 

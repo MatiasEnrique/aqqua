@@ -31,8 +31,6 @@ export interface PersistedUiState {
   projectOrder?: string[];
   worktreeOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
-  threadExpandedById?: Record<string, boolean>;
-  worktreeExpandedByKey?: Record<string, boolean>;
   activeWorktreeOverrideKey?: string | null;
   openConversationTabKeys?: string[];
   collapsedConversationTabFamilyKeys?: string[];
@@ -54,9 +52,7 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
-  threadExpandedById: Record<string, boolean>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
-  worktreeExpandedByKey: Record<string, boolean>;
   /**
    * Which worktree card is selected when the route cannot say — a worktree
    * clicked before it holds anything routable. The route always wins over
@@ -94,9 +90,7 @@ const initialState: UiState = {
   projectOrder: [],
   worktreeOrder: [],
   threadLastVisitedAtById: {},
-  threadExpandedById: {},
   threadChangedFilesExpandedById: {},
-  worktreeExpandedByKey: {},
   activeWorktreeOverrideKey: null,
   openConversationTabKeys: [],
   collapsedConversationTabFamilyKeys: [],
@@ -177,8 +171,6 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectOrder,
     worktreeOrder: sanitizeStringArray(parsed.worktreeOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
-    threadExpandedById: sanitizeBooleanRecord(parsed.threadExpandedById),
-    worktreeExpandedByKey: sanitizeBooleanRecord(parsed.worktreeExpandedByKey),
     activeWorktreeOverrideKey:
       typeof parsed.activeWorktreeOverrideKey === "string"
         ? parsed.activeWorktreeOverrideKey
@@ -309,8 +301,6 @@ export function persistState(state: UiState): void {
         projectOrder: state.projectOrder,
         worktreeOrder: state.worktreeOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
-        threadExpandedById: state.threadExpandedById,
-        worktreeExpandedByKey: state.worktreeExpandedByKey,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
@@ -408,64 +398,6 @@ export function setThreadChangedFilesExpanded(
   };
 }
 
-/**
- * Resolve a thread's stored expansion preference.
- *
- * `fallback` is what an unrecorded thread means, and the two sidebars disagree:
- * v1 is a project tree where a hidden branch would look like missing threads, so
- * it opens by default, while v2 is an inbox where an unattended delegation
- * fan-out would push the rest of the list off-screen, so it stays closed. The
- * stored overrides are shared, so an explicit choice still carries across both.
- */
-export function resolveThreadExpanded(
-  threadExpandedById: Readonly<Record<string, boolean>>,
-  preferenceKeys: readonly string[],
-  options?: { readonly fallback?: boolean },
-): boolean {
-  for (const key of preferenceKeys) {
-    const expanded = threadExpandedById[key];
-    if (expanded !== undefined) {
-      return expanded;
-    }
-  }
-  return options?.fallback ?? true;
-}
-
-export function setThreadExpanded(
-  state: UiState,
-  threadIds: string | readonly string[],
-  expanded: boolean,
-): UiState {
-  const ids = typeof threadIds === "string" ? [threadIds] : threadIds;
-  const nextEntries = ids.filter((threadId) => state.threadExpandedById[threadId] !== expanded);
-  if (nextEntries.length === 0) {
-    return state;
-  }
-  const threadExpandedById = { ...state.threadExpandedById };
-  for (const threadId of nextEntries) {
-    threadExpandedById[threadId] = expanded;
-  }
-  return {
-    ...state,
-    threadExpandedById,
-  };
-}
-
-export function setWorktreeExpanded(
-  state: UiState,
-  worktreeKey: string,
-  expanded: boolean,
-): UiState {
-  if (state.worktreeExpandedByKey[worktreeKey] === expanded) return state;
-  return {
-    ...state,
-    worktreeExpandedByKey: {
-      ...state.worktreeExpandedByKey,
-      [worktreeKey]: expanded,
-    },
-  };
-}
-
 export function setActiveWorktreeOverrideKey(state: UiState, key: string | null): UiState {
   if (state.activeWorktreeOverrideKey === key) return state;
   return { ...state, activeWorktreeOverrideKey: key };
@@ -511,23 +443,6 @@ export function retainCollapsedConversationTabFamilies(
   const retained = state.collapsedConversationTabFamilyKeys.filter((key) => knownKeys.has(key));
   if (retained.length === state.collapsedConversationTabFamilyKeys.length) return state;
   return { ...state, collapsedConversationTabFamilyKeys: retained };
-}
-
-export function retainThreadExpansionForKnownThreads(
-  state: UiState,
-  knownThreadIds: readonly string[],
-): UiState {
-  const knownThreadIdSet = new Set(knownThreadIds);
-  const retainedEntries = Object.entries(state.threadExpandedById).filter(([threadId]) =>
-    knownThreadIdSet.has(threadId),
-  );
-  if (retainedEntries.length === Object.keys(state.threadExpandedById).length) {
-    return state;
-  }
-  return {
-    ...state,
-    threadExpandedById: Object.fromEntries(retainedEntries),
-  };
 }
 
 export function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): UiState {
@@ -675,13 +590,10 @@ export function rememberWorktreeOrder(
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
-  setThreadExpanded: (threadIds: string | readonly string[], expanded: boolean) => void;
-  setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
   setActiveWorktreeOverrideKey: (key: string | null) => void;
   setOpenConversationTabKeys: (keys: readonly string[]) => void;
   toggleCollapsedConversationTabFamily: (key: string) => void;
   retainCollapsedConversationTabFamilies: (knownKeys: ReadonlySet<string>) => void;
-  retainThreadExpansionForKnownThreads: (knownThreadIds: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -704,18 +616,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
-  setThreadExpanded: (threadIds, expanded) =>
-    set((state) => setThreadExpanded(state, threadIds, expanded)),
-  setWorktreeExpanded: (worktreeKey, expanded) =>
-    set((state) => setWorktreeExpanded(state, worktreeKey, expanded)),
   setActiveWorktreeOverrideKey: (key) => set((state) => setActiveWorktreeOverrideKey(state, key)),
   setOpenConversationTabKeys: (keys) => set((state) => setOpenConversationTabKeys(state, keys)),
   toggleCollapsedConversationTabFamily: (key) =>
     set((state) => toggleCollapsedConversationTabFamily(state, key)),
   retainCollapsedConversationTabFamilies: (knownKeys) =>
     set((state) => retainCollapsedConversationTabFamilies(state, knownKeys)),
-  retainThreadExpansionForKnownThreads: (knownThreadIds) =>
-    set((state) => retainThreadExpansionForKnownThreads(state, knownThreadIds)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>

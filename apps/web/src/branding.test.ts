@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   resolveServerBackedAppDisplayName,
   resolveServerBackedAppStageLabel,
-  resolveSidebarV2Default,
-  resolveSidebarV2Enabled,
 } from "./branding.logic";
 
 const originalWindow = globalThis.window;
@@ -114,75 +112,5 @@ describe("branding logic", () => {
         primaryServerVersion: "0.0.28-nightly.20260616",
       }),
     ).toBe("Aqqua (Alpha)");
-  });
-});
-
-describe("resolveSidebarV2Default", () => {
-  it.each(["Dev", " dev ", "Alpha", "Latest", ""])(
-    "ships the worktree view as the default sidebar on %s builds",
-    (stage) => {
-      expect(resolveSidebarV2Default(stage)).toBe(true);
-    },
-  );
-});
-
-describe("resolveSidebarV2Enabled", () => {
-  const hydrated = { settingsHydrated: true } as const;
-
-  it.each(["Alpha", "Latest"])(
-    "keeps a legacy opt-in on %s builds even without the companion flag",
-    (stageLabel) => {
-      // `true` was never the schema default, so it can only be an explicit
-      // opt-in from settings written before `sidebarV2ConfiguredByUser` existed.
-      expect(
-        resolveSidebarV2Enabled({
-          ...hydrated,
-          enabled: true,
-          configuredByUser: false,
-          stageLabel,
-        }),
-      ).toBe(true);
-    },
-  );
-
-  it("applies the stage default when the view was never enabled or configured", () => {
-    expect(
-      resolveSidebarV2Enabled({
-        ...hydrated,
-        enabled: false,
-        configuredByUser: false,
-        stageLabel: "Sigma",
-      }),
-    ).toBe(true);
-    expect(
-      resolveSidebarV2Enabled({
-        ...hydrated,
-        enabled: false,
-        configuredByUser: false,
-        stageLabel: "Latest",
-      }),
-    ).toBe(true);
-  });
-
-  it("honors an explicit opt-out over the stage default", () => {
-    expect(
-      resolveSidebarV2Enabled({
-        ...hydrated,
-        enabled: false,
-        configuredByUser: true,
-        stageLabel: "Sigma",
-      }),
-    ).toBe(false);
-  });
-
-  it("holds the stage default until settings hydrate so the common path never remounts", () => {
-    expect(
-      resolveSidebarV2Enabled({
-        enabled: false,
-        configuredByUser: true,
-        settingsHydrated: false,
-        stageLabel: "Sigma",
-      }),
-    ).toBe(true);
   });
 });

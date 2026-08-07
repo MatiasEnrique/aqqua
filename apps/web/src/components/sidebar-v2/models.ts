@@ -1,30 +1,24 @@
-import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type { scopeProjectRef } from "@aqqua/client-runtime/environment";
-import type { SidebarConversationStateCounts } from "../Sidebar.summaryState";
-import type { SidebarThreadFamilyBand } from "../Sidebar.threadTree";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type {
   EnvironmentId,
   ProjectIcon,
   ProjectId,
   ScopedThreadRef,
-  ServerConfig,
   SidebarProjectGroupingMode,
 } from "@aqqua/contracts";
 import type { MutableRefObject, MouseEvent as ReactMouseEvent } from "react";
-import type { ProviderInstanceEntry } from "../../providerInstances";
 import type {
   SidebarProjectGroupMember,
   SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
-import type { ProjectScopeSelection } from "./projectScopeSelection";
-import type { SidebarDraftRow } from "../Sidebar.logic";
-import type { SnoozePreset } from "../Sidebar.snooze";
 import type {
   SidebarProjectState,
   SidebarRepositoryGroup,
   SidebarWorktreeConversationLocation,
   SidebarWorktreeGroup,
 } from "../Sidebar.worktreeGroups";
+import type { ProjectScopeSelection } from "./projectScopeSelection";
 
 /** Active route identity the list and controllers share. */
 export type SidebarRouteSection = {
@@ -71,107 +65,27 @@ export type SidebarProjectsSection = {
   >;
 };
 
-/** Partitioned threads, tree visibility, shelves, and visual order. */
+/** Conversation order used by global navigation shortcuts. */
 export type SidebarThreadsSection = {
-  readonly activeThreads: readonly EnvironmentThreadShell[];
-  readonly snoozedThreads: readonly EnvironmentThreadShell[];
-  readonly settledThreads: readonly EnvironmentThreadShell[];
-  readonly snoozeNow: string;
-  readonly visibleActiveThreads: readonly EnvironmentThreadShell[];
-  readonly visibleSnoozedThreads: readonly EnvironmentThreadShell[];
-  readonly renderedSettledThreads: readonly EnvironmentThreadShell[];
-  readonly selectedSettledThreads: readonly EnvironmentThreadShell[];
-  readonly activeTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
-  /** Where each active row sits in its family's panel. */
-  readonly activeFamilyBandByKey: ReadonlyMap<string, SidebarThreadFamilyBand>;
-  readonly activeSubAgentStateCountsByKey: ReadonlyMap<string, SidebarConversationStateCounts>;
-  /** The same banding for the settled tail, which pages by family too. */
-  readonly settledFamilyBandByKey: ReadonlyMap<string, SidebarThreadFamilyBand>;
-  readonly settledTreeMetaByKey: ReadonlyMap<string, { childCount: number; depth: number }>;
-  readonly expandedThreadKeys: ReadonlySet<string>;
-  readonly settledExpandedThreadKeys: ReadonlySet<string>;
-  readonly reserveSubAgentGutter: boolean;
-  readonly draftRows: readonly SidebarDraftRow[];
-  readonly groupedDraftRows: readonly SidebarDraftRow[];
-  readonly orderedThreads: readonly EnvironmentThreadShell[];
   readonly orderedThreadKeys: readonly string[];
-  readonly orderedThreadKeysRef: MutableRefObject<readonly string[]>;
   readonly threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
-  readonly threadByKeyRef: MutableRefObject<ReadonlyMap<string, EnvironmentThreadShell>>;
-  readonly settledThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
-  readonly snoozedThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
-  readonly flowOwnedThreadKeys: ReadonlySet<string>;
-  readonly flowOwnedThreadKeysRef: MutableRefObject<ReadonlySet<string>>;
-  readonly jumpLabelByKey: ReadonlyMap<string, string>;
-  readonly showJumpHints: boolean;
-  readonly setShowJumpHints: (show: boolean) => void;
-  readonly snoozedShelfExpanded: boolean;
-  readonly toggleSnoozedShelf: () => void;
-  readonly settledShelfExpanded: boolean;
-  readonly toggleSettledShelf: () => void;
-  readonly hiddenSettledCount: number;
-  readonly settledRootCount: number;
-  readonly showMoreSettled: () => void;
-  readonly sidebarThreadGroupingMode: "flat" | "worktree";
-  readonly handleChangeRequestState: (
-    threadKey: string,
-    state: "open" | "closed" | "merged" | null,
-  ) => void;
-  readonly setThreadExpanded: (threadIds: string | readonly string[], expanded: boolean) => void;
-  readonly providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
-  /** Canonical atom value from `environmentServerConfigsAtom`. */
-  readonly serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>;
 };
 
 /** Worktree/repository grouping and ephemeral delete hide. */
 export type SidebarWorktreesSection = {
   readonly worktreeGroups: readonly SidebarWorktreeGroup[];
-  readonly expandedWorktreeGroups: readonly SidebarWorktreeGroup[];
   readonly repositoryGroups: readonly SidebarRepositoryGroup<SidebarProjectSnapshot>[];
-  readonly repositoryHierarchyVisible: boolean;
   /** Derived from the route, with a persisted fallback for empty worktrees. */
   readonly activeWorktreeKey: string | null;
   readonly activeWorktreeGroup: SidebarWorktreeGroup | null;
   readonly setActiveWorktreeOverrideKey: (key: string | null) => void;
-  readonly worktreeExpandedByKey: Readonly<Record<string, boolean>>;
-  readonly setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
   readonly reorderWorktree: (draggedWorktreeKey: string, targetWorktreeKey: string) => void;
   readonly removingWorktreeKey: string | null;
-  readonly settlingWorktreeKey: string | null;
   readonly setRemovingWorktreeKey: (key: string | null) => void;
-  readonly setSettlingWorktreeKey: (key: string | null) => void;
   readonly hideWorktreeKey: (key: string) => void;
 };
 
-export type ThreadLifecycleController = {
-  readonly renamingThreadKey: string | null;
-  readonly renamingTitle: string;
-  readonly setRenamingTitle: (title: string) => void;
-  readonly startThreadRename: (threadRef: ScopedThreadRef, title: string) => void;
-  readonly cancelThreadRename: () => void;
-  readonly commitThreadRename: (
-    threadRef: ScopedThreadRef,
-    title: string,
-    originalTitle: string,
-  ) => void;
-  readonly handleThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
-  readonly toggleThreadExpanded: (threadRef: ScopedThreadRef, expanded: boolean) => void;
-  readonly attemptSettle: (threadRef: ScopedThreadRef) => void;
-  readonly attemptUnsettle: (threadRef: ScopedThreadRef) => void;
-  readonly attemptSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
-  readonly attemptUnsnooze: (threadRef: ScopedThreadRef) => void;
-  readonly attemptDeleteThread: (threadRef: ScopedThreadRef) => void;
-  readonly deleteSelectedSettledThreads: () => void;
-  readonly deletingSettledSelection: boolean;
-  readonly handleThreadContextMenu: (
-    threadRef: ScopedThreadRef,
-    position: { x: number; y: number },
-  ) => void;
-  readonly handleMultiSelectContextMenu: (position: { x: number; y: number }) => void;
-};
-
 export type WorktreeLifecycleController = {
-  readonly attemptSettleWorktree: (group: SidebarWorktreeGroup) => void;
   readonly attemptDeleteWorktree: (group: SidebarWorktreeGroup) => void;
   readonly handleLocationContextMenu: (
     event: ReactMouseEvent,
@@ -223,7 +137,6 @@ export type SidebarV2ViewModel = {
   readonly projects: SidebarProjectsSection;
   readonly threads: SidebarThreadsSection;
   readonly worktrees: SidebarWorktreesSection;
-  readonly threadLifecycle: ThreadLifecycleController;
   readonly worktreeLifecycle: WorktreeLifecycleController;
   readonly projectActions: ProjectActionsController;
   readonly navigation: SidebarNavigationController;

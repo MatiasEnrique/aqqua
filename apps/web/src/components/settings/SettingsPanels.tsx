@@ -151,12 +151,6 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
-const SIDEBAR_THREAD_GROUPING_MODE_LABELS = {
-  flat: "Flat list",
-  worktree: "Worktree groups",
-  worktree_cards: "Worktree cards",
-} as const;
-
 const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
   performance: "Performance",
@@ -478,9 +472,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
-      ...(settings.sidebarThreadGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode
-        ? ["Thread grouping"]
-        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -534,7 +525,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
-      settings.sidebarThreadGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       settings.wordWrap,
@@ -561,7 +551,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
-      sidebarThreadGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -1062,51 +1051,6 @@ export function GeneralSettingsPanel() {
               }}
               aria-label="Project Grouping"
             />
-          }
-        />
-
-        <SettingsRow
-          title="Thread grouping"
-          description="Worktree cards collapse each checkout into one card and move its conversations into the header as tabs."
-          resetAction={
-            settings.sidebarThreadGroupingMode !==
-            DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode ? (
-              <SettingResetButton
-                label="thread grouping"
-                onClick={() =>
-                  updateSettings({
-                    sidebarThreadGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarThreadGroupingMode,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.sidebarThreadGroupingMode}
-              onValueChange={(value) => {
-                if (value === "flat" || value === "worktree" || value === "worktree_cards") {
-                  updateSettings({ sidebarThreadGroupingMode: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-44" aria-label="Thread grouping">
-                <SelectValue>
-                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS[settings.sidebarThreadGroupingMode]}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="flat">
-                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.flat}
-                </SelectItem>
-                <SelectItem hideIndicator value="worktree">
-                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.worktree}
-                </SelectItem>
-                <SelectItem hideIndicator value="worktree_cards">
-                  {SIDEBAR_THREAD_GROUPING_MODE_LABELS.worktree_cards}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
           }
         />
 

@@ -1,26 +1,22 @@
 import { useAtomValue } from "@effect/atom-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import {
+  type CSSProperties,
+  type ReactNode,
   useEffect,
   useState,
   useSyncExternalStore,
-  type ComponentType,
-  type CSSProperties,
-  type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
 import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useClientSettings, useSidebarV2Enabled } from "../hooks/useSettings";
+import ConversationSidebar from "./ConversationSidebar";
 import SettingsSidebar from "./Sidebar";
-import ThreadSidebar from "./SidebarV2";
-import WorktreeSidebar from "./SidebarWorktree";
-import WorktreeCardSidebar from "./SidebarWorktreeCards";
-import { resolveAppSidebarVariant, type AppSidebarVariant } from "./AppSidebarLayout.logic";
+import { resolveAppSidebarSurface } from "./AppSidebarLayout.logic";
 import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
@@ -32,13 +28,6 @@ import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } fro
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "90px";
-
-export const APP_SIDEBAR_COMPONENTS = {
-  settings: SettingsSidebar,
-  regular: ThreadSidebar,
-  worktree: WorktreeSidebar,
-  "worktree-cards": WorktreeCardSidebar,
-} satisfies Record<AppSidebarVariant, ComponentType>;
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -108,18 +97,8 @@ function SidebarControl() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  // Opt-in beta: off in every build stage until the user flips Settings →
-  // Beta → Worktree view.
-  const worktreeViewEnabled = useSidebarV2Enabled();
-  const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const pathname = useLocation({ select: (location) => location.pathname });
-  const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-  const sidebarVariant = resolveAppSidebarVariant({
-    isOnSettings,
-    worktreeViewEnabled,
-    threadGroupingMode,
-  });
-  const ThreadSidebarComponent = APP_SIDEBAR_COMPONENTS[sidebarVariant];
+  const sidebarSurface = resolveAppSidebarSurface(pathname);
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
@@ -183,7 +162,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         data-app-sidebar=""
-        data-sidebar-version="v2"
         className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         resizable={{
           maxWidth: sidebarMaximumWidth,
@@ -195,7 +173,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        <ThreadSidebarComponent />
+        {sidebarSurface === "settings" ? <SettingsSidebar /> : <ConversationSidebar />}
         <SidebarRail />
       </Sidebar>
       {children}
