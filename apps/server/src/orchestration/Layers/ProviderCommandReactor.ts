@@ -47,6 +47,8 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { claimedThreadIdsFromBindings, selectOrphanedSessions } from "../orphanedSessions.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -196,6 +198,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const projectionTurnRepository = yield* ProjectionTurnRepository;
   const providerService = yield* ProviderService;
   const providerSessionDirectory = yield* ProviderSessionDirectory;
   const providerRegistry = yield* ProviderRegistry;
@@ -276,6 +279,7 @@ const make = Effect.gen(function* () {
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
     readonly session: OrchestrationSession;
+    readonly promoteQueuedMessage?: boolean;
     readonly createdAt: string;
   }) =>
     serverCommandId("provider-session-set").pipe(
@@ -285,6 +289,9 @@ const make = Effect.gen(function* () {
           commandId,
           threadId: input.threadId,
           session: input.session,
+          ...(input.promoteQueuedMessage === undefined
+            ? {}
+            : { promoteQueuedMessage: input.promoteQueuedMessage }),
           createdAt: input.createdAt,
         }),
       ),
@@ -1129,13 +1136,14 @@ const make = Effect.gen(function* () {
       stoppedAt,
     });
     if (orphaned.length === 0) {
-      return;
+      return orphaned;
     }
 
     for (const entry of orphaned) {
       yield* setThreadSession({
         threadId: entry.threadId,
         session: entry.session,
+        promoteQueuedMessage: false,
         createdAt: stoppedAt,
       });
     }
@@ -1144,17 +1152,76 @@ const make = Effect.gen(function* () {
       threadCount: orphaned.length,
       threadIds: orphaned.map((entry) => entry.threadId),
     });
+    return orphaned;
+  });
+
+  const recoverPendingTurnStarts = Effect.fn("recoverPendingTurnStarts")(function* () {
+    const [pendingTurnStarts, snapshot, bindings] = yield* Effect.all([
+      projectionTurnRepository.listPendingTurnStarts,
+      projectionSnapshotQuery.getSnapshot(),
+      providerSessionDirectory.listBindings(),
+    ]);
+    const claimedThreadIds = claimedThreadIdsFromBindings(bindings);
+    for (const pending of pendingTurnStarts) {
+      if (claimedThreadIds.has(pending.threadId)) {
+        continue;
+      }
+      const thread = snapshot.threads.find((candidate) => candidate.id === pending.threadId);
+      const message = thread?.messages.find((candidate) => candidate.id === pending.messageId);
+      if (!thread || !message || message.role !== "user") {
+        yield* Effect.logWarning("provider command reactor skipped invalid pending turn start", {
+          threadId: pending.threadId,
+          messageId: pending.messageId,
+        });
+        continue;
+      }
+      const recoveryId = `provider-turn-recovery:${pending.threadId}:${pending.messageId}`;
+      yield* worker.enqueue({
+        sequence: snapshot.snapshotSequence,
+        eventId: EventId.make(recoveryId),
+        aggregateKind: "thread",
+        aggregateId: pending.threadId,
+        occurredAt: pending.requestedAt,
+        commandId: CommandId.make(recoveryId),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.turn-start-requested",
+        payload: {
+          threadId: pending.threadId,
+          messageId: pending.messageId,
+          // The turn-start command syncs these onto the thread in the same
+          // committed event batch that wrote this pending row, so reading them
+          // back reproduces the settings the turn was requested with.
+          modelSelection: thread.modelSelection,
+          runtimeMode: thread.runtimeMode,
+          interactionMode: thread.interactionMode,
+          // Not derivable from the thread — replayed from the pending row so a
+          // recovered turn keeps the title intent the original command carried.
+          ...(pending.titleSeed !== null ? { titleSeed: pending.titleSeed } : {}),
+          ...(pending.sourceProposedPlanThreadId !== null && pending.sourceProposedPlanId !== null
+            ? {
+                sourceProposedPlan: {
+                  threadId: pending.sourceProposedPlanThreadId,
+                  planId: pending.sourceProposedPlanId,
+                },
+              }
+            : {}),
+          createdAt: pending.requestedAt,
+        },
+      });
+    }
   });
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
     // Runs to completion before the event subscription is forked, so a turn
     // start accepted after boot can never be mistaken for a stranded session.
     // A failure here must not keep the server from starting.
-    yield* reconcileOrphanedSessions().pipe(
+    const orphanedSessions = yield* reconcileOrphanedSessions().pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("provider command reactor failed to close orphaned provider sessions", {
           cause: Cause.pretty(cause),
-        }),
+        }).pipe(Effect.as([])),
       ),
     );
 
@@ -1174,6 +1241,37 @@ const make = Effect.gen(function* () {
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent),
     );
+
+    yield* recoverPendingTurnStarts().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to recover pending turn starts", {
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+
+    // Re-emit the settled state only after the hot event subscription exists.
+    // The first write closes the orphan without consuming queued work; this
+    // second write lets the decider promote it where the turn-start reactor can
+    // observe the emitted request.
+    yield* Effect.forEach(
+      orphanedSessions,
+      (entry) =>
+        setThreadSession({
+          threadId: entry.threadId,
+          session: entry.session,
+          promoteQueuedMessage: true,
+          createdAt: entry.session.updatedAt,
+        }),
+      { concurrency: 1 },
+    ).pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to promote orphaned queued messages", {
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
   });
 
   return {
@@ -1182,4 +1280,6 @@ const make = Effect.gen(function* () {
   } satisfies ProviderCommandReactorShape;
 });
 
-export const ProviderCommandReactorLive = Layer.effect(ProviderCommandReactor, make);
+export const ProviderCommandReactorLive = Layer.effect(ProviderCommandReactor, make).pipe(
+  Layer.provide(ProjectionTurnRepositoryLive),
+);

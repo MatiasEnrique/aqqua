@@ -10,6 +10,7 @@ import {
 import { AtomRegistry } from "effect/unstable/reactivity";
 
 import {
+  buildQueuedThreadMessageEnqueueInput,
   decodeQueuedThreadMessage,
   encodeQueuedThreadMessage,
   groupQueuedThreadMessages,
@@ -107,6 +108,34 @@ describe("thread outbox", () => {
       modelSelection: selectedMessage.modelSelection,
       runtimeMode: selectedMessage.runtimeMode,
       interactionMode: selectedMessage.interactionMode,
+    });
+  });
+
+  it("builds the same durable enqueue input for every outbox delivery path", () => {
+    const message = queuedMessage({
+      messageId: "message-1",
+      createdAt: "2026-06-08T10:00:01.000Z",
+    });
+    const settings = {
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+    };
+
+    expect(buildQueuedThreadMessageEnqueueInput(message, settings)).toEqual({
+      commandId: message.commandId,
+      threadId: message.threadId,
+      message: {
+        messageId: message.messageId,
+        role: "user",
+        text: "message-1",
+        attachments: [],
+      },
+      ...settings,
+      createdAt: "2026-06-08T10:00:01.000Z",
     });
   });
 
@@ -365,6 +394,17 @@ describe("thread outbox", () => {
     expect(
       resolveThreadOutboxDeliveryAction({
         isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: false,
+        deliveryMode: "queue",
+        serverQueueSupported: false,
+      }),
+    ).toBe("wait");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
         threadExists: false,
         shellStatus: "live",
         environmentConnected: true,
@@ -378,6 +418,42 @@ describe("thread outbox", () => {
         shellStatus: "live",
         environmentConnected: true,
         threadBusy: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("hands explicit queues to a capable server and keeps normal sends as steering", () => {
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "queue",
+        serverQueueSupported: true,
+      }),
+    ).toBe("enqueue");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "queue",
+        serverQueueSupported: false,
+      }),
+    ).toBe("wait");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "steer",
+        serverQueueSupported: true,
       }),
     ).toBe("send");
   });
@@ -493,5 +569,46 @@ describe("thread outbox", () => {
         interrupted: false,
       }),
     ).toBe("discard");
+  });
+
+  it("stops compensating a dequeue the server rejects as already submitted", () => {
+    // The server raises this the moment a queued message is promoted into a
+    // turn, which races a cancellation issued as the previous turn ends.
+    const alreadySubmitted = new Error(
+      "Orchestration command invariant failed (thread.message.dequeue): " +
+        "Queued message 'message-1' does not belong to thread 'thread-1'.",
+    );
+
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: alreadySubmitted,
+        interrupted: false,
+      }),
+    ).toBe("discard");
+  });
+
+  it("still retries a compensating dequeue that fails on transport", () => {
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: new Error("Socket is not connected"),
+        interrupted: false,
+      }),
+    ).toBe("retry");
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: { _tag: "ConnectionTransientError", message: "temporarily unavailable" },
+        interrupted: false,
+      }),
+    ).toBe("retry");
+    expect(
+      resolveThreadOutboxFailureAction({
+        stage: "dequeue",
+        error: new Error("Socket is not connected"),
+        interrupted: true,
+      }),
+    ).toBe("retry");
   });
 });

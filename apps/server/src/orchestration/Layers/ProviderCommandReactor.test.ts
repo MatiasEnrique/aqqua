@@ -421,6 +421,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provide(SqlitePersistenceMemory),
     );
     runtime = ManagedRuntime.make(layer);
 
@@ -478,12 +479,16 @@ describe("ProviderCommandReactor", () => {
         : []),
     ];
 
+    const dispatch = (command: Parameters<typeof engine.dispatch>[0]) =>
+      Effect.runPromise(engine.dispatch(command));
+
     for (const command of seedCommands) {
-      await Effect.runPromise(engine.dispatch(command));
+      await dispatch(command);
     }
 
     return {
       engine,
+      dispatch,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       startSession,
       sendTurn,
@@ -541,6 +546,180 @@ describe("ProviderCommandReactor", () => {
     // The binding survives so the next message can resume the thread.
     expect(session?.providerName).toBe("codex");
     expect(session?.providerInstanceId).toBe(ProviderInstanceId.make("codex-default"));
+  });
+
+  it("promotes queued work only after the restart listener is active", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "stopped",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      seedSession: {
+        threadId: ThreadId.make("thread-1"),
+        status: "running",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex-default"),
+        runtimeMode: "approval-required",
+        activeTurnId: asTurnId("turn-stranded"),
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-after-restart"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-after-restart"),
+          role: "user",
+          text: "continue after restart",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "continue after restart",
+    });
+    const thread = (await harness.readModel()).threads.find(
+      (candidate) => candidate.id === ThreadId.make("thread-1"),
+    );
+    expect(thread?.queuedMessages).toEqual([]);
+  });
+
+  it("recovers a persisted queued turn start that was committed before a crash", async () => {
+    const harness = await createHarness({ deferReactorStart: true });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-before-crash"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-before-crash"),
+          role: "user",
+          text: "resume the committed queue handoff",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "resume the committed queue handoff",
+    });
+  });
+
+  it("replays the original title seed when recovering a pending turn start", async () => {
+    const harness = await createHarness({ deferReactorStart: true });
+    const seededTitle = "Investigate reconnect failures";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
+
+    await harness.dispatch({
+      type: "thread.meta.update",
+      commandId: CommandId.make("cmd-thread-title-recovered-seed"),
+      threadId: ThreadId.make("thread-1"),
+      title: seededTitle,
+    });
+
+    // Committed before the crash: the pending projection row is written but the
+    // reactor never saw the event, so recovery is the only path that runs it.
+    await harness.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make("cmd-turn-start-recovered-seed"),
+      threadId: ThreadId.make("thread-1"),
+      message: {
+        messageId: asMessageId("user-message-recovered-seed"),
+        role: "user",
+        text: "Investigate reconnect failures after restarting the session.",
+        attachments: [],
+      },
+      titleSeed: seededTitle,
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    // The thread title is not the default, so the rename can only be unlocked
+    // by the seed the recovered event carried.
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      return (
+        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.title ===
+        "Generated title"
+      );
+    });
+  });
+
+  it("does not recover a pending turn start still claimed by another server", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "running",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-owned"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-owned"),
+          role: "user",
+          text: "do not duplicate this turn",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await harness.drain();
+
+    expect(harness.sendTurn).not.toHaveBeenCalled();
   });
 
   it("leaves a still-claimed binding alone so a second server keeps its session", async () => {

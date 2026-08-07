@@ -1,5 +1,5 @@
 import { memo, type PointerEventHandler, type ReactNode } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -42,12 +42,33 @@ interface ComposerPrimaryActionsProps {
   isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
+  messageQueueSupported: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
 }
+
+export const resolveRunningComposerActions = (input: {
+  messageQueueSupported: boolean;
+  hasSendableContent: boolean;
+  isSendBusy: boolean;
+  sendDisabledReason: string | null;
+  isConnecting: boolean;
+  isEnvironmentUnavailable: boolean;
+}) => {
+  const disabled =
+    !input.hasSendableContent ||
+    input.isSendBusy ||
+    input.sendDisabledReason !== null ||
+    input.isConnecting ||
+    input.isEnvironmentUnavailable;
+  return {
+    submitDisabled: disabled,
+    submitLabel: "Send message",
+  };
+};
 
 export const formatPendingPrimaryActionLabel = (input: {
   compact: boolean;
@@ -83,6 +104,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isConnecting,
   isEnvironmentUnavailable,
   isPreparingWorktree,
+  messageQueueSupported,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
   onPreviousPendingQuestion,
@@ -144,24 +166,44 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (isRunning) {
+    const runningActions = resolveRunningComposerActions({
+      messageQueueSupported,
+      hasSendableContent,
+      isSendBusy,
+      sendDisabledReason,
+      isConnecting,
+      isEnvironmentUnavailable,
+    });
     return (
-      <Button
-        size="icon"
-        variant="destructive"
-        className="size-8 transition-all duration-150 hover:scale-105"
-        {...pointerFocusProps}
-        onClick={onInterrupt}
-        aria-label="Stop generation"
-      >
-        <svg
-          className="size-3 opacity-100"
-          viewBox="0 0 12 12"
-          fill="currentColor"
-          aria-hidden="true"
+      <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+        <Button
+          type="submit"
+          size="icon-sm"
+          {...pointerFocusProps}
+          disabled={runningActions.submitDisabled}
+          aria-label={runningActions.submitLabel}
         >
-          <rect x="2" y="2" width="8" height="8" rx="1.5" />
-        </svg>
-      </Button>
+          <ArrowUpIcon className="size-3.5" aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="destructive"
+          className="transition-all duration-150 hover:scale-105"
+          {...pointerFocusProps}
+          onClick={onInterrupt}
+          aria-label="Stop generation"
+        >
+          <svg
+            className="size-3 opacity-100"
+            viewBox="0 0 12 12"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <rect x="2" y="2" width="8" height="8" rx="1.5" />
+          </svg>
+        </Button>
+      </div>
     );
   }
 

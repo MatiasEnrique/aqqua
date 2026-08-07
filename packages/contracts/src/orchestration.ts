@@ -422,6 +422,19 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const OrchestrationQueuedMessage = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  createdAt: IsoDateTime,
+  // Assigned from the persisted enqueue event. Older snapshots omit it.
+  sequence: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationQueuedMessage = typeof OrchestrationQueuedMessage.Type;
+
 /**
  * Orchestrator → sub-agent edge. Absent or `null` for an ordinary user thread.
  *
@@ -467,6 +480,9 @@ export const OrchestrationThread = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
+  // Optional so thread snapshots from servers predating durable message
+  // queueing continue to decode. Read sites normalize with `?? []`.
+  queuedMessages: Schema.optional(Schema.Array(OrchestrationQueuedMessage)),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -632,6 +648,11 @@ export const OrchestrationSubscribeThreadInput = Schema.Struct({
    * snapshot or catch-up replay and before it begins emitting live events.
    */
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Opts into queue-specific event variants. Older clients omit this field,
+   * so new servers suppress variants their strict event union cannot decode.
+   */
+  messageQueueEvents: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
 
@@ -837,6 +858,90 @@ export const ThreadTurnStartCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadMessageEnqueueCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.enqueue"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  message: Schema.Struct({
+    messageId: MessageId,
+    role: Schema.Literal("user"),
+    text: Schema.String,
+    attachments: Schema.Array(ChatAttachment),
+  }),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  createdAt: IsoDateTime,
+});
+
+const ClientThreadMessageEnqueueCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.enqueue"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  message: Schema.Struct({
+    messageId: MessageId,
+    role: Schema.Literal("user"),
+    text: Schema.String,
+    attachments: Schema.Array(UploadChatAttachment),
+  }),
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageDequeueCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.dequeue"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageSubmitCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.submit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+  messages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        enqueueCommandId: CommandId,
+        messageId: MessageId,
+        text: Schema.String,
+        attachments: Schema.Array(ChatAttachment),
+        modelSelection: ModelSelection,
+        runtimeMode: RuntimeMode,
+        interactionMode: ProviderInteractionMode,
+        createdAt: IsoDateTime,
+      }),
+    ),
+  ),
+  createdAt: IsoDateTime,
+});
+
+const ClientThreadMessageSubmitCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.submit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+  messages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        enqueueCommandId: CommandId,
+        messageId: MessageId,
+        text: Schema.String,
+        attachments: Schema.Array(UploadChatAttachment),
+        modelSelection: ModelSelection,
+        runtimeMode: RuntimeMode,
+        interactionMode: ProviderInteractionMode,
+        createdAt: IsoDateTime,
+      }),
+    ),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const ClientThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
@@ -912,6 +1017,9 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
+  ThreadMessageEnqueueCommand,
+  ThreadMessageDequeueCommand,
+  ThreadMessageSubmitCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -951,6 +1059,9 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
+  ClientThreadMessageEnqueueCommand,
+  ThreadMessageDequeueCommand,
+  ClientThreadMessageSubmitCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -979,6 +1090,7 @@ const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
+  promoteQueuedMessage: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1083,6 +1195,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
+  "thread.message-enqueued",
+  "thread.message-dequeued",
   "thread.message-sent",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
@@ -1253,6 +1367,18 @@ export const ThreadMessageSentPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const ThreadMessageEnqueuedPayload = Schema.Struct({
+  threadId: ThreadId,
+  message: OrchestrationQueuedMessage,
+});
+
+export const ThreadMessageDequeuedPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  reason: Schema.Literals(["user", "submitted"]),
+  dequeuedAt: IsoDateTime,
+});
+
 export const ThreadTurnStartRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
@@ -1419,6 +1545,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.interaction-mode-set"),
     payload: ThreadInteractionModeSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.message-enqueued"),
+    payload: ThreadMessageEnqueuedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.message-dequeued"),
+    payload: ThreadMessageDequeuedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

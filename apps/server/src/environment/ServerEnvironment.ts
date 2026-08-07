@@ -142,6 +142,8 @@ export const make = Effect.gen(function* () {
       connectionProbe: true,
       threadSettlement: true,
       threadSnooze: true,
+      threadMessageQueue: true,
+      threadMessageQueueSteering: true,
       workspaceTerminalSessions: true,
       boardCardReset: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),

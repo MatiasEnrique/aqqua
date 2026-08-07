@@ -78,6 +78,7 @@ export function applyThreadDetailEvent(
           snoozedAt: null,
           deletedAt: null,
           messages: [],
+          queuedMessages: [],
           proposedPlans: [],
           activities: [],
           checkpoints: [],
@@ -225,6 +226,39 @@ export function applyThreadDetailEvent(
     }
 
     // ── Messages ────────────────────────────────────────────────────
+    case "thread.message-enqueued": {
+      const queuedMessages = [
+        ...(thread.queuedMessages ?? []).filter(
+          (message) => message.messageId !== event.payload.message.messageId,
+        ),
+        { ...event.payload.message, sequence: event.sequence },
+      ].toSorted(
+        (left, right) =>
+          (left.sequence ?? Number.MAX_SAFE_INTEGER) -
+            (right.sequence ?? Number.MAX_SAFE_INTEGER) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.messageId.localeCompare(right.messageId),
+      );
+      return {
+        kind: "updated",
+        thread: { ...thread, queuedMessages, updatedAt: event.occurredAt },
+      };
+    }
+
+    case "thread.message-dequeued": {
+      const currentQueuedMessages = thread.queuedMessages ?? [];
+      const queuedMessages = Arr.filter(
+        currentQueuedMessages,
+        (message) => message.messageId !== event.payload.messageId,
+      );
+      return queuedMessages.length === currentQueuedMessages.length
+        ? { kind: "unchanged" }
+        : {
+            kind: "updated",
+            thread: { ...thread, queuedMessages, updatedAt: event.occurredAt },
+          };
+    }
+
     case "thread.message-sent": {
       const message: OrchestrationMessage = {
         id: event.payload.messageId,

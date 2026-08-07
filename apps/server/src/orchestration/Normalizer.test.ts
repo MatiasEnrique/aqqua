@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, it } from "@effect/vitest";
 import {
   CommandId,
   type ClientOrchestrationCommand,
@@ -7,11 +8,21 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@aqqua/contracts";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 
-import { canonicalizeClientCommandTimestamps } from "./Normalizer.ts";
+import * as ServerConfig from "../config.ts";
+import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { canonicalizeClientCommandTimestamps, normalizeDispatchCommand } from "./Normalizer.ts";
 
 const clientCreatedAt = "2031-01-01T00:00:00.000Z";
 const serverReceivedAt = "2026-07-18T00:00:00.000Z";
+const normalizerTestLayer = Layer.mergeAll(
+  ServerConfig.ServerConfig.layerTest(process.cwd(), { prefix: "aqqua-normalizer-test-" }),
+  WorkspacePaths.layer,
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 describe("canonicalizeClientCommandTimestamps", () => {
   it("replaces a client command timestamp with the server receipt timestamp", () => {
@@ -70,4 +81,61 @@ describe("canonicalizeClientCommandTimestamps", () => {
     expect(result.createdAt).toBe(serverReceivedAt);
     expect(result.bootstrap?.createThread?.createdAt).toBe(serverReceivedAt);
   });
+
+  it.effect("normalizes uploaded attachments included in an atomic queued-message submit", () =>
+    Effect.gen(function* () {
+      const command: ClientOrchestrationCommand = {
+        type: "thread.message.submit",
+        commandId: CommandId.make("command-submit-queue"),
+        threadId: ThreadId.make("thread-1"),
+        messageIds: [MessageId.make("message-1")],
+        messages: [
+          {
+            enqueueCommandId: CommandId.make("enqueue-message-1"),
+            messageId: MessageId.make("message-1"),
+            text: "Inspect this image",
+            attachments: [
+              {
+                type: "image",
+                name: "screen.png",
+                mimeType: "image/png",
+                sizeBytes: 1,
+                dataUrl: "data:image/png;base64,AA==",
+              },
+            ],
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5.4",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: clientCreatedAt,
+          },
+        ],
+        createdAt: clientCreatedAt,
+      };
+
+      const result = yield* normalizeDispatchCommand(command);
+      expect(result.type).toBe("thread.message.submit");
+      if (result.type !== "thread.message.submit") {
+        throw new Error("Expected a thread.message.submit command");
+      }
+      const attachment = result.messages?.[0]?.attachments[0];
+      expect(attachment).toMatchObject({
+        type: "image",
+        name: "screen.png",
+        mimeType: "image/png",
+        sizeBytes: 1,
+      });
+      expect(attachment).not.toHaveProperty("dataUrl");
+      expect(result.messages?.[0]?.createdAt).not.toBe(clientCreatedAt);
+
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      expect(
+        yield* fileSystem.exists(path.join(config.attachmentsDir, `${attachment?.id}.png`)),
+      ).toBe(true);
+    }).pipe(Effect.provide(normalizerTestLayer)),
+  );
 });

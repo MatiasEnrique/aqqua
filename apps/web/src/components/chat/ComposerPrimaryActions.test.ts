@@ -1,6 +1,59 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import {
+  formatPendingPrimaryActionLabel,
+  resolveRunningComposerActions,
+} from "./ComposerPrimaryActions";
+
+describe("resolveRunningComposerActions", () => {
+  it("makes the single running-turn submit action queue by default", () => {
+    expect(
+      resolveRunningComposerActions({
+        messageQueueSupported: true,
+        hasSendableContent: true,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      submitDisabled: false,
+      submitLabel: "Send message",
+    });
+  });
+
+  it("disables the running-turn submit action without sendable content", () => {
+    expect(
+      resolveRunningComposerActions({
+        messageQueueSupported: true,
+        hasSendableContent: false,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      submitDisabled: true,
+      submitLabel: "Send message",
+    });
+  });
+
+  it("falls back to steering when an older server does not advertise the queue", () => {
+    expect(
+      resolveRunningComposerActions({
+        messageQueueSupported: false,
+        hasSendableContent: true,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      submitDisabled: false,
+      submitLabel: "Send message",
+    });
+  });
+});
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {

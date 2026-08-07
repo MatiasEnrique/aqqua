@@ -50,9 +50,10 @@ import {
   ComposerToolbarScroller,
   ComposerToolbarTrigger,
 } from "../../components/ComposerToolbarTrigger";
-import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
+import { ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import type { ThreadQueuedMessagePresentation } from "../../state/use-thread-composer-state";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
@@ -77,6 +78,9 @@ import {
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { useProviderWorkspaceSkills } from "../../state/use-provider-skills";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
+import { ComposerMessageQueue } from "./ComposerMessageQueue";
+import { ComposerCollapsedActions, ComposerToolbarActions } from "./ComposerPrimaryActions";
+import { resolveComposerPrimaryActions } from "./composerQueuePresentation";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -107,7 +111,7 @@ export interface ThreadComposerProps {
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
   readonly serverConfig: AqquaServerConfig | null;
-  readonly queueCount: number;
+  readonly queuedMessages: ReadonlyArray<ThreadQueuedMessagePresentation>;
   readonly activeThreadBusy: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
@@ -117,7 +121,9 @@ export interface ThreadComposerProps {
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onSendMessage: (deliveryMode: "queue" | "steer") => Promise<MessageId | null>;
+  readonly onDequeueQueuedMessage: (messageId: MessageId) => Promise<void>;
+  readonly onSubmitQueuedMessages: (messageIds: ReadonlyArray<MessageId>) => Promise<void>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -313,14 +319,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     setIsFocused(false);
     onExpandedChange?.(false);
   }, [onExpandedChange]);
-  const showStopAction =
-    props.selectedThread.session?.status === "running" ||
-    props.selectedThread.session?.status === "starting";
-
-  const sendLabel =
-    props.connectionState !== "connected" || props.activeThreadBusy || props.queueCount > 0
-      ? "Queue"
-      : "Send";
+  const primaryActions = resolveComposerPrimaryActions({
+    turnRunning:
+      props.selectedThread.session?.status === "running" ||
+      props.selectedThread.session?.status === "starting",
+    threadBusy: props.activeThreadBusy,
+    messageQueueSupported: props.serverConfig?.environment.capabilities.threadMessageQueue === true,
+    hasSendableContent: canSend,
+  });
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
@@ -545,17 +551,31 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       projectTitle: props.environmentLabel ?? "Aqqua",
     });
     try {
-      await onSendMessage();
+      await onSendMessage(primaryActions.deliveryMode);
     } finally {
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [
     onSendMessage,
+    primaryActions.deliveryMode,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
   ]);
+  const { onDequeueQueuedMessage, onSubmitQueuedMessages } = props;
+  const handleDequeueQueuedMessage = useCallback(
+    (messageId: MessageId) => {
+      void onDequeueQueuedMessage(messageId);
+    },
+    [onDequeueQueuedMessage],
+  );
+  const handleSubmitQueuedMessages = useCallback(
+    (messageIds: ReadonlyArray<MessageId>) => {
+      void onSubmitQueuedMessages(messageIds);
+    },
+    [onSubmitQueuedMessages],
+  );
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!composerTrigger) return;
@@ -871,18 +891,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </View>
           ) : null}
           {!isExpanded ? (
-            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
-              {showStopAction ? (
-                <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
-              ) : (
-                <ControlPill
-                  icon="arrow.up"
-                  variant="primary"
-                  disabled={!canSend}
-                  onPress={handleSend}
-                />
-              )}
-            </Animated.View>
+            <ComposerCollapsedActions
+              showStop={primaryActions.showStop}
+              sendDisabled={primaryActions.sendDisabled}
+              onSend={handleSend}
+              onStop={props.onStopThread}
+            />
           ) : null}
         </ComposerSurface>
 
@@ -922,7 +936,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     label={configurationLabel}
                   />
                 </ControlPillMenu>
-                {showStopAction ? (
+                {primaryActions.showStop ? (
                   <ComposerToolbarButton
                     accessibilityLabel="Stop"
                     icon="stop.fill"
@@ -932,27 +946,23 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : null}
               </ComposerToolbarScroller>
-              <ComposerToolbarButton
-                accessibilityLabel={sendLabel}
-                icon="arrow.up"
-                variant="primary"
-                disabled={!canSend}
-                onPress={handleSend}
-                showChevron={false}
+              <ComposerToolbarActions
+                sendDisabled={primaryActions.sendDisabled}
+                sendLabel={primaryActions.sendLabel}
+                onSend={handleSend}
               />
             </ComposerToolbarRow>
           </Animated.View>
         ) : null}
 
-        {/* Queue count */}
-        {props.queueCount > 0 ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-            <Text className="pt-2 text-xs text-foreground-muted">
-              {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
-              automatically.
-            </Text>
-          </Animated.View>
-        ) : null}
+        <ComposerMessageQueue
+          messages={props.queuedMessages}
+          onDequeue={handleDequeueQueuedMessage}
+          onSubmit={handleSubmitQueuedMessages}
+          submitSupported={
+            props.serverConfig?.environment.capabilities.threadMessageQueueSteering === true
+          }
+        />
       </Animated.View>
 
       <ImageViewing

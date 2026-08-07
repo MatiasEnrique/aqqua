@@ -2,6 +2,7 @@ import type {
   ApprovalRequestId,
   EnvironmentId,
   ModelSelection,
+  OrchestrationQueuedMessage,
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
   ProviderInteractionMode,
@@ -100,6 +101,7 @@ import {
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
+import { ComposerMessageQueue } from "./ComposerMessageQueue";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
@@ -437,6 +439,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   activeProvider: ProviderDriverKind;
   activeProviderInstanceId: ProviderInstanceId;
   isPreparingWorktree: boolean;
+  messageQueueSupported: boolean;
   pendingAction: {
     questionIndex: number;
     isLastQuestion: boolean;
@@ -480,6 +483,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isConnecting={props.isConnecting}
         isEnvironmentUnavailable={props.isEnvironmentUnavailable}
         isPreparingWorktree={props.isPreparingWorktree}
+        messageQueueSupported={props.messageQueueSupported}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
@@ -559,6 +563,8 @@ export interface ChatComposerProps {
   isSendBusy: boolean;
   sendDisabledReason: string | null;
   isPreparingWorktree: boolean;
+  messageQueueSupported: boolean;
+  messageQueueSteeringSupported: boolean;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -627,6 +633,10 @@ export interface ChatComposerProps {
 
   // Callbacks
   onSend: (e?: { preventDefault: () => void }) => void;
+  onDequeueQueuedMessage: (messageId: OrchestrationQueuedMessage["messageId"]) => void;
+  onSubmitQueuedMessages: (
+    messageIds: ReadonlyArray<OrchestrationQueuedMessage["messageId"]>,
+  ) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
@@ -681,6 +691,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isSendBusy,
     sendDisabledReason,
     isPreparingWorktree,
+    messageQueueSupported,
+    messageQueueSteeringSupported,
     environmentUnavailable,
     activePendingApproval,
     pendingApprovals,
@@ -717,6 +729,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerTerminalContextsRef,
     composerElementContextsRef,
     onSend,
+    onDequeueQueuedMessage,
+    onSubmitQueuedMessages,
     onInterrupt,
     onImplementPlanInNewThread,
     onRespondToApproval,
@@ -1205,7 +1219,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const showCollapsedMobilePromptRow =
     isComposerCollapsedMobile && !isComposerApprovalState && pendingUserInputs.length === 0;
 
-  const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
+  const composerFooterHasWideActions =
+    phase === "running" || showPlanFollowUpPrompt || activePendingProgress !== null;
   const showPlanSidebarToggle = Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
   const composerFooterActionLayoutKey = useMemo(() => {
     if (activePendingProgress) {
@@ -2698,6 +2713,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           environmentUnavailable !== null || noProviderAvailable || projectSelectionRequired
         }
         isPreparingWorktree={isPreparingWorktree}
+        messageQueueSupported={messageQueueSupported}
         hasSendableContent={composerSendState.hasSendableContent}
         preserveComposerFocusOnPointerDown={isMobileViewport}
         onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
@@ -2756,6 +2772,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             scheduleComposerCollapseCheck();
           }}
         >
+          {!isComposerCollapsedMobile && (activeThread?.queuedMessages?.length ?? 0) > 0 ? (
+            <ComposerMessageQueue
+              messages={activeThread?.queuedMessages ?? []}
+              onDequeue={onDequeueQueuedMessage}
+              onSubmit={onSubmitQueuedMessages}
+              submitSupported={messageQueueSteeringSupported}
+            />
+          ) : null}
           {!isComposerCollapsedMobile &&
             (activePendingApproval ? (
               <div className="rounded-t-[var(--chat-composer-inner-radius,9px)] border-b border-border/65 bg-muted/20">
@@ -2853,6 +2877,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         projectSelectionRequired
                       }
                       isPreparingWorktree={false}
+                      messageQueueSupported={false}
                       hasSendableContent={false}
                       preserveComposerFocusOnPointerDown
                       onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
@@ -3185,6 +3210,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         projectSelectionRequired
                       }
                       isPreparingWorktree={false}
+                      messageQueueSupported={false}
                       hasSendableContent={false}
                       preserveComposerFocusOnPointerDown
                       onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}

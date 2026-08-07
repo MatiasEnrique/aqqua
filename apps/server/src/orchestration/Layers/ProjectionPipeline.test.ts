@@ -53,6 +53,128 @@ const exists = (filePath: string) =>
 
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("aqqua-projection-pipeline-test-");
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("aqqua-projection-message-queue-")))(
+  "OrchestrationProjectionPipeline message queue",
+  (it) => {
+    it.effect("persists queued messages in thread detail and removes them on dequeue", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const threadId = ThreadId.make("thread-message-queue");
+        const messageId = MessageId.make("queued-message-1");
+        const now = "2026-08-06T18:00:00.000Z";
+        const modelSelection = {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.6-sol",
+        };
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-queue-thread-created"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-queue-thread-created"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-queue-thread-created"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.make("project-message-queue"),
+            title: "Queue",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.message-enqueued",
+          eventId: EventId.make("evt-message-enqueued"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-message-enqueued"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-message-enqueued"),
+          metadata: {},
+          payload: {
+            threadId,
+            message: {
+              messageId,
+              text: "Run this next",
+              attachments: [],
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              createdAt: now,
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const readThread = Effect.gen(function* () {
+          const snapshotQuery = yield* ProjectionSnapshotQuery;
+          return yield* snapshotQuery.getThreadDetailById(threadId);
+        }).pipe(
+          Effect.provide(
+            OrchestrationProjectionSnapshotQueryLive.pipe(
+              Layer.provide(RepositoryIdentityResolver.layer),
+            ),
+          ),
+        );
+        const queuedThread = yield* readThread;
+        assert.isTrue(Option.isSome(queuedThread));
+        if (Option.isSome(queuedThread)) {
+          assert.deepEqual(queuedThread.value.queuedMessages, [
+            {
+              messageId,
+              text: "Run this next",
+              attachments: [],
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              createdAt: now,
+              sequence: 2,
+            },
+          ]);
+          assert.deepEqual(queuedThread.value.messages, []);
+        }
+
+        const dequeuedAt = "2026-08-06T18:01:00.000Z";
+        const dequeuedEvent = yield* eventStore.append({
+          type: "thread.message-dequeued",
+          eventId: EventId.make("evt-message-dequeued"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: dequeuedAt,
+          commandId: CommandId.make("cmd-message-dequeued"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-message-dequeued"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId,
+            reason: "user",
+            dequeuedAt,
+          },
+        });
+        yield* projectionPipeline.projectEvent(dequeuedEvent);
+
+        const dequeuedThread = yield* readThread;
+        assert.isTrue(Option.isSome(dequeuedThread));
+        if (Option.isSome(dequeuedThread)) {
+          assert.deepEqual(dequeuedThread.value.queuedMessages, []);
+        }
+      }),
+    );
+  },
+);
+
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("bootstraps all projection states and writes projection rows", () =>
     Effect.gen(function* () {

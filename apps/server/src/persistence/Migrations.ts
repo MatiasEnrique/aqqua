@@ -56,6 +56,8 @@ import Migration0040 from "./Migrations/040_UsageScanFileRollupKeys.ts";
 import Migration0041 from "./Migrations/041_ProjectionThreadsSettledChangeRequest.ts";
 import Migration0042 from "./Migrations/042_ProjectionTurnCheckpointCompletedAt.ts";
 import Migration0043 from "./Migrations/043_ProjectionProjectsIcon.ts";
+import Migration0044 from "./Migrations/044_ProjectionQueuedMessages.ts";
+import Migration0045 from "./Migrations/045_ProjectionTurnPendingTitleSeed.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -111,6 +113,8 @@ export const migrationEntries = [
   [41, "ProjectionThreadsSettledChangeRequest", Migration0041],
   [42, "ProjectionTurnCheckpointCompletedAt", Migration0042],
   [43, "ProjectionProjectsIcon", Migration0043],
+  [44, "ProjectionQueuedMessages", Migration0044],
+  [45, "ProjectionTurnPendingTitleSeed", Migration0045],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

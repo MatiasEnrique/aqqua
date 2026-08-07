@@ -76,6 +76,7 @@ describe("orchestration projector", () => {
       {
         id: "thread-1",
         projectId: "project-1",
+        parentThreadId: undefined,
         title: "demo",
         modelSelection: {
           instanceId: "codex",
@@ -95,6 +96,7 @@ describe("orchestration projector", () => {
         snoozedAt: null,
         deletedAt: null,
         messages: [],
+        queuedMessages: [],
         proposedPlans: [],
         activities: [],
         checkpoints: [],

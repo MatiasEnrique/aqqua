@@ -41,6 +41,14 @@ The main durable unit of conversation and workspace history. In [the orchestrati
 
 A single user-to-assistant work cycle inside a thread. It starts with user input and ends when follow-up work like checkpointing settles. See [the contracts][1], [ProviderRuntimeIngestion.ts][5], and [CheckpointReactor.ts][6].
 
+#### Message queue
+
+The ordered messages waiting for future turns in a thread. Queueing persists a
+`thread.message-enqueued` event without changing the running provider turn. When that turn leaves
+its running state, the decider atomically dequeues the first message and requests the next turn.
+Submitting normally while a turn is running remains an immediate steer. See
+[the orchestration contracts][1] and [decider.ts][8].
+
 #### Activity
 
 A user-visible log item attached to a thread. In [the contracts][1], activities cover important non-message events like approvals, tool actions, and failures. They are projected into thread state in [projector.ts][4].

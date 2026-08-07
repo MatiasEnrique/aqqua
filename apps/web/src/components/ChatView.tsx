@@ -295,6 +295,7 @@ import {
   cloneComposerImageForRetry,
   deriveLockedProvider,
   getThreadErrorIdentity,
+  IMAGE_ONLY_BOOTSTRAP_PROMPT,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
   resolveThreadErrorCandidate,
@@ -310,6 +311,10 @@ import {
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
+import {
+  useComposerSubmissionLifecycle,
+  type ComposerDraftContent,
+} from "./chat/useComposerSubmissionLifecycle";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
@@ -336,8 +341,6 @@ import {
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 
-const IMAGE_ONLY_BOOTSTRAP_PROMPT =
-  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1229,6 +1232,15 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const enqueueThreadMessage = useAtomCommand(threadEnvironment.enqueueMessage, {
+    reportFailure: false,
+  });
+  const dequeueThreadMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
+    reportFailure: false,
+  });
+  const submitThreadMessages = useAtomCommand(threadEnvironment.submitMessages, {
+    reportFailure: false,
+  });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -1387,6 +1399,22 @@ function ChatViewContent(props: ChatViewProps) {
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const composerSubmission = useComposerSubmissionLifecycle({
+    target: composerDraftTarget,
+    refs: useMemo(
+      () => ({
+        promptRef,
+        composerImagesRef,
+        composerTerminalContextsRef,
+        composerElementContextsRef,
+        resetCursorState: (state?: { cursor: number; prompt: string; detectTrigger: boolean }) => {
+          composerRef.current?.resetCursorState(state);
+        },
+        collapseCursor: collapseExpandedComposerCursor,
+      }),
+      [composerRef],
+    ),
+  });
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
@@ -2096,6 +2124,9 @@ function ChatViewContent(props: ChatViewProps) {
   const serverConfig = activeThread
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
+  const messageQueueSupported = serverConfig?.environment.capabilities.threadMessageQueue === true;
+  const messageQueueSteeringSupported =
+    serverConfig?.environment.capabilities.threadMessageQueueSteering === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -5134,6 +5165,17 @@ function ChatViewContent(props: ChatViewProps) {
       ? (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.resumeSession ??
         null)
       : null;
+    // Snapshot everything this submission takes out of the composer so either
+    // immediate delivery or queueing can restore it on failure.
+    const submissionSnapshot: ComposerDraftContent = {
+      prompt: promptForSend,
+      images: composerImagesSnapshot,
+      terminalContexts: composerTerminalContextsSnapshot,
+      elementContexts: composerElementContextsSnapshot,
+      previewAnnotations: composerPreviewAnnotationsSnapshot,
+      reviewComments: composerReviewCommentsSnapshot,
+      resumeSession: resumeSessionSnapshot,
+    };
     const messageTextWithContexts = appendElementContextsToPrompt(
       appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
@@ -5172,6 +5214,71 @@ function ChatViewContent(props: ChatViewProps) {
       sizeBytes: image.sizeBytes,
       previewUrl: image.previewUrl,
     }));
+    const shouldQueueSubmission = phase === "running" && isServerThread && messageQueueSupported;
+    if (shouldQueueSubmission) {
+      setThreadError(threadIdForSend, null);
+      // Release the submitted draft before attachment encoding and the RPC so
+      // anything typed while those are in flight belongs to the next message.
+      composerSubmission.releaseDraft();
+
+      const turnAttachmentsResult = await settlePromise(() => turnAttachmentsPromise);
+      let failure: AtomCommandResult<unknown, unknown> | null =
+        turnAttachmentsResult._tag === "Failure" ? turnAttachmentsResult : null;
+
+      if (turnAttachmentsResult._tag === "Success") {
+        const enqueueResult = await enqueueThreadMessage({
+          environmentId,
+          input: {
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              role: "user",
+              text: outgoingMessageText,
+              attachments: turnAttachmentsResult.value,
+            },
+            modelSelection: ctxSelectedModelSelection,
+            runtimeMode,
+            interactionMode,
+            createdAt: messageCreatedAt,
+          },
+        });
+        if (enqueueResult._tag === "Failure") {
+          failure = enqueueResult;
+        }
+      }
+
+      if (failure === null) {
+        for (const image of composerImagesSnapshot) {
+          revokeBlobPreviewUrl(image.previewUrl);
+        }
+        if (expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            expiredTerminalContextCount,
+            "omitted",
+          );
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: toastCopy.title,
+              description: toastCopy.description,
+            }),
+          );
+        }
+      } else {
+        composerSubmission.restoreDraftMerging(submissionSnapshot);
+        if (!isAtomCommandInterrupted(failure)) {
+          const error = squashAtomCommandFailure(failure);
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to queue message.",
+          );
+        }
+      }
+
+      sendInFlightRef.current = false;
+      resetLocalDispatch();
+      return;
+    }
     // Sending always returns to the live edge. The new row becomes the
     // anchored end-space target so it lands near the top while the response
     // streams into the reserved space below it.
@@ -5213,10 +5320,7 @@ function ChatViewContent(props: ChatViewProps) {
         }),
       );
     }
-    promptRef.current = "";
-    clearComposerDraftContent(composerDraftTarget);
-    setComposerResumeSession(composerDraftTarget, null);
-    composerRef.current?.resetCursorState();
+    composerSubmission.releaseDraft();
 
     let firstComposerImageName: string | null = null;
     if (composerImagesSnapshot.length > 0) {
@@ -5352,16 +5456,12 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     if (failure !== null) {
-      if (
-        promptRef.current.length === 0 &&
-        composerImagesRef.current.length === 0 &&
-        composerTerminalContextsRef.current.length === 0 &&
-        composerElementContextsRef.current.length === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
-          .length ?? 0) === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
-          .length ?? 0) === 0
-      ) {
+      // Blob preview URLs are revoked with the optimistic row, so the retry
+      // draft needs freshly minted ones for the same files.
+      const restored = composerSubmission.restoreDraftIfUntouched(submissionSnapshot, {
+        transformImages: (images) => images.map(cloneComposerImageForRetry),
+      });
+      if (restored) {
         setOptimisticUserMessages((existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
           for (const message of removed) {
@@ -5370,29 +5470,12 @@ function ChatViewContent(props: ChatViewProps) {
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
-        promptRef.current = promptForSend;
-        const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
-        composerImagesRef.current = retryComposerImages;
-        composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
-        composerElementContextsRef.current = composerElementContextsSnapshot;
-        setComposerDraftPrompt(composerDraftTarget, promptForSend);
-        addComposerDraftImages(composerDraftTarget, retryComposerImages);
-        setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
-        setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
-        setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
-        setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
-        setComposerResumeSession(composerDraftTarget, resumeSessionSnapshot);
         if (resumeSessionSnapshot && activeProject) {
           setDraftThreadContext(
             composerDraftTarget,
             resumeSessionDraftContext(activeProject.workspaceRoot, resumeSessionSnapshot.session),
           );
         }
-        composerRef.current?.resetCursorState({
-          cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
-          prompt: promptForSend,
-          detectTrigger: true,
-        });
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
@@ -5410,6 +5493,48 @@ function ChatViewContent(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  const onDequeueQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!activeThread) return;
+      const result = await dequeueThreadMessage({
+        environmentId,
+        input: {
+          threadId: activeThread.id,
+          messageId,
+        },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to remove queued message.",
+        );
+      }
+    },
+    [activeThread, dequeueThreadMessage, environmentId, setThreadError],
+  );
+
+  const onSubmitQueuedMessages = useCallback(
+    async (messageIds: ReadonlyArray<MessageId>) => {
+      if (!activeThread || messageIds.length === 0) return;
+      const result = await submitThreadMessages({
+        environmentId,
+        input: {
+          threadId: activeThread.id,
+          messageIds,
+        },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to submit queued messages.",
+        );
+      }
+    },
+    [activeThread, environmentId, setThreadError, submitThreadMessages],
+  );
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -6522,6 +6647,8 @@ function ChatViewContent(props: ChatViewProps) {
                             isSendBusy={isSendBusy}
                             sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
                             isPreparingWorktree={isPreparingWorktree}
+                            messageQueueSupported={messageQueueSupported}
+                            messageQueueSteeringSupported={messageQueueSteeringSupported}
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             pendingApprovals={pendingApprovals}
@@ -6559,6 +6686,8 @@ function ChatViewContent(props: ChatViewProps) {
                             composerTerminalContextsRef={composerTerminalContextsRef}
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
+                            onDequeueQueuedMessage={onDequeueQueuedMessage}
+                            onSubmitQueuedMessages={onSubmitQueuedMessages}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}

@@ -7,6 +7,7 @@ import {
   type OrchestrationCard,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationQueuedMessage,
   type OrchestrationReadModel,
   type OrchestrationThread,
   type ThreadId,
@@ -141,6 +142,193 @@ function withEventBase(
     ),
   );
 }
+
+function modelSelectionsEqual(
+  left: OrchestrationThread["modelSelection"],
+  right: OrchestrationThread["modelSelection"],
+): boolean {
+  return (
+    left.instanceId === right.instanceId &&
+    left.model === right.model &&
+    JSON.stringify(left.options ?? null) === JSON.stringify(right.options ?? null)
+  );
+}
+
+const buildTurnStartEvents = Effect.fn("buildTurnStartEvents")(function* (input: {
+  readonly thread: OrchestrationThread;
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly createdAt: string;
+  readonly message: {
+    readonly messageId: OrchestrationQueuedMessage["messageId"];
+    readonly text: string;
+    readonly attachments: OrchestrationQueuedMessage["attachments"];
+  };
+  readonly modelSelection: OrchestrationThread["modelSelection"];
+  readonly runtimeMode: OrchestrationThread["runtimeMode"];
+  readonly interactionMode: OrchestrationThread["interactionMode"];
+  readonly titleSeed?: string;
+  readonly sourceProposedPlan?: {
+    readonly threadId: ThreadId;
+    readonly planId: string;
+  };
+  readonly dequeueMessageIds?: ReadonlyArray<OrchestrationQueuedMessage["messageId"]>;
+  readonly syncSettings?: boolean;
+}) {
+  const settingsEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+  if (
+    input.syncSettings === true &&
+    !modelSelectionsEqual(input.thread.modelSelection, input.modelSelection)
+  ) {
+    settingsEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.meta-updated",
+      payload: {
+        threadId: input.thread.id,
+        modelSelection: input.modelSelection,
+        updatedAt: input.createdAt,
+      },
+    });
+  }
+  if (input.syncSettings === true && input.thread.runtimeMode !== input.runtimeMode) {
+    settingsEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.runtime-mode-set",
+      payload: {
+        threadId: input.thread.id,
+        runtimeMode: input.runtimeMode,
+        updatedAt: input.createdAt,
+      },
+    });
+  }
+  if (input.syncSettings === true && input.thread.interactionMode !== input.interactionMode) {
+    settingsEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.interaction-mode-set",
+      payload: {
+        threadId: input.thread.id,
+        interactionMode: input.interactionMode,
+        updatedAt: input.createdAt,
+      },
+    });
+  }
+
+  const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+  if (input.thread.settledOverride !== null) {
+    lifecycleResetEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.unsettled",
+      payload: {
+        threadId: input.thread.id,
+        reason: "activity",
+        updatedAt: input.createdAt,
+      },
+    });
+  }
+  if (input.thread.snoozedUntil != null) {
+    lifecycleResetEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.unsnoozed",
+      payload: {
+        threadId: input.thread.id,
+        reason: "activity",
+        updatedAt: input.createdAt,
+      },
+    });
+  }
+
+  const dequeueEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+  for (const messageId of input.dequeueMessageIds ?? []) {
+    dequeueEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.thread.id,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+      })),
+      type: "thread.message-dequeued",
+      payload: {
+        threadId: input.thread.id,
+        messageId,
+        reason: "submitted",
+        dequeuedAt: input.createdAt,
+      },
+    });
+  }
+  const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.thread.id,
+      occurredAt: input.createdAt,
+      commandId: input.commandId,
+    })),
+    type: "thread.message-sent",
+    payload: {
+      threadId: input.thread.id,
+      messageId: input.message.messageId,
+      role: "user",
+      text: input.message.text,
+      attachments: input.message.attachments,
+      turnId: null,
+      streaming: false,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    },
+  };
+  const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.thread.id,
+      occurredAt: input.createdAt,
+      commandId: input.commandId,
+    })),
+    causationEventId: userMessageEvent.eventId,
+    type: "thread.turn-start-requested",
+    payload: {
+      threadId: input.thread.id,
+      messageId: input.message.messageId,
+      modelSelection: input.modelSelection,
+      ...(input.titleSeed !== undefined ? { titleSeed: input.titleSeed } : {}),
+      runtimeMode: input.runtimeMode,
+      interactionMode: input.interactionMode,
+      ...(input.sourceProposedPlan !== undefined
+        ? { sourceProposedPlan: input.sourceProposedPlan }
+        : {}),
+      createdAt: input.createdAt,
+    },
+  };
+  return [
+    ...settingsEvents,
+    ...lifecycleResetEvents,
+    ...dequeueEvents,
+    userMessageEvent,
+    turnStartRequestedEvent,
+  ];
+});
 
 type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 
@@ -956,87 +1144,154 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
-      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+      return yield* buildTurnStartEvents({
+        thread: targetThread,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        message: command.message,
+        modelSelection: command.modelSelection ?? targetThread.modelSelection,
+        runtimeMode: targetThread.runtimeMode,
+        interactionMode: targetThread.interactionMode,
+        ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
+        ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+      });
+    }
+
+    case "thread.message.enqueue": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queuedMessage: OrchestrationQueuedMessage = {
+        messageId: command.message.messageId,
+        text: command.message.text,
+        attachments: command.message.attachments,
+        modelSelection: command.modelSelection,
+        runtimeMode: command.runtimeMode,
+        interactionMode: command.interactionMode,
+        createdAt: command.createdAt,
+      };
+      const isBusy =
+        thread.session?.status === "starting" ||
+        thread.session?.status === "running" ||
+        threadHasQueuedTurnStart(thread, command.createdAt) ||
+        (thread.queuedMessages?.length ?? 0) > 0;
+      if (!isBusy) {
+        return yield* buildTurnStartEvents({
+          thread,
+          commandId: command.commandId,
+          createdAt: command.createdAt,
+          message: queuedMessage,
+          modelSelection: queuedMessage.modelSelection,
+          runtimeMode: queuedMessage.runtimeMode,
+          interactionMode: queuedMessage.interactionMode,
+          syncSettings: true,
+        });
+      }
+      return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         })),
-        type: "thread.message-sent",
+        type: "thread.message-enqueued",
         payload: {
           threadId: command.threadId,
-          messageId: command.message.messageId,
-          role: "user",
-          text: command.message.text,
-          attachments: command.message.attachments,
-          turnId: null,
-          streaming: false,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
+          message: queuedMessage,
         },
       };
-      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+    }
+
+    case "thread.message.dequeue": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (
+        !(thread.queuedMessages ?? []).some((message) => message.messageId === command.messageId)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not belong to thread '${command.threadId}'.`,
+        });
+      }
+      return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         })),
-        causationEventId: userMessageEvent.eventId,
-        type: "thread.turn-start-requested",
+        type: "thread.message-dequeued",
         payload: {
           threadId: command.threadId,
-          messageId: command.message.messageId,
-          ...(command.modelSelection !== undefined
-            ? { modelSelection: command.modelSelection }
-            : {}),
-          ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
-          runtimeMode: targetThread.runtimeMode,
-          interactionMode: targetThread.interactionMode,
-          ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
-          createdAt: command.createdAt,
+          messageId: command.messageId,
+          reason: "user",
+          dequeuedAt: command.createdAt,
         },
       };
-      // Real activity resets ANY override: it wakes an explicitly settled
-      // thread, and it clears a keep-active pin back to neutral so the
-      // thread can auto-settle again after this burst of work goes stale.
-      // A snooze clears the same way — sending a message to a snoozed
-      // thread is the user re-engaging, so the return ticket is spent.
-      const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (targetThread.settledOverride !== null) {
-        lifecycleResetEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unsettled",
-          payload: {
-            threadId: command.threadId,
-            reason: "activity",
-            updatedAt: command.createdAt,
-          },
+    }
+
+    case "thread.message.submit": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const requestedMessageIds = new Set(command.messageIds);
+      const queuedMessagesById = new Map(
+        (thread.queuedMessages ?? []).map((message) => [message.messageId, message]),
+      );
+      const additionalMessages = command.messages ?? [];
+      const additionalMessageIds = new Set(additionalMessages.map((message) => message.messageId));
+      const messagesById = new Map([
+        ...queuedMessagesById,
+        ...additionalMessages.map((message) => [message.messageId, message] as const),
+      ]);
+      const selectedMessages = command.messageIds.flatMap((messageId) => {
+        const message = messagesById.get(messageId);
+        return message ? [message] : [];
+      });
+      if (
+        command.messageIds.length === 0 ||
+        requestedMessageIds.size !== command.messageIds.length ||
+        additionalMessageIds.size !== additionalMessages.length ||
+        additionalMessages.some((message) => !requestedMessageIds.has(message.messageId)) ||
+        selectedMessages.length !== requestedMessageIds.size
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Submitted queued messages must be a non-empty, unique selection from the thread queue.",
         });
       }
-      if (targetThread.snoozedUntil != null) {
-        lifecycleResetEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unsnoozed",
-          payload: {
-            threadId: command.threadId,
-            reason: "activity",
-            updatedAt: command.createdAt,
-          },
+      const firstMessage = selectedMessages[0];
+      if (!firstMessage) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Submitted queued messages must include at least one message.",
         });
       }
-      return [...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent];
+      return yield* buildTurnStartEvents({
+        thread,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        message: {
+          messageId: firstMessage.messageId,
+          text: selectedMessages.map((message) => message.text).join("\n"),
+          attachments: selectedMessages.flatMap((message) => message.attachments),
+        },
+        modelSelection: firstMessage.modelSelection,
+        runtimeMode: firstMessage.runtimeMode,
+        interactionMode: firstMessage.interactionMode,
+        dequeueMessageIds: selectedMessages
+          .filter((message) => queuedMessagesById.has(message.messageId))
+          .map((message) => message.messageId),
+        syncSettings: true,
+      });
     }
 
     case "thread.turn.interrupt": {
@@ -1186,25 +1441,45 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // as snoozed, without spending the return ticket.
       const isSessionActivity =
         command.session.status === "starting" || command.session.status === "running";
-      // Real activity resets ANY override (settled wakes, active unpins).
-      if (thread.settledOverride === null || !isSessionActivity) {
-        return sessionSetEvent;
+      const sessionEvents: Array<Omit<OrchestrationEvent, "sequence">> =
+        thread.settledOverride !== null && isSessionActivity
+          ? [
+              {
+                ...(yield* withEventBase({
+                  aggregateKind: "thread",
+                  aggregateId: command.threadId,
+                  occurredAt: command.createdAt,
+                  commandId: command.commandId,
+                })),
+                type: "thread.unsettled",
+                payload: {
+                  threadId: command.threadId,
+                  reason: "activity",
+                  updatedAt: command.createdAt,
+                },
+              },
+              sessionSetEvent,
+            ]
+          : [sessionSetEvent];
+
+      const nextQueuedMessage = thread.queuedMessages?.[0];
+      const turnEnded =
+        command.session.status !== "starting" && command.session.status !== "running";
+      if (!nextQueuedMessage || !turnEnded || command.promoteQueuedMessage === false) {
+        return sessionEvents;
       }
-      const unsettledEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.unsettled",
-        payload: {
-          threadId: command.threadId,
-          reason: "activity",
-          updatedAt: command.createdAt,
-        },
-      };
-      return [unsettledEvent, sessionSetEvent];
+      const queuedTurnEvents = yield* buildTurnStartEvents({
+        thread,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        message: nextQueuedMessage,
+        modelSelection: nextQueuedMessage.modelSelection,
+        runtimeMode: nextQueuedMessage.runtimeMode,
+        interactionMode: nextQueuedMessage.interactionMode,
+        dequeueMessageIds: [nextQueuedMessage.messageId],
+        syncSettings: true,
+      });
+      return [...sessionEvents, ...queuedTurnEvents];
     }
 
     case "thread.message.assistant.delta": {

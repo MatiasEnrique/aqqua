@@ -328,6 +328,8 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   {
     type:
       | "thread.message-sent"
+      | "thread.message-enqueued"
+      | "thread.message-dequeued"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
@@ -337,6 +339,8 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 > {
   return (
     event.type === "thread.message-sent" ||
+    event.type === "thread.message-enqueued" ||
+    event.type === "thread.message-dequeued" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
@@ -1603,7 +1607,10 @@ const makeWsRpcLayer = (
               const isThisThreadDetailEvent = (event: OrchestrationEvent) =>
                 event.aggregateKind === "thread" &&
                 event.aggregateId === input.threadId &&
-                isThreadDetailEvent(event);
+                isThreadDetailEvent(event) &&
+                (input.messageQueueEvents === true ||
+                  (event.type !== "thread.message-enqueued" &&
+                    event.type !== "thread.message-dequeued"));
 
               const liveStream = orchestrationEngine.streamDomainEvents.pipe(
                 Stream.filter(isThisThreadDetailEvent),

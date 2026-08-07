@@ -1,11 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentShellStatus } from "@aqqua/client-runtime/state/shell";
-import type { EnvironmentId, MessageId } from "@aqqua/contracts";
+import type { EnvironmentId } from "@aqqua/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
-import { appAtomRegistry } from "./atom-registry";
 import { environmentShell } from "./shell";
 import { threadOutboxManager } from "./thread-outbox";
+export {
+  editingQueuedMessageIdsAtom,
+  holdEditingQueuedMessage,
+  releaseEditingQueuedMessage,
+} from "./thread-outbox-coordination";
 
 const threadOutboxShellStatusesAtom = Atom.make(
   (get): ReadonlyMap<EnvironmentId, EnvironmentShellStatus> => {
@@ -26,29 +30,6 @@ const threadOutboxShellStatusesAtom = Atom.make(
  * back yet (delivering those would send stale content). Editing sessions hold
  * their message id here and release it once the queued payload is current.
  */
-export const editingQueuedMessageIdsAtom = Atom.make<Readonly<Record<MessageId, true>>>({}).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("mobile:thread-outbox:editing-message-ids"),
-);
-
-export function holdEditingQueuedMessage(messageId: MessageId): void {
-  const current = appAtomRegistry.get(editingQueuedMessageIdsAtom);
-  if (current[messageId]) {
-    return;
-  }
-  appAtomRegistry.set(editingQueuedMessageIdsAtom, { ...current, [messageId]: true });
-}
-
-export function releaseEditingQueuedMessage(messageId: MessageId): void {
-  const current = appAtomRegistry.get(editingQueuedMessageIdsAtom);
-  if (!current[messageId]) {
-    return;
-  }
-  const next = { ...current };
-  delete next[messageId];
-  appAtomRegistry.set(editingQueuedMessageIdsAtom, next);
-}
-
 export function useThreadOutboxMessages() {
   return useAtomValue(threadOutboxManager.queuedMessagesByThreadKeyAtom);
 }

@@ -42,6 +42,9 @@ export type UnsnoozeThreadInput = CommandInput<"thread.unsnooze">;
 export type UpdateThreadMetadataInput = CommandInput<"thread.meta.update">;
 export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
+export type EnqueueThreadMessageInput = CommandInput<"thread.message.enqueue">;
+export type DequeueThreadMessageInput = CommandInput<"thread.message.dequeue">;
+export type SubmitThreadMessagesInput = CommandInput<"thread.message.submit">;
 export type StartThreadTurnInput = CommandInput<"thread.turn.start">;
 export type InterruptThreadTurnInput = CommandInput<"thread.turn.interrupt">;
 export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond">;
@@ -250,6 +253,42 @@ export const startThreadTurn: (input: StartThreadTurnInput) => CommandEffect = E
   return yield* dispatch({
     ...input,
     type: "thread.turn.start",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const enqueueThreadMessage: (input: EnqueueThreadMessageInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.enqueueThreadMessage",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.message.enqueue",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const dequeueThreadMessage: (input: DequeueThreadMessageInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.dequeueThreadMessage",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.message.dequeue",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const submitThreadMessages: (input: SubmitThreadMessagesInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.submitThreadMessages",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.message.submit",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
   });

@@ -25,6 +25,8 @@ import type { DraftThreadEnvMode } from "../composerDraftStore";
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "aqqua:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
+export const IMAGE_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -324,6 +326,88 @@ export function cloneComposerImageForRetry(
   } catch {
     return image;
   }
+}
+
+/**
+ * A send holds the draft until the RPC settles, so it may only restore when the
+ * composer is still exactly as it left it — otherwise the restore would clobber
+ * a message the user started writing in the meantime.
+ */
+export function isComposerDraftUntouched(current: {
+  prompt: string;
+  imageCount: number;
+  terminalContextCount: number;
+  elementContextCount: number;
+  previewAnnotationCount: number;
+  reviewCommentCount: number;
+}): boolean {
+  return (
+    current.prompt.length === 0 &&
+    current.imageCount === 0 &&
+    current.terminalContextCount === 0 &&
+    current.elementContextCount === 0 &&
+    current.previewAnnotationCount === 0 &&
+    current.reviewCommentCount === 0
+  );
+}
+
+/**
+ * A queue releases the draft *before* the RPC so anything typed during it
+ * belongs to the next message. A failure therefore cannot simply overwrite the
+ * composer — the submitted content is merged back ahead of whatever is there
+ * now, and images are de-duplicated in case the same attachment survived.
+ */
+export function mergeComposerDraftForRetry<
+  TTerminalContext,
+  TElementContext,
+  TPreviewAnnotation,
+  TReviewComment,
+  TResumeSession,
+>(input: {
+  snapshot: {
+    readonly prompt: string;
+    readonly images: ReadonlyArray<ComposerImageAttachment>;
+    readonly terminalContexts: ReadonlyArray<TTerminalContext>;
+    readonly elementContexts: ReadonlyArray<TElementContext>;
+    readonly previewAnnotations: ReadonlyArray<TPreviewAnnotation>;
+    readonly reviewComments: ReadonlyArray<TReviewComment>;
+    readonly resumeSession: TResumeSession | null;
+  };
+  currentDraft: {
+    readonly prompt?: string;
+    readonly images?: ReadonlyArray<ComposerImageAttachment>;
+    readonly terminalContexts?: ReadonlyArray<TTerminalContext>;
+    readonly elementContexts?: ReadonlyArray<TElementContext>;
+    readonly previewAnnotations?: ReadonlyArray<TPreviewAnnotation>;
+    readonly reviewComments?: ReadonlyArray<TReviewComment>;
+    readonly resumeSession?: TResumeSession | null;
+  } | null;
+}): {
+  prompt: string;
+  images: ComposerImageAttachment[];
+  terminalContexts: TTerminalContext[];
+  elementContexts: TElementContext[];
+  previewAnnotations: TPreviewAnnotation[];
+  reviewComments: TReviewComment[];
+  resumeSession: TResumeSession | null;
+} {
+  const { snapshot, currentDraft } = input;
+  const currentPrompt = currentDraft?.prompt ?? "";
+  return {
+    prompt: [snapshot.prompt, currentPrompt].filter((value) => value.length > 0).join("\n\n"),
+    images: [...snapshot.images, ...(currentDraft?.images ?? [])].filter(
+      (image, index, images) =>
+        images.findIndex((candidate) => candidate.id === image.id) === index,
+    ),
+    terminalContexts: [...snapshot.terminalContexts, ...(currentDraft?.terminalContexts ?? [])],
+    elementContexts: [...snapshot.elementContexts, ...(currentDraft?.elementContexts ?? [])],
+    previewAnnotations: [
+      ...snapshot.previewAnnotations,
+      ...(currentDraft?.previewAnnotations ?? []),
+    ],
+    reviewComments: [...snapshot.reviewComments, ...(currentDraft?.reviewComments ?? [])],
+    resumeSession: currentDraft?.resumeSession ?? snapshot.resumeSession,
+  };
 }
 
 export function deriveComposerSendState(options: {
