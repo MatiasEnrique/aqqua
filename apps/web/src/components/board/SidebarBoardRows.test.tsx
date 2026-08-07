@@ -80,4 +80,23 @@ describe("InFlightCardRow", () => {
     expect(markup).not.toContain("h-[3.25rem]");
     expect(markup).not.toContain("rounded-2xl border");
   });
+
+  it("keeps the idle status from intercepting the delete action on hover", () => {
+    const markup = renderToStaticMarkup(
+      <InFlightCardRow
+        card={{ ...card, status: "cancelled" } as never}
+        boardName={null}
+        selected={false}
+        onOpen={() => {}}
+        onDelete={() => {}}
+        pending={false}
+      />,
+    );
+
+    expect(markup).toContain(">Stale</span>");
+    expect(markup).toContain("grid-cols-[1fr]");
+    expect(markup).toContain("pointer-events-none");
+    expect(markup).toContain("group-hover/v2-row:pointer-events-auto");
+    expect(markup).not.toContain("group-hover/v2-row:static");
+  });
 });

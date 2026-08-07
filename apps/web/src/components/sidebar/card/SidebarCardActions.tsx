@@ -52,8 +52,9 @@ function hasRenderableActions(actions: ReactNode): boolean {
 }
 
 /**
- * Status at rest, actions on hover, in one slot — the actions take the status's
- * place in flow rather than sitting beside it, so a hovered row doesn't reflow.
+ * Status at rest, actions on hover, in one grid cell — both layers keep the
+ * same position, so a fast pointer never chases a moving action or hits the
+ * fading status, and the row never reflows.
  *
  * `pinned` keeps the actions up while a menu they opened is still on screen:
  * the pointer has left the row by then, and without it the menu would be
@@ -69,16 +70,15 @@ export function SidebarCardStatusSwapSlot(props: {
   return (
     <span
       className={cn(
-        "group/v2-status-slot relative flex h-7 min-w-14 shrink-0 items-center justify-end",
+        "group/v2-status-slot grid h-7 min-w-14 shrink-0 grid-cols-[1fr] items-center justify-items-end",
         props.className,
       )}
     >
       <span
         className={cn(
-          "inline-flex items-center transition-opacity",
-          hasActions &&
-            "group-focus-within/v2-status-slot:absolute group-focus-within/v2-status-slot:right-0 group-hover/v2-row:absolute group-hover/v2-row:right-0 group-hover/v2-row:opacity-0",
-          props.pinned === true && "absolute right-0 opacity-0",
+          "pointer-events-none col-start-1 row-start-1 inline-flex items-center transition-opacity",
+          hasActions && "group-focus-within/v2-status-slot:opacity-0 group-hover/v2-row:opacity-0",
+          props.pinned === true && "opacity-0",
         )}
       >
         {props.resting}
@@ -86,8 +86,8 @@ export function SidebarCardStatusSwapSlot(props: {
       {hasActions ? (
         <span
           className={cn(
-            "absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity focus-within:static focus-within:opacity-100 group-hover/v2-row:static group-hover/v2-row:opacity-100",
-            props.pinned === true && "static opacity-100",
+            "pointer-events-none col-start-1 row-start-1 flex h-full items-stretch opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/v2-row:pointer-events-auto group-hover/v2-row:opacity-100",
+            props.pinned === true && "pointer-events-auto opacity-100",
           )}
         >
           {props.actions}
