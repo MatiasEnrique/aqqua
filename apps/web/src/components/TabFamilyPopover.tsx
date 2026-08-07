@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactElement, ReactNode } from "react";
 import { useState } from "react";
 
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./ui/popover";
@@ -69,7 +69,15 @@ export function TabFamilyPopover(props: {
   );
 }
 
-export function TabFamilyCountTrigger(props: {
+export function TabFamilyCountTrigger({
+  label,
+  count,
+  active,
+  markerAttributes,
+  leadingMargin,
+  className,
+  ...buttonProps
+}: Omit<ComponentPropsWithRef<"button">, "aria-label" | "children" | "type"> & {
   readonly label: string;
   readonly count: number;
   readonly active: boolean;
@@ -80,19 +88,21 @@ export function TabFamilyCountTrigger(props: {
 }) {
   return (
     <button
+      {...buttonProps}
       type="button"
-      aria-label={props.label}
-      {...props.markerAttributes}
+      aria-label={label}
+      {...markerAttributes}
       className={cn(
         "inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
-        props.leadingMargin && "ml-1",
-        props.active
+        leadingMargin && "ml-1",
+        active
           ? "bg-foreground text-background"
           : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+        className,
       )}
     >
       <TabFamilyCountIcon />
-      {props.count}
+      {count}
     </button>
   );
 }

@@ -1,5 +1,5 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { ArchiveIcon, PlusIcon, SquarePenIcon } from "lucide-react";
+import { ArchiveIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
@@ -31,6 +31,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly tabs: readonly ConversationTab[];
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
+  readonly onDiscardDraft: (draftId: string) => void;
   readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
   readonly confirmArchive: boolean;
   readonly onNewThread: () => void;
@@ -70,6 +71,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
               family={family}
               onSelectThread={props.onSelectThread}
               onSelectDraft={props.onSelectDraft}
+              onDiscardDraft={props.onDiscardDraft}
               onArchiveThread={props.onArchiveThread}
               confirmArchive={props.confirmArchive}
             />
@@ -105,28 +107,32 @@ function ConversationTabFamilyItem(props: {
   readonly family: ConversationTabFamily;
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
+  readonly onDiscardDraft: (draftId: string) => void;
   readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
   readonly confirmArchive: boolean;
 }) {
   const { family } = props;
+  // Narrow through a local: a discriminant check on `family.parent` does not
+  // survive into the closures below, and both variants carry `threadRef`, so
+  // the unnarrowed archive case would compile while the draft case would not.
+  const parent = family.parent;
   const selectTab = (tab: ConversationTab) => () =>
     tab._tag === "thread" ? props.onSelectThread(tab.threadRef) : props.onSelectDraft(tab.draftId);
 
   const parentShell = (
     <ConversationTabShell
-      tab={family.parent}
-      onSelect={selectTab(family.parent)}
+      tab={parent}
+      onSelect={selectTab(parent)}
       onArchive={
-        family.parent._tag === "thread"
-          ? () => props.onArchiveThread(family.parent.threadRef)
-          : undefined
+        parent._tag === "thread" ? () => props.onArchiveThread(parent.threadRef) : undefined
       }
+      onClose={parent._tag === "draft" ? () => props.onDiscardDraft(parent.draftId) : undefined}
       confirmArchive={props.confirmArchive}
       subAgents={
         family.children.length === 0
           ? undefined
           : {
-              familyTitle: family.parent.title,
+              familyTitle: parent.title,
               tabs: family.children,
               onSelectTab: (tab) => selectTab(tab)(),
             }
@@ -202,13 +208,14 @@ function ConversationTabIdentity(props: { readonly tab: ConversationTab }) {
  * One tab: a white shell that carries its own border.
  *
  * The archive control is a sibling button rather than a nested one — a button
- * inside a button is invalid and unreachable by keyboard — so persisted-thread
- * tabs are flex rows of two controls sharing one surface.
+ * inside a button is invalid and unreachable by keyboard — so tabs with an
+ * archive or close action are flex rows of two controls sharing one surface.
  */
 function ConversationTabShell(props: {
   readonly tab: ConversationTab;
   readonly onSelect: () => void;
   readonly onArchive?: (() => void) | undefined;
+  readonly onClose?: (() => void) | undefined;
   readonly confirmArchive: boolean;
   /** Present only for an orchestrator: the count chip that opens its picker. */
   readonly subAgents?:
@@ -254,6 +261,23 @@ function ConversationTabShell(props: {
           tabs={props.subAgents.tabs}
           onSelectTab={props.subAgents.onSelectTab}
         />
+      )}
+      {props.onClose === undefined ? null : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Close ${tab.title}`}
+                onClick={props.onClose}
+                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            }
+          >
+            <XIcon aria-hidden className="size-3" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">Close conversation</TooltipPopup>
+        </Tooltip>
       )}
       {props.onArchive === undefined ? null : isConfirmingArchive ? (
         <button

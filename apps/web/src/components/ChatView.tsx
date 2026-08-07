@@ -192,8 +192,8 @@ import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  DraftId,
   useComposerDraftStore,
-  type DraftId,
 } from "../composerDraftStore";
 import {
   appendTerminalContextsToPrompt,
@@ -1346,6 +1346,20 @@ function ChatViewContent(props: ChatViewProps) {
         to: "/draft/$draftId",
         params: { draftId: nextDraftId },
       });
+    },
+    [navigate],
+  );
+  // Read the routed draft at call time so the handler stays stable — it is
+  // passed to the memoized tab strip, which would otherwise re-render on every
+  // conversation switch.
+  const routedDraftIdRef = useRef(draftId);
+  routedDraftIdRef.current = draftId;
+  const discardConversationDraftTab = useCallback(
+    (nextDraftId: string) => {
+      useComposerDraftStore.getState().clearDraftThread(DraftId.make(nextDraftId));
+      if (routedDraftIdRef.current === nextDraftId) {
+        void navigate({ to: "/" });
+      }
     },
     [navigate],
   );
@@ -6467,6 +6481,7 @@ function ChatViewContent(props: ChatViewProps) {
               tabs={conversationTabs}
               onSelectThread={navigateToThreadRef}
               onSelectDraft={navigateToDraftId}
+              onDiscardDraft={discardConversationDraftTab}
               onArchiveThread={archiveConversationTab}
               confirmArchive={confirmThreadArchive}
               onNewThread={handleNewThreadInActiveWorktree}

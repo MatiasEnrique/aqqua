@@ -27,6 +27,7 @@ const render = (tabs: readonly ConversationTab[]) =>
       tabs={tabs}
       onSelectThread={() => {}}
       onSelectDraft={() => {}}
+      onDiscardDraft={() => {}}
       onArchiveThread={() => {}}
       confirmArchive={true}
       onNewThread={() => {}}
@@ -66,7 +67,7 @@ describe("ConversationTabs", () => {
     expect(markup).not.toContain("Delete");
   });
 
-  it("does not offer archive for an unsaved draft", () => {
+  it("offers a close control for an unsaved draft", () => {
     const markup = render([
       {
         _tag: "draft",
@@ -79,6 +80,7 @@ describe("ConversationTabs", () => {
     ]);
 
     expect(markup).not.toContain('aria-label="Archive New conversation"');
+    expect(markup).toContain('aria-label="Close New conversation"');
   });
 
   it("carries each conversation's state as its dot", () => {
