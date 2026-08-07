@@ -76,7 +76,70 @@ export type ConversationTab =
       readonly title: string;
       readonly isActive: boolean;
       readonly state: SidebarConversationAggregateState;
+      /**
+       * The tab key of the orchestrator that spawned this thread, or null for a
+       * top-level conversation. Set even when that tab is absent — whether the
+       * parent is on screen is the grouping step's question, not this one's.
+       */
+      readonly parentKey: string | null;
     };
+
+/** The tab key of a conversation's orchestrator, if it has one. */
+export function conversationTabParentKey(tab: ConversationTab): string | null {
+  return tab._tag === "thread" ? tab.parentKey : null;
+}
+
+/**
+ * An orchestrator and the sub-agents it spawned, as one band in the strip.
+ *
+ * A family is the unit the strip lays out: children sit inside their parent's
+ * band rather than drifting to wherever they happened to be opened, so a run of
+ * tabs reads as delegation instead of as unrelated conversations that share a
+ * prefix.
+ */
+export interface ConversationTabFamily {
+  readonly key: string;
+  readonly parent: ConversationTab;
+  /** The direct sub-agents this orchestrator spawned. */
+  readonly children: readonly ConversationTab[];
+}
+
+/**
+ * Nests each direct sub-agent under its orchestrator when both tabs are open.
+ *
+ * A sub-agent whose orchestrator is not in the strip leads its own family
+ * rather than disappearing, so it remains reachable on its own.
+ */
+export function groupConversationTabFamilies(
+  tabs: readonly ConversationTab[],
+): ConversationTabFamily[] {
+  const present = new Set(tabs.map((tab) => tab.key));
+  const childrenByParentKey = new Map<string, ConversationTab[]>();
+  const roots: ConversationTab[] = [];
+  for (const tab of tabs) {
+    const parentKey = conversationTabParentKey(tab);
+    if (parentKey === null || parentKey === tab.key || !present.has(parentKey)) {
+      roots.push(tab);
+      continue;
+    }
+    const siblings = childrenByParentKey.get(parentKey);
+    if (siblings === undefined) childrenByParentKey.set(parentKey, [tab]);
+    else siblings.push(tab);
+  }
+
+  const placed = new Set(roots.map((tab) => tab.key));
+  const families = roots.map((parent) => {
+    const children = childrenByParentKey.get(parent.key) ?? [];
+    for (const child of children) placed.add(child.key);
+    return { key: parent.key, parent, children };
+  });
+  // Nested or cyclic parent data is outside the supported one-level model, but
+  // it must not make a conversation disappear from the strip.
+  const orphans = tabs
+    .filter((tab) => !placed.has(tab.key))
+    .map((parent) => ({ key: parent.key, parent, children: [] }));
+  return [...families, ...orphans];
+}
 
 export interface ConversationTabDraft {
   readonly draftId: string;
@@ -104,13 +167,70 @@ export interface ConversationTabSource {
 }
 
 /**
- * The strip's contents, in the order the tabs were opened.
+ * A family as the strip actually draws it, once collapse is taken into account.
+ *
+ * `children` is what renders; `subAgentCount` is what the count chip says. They
+ * differ while collapsed, which is the entire point of the chip.
+ */
+export interface ConversationTabFamilyDisplay extends ConversationTabFamily {
+  readonly subAgentCount: number;
+  readonly isCollapsed: boolean;
+  /**
+   * The routed conversation is one of the sub-agents this family folded away.
+   *
+   * The count chip wears this, so a collapsed family still says which strip
+   * entry the transcript belongs to. Without it the strip would claim you are
+   * looking at nothing, and finding your way back would mean expanding families
+   * until one turned out to hold the thread you are reading.
+   */
+  readonly holdsRoutedSubAgent: boolean;
+}
+
+/**
+ * Folds collapsed families down to their count chip.
+ *
+ * Collapsing folds away every sub-agent, the routed one included: the fold is
+ * the user's call, and exempting whichever thread they happen to be reading
+ * made the control refuse to work on exactly the family they were working in.
+ * The chip carries the routed state instead of the child keeping a tab.
+ */
+export function resolveConversationTabFamilyDisplays(input: {
+  readonly tabs: readonly ConversationTab[];
+  readonly collapsedKeys: ReadonlySet<string>;
+}): ConversationTabFamilyDisplay[] {
+  return groupConversationTabFamilies(input.tabs).map((family) => {
+    const isCollapsed = family.children.length > 0 && input.collapsedKeys.has(family.key);
+    return {
+      ...family,
+      subAgentCount: family.children.length,
+      isCollapsed,
+      holdsRoutedSubAgent: isCollapsed && family.children.some((child) => child.isActive),
+      children: isCollapsed ? [] : family.children,
+    };
+  });
+}
+
+/**
+ * The strip's contents: the order the tabs were opened, with each sub-agent
+ * pulled up to sit directly after the orchestrator that spawned it.
+ *
+ * Open order alone would scatter a family, because a sub-agent tab opens when
+ * the spawn lands — after whatever else the user opened in between. Ordering
+ * here rather than in the view keeps the family order identical for every
+ * consumer of the tab model.
  *
  * Keys whose conversation no longer exists are dropped rather than rendered as
  * a placeholder: a deleted thread has no tab, and the persisted list is allowed
  * to be briefly stale between prunes.
  */
 export function buildConversationTabs(source: ConversationTabSource): ConversationTab[] {
+  return groupConversationTabFamilies(buildUngroupedConversationTabs(source)).flatMap((family) => [
+    family.parent,
+    ...family.children,
+  ]);
+}
+
+function buildUngroupedConversationTabs(source: ConversationTabSource): ConversationTab[] {
   const threadByKey = new Map(
     source.threads.map(
       (thread) =>
@@ -150,6 +270,7 @@ export function buildConversationTabs(source: ConversationTabSource): Conversati
       ) {
         return [];
       }
+      const parentThreadId = thread.parentThreadId ?? null;
       return [
         {
           _tag: "thread",
@@ -158,6 +279,10 @@ export function buildConversationTabs(source: ConversationTabSource): Conversati
           title: thread.title || "Untitled",
           state: resolveSidebarConversationAggregateState(thread),
           isActive: source.activeKey === key,
+          parentKey:
+            parentThreadId === null
+              ? null
+              : conversationTabKey(scopeThreadRef(thread.environmentId, parentThreadId)),
         },
       ];
     }

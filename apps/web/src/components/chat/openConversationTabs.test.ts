@@ -3,7 +3,10 @@ import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models"
 
 import {
   buildConversationTabs,
+  type ConversationTab,
+  resolveConversationTabFamilyDisplays,
   conversationTabKey,
+  groupConversationTabFamilies,
   openConversationTab,
   openNewSubAgentConversationTabs,
   resolveWorktreeFocusTarget,
@@ -102,6 +105,146 @@ describe("openNewSubAgentConversationTabs", () => {
     ).toEqual([conversationTabKey({ environmentId: "other-env", threadId: "parent" } as never)]);
   });
 });
+
+describe("groupConversationTabFamilies", () => {
+  const tab = (id: string, parentId: string | null = null): ConversationTab =>
+    ({
+      _tag: "thread",
+      key: id,
+      threadRef: { environmentId: "env", threadId: id },
+      title: id,
+      isActive: false,
+      state: "working",
+      parentKey: parentId,
+    }) as ConversationTab;
+
+  it("bands sub-agents under the orchestrator that spawned them", () => {
+    const families = groupConversationTabFamilies([
+      tab("parent"),
+      tab("other"),
+      tab("child-a", "parent"),
+      tab("child-b", "parent"),
+    ]);
+
+    expect(families.map((family) => family.key)).toEqual(["parent", "other"]);
+    expect(families[0]?.children.map((child) => child.key)).toEqual(["child-a", "child-b"]);
+    expect(families[1]?.children).toEqual([]);
+  });
+
+  it("keeps unsupported nested delegation visible without flattening it into the family", () => {
+    const families = groupConversationTabFamilies([
+      tab("parent"),
+      tab("grandchild", "child"),
+      tab("child", "parent"),
+    ]);
+
+    expect(families.map((family) => family.key)).toEqual(["parent", "grandchild"]);
+    expect(families[0]?.children.map((child) => child.key)).toEqual(["child"]);
+  });
+
+  it("leads its own family when the orchestrator is not in the strip", () => {
+    const families = groupConversationTabFamilies([tab("orphan", "absent-parent")]);
+
+    expect(families.map((family) => family.key)).toEqual(["orphan"]);
+  });
+
+  it("gives every tab a place even when the parent chain loops", () => {
+    const families = groupConversationTabFamilies([tab("a", "b"), tab("b", "a")]);
+
+    expect(
+      families.flatMap((family) => [family.parent.key, ...family.children.map((c) => c.key)]),
+    ).toHaveLength(2);
+  });
+
+  it("never nests a draft, which has no orchestrator to nest under", () => {
+    const families = groupConversationTabFamilies([
+      tab("parent"),
+      {
+        _tag: "draft",
+        key: "draft",
+        threadRef: { environmentId: "env", threadId: "draft" },
+        title: "New conversation",
+        isActive: false,
+        draftId: "draft",
+      } as ConversationTab,
+    ]);
+
+    expect(families.map((family) => family.key)).toEqual(["parent", "draft"]);
+  });
+});
+
+describe("resolveConversationTabFamilyDisplays", () => {
+  const tab = (id: string, parentId: string | null = null, isActive = false): ConversationTab =>
+    ({
+      _tag: "thread",
+      key: id,
+      threadRef: { environmentId: "env", threadId: id },
+      title: id,
+      isActive,
+      state: "working",
+      parentKey: parentId,
+    }) as ConversationTab;
+
+  const family = [tab("parent"), tab("child-a", "parent"), tab("child-b", "parent")];
+
+  it("draws every sub-agent while the family is expanded", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: family,
+      collapsedKeys: new Set(),
+    });
+
+    expect(display).toMatchObject({ isCollapsed: false, subAgentCount: 2 });
+    expect(display?.children.map((child) => child.key)).toEqual(["child-a", "child-b"]);
+  });
+
+  it("folds the sub-agents away but still counts them", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: family,
+      collapsedKeys: new Set(["parent"]),
+    });
+
+    expect(display).toMatchObject({ isCollapsed: true, subAgentCount: 2 });
+    expect(display?.children).toEqual([]);
+  });
+
+  it("folds away the conversation being read too, and says so", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: [tab("parent"), tab("child-a", "parent"), tab("child-b", "parent", true)],
+      collapsedKeys: new Set(["parent"]),
+    });
+
+    expect(display?.children).toEqual([]);
+    expect(display?.subAgentCount).toBe(2);
+    expect(display?.holdsRoutedSubAgent).toBe(true);
+  });
+
+  it("claims no routed sub-agent while the family is expanded", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: [tab("parent"), tab("child-a", "parent", true)],
+      collapsedKeys: new Set(),
+    });
+
+    expect(display?.holdsRoutedSubAgent).toBe(false);
+  });
+
+  it("claims no routed sub-agent when the orchestrator itself is the routed tab", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: [tab("parent", null, true), tab("child-a", "parent")],
+      collapsedKeys: new Set(["parent"]),
+    });
+
+    expect(display?.holdsRoutedSubAgent).toBe(false);
+  });
+
+  it("ignores a collapse key on a conversation that spawned nothing", () => {
+    const [display] = resolveConversationTabFamilyDisplays({
+      tabs: [tab("lonely")],
+      collapsedKeys: new Set(["lonely"]),
+    });
+
+    expect(display).toMatchObject({ isCollapsed: false, subAgentCount: 0 });
+  });
+});
 describe("buildConversationTabs", () => {
   it("keeps the order tabs were opened in and marks the routed one active", () => {
     const tabs = buildConversationTabs({
@@ -151,6 +294,48 @@ describe("buildConversationTabs", () => {
       ...unscoped,
     });
     expect(tabs[0]).toMatchObject({ title: "Untitled" });
+  });
+});
+
+describe("buildConversationTabs — sub-agent families", () => {
+  it("pulls a sub-agent up to sit directly after its orchestrator", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("parent"), key("unrelated"), key("child")],
+      threads: [
+        thread("parent"),
+        thread("unrelated"),
+        thread("child", { parentThreadId: "parent" } as never),
+      ],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("parent"), key("child"), key("unrelated")]);
+  });
+
+  it("records the orchestrator's tab key on the conversation it spawned", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("child")],
+      threads: [thread("child", { parentThreadId: "parent" } as never)],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs[0]).toMatchObject({ _tag: "thread", parentKey: key("parent") });
+  });
+
+  it("leaves a top-level conversation unparented", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("a")],
+      threads: [thread("a")],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs[0]).toMatchObject({ _tag: "thread", parentKey: null });
   });
 });
 
