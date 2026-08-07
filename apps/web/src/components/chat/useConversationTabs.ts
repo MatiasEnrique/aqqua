@@ -33,18 +33,9 @@ export function useConversationTabs(input: {
   readonly enabled: boolean;
 }): {
   readonly tabs: readonly ConversationTab[];
-  readonly collapsedFamilyKeys: readonly string[];
-  readonly toggleFamilyCollapsed: (familyKey: string) => void;
 } {
   const openKeys = useUiStateStore((store) => store.openConversationTabKeys);
   const setOpenKeys = useUiStateStore((store) => store.setOpenConversationTabKeys);
-  const collapsedFamilyKeys = useUiStateStore((store) => store.collapsedConversationTabFamilyKeys);
-  const toggleFamilyCollapsed = useUiStateStore(
-    (store) => store.toggleCollapsedConversationTabFamily,
-  );
-  const retainCollapsedFamilies = useUiStateStore(
-    (store) => store.retainCollapsedConversationTabFamilies,
-  );
   const threads = useThreadShells();
   const projects = useProjects();
   // Every environment has to have reported before a missing key means anything.
@@ -113,10 +104,7 @@ export function useConversationTabs(input: {
     const current = useUiStateStore.getState().openConversationTabKeys;
     const retained = retainKnownConversationTabs({ keys: current, knownKeys });
     if (retained.length !== current.length) setOpenKeys(retained);
-    // Collapse is a fact about a tab, so it dies with the tab. A family that
-    // comes back comes back open.
-    retainCollapsedFamilies(new Set(retained));
-  }, [bootstrapped, enabled, knownKeys, retainCollapsedFamilies, setOpenKeys]);
+  }, [bootstrapped, enabled, knownKeys, setOpenKeys]);
 
   // The strip belongs to one worktree: switching checkouts is switching the set
   // of conversations you are holding open, not adding to a global pile. Open
@@ -150,5 +138,5 @@ export function useConversationTabs(input: {
     ],
   );
 
-  return { tabs, collapsedFamilyKeys, toggleFamilyCollapsed };
+  return { tabs };
 }

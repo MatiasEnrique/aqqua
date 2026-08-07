@@ -73,7 +73,7 @@ export interface RightPanelContext {
   readonly workspaceRef: WorkspacePanelRef | null;
 }
 
-const THREAD_SCOPED_RIGHT_PANEL_KINDS = new Set<RightPanelKind>(["plan", "preview"]);
+const THREAD_SCOPED_RIGHT_PANEL_KINDS = new Set<RightPanelKind>(["plan", "diff", "preview"]);
 
 export function rightPanelOwnerForKind(
   context: RightPanelContext,
@@ -711,13 +711,19 @@ export function selectRightPanelContextState(
   const legacyWorkspaceSurfaces = threadState.surfaces.filter(
     (surface) => !THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
   );
-  const workspaceSurfaces = [...legacyWorkspaceSurfaces, ...workspaceState.surfaces].filter(
+  // Diff used to be workspace-owned. Ignore persisted workspace Diff surfaces
+  // so switching to a sibling thread cannot inherit an already-open Diff panel.
+  const ownedWorkspaceSurfaces = workspaceState.surfaces.filter(
+    (surface) => !THREAD_SCOPED_RIGHT_PANEL_KINDS.has(surface.kind),
+  );
+  const workspaceSurfaces = [...legacyWorkspaceSurfaces, ...ownedWorkspaceSurfaces].filter(
     (surface, index, all) => all.findIndex((candidate) => candidate.id === surface.id) === index,
   );
   const surfaces = [...threadSurfaces, ...workspaceSurfaces];
   const threadActive = threadSurfaces.find((surface) => surface.id === threadState.activeSurfaceId);
   const workspaceActive =
-    workspaceSurfaces.find((surface) => surface.id === workspaceState.activeSurfaceId) ??
+    ownedWorkspaceSurfaces.find((surface) => surface.id === workspaceState.activeSurfaceId) ??
+    (workspaceState.isOpen ? ownedWorkspaceSurfaces.at(-1) : undefined) ??
     legacyWorkspaceSurfaces.find((surface) => surface.id === threadState.activeSurfaceId);
   const activeSurfaceId =
     threadState.isOpen && threadActive

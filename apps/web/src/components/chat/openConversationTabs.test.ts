@@ -4,7 +4,6 @@ import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models"
 import {
   buildConversationTabs,
   type ConversationTab,
-  resolveConversationTabFamilyDisplays,
   conversationTabKey,
   groupConversationTabFamilies,
   openConversationTab,
@@ -173,78 +172,6 @@ describe("groupConversationTabFamilies", () => {
   });
 });
 
-describe("resolveConversationTabFamilyDisplays", () => {
-  const tab = (id: string, parentId: string | null = null, isActive = false): ConversationTab =>
-    ({
-      _tag: "thread",
-      key: id,
-      threadRef: { environmentId: "env", threadId: id },
-      title: id,
-      isActive,
-      state: "working",
-      parentKey: parentId,
-    }) as ConversationTab;
-
-  const family = [tab("parent"), tab("child-a", "parent"), tab("child-b", "parent")];
-
-  it("draws every sub-agent while the family is expanded", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: family,
-      collapsedKeys: new Set(),
-    });
-
-    expect(display).toMatchObject({ isCollapsed: false, subAgentCount: 2 });
-    expect(display?.children.map((child) => child.key)).toEqual(["child-a", "child-b"]);
-  });
-
-  it("folds the sub-agents away but still counts them", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: family,
-      collapsedKeys: new Set(["parent"]),
-    });
-
-    expect(display).toMatchObject({ isCollapsed: true, subAgentCount: 2 });
-    expect(display?.children).toEqual([]);
-  });
-
-  it("folds away the conversation being read too, and says so", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: [tab("parent"), tab("child-a", "parent"), tab("child-b", "parent", true)],
-      collapsedKeys: new Set(["parent"]),
-    });
-
-    expect(display?.children).toEqual([]);
-    expect(display?.subAgentCount).toBe(2);
-    expect(display?.holdsRoutedSubAgent).toBe(true);
-  });
-
-  it("claims no routed sub-agent while the family is expanded", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: [tab("parent"), tab("child-a", "parent", true)],
-      collapsedKeys: new Set(),
-    });
-
-    expect(display?.holdsRoutedSubAgent).toBe(false);
-  });
-
-  it("claims no routed sub-agent when the orchestrator itself is the routed tab", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: [tab("parent", null, true), tab("child-a", "parent")],
-      collapsedKeys: new Set(["parent"]),
-    });
-
-    expect(display?.holdsRoutedSubAgent).toBe(false);
-  });
-
-  it("ignores a collapse key on a conversation that spawned nothing", () => {
-    const [display] = resolveConversationTabFamilyDisplays({
-      tabs: [tab("lonely")],
-      collapsedKeys: new Set(["lonely"]),
-    });
-
-    expect(display).toMatchObject({ isCollapsed: false, subAgentCount: 0 });
-  });
-});
 describe("buildConversationTabs", () => {
   it("keeps the order tabs were opened in and marks the routed one active", () => {
     const tabs = buildConversationTabs({

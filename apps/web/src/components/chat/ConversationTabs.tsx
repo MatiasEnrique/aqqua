@@ -4,11 +4,12 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { StatusIndicator } from "../StatusIndicator";
+import { TabFamilyCountIcon, TabFamilyPopover } from "../TabFamilyPopover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   type ConversationTab,
-  type ConversationTabFamilyDisplay,
-  resolveConversationTabFamilyDisplays,
+  type ConversationTabFamily,
+  groupConversationTabFamilies,
 } from "./openConversationTabs";
 
 /**
@@ -18,10 +19,9 @@ import {
  * conversations you are currently juggling, and picking one takes you to it
  * wherever it lives — the sidebar follows by highlighting its worktree.
  *
- * Delegation is the one thing the strip is not flat about: an orchestrator and
- * the sub-agents it spawned share a banded tray, so a thread that exists only
- * because another thread asked for it never reads as a peer of the work the
- * user opened themselves.
+ * Delegation is the one thing the strip is not flat about: an orchestrator
+ * carries a compact picker for the sub-agents it spawned, so descendants stay
+ * reachable without consuming the strip's horizontal room.
  *
  * Deliberately borderless. The toolbar above and the transcript below already
  * separate themselves by content; a rule on either edge of a row of bordered
@@ -35,29 +35,20 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly confirmArchive: boolean;
   readonly onNewThread: () => void;
   readonly newThreadLabel: string;
-  /** Orchestrator tab keys whose sub-agents are folded into a count chip. */
-  readonly collapsedFamilyKeys: readonly string[];
-  readonly onToggleFamilyCollapsed: (familyKey: string) => void;
 }) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const activeKey = props.tabs.find((tab) => tab.isActive)?.key ?? null;
-  const { collapsedFamilyKeys } = props;
-  const families = useMemo(
-    () =>
-      resolveConversationTabFamilyDisplays({
-        tabs: props.tabs,
-        collapsedKeys: new Set(collapsedFamilyKeys),
-      }),
-    [collapsedFamilyKeys, props.tabs],
+  const families = useMemo(() => groupConversationTabFamilies(props.tabs), [props.tabs]);
+  const activeSubAgentInPopover = families.some((family) =>
+    family.children.some((child) => child.isActive),
   );
-  const activeTabIsFolded = families.some((family) => family.holdsRoutedSubAgent);
 
   // Keep the routed conversation visible when the strip overflows — arriving
   // from a deep link or a notification must not land on a tab off-screen.
   useEffect(() => {
     const activeTab = stripRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeKey, activeTabIsFolded]);
+  }, [activeKey, activeSubAgentInPopover]);
 
   return (
     <nav
@@ -81,7 +72,6 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
               onSelectDraft={props.onSelectDraft}
               onArchiveThread={props.onArchiveThread}
               confirmArchive={props.confirmArchive}
-              onToggleCollapsed={() => props.onToggleFamilyCollapsed(family.key)}
             />
           ))}
           <li className="shrink-0">
@@ -108,20 +98,15 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
 });
 
 /**
- * One family in the strip: a lone tab, or an orchestrator banded with its
- * sub-agents.
- *
- * The band is a tray rather than extra height — the strip has 32px to spend and
- * no more — so a banded family lines up with its neighbours on both edges and
- * pays for the nesting in horizontal room, which is the room the strip has.
+ * One family in the strip: a lone tab, or an orchestrator with a descendant
+ * picker. The family always occupies exactly one tab shell.
  */
 function ConversationTabFamilyItem(props: {
-  readonly family: ConversationTabFamilyDisplay;
+  readonly family: ConversationTabFamily;
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
   readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
   readonly confirmArchive: boolean;
-  readonly onToggleCollapsed: () => void;
 }) {
   const { family } = props;
   const selectTab = (tab: ConversationTab) => () =>
@@ -130,7 +115,6 @@ function ConversationTabFamilyItem(props: {
   const parentShell = (
     <ConversationTabShell
       tab={family.parent}
-      banded={family.children.length > 0}
       onSelect={selectTab(family.parent)}
       onArchive={
         family.parent._tag === "thread"
@@ -139,193 +123,84 @@ function ConversationTabFamilyItem(props: {
       }
       confirmArchive={props.confirmArchive}
       subAgents={
-        family.subAgentCount === 0
+        family.children.length === 0
           ? undefined
           : {
-              count: family.subAgentCount,
-              isCollapsed: family.isCollapsed,
-              holdsRoutedSubAgent: family.holdsRoutedSubAgent,
-              onToggle: props.onToggleCollapsed,
+              familyTitle: family.parent.title,
+              tabs: family.children,
+              onSelectTab: (tab) => selectTab(tab)(),
             }
       }
     />
   );
 
-  // A fully folded family is C1, not C2: the chip carries the whole tree, so
-  // there is nothing for a tray to hold and the tab rejoins the flat strip.
-  if (family.children.length === 0) return <li className="shrink-0">{parentShell}</li>;
-
-  return (
-    <li className="shrink-0">
-      <div
-        data-conversation-tab-family={family.key}
-        className="flex h-8 items-center gap-px rounded-xl border border-border bg-muted p-px [-webkit-app-region:no-drag]"
-      >
-        {parentShell}
-        {family.children.map((child) => (
-          <SubAgentTabChip key={child.key} tab={child} onSelect={selectTab(child)} />
-        ))}
-      </div>
-    </li>
-  );
+  return <li className="shrink-0">{parentShell}</li>;
 }
 
 /**
- * The orchestrator's count chip, which is also the tray's disclosure.
- *
- * The count is the honest label in both states — four sub-agents are four
- * whether or not they are drawn — so the chip does not change its number when
- * folded, only its pressed state. A dedicated chevron would spend the same
- * width to say less.
- *
- * When the fold swallowed the routed conversation the chip takes over as its
- * strip entry: it carries `data-active-tab`, so overflow still scrolls to the
- * thread on screen, and it reads as selected rather than as a quiet count.
+ * The orchestrator's count chip opens its bounded descendant picker. When the
+ * routed conversation is a descendant, the chip carries `data-active-tab` so
+ * overflow still scrolls to the family the transcript belongs to.
  */
 function SubAgentCountChip(props: {
-  readonly count: number;
-  readonly isCollapsed: boolean;
-  readonly holdsRoutedSubAgent: boolean;
-  readonly onToggle: () => void;
   readonly familyTitle: string;
+  readonly tabs: readonly ConversationTab[];
+  readonly onSelectTab: (tab: ConversationTab) => void;
 }) {
-  const label = props.count === 1 ? "1 sub-agent" : `${props.count} sub-agents`;
-  const action = props.isCollapsed ? "Show" : "Hide";
+  const count = props.tabs.length;
+  const label = count === 1 ? "1 sub-agent" : `${count} sub-agents`;
+  const activeTab = props.tabs.find((tab) => tab.isActive);
+  const triggerLabel =
+    activeTab === undefined
+      ? `Open ${label} of ${props.familyTitle}`
+      : `Open ${label} of ${props.familyTitle}, holding the open conversation ${activeTab.title}`;
+
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-expanded={!props.isCollapsed}
-            aria-label={
-              props.holdsRoutedSubAgent
-                ? `${action} ${label} of ${props.familyTitle}, holding the open conversation`
-                : `${action} ${label} of ${props.familyTitle}`
-            }
-            data-sub-agent-count
-            data-active-tab={props.holdsRoutedSubAgent ? true : undefined}
-            onClick={props.onToggle}
-            className={cn(
-              "inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
-              props.holdsRoutedSubAgent
-                ? "bg-foreground text-background"
-                : props.isCollapsed
-                  ? "bg-accent text-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-          />
-        }
-      >
-        <SubAgentCountIcon />
-        {props.count}
-      </TooltipTrigger>
-      <TooltipPopup side="bottom">
-        {props.holdsRoutedSubAgent
-          ? `${action} ${label} · the open conversation is one of them`
-          : `${action} ${label}`}
-      </TooltipPopup>
-    </Tooltip>
+    <TabFamilyPopover
+      title={`${props.familyTitle} sub-agents`}
+      trigger={
+        <button
+          type="button"
+          aria-label={triggerLabel}
+          data-sub-agent-count
+          data-active-tab={activeTab === undefined ? undefined : true}
+          className={cn(
+            "inline-flex h-[17px] shrink-0 cursor-pointer items-center gap-[3px] rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring",
+            activeTab === undefined
+              ? "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
+              : "bg-foreground text-background",
+          )}
+        >
+          <TabFamilyCountIcon />
+          {count}
+        </button>
+      }
+      items={props.tabs.map((tab) => ({
+        key: tab.key,
+        label: tab.title,
+        leading:
+          tab._tag === "thread" ? (
+            <StatusIndicator state={tab.state} size="size-1.5" />
+          ) : (
+            <SquarePenIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
+          ),
+        active: tab.isActive,
+        onSelect: () => props.onSelectTab(tab),
+      }))}
+    />
   );
 }
 
-/** The design's scatter of three dots — a fan-out, not a menu's ellipsis. */
-function SubAgentCountIcon() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      className="size-[9px] shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.4}
-      strokeLinecap="round"
-    >
-      <circle cx="6" cy="6" r="2.5" />
-      <circle cx="18" cy="18" r="2.5" />
-      <circle cx="6" cy="18" r="2.5" />
-    </svg>
-  );
-}
-
-function ConversationTabIdentity(props: {
-  readonly tab: ConversationTab;
-  readonly variant: "primary" | "subAgent";
-}) {
-  const compact = props.variant === "subAgent";
+function ConversationTabIdentity(props: { readonly tab: ConversationTab }) {
   return (
     <>
-      {compact ? <SubAgentElbowIcon /> : null}
       {props.tab._tag === "draft" ? (
-        <SquarePenIcon
-          aria-hidden
-          className={
-            compact
-              ? "size-2.5 shrink-0 text-muted-foreground/70"
-              : "size-3 shrink-0 text-muted-foreground/70"
-          }
-        />
+        <SquarePenIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
       ) : (
-        <StatusIndicator state={props.tab.state} size={compact ? "size-[5px]" : "size-1.5"} />
+        <StatusIndicator state={props.tab.state} size="size-1.5" />
       )}
-      <span className={cn("truncate", compact ? "max-w-32" : "max-w-44")}>{props.tab.title}</span>
+      <span className="max-w-44 truncate">{props.tab.title}</span>
     </>
-  );
-}
-
-/**
- * A sub-agent's tab: an elbow, a state dot, and a name, on the family's tray.
- *
- * Deliberately lighter than a tab shell — no surface of its own until it is the
- * routed conversation, and no archive control. A sub-agent is archived from the
- * run that spawned it, not from a chip the orchestrator is holding open.
- */
-function SubAgentTabChip(props: { readonly tab: ConversationTab; readonly onSelect: () => void }) {
-  const { tab } = props;
-  return (
-    <div
-      data-active-tab={tab.isActive}
-      data-testid={`conversation-tab-${tab.key}`}
-      data-sub-agent-tab
-      className={cn(
-        "group flex h-[30px] items-center gap-1.5 rounded-[10px] border pr-1 pl-1.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
-        tab.isActive ? "border-input bg-card" : "border-transparent hover:border-border",
-      )}
-    >
-      <button
-        type="button"
-        onClick={props.onSelect}
-        aria-current={tab.isActive ? "page" : undefined}
-        className={cn(
-          "flex h-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-          tab.isActive ? "font-medium text-foreground" : "text-muted-foreground",
-        )}
-      >
-        <ConversationTabIdentity tab={tab} variant="subAgent" />
-      </button>
-    </div>
-  );
-}
-
-/**
- * The tree elbow borrowed from the sidebar's family panel, turned sideways.
- *
- * Lucide's corner glyph carries an arrowhead, which reads as "go to" rather
- * than "descends from"; the line alone is the whole idea.
- */
-function SubAgentElbowIcon() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      className="size-2.5 shrink-0 text-muted-foreground/50"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-    >
-      <path d="M6 4v9a4 4 0 0 0 4 4h8" />
-    </svg>
   );
 }
 
@@ -341,15 +216,12 @@ function ConversationTabShell(props: {
   readonly onSelect: () => void;
   readonly onArchive?: (() => void) | undefined;
   readonly confirmArchive: boolean;
-  /** Inset by the family tray's 1px padding, so the outer edges still align. */
-  readonly banded?: boolean;
-  /** Present only for an orchestrator: the count chip that folds the tray. */
+  /** Present only for an orchestrator: the count chip that opens its picker. */
   readonly subAgents?:
     | {
-        readonly count: number;
-        readonly isCollapsed: boolean;
-        readonly holdsRoutedSubAgent: boolean;
-        readonly onToggle: () => void;
+        readonly familyTitle: string;
+        readonly tabs: readonly ConversationTab[];
+        readonly onSelectTab: (tab: ConversationTab) => void;
       }
     | undefined;
 }) {
@@ -367,7 +239,7 @@ function ConversationTabShell(props: {
       data-testid={`conversation-tab-${tab.key}`}
       className={cn(
         "flex shrink-0 items-center gap-1 border bg-card pr-1.5 pl-2.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid) [-webkit-app-region:no-drag]",
-        props.banded === true ? "h-[30px] rounded-[10px]" : "h-8 rounded-xl",
+        "h-8 rounded-xl",
         tab.isActive ? "border-input" : "border-border hover:border-input",
       )}
     >
@@ -380,15 +252,13 @@ function ConversationTabShell(props: {
           tab.isActive ? "font-semibold text-foreground" : "text-muted-foreground",
         )}
       >
-        <ConversationTabIdentity tab={tab} variant="primary" />
+        <ConversationTabIdentity tab={tab} />
       </button>
       {props.subAgents === undefined ? null : (
         <SubAgentCountChip
-          count={props.subAgents.count}
-          isCollapsed={props.subAgents.isCollapsed}
-          holdsRoutedSubAgent={props.subAgents.holdsRoutedSubAgent}
-          onToggle={props.subAgents.onToggle}
-          familyTitle={tab.title}
+          familyTitle={props.subAgents.familyTitle}
+          tabs={props.subAgents.tabs}
+          onSelectTab={props.subAgents.onSelectTab}
         />
       )}
       {props.onArchive === undefined ? null : isConfirmingArchive ? (

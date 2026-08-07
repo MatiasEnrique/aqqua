@@ -16,9 +16,7 @@ import {
   reorderWorktrees,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
-  retainCollapsedConversationTabFamilies,
   setOpenConversationTabKeys,
-  toggleCollapsedConversationTabFamily,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -34,7 +32,6 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     activeWorktreeOverrideKey: null,
     openConversationTabKeys: [],
-    collapsedConversationTabFamilyKeys: [],
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -269,7 +266,6 @@ describe("parsePersistedState", () => {
       },
       activeWorktreeOverrideKey: null,
       openConversationTabKeys: [],
-      collapsedConversationTabFamilyKeys: [],
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -296,19 +292,14 @@ describe("parsePersistedState", () => {
   });
 
   it("replaces the open tab set only when its order or membership changes", () => {
-    const state = makeUiState({
-      openConversationTabKeys: ["a", "b"],
-      collapsedConversationTabFamilyKeys: ["a"],
-    });
+    const state = makeUiState({ openConversationTabKeys: ["a", "b"] });
 
     expect(setOpenConversationTabKeys(state, ["a", "b"])).toBe(state);
     const reordered = setOpenConversationTabKeys(state, ["b", "a"]);
     expect(reordered.openConversationTabKeys).toEqual(["b", "a"]);
-    expect(reordered.collapsedConversationTabFamilyKeys).toEqual(["a"]);
 
     const removed = setOpenConversationTabKeys(state, ["b"]);
     expect(removed.openConversationTabKeys).toEqual(["b"]);
-    expect(removed.collapsedConversationTabFamilyKeys).toEqual([]);
   });
 
   it("ignores changed-file expansion values saved with legacy folder semantics", () => {
@@ -446,7 +437,6 @@ describe("uiStateStore persistence", () => {
     expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
       activeWorktreeOverrideKey: null,
       openConversationTabKeys: [],
-      collapsedConversationTabFamilyKeys: [],
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
@@ -574,32 +564,5 @@ describe("uiStateStore persistence", () => {
     expect(loaded.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
     expect(loaded.activeWorktreeOverrideKey).toBeNull();
     expect(loaded.openConversationTabKeys).toEqual([]);
-  });
-});
-
-describe("collapsed conversation tab families", () => {
-  it("folds a family away and unfolds it again", () => {
-    const collapsed = toggleCollapsedConversationTabFamily(makeUiState(), "env:parent");
-    expect(collapsed.collapsedConversationTabFamilyKeys).toEqual(["env:parent"]);
-
-    expect(
-      toggleCollapsedConversationTabFamily(collapsed, "env:parent")
-        .collapsedConversationTabFamilyKeys,
-    ).toEqual([]);
-  });
-
-  it("forgets the collapse once the orchestrator's tab is gone", () => {
-    const state = makeUiState({ collapsedConversationTabFamilyKeys: ["env:gone", "env:kept"] });
-
-    expect(
-      retainCollapsedConversationTabFamilies(state, new Set(["env:kept"]))
-        .collapsedConversationTabFamilyKeys,
-    ).toEqual(["env:kept"]);
-  });
-
-  it("leaves state untouched when every collapse still has its tab", () => {
-    const state = makeUiState({ collapsedConversationTabFamilyKeys: ["env:kept"] });
-
-    expect(retainCollapsedConversationTabFamilies(state, new Set(["env:kept"]))).toBe(state);
   });
 });

@@ -167,50 +167,6 @@ export interface ConversationTabSource {
 }
 
 /**
- * A family as the strip actually draws it, once collapse is taken into account.
- *
- * `children` is what renders; `subAgentCount` is what the count chip says. They
- * differ while collapsed, which is the entire point of the chip.
- */
-export interface ConversationTabFamilyDisplay extends ConversationTabFamily {
-  readonly subAgentCount: number;
-  readonly isCollapsed: boolean;
-  /**
-   * The routed conversation is one of the sub-agents this family folded away.
-   *
-   * The count chip wears this, so a collapsed family still says which strip
-   * entry the transcript belongs to. Without it the strip would claim you are
-   * looking at nothing, and finding your way back would mean expanding families
-   * until one turned out to hold the thread you are reading.
-   */
-  readonly holdsRoutedSubAgent: boolean;
-}
-
-/**
- * Folds collapsed families down to their count chip.
- *
- * Collapsing folds away every sub-agent, the routed one included: the fold is
- * the user's call, and exempting whichever thread they happen to be reading
- * made the control refuse to work on exactly the family they were working in.
- * The chip carries the routed state instead of the child keeping a tab.
- */
-export function resolveConversationTabFamilyDisplays(input: {
-  readonly tabs: readonly ConversationTab[];
-  readonly collapsedKeys: ReadonlySet<string>;
-}): ConversationTabFamilyDisplay[] {
-  return groupConversationTabFamilies(input.tabs).map((family) => {
-    const isCollapsed = family.children.length > 0 && input.collapsedKeys.has(family.key);
-    return {
-      ...family,
-      subAgentCount: family.children.length,
-      isCollapsed,
-      holdsRoutedSubAgent: isCollapsed && family.children.some((child) => child.isActive),
-      children: isCollapsed ? [] : family.children,
-    };
-  });
-}
-
-/**
  * The strip's contents: the order the tabs were opened, with each sub-agent
  * pulled up to sit directly after the orchestrator that spawned it.
  *

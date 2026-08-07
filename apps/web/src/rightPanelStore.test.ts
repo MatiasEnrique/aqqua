@@ -6,12 +6,7 @@ import {
 import { type EnvironmentId, ThreadId } from "@aqqua/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import {
-  panelOwnerKey,
-  threadPanelOwner,
-  workspacePanelOwner,
-  type PanelOwner,
-} from "./panelOwner";
+import { panelOwnerKey, threadPanelOwner, workspacePanelOwner } from "./panelOwner";
 import {
   migratePersistedRightPanelState,
   rightPanelOwnerForKind,
@@ -436,7 +431,7 @@ describe("rightPanelStore", () => {
 
   it("does not collide thread and workspace storage buckets for the same environment", () => {
     useRightPanelStore.getState().open(refA, "plan");
-    useRightPanelStore.getState().open(workspaceOwner, "diff");
+    useRightPanelStore.getState().open(workspaceOwner, "history");
 
     const byThreadKey = useRightPanelStore.getState().byThreadKey;
     const threadKey = panelOwnerKey(refA);
@@ -444,7 +439,7 @@ describe("rightPanelStore", () => {
 
     expect(Object.keys(byThreadKey).sort()).toEqual([threadKey, workspaceKey].sort());
     expect(byThreadKey[threadKey]?.surfaces.map((surface) => surface.kind)).toEqual(["plan"]);
-    expect(byThreadKey[workspaceKey]?.surfaces.map((surface) => surface.kind)).toEqual(["diff"]);
+    expect(byThreadKey[workspaceKey]?.surfaces.map((surface) => surface.kind)).toEqual(["history"]);
     expect(selectThreadRightPanelState(byThreadKey, refA).surfaces).toHaveLength(1);
     expect(selectThreadRightPanelState(byThreadKey, workspaceOwner).surfaces).toHaveLength(1);
   });
@@ -497,11 +492,9 @@ describe("rightPanelStore", () => {
     const terminalOwner = rightPanelOwnerForKind(context, "terminal");
 
     expect(planOwner).toEqual({ type: "thread", threadRef: refA });
-    expect(diffOwner).toEqual({ type: "workspace", workspaceRef });
+    expect(diffOwner).toEqual({ type: "thread", threadRef: refA });
     expect(terminalOwner).toEqual({ type: "workspace", workspaceRef });
-    expect((diffOwner as PanelOwner & { type: "workspace" }).workspaceRef).not.toHaveProperty(
-      "threadId",
-    );
+    expect(diffOwner).not.toHaveProperty("workspaceRef");
   });
 
   it("tracks split panes and the active pane within a terminal surface", () => {
@@ -647,8 +640,8 @@ describe("rightPanelStore", () => {
     ).toEqual(["terminal:term-1", "browser:tab-b", "browser:tab-c"]);
   });
 
-  it("shares workspace surfaces while keeping plan and browser surfaces per thread", () => {
-    useRightPanelStore.getState().open(workspaceOwner, "diff");
+  it("shares workspace surfaces while keeping plan, Diff, and browser surfaces per thread", () => {
+    useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().openFile(workspaceOwner, "src/index.ts");
     useRightPanelStore.getState().open(refA, "plan");
 
@@ -661,13 +654,49 @@ describe("rightPanelStore", () => {
       workspaceRef,
     });
 
-    expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff", "files"]);
-    expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["diff", "files"]);
+    expect(stateA.surfaces.map((surface) => surface.kind)).toEqual(["diff", "plan", "files"]);
+    expect(stateB.surfaces.map((surface) => surface.kind)).toEqual(["files"]);
     expect(stateB.activeSurfaceId).toBe("files");
   });
 
-  it("is a pure derivation and allocates a fresh snapshot each call", () => {
+  it("does not open a thread's diff surface in sibling threads", () => {
+    const contextA = { threadRef: refA, workspaceRef };
+    const contextB = { threadRef: refB, workspaceRef };
+    const diffOwner = rightPanelOwnerForKind(contextA, "diff");
+
+    useRightPanelStore.getState().open(diffOwner, "diff");
+
+    expect(
+      selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, contextA),
+    ).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: "diff",
+    });
+    expect(
+      selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, contextB),
+    ).toMatchObject({
+      isOpen: false,
+      activeSurfaceId: null,
+    });
+  });
+
+  it("ignores a previously persisted workspace-owned Diff surface", () => {
     useRightPanelStore.getState().open(workspaceOwner, "diff");
+
+    expect(
+      selectRightPanelContextState(useRightPanelStore.getState().byThreadKey, {
+        threadRef: refA,
+        workspaceRef,
+      }),
+    ).toEqual({
+      isOpen: false,
+      activeSurfaceId: null,
+      surfaces: [],
+    });
+  });
+
+  it("is a pure derivation and allocates a fresh snapshot each call", () => {
+    useRightPanelStore.getState().open(refA, "diff");
     const byThreadKey = useRightPanelStore.getState().byThreadKey;
     const context = { threadRef: refA, workspaceRef };
 
@@ -688,7 +717,7 @@ describe("rightPanelStore", () => {
   it("ChatView-style byThreadKey subscription + local memo reaches a fixed point", () => {
     // Mirrors ChatView: subscribe to the stable record, derive the aggregate
     // snapshot with memoized deps (not inside a useSyncExternalStore selector).
-    useRightPanelStore.getState().open(workspaceOwner, "diff");
+    useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().open(refA, "plan");
 
     const context = { threadRef: refA, workspaceRef };
@@ -733,11 +762,12 @@ describe("rightPanelStore", () => {
     expect(third.rightPanelState).toBe(first.rightPanelState);
     expect(second.activeSurface).toBe(first.activeSurface);
     expect(first.activeSurface).toMatchObject({ id: "plan", kind: "plan" });
-    expect(first.rightPanelState.surfaces.map((surface) => surface.kind)).toEqual(["plan", "diff"]);
+    expect(first.rightPanelState.surfaces.map((surface) => surface.kind)).toEqual(["diff", "plan"]);
 
     // A real store write replaces byThreadKey and invalidates the memo once.
     // Close the thread plan so the workspace surface becomes the active one.
     useRightPanelStore.getState().closeSurface(refA, "plan");
+    useRightPanelStore.getState().close(refA);
     useRightPanelStore.getState().open(workspaceOwner, "history");
     const afterUpdate = render();
     const afterUpdateAgain = render();
@@ -781,20 +811,17 @@ describe("rightPanelStore", () => {
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.map(
         (surface) => surface.kind,
       ),
-    ).toEqual(["plan"]);
+    ).toEqual(["plan", "diff"]);
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceOwner)
         .surfaces,
-    ).toMatchObject([
-      { kind: "diff" },
-      { kind: "terminal", originThreadId: "thread-A", terminalIds: ["term-1"] },
-    ]);
+    ).toMatchObject([{ kind: "terminal", originThreadId: "thread-A", terminalIds: ["term-1"] }]);
 
     useRightPanelStore.getState().close(workspaceOwner);
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceOwner)
         .surfaces,
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     useRightPanelStore.getState().show(workspaceOwner);
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, workspaceOwner).isOpen,
@@ -823,8 +850,8 @@ describe("rightPanelStore", () => {
       workspaceRef,
     };
     const store = useRightPanelStore.getState();
-    store.open(workspaceOwner, "diff");
-    store.close(workspaceOwner);
+    store.open(refA, "diff");
+    store.close(refA);
     store.open(refA, "plan");
 
     store.hideContext(context);
@@ -834,8 +861,8 @@ describe("rightPanelStore", () => {
       expect.objectContaining({
         isOpen: false,
         surfaces: [
-          expect.objectContaining({ kind: "plan" }),
           expect.objectContaining({ kind: "diff" }),
+          expect.objectContaining({ kind: "plan" }),
         ],
       }),
     );

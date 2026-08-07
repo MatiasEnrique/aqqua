@@ -201,9 +201,10 @@ for the previous step's file, `${artifact:Step name}` for any earlier one.
 Opening a card replaces the regular conversation tabs with one tab per flow
 step. Every step stays visible; future steps are muted and become interactive
 only when the card reaches them. Spawned sub-agents and completed artifacts
-expand beside their owning step in the same family-tray style as conversation
-tabs, and the count chip folds or reveals those details. This keeps the chat
-full-width without creating conversations early or adding another sidebar.
+stay behind the numbered control on their owning step. The control opens a
+bounded detail popover instead of expanding the tab strip, so runs
+with many sub-agents and artifacts remain compact. This keeps the chat full-width
+without creating conversations early or adding another sidebar.
 Artifacts are not shown as drafts while the agent is still working. You can
 edit a finished artifact in place; edits made while a card is paused are exactly
 what the next step reads.
