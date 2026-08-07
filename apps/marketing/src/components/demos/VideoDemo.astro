@@ -1,4 +1,6 @@
 ---
+import DemoMediaFrame from "./DemoMediaFrame.astro";
+
 /**
  * Captured product footage, played only while it is near the viewport.
  *
@@ -9,7 +11,7 @@
  * and the section keeps its zero CLS.
  */
 interface Props {
-  /** WebM source, e.g. "/demos/flows.webm". */
+  /** WebM source, e.g. "/demos/orchestration.webm". */
   webm: string;
   /** MP4 source preferred for its smaller total payload and hardware decode. */
   mp4: string;
@@ -25,45 +27,18 @@ interface Props {
 const { webm, mp4, poster, width, height, class: className } = Astro.props;
 ---
 
-<div class:list={["dm", "dm-media", className]} data-demo aria-hidden="true">
-  <div class="dm-media-frame">
-    <video
-      class="dm-media-el"
-      poster={poster}
-      width={width}
-      height={height}
-      preload="none"
-      muted
-      playsinline
-      disablepictureinpicture
-    >
-      <source src={mp4} type="video/mp4" />
-      <source src={webm} type="video/webm" />
-    </video>
-  </div>
-</div>
-
-<style>
-  .dm-media {
-    position: relative;
-    min-width: 0;
-    overflow: hidden;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-lg);
-    background: var(--aq-white-04);
-    user-select: none;
-  }
-
-  .dm-media-frame {
-    overflow: hidden;
-    border-radius: inherit;
-    line-height: 0;
-  }
-
-  .dm-media-el {
-    display: block;
-    width: 100%;
-    height: auto;
-    background: var(--aq-white-04);
-  }
-</style>
+<DemoMediaFrame class={className} playbackObserved={true}>
+  <video
+    class="dm-media-el"
+    poster={poster}
+    width={width}
+    height={height}
+    preload="none"
+    muted
+    playsinline
+    disablepictureinpicture
+  >
+    <source src={mp4} type="video/mp4" />
+    <source src={webm} type="video/webm" />
+  </video>
+</DemoMediaFrame>

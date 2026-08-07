@@ -1,42 +1,68 @@
 # Marketing product captures
 
-These scripts record the real Aqqua web client against an isolated, disposable
-environment. The repository, conversations, usage, CLI sessions, and pull
-request responses are fixtures; the browser interactions, application code,
-WebSocket commands, and rendered UI are the product itself.
+Shipping marketing assets must come from the real Aqqua client running against
+an isolated, disposable environment. Never point this harness at
+`~/.aqqua/userdata`, and never use an existing project as demo material.
 
-Raw Playwright recordings are intentionally separate from shipping assets:
+The current asset set uses one video and ten screenshots:
 
-1. `seed.ts` creates safe product data and throwaway Git repositories.
-2. `setup-phase-b.mjs` provides private, deterministic external-service inputs.
-3. `capture.mjs` drives actual Aqqua controls and writes raw WebM clips.
-4. Parallel lanes write to separate directories and `merge-captures.mjs` joins
-   them without a shared-manifest race.
-5. `../remotion` crops the declared product region, trims around interaction
-   beats, adds a subtle camera move and an end-to-start dissolve, and renders
-   WebM, MP4, and WebP assets into `apps/marketing/public/demos`.
+- `orchestration` is a real browser recording of a Claude parent thread running
+  `aqqua agent spawn`, with its actual Codex and pi children visible in the
+  sub-agent popover. The sibling `../remotion` project trims and encodes that
+  recording into MP4, WebM, and a WebP poster.
+- Every other demo is a direct screenshot of the running product. The Git
+  history, worktrees, thread tabs, flow, queue, project picker, provider/model
+  picker, usage ledger, and `/resume` session all came from real operations in
+  newly created demo repositories.
+- The pull-request screenshot uses the real Aqqua pull-request panel and real
+  commits from the disposable repository. `setup-capture-home.mjs` supplies the
+  external GitHub CLI boundary locally so capture never creates or mutates a
+  GitHub repository.
 
-Never point these scripts at `~/.aqqua`. Start the server once against a fresh
-base directory so migrations run, stop it before `seed.ts`, then restart it
-with the fake home and shims printed by `setup-phase-b.mjs`.
+Start with a fresh temporary base and create only the throwaway repositories:
 
-Install the standalone recorder once with `npm ci` from this directory. The
-seeder canonicalizes its disposable base path before writing workspace and CLI
-session fixtures, so macOS's `/tmp` to `/private/tmp` alias cannot make a real
-resume-session lookup miss its cwd-keyed transcript store.
+```console
+node scripts/marketing-capture/seed.ts --base-dir <temporary-base> --repos-only
+```
 
-`capture.mjs` accepts `--only slug,slug`, `--output-dir <lane-dir>`, and
-`--pair-only`. The server and web ports must always come from the current
-`[dev-runner]` line; do not assume the defaults.
+Before the first server start, install the capture shims:
 
-After merging the raw lanes, render from the sibling project:
+```console
+node scripts/marketing-capture/setup-capture-home.mjs \
+  --base-dir <temporary-base> \
+  --shims-only
+```
+
+Start the isolated server with the command it prints. Its shell keeps the Grok
+shim ahead of the real xAI CLI while preserving the inherited paths for the
+authenticated providers used in the real orchestration.
+
+Add the repositories as projects, then create the threads, worktrees, flow,
+queued turn, and agents through normal product commands. For Usage and
+`/resume`, run real CLI sessions from inside the demo repository. Stop the
+server, then prepare the capture-only HOME:
+
+```console
+node scripts/marketing-capture/setup-capture-home.mjs \
+  --base-dir <temporary-base> \
+  --source-home "$HOME"
+```
+
+The full setup copies only Claude and Codex transcripts whose recorded cwd is
+inside the disposable base. Restart using the HOME, SHELL, and PATH it prints.
+Read the server and web ports from the current `[dev-runner]` line rather than
+assuming defaults.
+
+Render the real orchestration recording from the sibling project:
 
 ```console
 cd ../remotion
-DEMO_CAPTURE_DIR=../aqqua/scripts/marketing-capture/raw \
+DEMO_CAPTURE_DIR=../aqqua/scripts/marketing-capture/raw-real \
 DEMO_OUTPUT_DIR=../aqqua/apps/marketing/public/demos \
 npm run demo:render
 ```
 
-Do not use `npm run demo:synthetic` for anything that ships. That command exists
-only to develop the Remotion composition before real footage is available.
+The older projection seeding mode (`seed.ts` without `--repos-only`) and
+`capture.mjs` remain useful for developing capture choreography. They are
+fixtures and must not be used for assets that ship. Likewise, never ship output
+from `npm run demo:synthetic`.

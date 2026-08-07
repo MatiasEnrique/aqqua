@@ -1,0 +1,28 @@
+---
+import DemoMediaFrame from "./DemoMediaFrame.astro";
+
+interface Props {
+  /** Captured product screenshot, e.g. "/demos/git-graph.webp". */
+  src: string;
+  /** Intrinsic pixel width of the capture. */
+  width: number;
+  /** Intrinsic pixel height of the capture. */
+  height: number;
+  class?: string;
+}
+
+const { src, width, height, class: className } = Astro.props;
+---
+
+<DemoMediaFrame class={className}>
+  <img
+    class="dm-media-el"
+    src={src}
+    width={width}
+    height={height}
+    alt=""
+    loading="lazy"
+    decoding="async"
+    draggable="false"
+  />
+</DemoMediaFrame>

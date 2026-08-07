@@ -1,90 +1,71 @@
 {
   "agent-models": {
-    "mp4": "agent-models.mp4",
-    "webm": "agent-models.webm",
-    "poster": "agent-models.webp",
-    "width": 2094,
-    "height": 1444,
-    "durationSeconds": 5.7
+    "kind": "image",
+    "src": "agent-models.webp",
+    "width": 2560,
+    "height": 1600
   },
   "flows": {
-    "mp4": "flows.mp4",
-    "webm": "flows.webm",
-    "poster": "flows.webp",
-    "width": 2200,
-    "height": 1516,
-    "durationSeconds": 4.87
+    "kind": "image",
+    "src": "flows.webp",
+    "width": 2560,
+    "height": 1600
   },
   "git-graph": {
-    "mp4": "git-graph.mp4",
-    "webm": "git-graph.webm",
-    "poster": "git-graph.webp",
-    "width": 2200,
-    "height": 1516,
-    "durationSeconds": 4.9
+    "kind": "image",
+    "src": "git-graph.webp",
+    "width": 2560,
+    "height": 1600
   },
   "message-queue": {
-    "mp4": "message-queue.mp4",
-    "webm": "message-queue.webm",
-    "poster": "message-queue.webp",
-    "width": 1788,
-    "height": 1004,
-    "durationSeconds": 4.93
+    "kind": "image",
+    "src": "message-queue.webp",
+    "width": 2560,
+    "height": 1600
   },
   "orchestration": {
+    "kind": "video",
     "mp4": "orchestration.mp4",
     "webm": "orchestration.webm",
     "poster": "orchestration.webp",
     "width": 2200,
     "height": 1518,
-    "durationSeconds": 7.13
+    "durationSeconds": 10.1
   },
   "pi-agent": {
-    "mp4": "pi-agent.mp4",
-    "webm": "pi-agent.webm",
-    "poster": "pi-agent.webp",
-    "width": 2094,
-    "height": 1444,
-    "durationSeconds": 3.73
+    "kind": "image",
+    "src": "pi-agent.webp",
+    "width": 2560,
+    "height": 1600
   },
   "project-scope": {
-    "mp4": "project-scope.mp4",
-    "webm": "project-scope.webm",
-    "poster": "project-scope.webp",
-    "width": 1590,
-    "height": 1096,
-    "durationSeconds": 5.4
+    "kind": "image",
+    "src": "project-scope.webp",
+    "width": 2560,
+    "height": 1600
   },
   "pull-request": {
-    "mp4": "pull-request.mp4",
-    "webm": "pull-request.webm",
-    "poster": "pull-request.webp",
-    "width": 2200,
-    "height": 1516,
-    "durationSeconds": 5.07
+    "kind": "image",
+    "src": "pull-request.webp",
+    "width": 2560,
+    "height": 1600
   },
   "resume-cli": {
-    "mp4": "resume-cli.mp4",
-    "webm": "resume-cli.webm",
-    "poster": "resume-cli.webp",
-    "width": 1876,
-    "height": 1058,
-    "durationSeconds": 4.03
+    "kind": "image",
+    "src": "resume-cli.webp",
+    "width": 2560,
+    "height": 1600
   },
   "usage": {
-    "mp4": "usage.mp4",
-    "webm": "usage.webm",
-    "poster": "usage.webp",
-    "width": 2200,
-    "height": 1518,
-    "durationSeconds": 3.7
+    "kind": "image",
+    "src": "usage.webp",
+    "width": 2560,
+    "height": 1600
   },
   "worktree-tabs": {
-    "mp4": "worktree-tabs.mp4",
-    "webm": "worktree-tabs.webm",
-    "poster": "worktree-tabs.webp",
-    "width": 1922,
-    "height": 1184,
-    "durationSeconds": 5.5
+    "kind": "image",
+    "src": "worktree-tabs.webp",
+    "width": 2560,
+    "height": 1600
   }
 }

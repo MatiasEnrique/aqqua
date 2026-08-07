@@ -1,0 +1,44 @@
+---
+interface Props {
+  /** Marks the frame for the shared video visibility observer. */
+  playbackObserved?: boolean;
+  class?: string;
+}
+
+const { playbackObserved = false, class: className } = Astro.props;
+---
+
+<div
+  class:list={["dm", "dm-media", className]}
+  data-demo={playbackObserved ? "" : undefined}
+  aria-hidden="true"
+>
+  <div class="dm-media-frame">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .dm-media {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-lg);
+    background: var(--aq-white-04);
+    user-select: none;
+  }
+
+  .dm-media-frame {
+    overflow: hidden;
+    border-radius: inherit;
+    line-height: 0;
+  }
+
+  .dm-media-frame :global(.dm-media-el) {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--aq-white-04);
+  }
+</style>

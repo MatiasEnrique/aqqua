@@ -1,9 +1,12 @@
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off - Host-side capture fixture creates isolated repositories outside the server runtime.
 // Marketing demo seeder for an ISOLATED aqqua base dir.
 //
-// Creates a fictional `acme-api` git repository (with branches, a merge
-// history and linked worktrees) under `<base-dir>/workspace`, then seeds the
-// projection tables of `<base-dir>/userdata/state.sqlite` so the web UI shows
-// believable in-flight work without spawning any real agent:
+// `--repos-only` creates new throwaway Git repositories and stops. This is the
+// shipping-capture path: projects, threads, worktrees, agents, and flows are
+// then created through real Aqqua commands.
+//
+// Without `--repos-only`, the script also seeds projection tables in
+// `<base-dir>/userdata/state.sqlite` for capture-choreography development:
 //
 //   - one project (`acme-api`) on the throwaway repo
 //   - three worktree threads: one running, one needing input, one merged+settled
@@ -13,7 +16,7 @@
 //   - three queued messages on the running turn
 //   - 42+ days of usage rollup rows for the heatmap
 //
-// Usage:  node scripts/marketing-capture/seed.ts --base-dir /tmp/aqqua-capture.XXXXXX
+// Usage:  node scripts/marketing-capture/seed.ts --base-dir /tmp/aqqua-capture.XXXXXX [--repos-only]
 //
 // Safety: refuses to touch ~/.aqqua. Stop the dev server before running if you
 // want a guaranteed-quiet write, though the busy timeout makes concurrent
@@ -31,6 +34,7 @@ const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 
 const baseDirFlagIndex = process.argv.indexOf("--base-dir");
 const baseDir = baseDirFlagIndex === -1 ? null : process.argv[baseDirFlagIndex + 1];
+const reposOnly = process.argv.includes("--repos-only");
 if (!baseDir) {
   console.error("Usage: node scripts/marketing-capture/seed.ts --base-dir <isolated-base-dir>");
   process.exit(1);
@@ -881,6 +885,8 @@ function seedDatabase(now: number): void {
 const now = Date.now();
 await buildRepository();
 await buildWebRepository();
-seedDatabase(now);
-console.log(`Seeded ${DB_PATH}`);
+if (!reposOnly) {
+  seedDatabase(now);
+  console.log(`Seeded ${DB_PATH}`);
+}
 console.log(`Demo repository at ${REPO_ROOT}`);

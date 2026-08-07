@@ -33,6 +33,8 @@ dist-electron/
 apps/mobile/.showcase/
 artifacts/app-store/screenshots/
 scripts/marketing-capture/raw/
+scripts/marketing-capture/raw-real/
+scripts/marketing-capture/stills-real/
 native/**/target/
 node_modules/
 .alchemy/

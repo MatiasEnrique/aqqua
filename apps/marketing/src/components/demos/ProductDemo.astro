@@ -1,5 +1,6 @@
 ---
 import captureManifest from "../../../public/demos/manifest.json";
+import ScreenshotDemo from "./ScreenshotDemo.astro";
 import VideoDemo from "./VideoDemo.astro";
 
 interface Props {
@@ -7,13 +8,23 @@ interface Props {
   readonly class?: string;
 }
 
-interface DemoAsset {
+interface ImageDemoAsset {
+  readonly kind: "image";
+  readonly src: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+interface VideoDemoAsset {
+  readonly kind: "video";
   readonly webm: string;
   readonly mp4: string;
   readonly poster: string;
   readonly width: number;
   readonly height: number;
 }
+
+type DemoAsset = ImageDemoAsset | VideoDemoAsset;
 
 const { slug, class: className } = Astro.props;
 const asset = (captureManifest as Record<string, DemoAsset>)[slug];
@@ -23,11 +34,22 @@ if (!asset) {
 }
 ---
 
-<VideoDemo
-  webm={`/demos/${asset.webm}`}
-  mp4={`/demos/${asset.mp4}`}
-  poster={`/demos/${asset.poster}`}
-  width={asset.width}
-  height={asset.height}
-  class={className}
-/>
+{
+  asset.kind === "video" ? (
+    <VideoDemo
+      webm={`/demos/${asset.webm}`}
+      mp4={`/demos/${asset.mp4}`}
+      poster={`/demos/${asset.poster}`}
+      width={asset.width}
+      height={asset.height}
+      class={className}
+    />
+  ) : (
+    <ScreenshotDemo
+      src={`/demos/${asset.src}`}
+      width={asset.width}
+      height={asset.height}
+      class={className}
+    />
+  )
+}

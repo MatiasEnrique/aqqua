@@ -1,32 +1,38 @@
-// Phase-B environment for the captures that cannot run against live services:
+// Isolated environment for captures that depend on CLI state:
 //
 //   pull-request — the PR panel shells out to the `gh` CLI; a real call would
 //     need a real GitHub repo. A `gh` shim on the server's PATH answers every
-//     subcommand aqqua uses with a fictional PR (#52, checks resolving).
+//     subcommand aqqua uses with deterministic data for the disposable repo.
 //   usage — the heatmap needs `usage.scanEnabled`; the scanner reads
-//     `$HOME/.claude` and `$HOME/.codex`. A fake HOME keeps the user's real
-//     CLI logs (real repo paths!) out of the isolated database, and a fake
-//     Codex rollout cold-seeds the Codex rate-limit gauge.
+//     `$HOME/.claude` and `$HOME/.codex`. A capture-only HOME receives only
+//     genuine transcripts whose cwd points inside the disposable demo base.
 //   resume-cli — the /resume picker lists Claude CLI sessions from
-//     `$HOME/.claude/projects`; fake HOME + fictional session transcripts
-//     keep the user's real conversations out of frame.
+//     `$HOME/.claude/projects`; the same filtering exposes the genuine demo
+//     project's interactive Claude session without exposing other projects.
 //   (bonus) a `scutil` shim renames the environment label so the machine's
 //     real ComputerName never appears in a capture.
 //
-// Usage:  node scripts/marketing-capture/setup-phase-b.mjs --base-dir <dir>
+// Usage:  node scripts/marketing-capture/setup-capture-home.mjs --base-dir <dir> [--source-home <dir>] [--shims-only]
 //
-// Then RESTART the dev server with the shims and fake HOME (see README):
-//   HOME=<base>/fake-home PATH=<base>/shims:$PATH pnpm exec vp run dev --home-dir <base>
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { randomUUID } from "node:crypto";
+// Then restart the dev server with the shims and capture HOME (see README):
+//   HOME=<base>/capture-home PATH=<base>/shims:$PATH pnpm exec vp run dev --home-dir <base>
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+const fs = NodeFSP;
+const os = NodeOS;
+const path = NodePath;
 
 const baseDirFlagIndex = process.argv.indexOf("--base-dir");
 const baseDir = baseDirFlagIndex === -1 ? null : process.argv[baseDirFlagIndex + 1];
+const sourceHomeFlagIndex = process.argv.indexOf("--source-home");
+const sourceHome =
+  sourceHomeFlagIndex === -1 ? os.homedir() : process.argv[sourceHomeFlagIndex + 1];
+const shimsOnly = process.argv.includes("--shims-only");
 if (!baseDir) {
   console.error(
-    "Usage: node scripts/marketing-capture/setup-phase-b.mjs --base-dir <isolated-base-dir>",
+    "Usage: node scripts/marketing-capture/setup-capture-home.mjs --base-dir <isolated-base-dir> [--source-home <dir>] [--shims-only]",
   );
   process.exit(1);
 }
@@ -41,17 +47,18 @@ if (BASE === sharedHome || BASE.startsWith(sharedHome + path.sep)) {
 }
 
 const SHIMS = path.join(BASE, "shims");
-const FAKE_HOME = path.join(BASE, "fake-home");
-const REPO_ROOT = path.join(BASE, "workspace", "acme-api");
+const CAPTURE_HOME = path.join(BASE, "capture-home");
+const CAPTURE_SHELL_PATH = path.join(SHIMS, "capture-zsh");
+const SOURCE_HOME = path.resolve(sourceHome);
 
 // ── gh shim ────────────────────────────────────────────────────
 // Answers exactly the calls apps/server/src/sourceControl/GitHubCli.ts makes.
-// The PR is entirely fictional. Checks: three done, one running, one queued —
-// the "resolving" state the pull-request capture wants on screen.
+// The PR boundary is deterministic because the disposable repo has no remote
+// GitHub state. Its commits and branch come from the real demo repository.
 
 const GH_SHIM = `#!/usr/bin/env node
-// Fake gh CLI for the aqqua marketing capture environment. Serves a fictional
-// pull request for the acme-api demo repo; never touches the network.
+// Local gh boundary for the aqqua marketing capture environment. It serves the
+// disposable repo's demo pull request and never touches the network.
 const args = process.argv.slice(2);
 const now = Date.now();
 const iso = (minutesAgo) => new Date(now - minutesAgo * 60_000).toISOString();
@@ -69,10 +76,10 @@ if (args[0] === "--version" || args[0] === "version") {
 
 const PR = {
   number: 52,
-  title: "Add webhook delivery retries",
+  title: "Add request metrics and service runbook",
   url: "https://github.com/acme-dev/acme-api/pull/52",
   baseRefName: "main",
-  headRefName: "feat/webhook-retries",
+  headRefName: "feat/ui-density",
   state: "OPEN",
   mergedAt: null,
   mergeable: "MERGEABLE",
@@ -82,16 +89,16 @@ const PR = {
   headRepositoryOwner: { login: "acme-dev" },
   updatedAt: iso(4),
   createdAt: iso(190),
-  body: "Webhook deliveries fired once and gave up. This adds a delivery queue, exponential backoff with jitter, and a dead-letter queue after the final attempt.\\n\\n- 500ms base delay, 60s cap\\n- \`X-Acme-Attempt\` header on every retry\\n- integration tests for the give-up path",
-  author: { login: "jordan-vale", name: "Jordan Vale" },
-  additions: 214,
-  deletions: 38,
+  body: "Adds lightweight request metrics and a focused service runbook produced by two delegated agents.\\n\\n- request counters by route and status\\n- latency totals for operational dashboards\\n- incident and rollback guidance",
+  author: { login: "demo-maintainer", name: "Demo Maintainer" },
+  additions: 40,
+  deletions: 0,
   comments: [
     {
       id: "C_kwDO52A",
       author: { login: "sam-oak" },
       authorAssociation: "MEMBER",
-      body: "Backoff table matches the docs now — nice. One question: should the dead-letter queue emit a webhook of its own?",
+      body: "The metrics stay deliberately small and the runbook is easy to follow. Nice split between the two agents.",
       createdAt: iso(95),
       includesCreatedEdit: false,
       isMinimized: false,
@@ -112,16 +119,16 @@ const PR = {
   ],
   commits: [
     {
-      oid: "7b62d40aa11",
-      messageHeadline: "Add webhook delivery queue",
+      oid: "66b0e57",
+      messageHeadline: "feat: add request metrics",
       messageBody: "",
       authoredDate: iso(180),
       committedDate: iso(180),
       authors: [{ login: "jordan-vale", name: "Jordan Vale", email: "jordan@acme.test" }],
     },
     {
-      oid: "8df4f53bb22",
-      messageHeadline: "Retry deliveries with exponential backoff",
+      oid: "da455ab",
+      messageHeadline: "docs: add service runbook",
       messageBody: "",
       authoredDate: iso(60),
       committedDate: iso(60),
@@ -186,7 +193,7 @@ if (args[0] === "pr" && args[1] === "list") {
   const fields = (flagValue("--json") ?? "").split(",");
   const head = flagValue("--head");
   if (head !== null) {
-    emit(head.includes("feat/webhook-retries") ? [pick(PR, fields)] : []);
+    emit(head.includes("feat/ui-density") ? [pick(PR, fields)] : []);
   }
   emit([pick(PR, fields), pick(OTHER_PR, fields)]);
 }
@@ -216,131 +223,103 @@ fi
 exit 0
 `;
 
-// ── Fictional Claude CLI sessions (for /resume) ────────────────
+// Provider discovery is unrelated to these captures. Make the isolated server
+// fail Grok discovery immediately so it never reaches the real xAI CLI.
+const GROK_SHIM = `#!/bin/sh
+exit 1
+`;
 
-function claudeProjectDirectoryName(cwd) {
-  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
+// Aqqua merges login-shell PATH ahead of its inherited PATH. This wrapper
+// disables shell profiles for the capture process so the Grok shim remains the
+// first resolvable executable while every other provider comes from the
+// inherited, already-authenticated environment.
+const CAPTURE_SHELL = `#!/bin/sh
+export PATH="${SHIMS}:$PATH"
+exec /bin/zsh -f "$@"
+`;
+
+async function copyFile(sourcePath, destinationPath) {
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fs.copyFile(sourcePath, destinationPath);
 }
 
-function claudeSessionLines(sessionId, minutesAgo, gitBranch, request, reply) {
-  const at = (offsetMinutes) =>
-    new Date(Date.now() - (minutesAgo - offsetMinutes) * 60_000).toISOString();
-  const common = {
-    sessionId,
-    cwd: REPO_ROOT,
-    gitBranch,
-    entrypoint: "cli",
-    isSidechain: false,
-    version: "2.1.0",
-  };
-  return (
-    [
-      {
-        ...common,
-        type: "user",
-        uuid: randomUUID(),
-        timestamp: at(0),
-        message: { role: "user", content: request },
-      },
-      {
-        ...common,
-        type: "assistant",
-        uuid: randomUUID(),
-        timestamp: at(2),
-        message: { role: "assistant", content: [{ type: "text", text: reply }] },
-      },
-      {
-        ...common,
-        type: "user",
-        uuid: randomUUID(),
-        timestamp: at(4),
-        message: { role: "user", content: "Looks good — keep the changes small." },
-      },
-      {
-        ...common,
-        type: "assistant",
-        uuid: randomUUID(),
-        timestamp: at(6),
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "Done. Two focused commits, tests pass." }],
-        },
-      },
-    ]
-      .map((line) => JSON.stringify(line))
-      .join("\n") + "\n"
-  );
+function parseJsonLines(contents) {
+  return contents
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    });
 }
 
-const CLAUDE_SESSIONS = [
-  {
-    minutesAgo: 70,
-    gitBranch: "main",
-    request: "Profile the orders endpoint — p95 crept past 400ms this week.",
-    reply: "The N+1 on customer lookups was the culprit. Batched it; p95 is back to 120ms locally.",
-  },
-  {
-    minutesAgo: 60 * 26,
-    gitBranch: "main",
-    request: "Sketch a pagination strategy for the orders list. Cursor or offset?",
-    reply:
-      "Cursor pagination keyed on (created_at, id) — stable under inserts and plays well with the CSV export cap.",
-  },
-  {
-    minutesAgo: 60 * 49,
-    gitBranch: "fix/timezone-drift",
-    request: "Why do the EU and US replicas disagree about yesterday's report totals?",
-    reply:
-      "They key reports by local server day. Moving the key to UTC day fixes the drift; drafting the patch now.",
-  },
-];
+function isDemoCwd(cwd) {
+  return typeof cwd === "string" && (cwd === BASE || cwd.startsWith(`${BASE}${path.sep}`));
+}
 
-// ── Fictional Codex rollout (cold-seeds the Codex gauge) ───────
+async function copyClaudeDemoSessions() {
+  const sourceProjects = path.join(SOURCE_HOME, ".claude", "projects");
+  const destinationProjects = path.join(CAPTURE_HOME, ".claude", "projects");
+  const demoPrefix = BASE.replace(/[^a-zA-Z0-9]/g, "-");
+  const entries = await fs.readdir(sourceProjects, { withFileTypes: true }).catch(() => []);
+  let copied = 0;
 
-function codexRolloutLines() {
-  const sessionId = randomUUID();
-  const nowMs = Date.now();
-  const at = (minutesAgo) => new Date(nowMs - minutesAgo * 60_000).toISOString();
-  const usage = {
-    input_tokens: 184_320,
-    cached_input_tokens: 512_760,
-    cache_write_input_tokens: 21_040,
-    output_tokens: 15_780,
-    reasoning_output_tokens: 6_120,
-  };
-  return (
-    [
-      {
-        type: "session_meta",
-        timestamp: at(50),
-        payload: { session_id: sessionId, cwd: REPO_ROOT, originator: "codex_cli_rs" },
-      },
-      { type: "turn_context", timestamp: at(49), payload: { model: "gpt-5.6-sol" } },
-      {
-        type: "event_msg",
-        timestamp: at(45),
-        payload: {
-          type: "token_count",
-          info: { total_token_usage: usage },
-          rate_limits: {
-            primary: {
-              used_percent: 38,
-              window_minutes: 300,
-              resets_at: Math.floor(nowMs / 1000) + 2.5 * 3600,
-            },
-            secondary: {
-              used_percent: 61,
-              window_minutes: 10_080,
-              resets_at: Math.floor(nowMs / 1000) + 4 * 24 * 3600,
-            },
-            plan_type: "Pro",
-          },
-        },
-      },
-    ]
-      .map((line) => JSON.stringify(line))
-      .join("\n") + "\n"
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(demoPrefix)) continue;
+    const sourceDirectory = path.join(sourceProjects, entry.name);
+    const files = await fs.readdir(sourceDirectory, { withFileTypes: true });
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
+      const sourcePath = path.join(sourceDirectory, file.name);
+      const contents = await fs.readFile(sourcePath, "utf8");
+      const cwd = parseJsonLines(contents).find((record) => isDemoCwd(record?.cwd))?.cwd;
+      if (!isDemoCwd(cwd)) continue;
+      await copyFile(sourcePath, path.join(destinationProjects, entry.name, file.name));
+      copied += 1;
+    }
+  }
+
+  return copied;
+}
+
+async function collectJsonlFiles(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await collectJsonlFiles(entryPath)));
+    else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(entryPath);
+  }
+  return files;
+}
+
+async function copyCodexDemoSessions() {
+  const now = new Date();
+  const sourceDay = path.join(
+    SOURCE_HOME,
+    ".codex",
+    "sessions",
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
   );
+  const files = await collectJsonlFiles(sourceDay);
+  let copied = 0;
+
+  for (const sourcePath of files) {
+    const contents = await fs.readFile(sourcePath, "utf8");
+    const sessionMeta = parseJsonLines(contents).find((record) => record?.type === "session_meta");
+    const cwd = sessionMeta?.payload?.cwd;
+    if (!isDemoCwd(cwd)) continue;
+    const relativePath = path.relative(SOURCE_HOME, sourcePath);
+    await copyFile(sourcePath, path.join(CAPTURE_HOME, relativePath));
+    copied += 1;
+  }
+
+  return copied;
 }
 
 // ── Write everything ───────────────────────────────────────────
@@ -349,55 +328,42 @@ function codexRolloutLines() {
 // disposable capture base validated above, and contains only fixtures created
 // by this script.
 await fs.rm(SHIMS, { recursive: true, force: true });
-await fs.rm(FAKE_HOME, { recursive: true, force: true });
 await fs.mkdir(SHIMS, { recursive: true });
 await fs.writeFile(path.join(SHIMS, "gh"), GH_SHIM, { mode: 0o755 });
 await fs.writeFile(path.join(SHIMS, "scutil"), SCUTIL_SHIM, { mode: 0o755 });
+await fs.writeFile(path.join(SHIMS, "grok"), GROK_SHIM, { mode: 0o755 });
+await fs.writeFile(CAPTURE_SHELL_PATH, CAPTURE_SHELL, { mode: 0o755 });
 
-// aqqua resolves CLI executables against a LOGIN-shell PATH capture
-// (packages/shared/src/shell.ts), not the server process env — so the fake
-// HOME's shell profile must prepend the shims, or the real gh/scutil win.
-await fs.mkdir(FAKE_HOME, { recursive: true });
-const profileLine = `export PATH="${SHIMS}:$PATH"\n`;
-await fs.writeFile(path.join(FAKE_HOME, ".zprofile"), profileLine);
-await fs.writeFile(path.join(FAKE_HOME, ".zshenv"), profileLine);
-await fs.writeFile(path.join(FAKE_HOME, ".bash_profile"), profileLine);
-
-const claudeProjectDir = path.join(
-  FAKE_HOME,
-  ".claude",
-  "projects",
-  claudeProjectDirectoryName(REPO_ROOT),
-);
-await fs.mkdir(claudeProjectDir, { recursive: true });
-for (const session of CLAUDE_SESSIONS) {
-  const sessionId = randomUUID();
-  await fs.writeFile(
-    path.join(claudeProjectDir, `${sessionId}.jsonl`),
-    claudeSessionLines(
-      sessionId,
-      session.minutesAgo,
-      session.gitBranch,
-      session.request,
-      session.reply,
-    ),
+if (shimsOnly) {
+  console.log(`Shims:         ${SHIMS}`);
+  console.log(`Capture shell: ${CAPTURE_SHELL_PATH}`);
+  console.log("");
+  console.log("Start the initial isolated server without exposing the real Grok CLI:");
+  console.log(
+    `  SHELL=${CAPTURE_SHELL_PATH} PATH=${SHIMS}:$PATH pnpm exec vp run dev --home-dir ${BASE}`,
   );
+  process.exit(0);
 }
 
-const day = new Date();
-const codexSessionsDir = path.join(
-  FAKE_HOME,
-  ".codex",
-  "sessions",
-  String(day.getFullYear()),
-  String(day.getMonth() + 1).padStart(2, "0"),
-  String(day.getDate()).padStart(2, "0"),
-);
-await fs.mkdir(codexSessionsDir, { recursive: true });
-await fs.writeFile(
-  path.join(codexSessionsDir, `rollout-${randomUUID()}.jsonl`),
-  codexRolloutLines(),
-);
+await fs.rm(CAPTURE_HOME, { recursive: true, force: true });
+
+// aqqua resolves CLI executables against a LOGIN-shell PATH capture
+// (packages/shared/src/shell.ts), not the server process env — so the capture
+// HOME's shell profile must prepend the shims, or the real gh/scutil win.
+await fs.mkdir(CAPTURE_HOME, { recursive: true });
+const profileLine = `export PATH="${SHIMS}:$PATH"\n`;
+await fs.writeFile(path.join(CAPTURE_HOME, ".zprofile"), profileLine);
+await fs.writeFile(path.join(CAPTURE_HOME, ".zshenv"), profileLine);
+await fs.writeFile(path.join(CAPTURE_HOME, ".bash_profile"), profileLine);
+
+const claudeSessionsCopied = await copyClaudeDemoSessions();
+const codexSessionsCopied = await copyCodexDemoSessions();
+if (claudeSessionsCopied === 0) {
+  throw new Error(`No real Claude sessions found for ${BASE}.`);
+}
+if (codexSessionsCopied === 0) {
+  throw new Error(`No real Codex sessions found for ${BASE}.`);
+}
 
 // Enable historical usage scanning so the heatmap renders. Merge-preserve any
 // existing settings.
@@ -408,12 +374,17 @@ try {
 } catch {
   // No settings yet.
 }
-settings.usage = { ...(settings.usage ?? {}), scanEnabled: true };
+settings.usage = { ...settings.usage, scanEnabled: true };
 await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 
 console.log(`Shims:      ${SHIMS}`);
-console.log(`Fake HOME:  ${FAKE_HOME}`);
+console.log(`Capture shell: ${CAPTURE_SHELL_PATH}`);
+console.log(`Capture HOME: ${CAPTURE_HOME}`);
+console.log(`Claude logs:  ${claudeSessionsCopied} real demo transcript(s)`);
+console.log(`Codex logs:   ${codexSessionsCopied} real demo rollout(s)`);
 console.log(`Settings:   ${settingsPath} (usage.scanEnabled=true)`);
 console.log("");
-console.log("Restart the dev server for phase B:");
-console.log(`  HOME=${FAKE_HOME} PATH=${SHIMS}:$PATH pnpm exec vp run dev --home-dir ${BASE}`);
+console.log("Restart the dev server for capture:");
+console.log(
+  `  HOME=${CAPTURE_HOME} SHELL=${CAPTURE_SHELL_PATH} PATH=${SHIMS}:$PATH pnpm exec vp run dev --home-dir ${BASE}`,
+);
