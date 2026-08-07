@@ -30,10 +30,10 @@ The header tab strip contains the open conversations and drafts for the selected
 Persisted conversation tabs have an **Archive** action; archiving a parent conversation archives
 its sub-agent tree, while draft tabs cannot be archived.
 
-An orchestrator and its open sub-agent conversations share one family tray. Use the numbered
-sub-agent control to collapse or expand that tray. When an open sub-agent is inside a collapsed
-family, the count control marks that the conversation being read is folded into it. Collapse state
-belongs to the current window and is forgotten when the orchestrator leaves the tab strip.
+An orchestrator keeps its open sub-agent conversations behind one numbered control. The control
+opens a bounded popover, so a large delegation tree does not expand the tab strip.
+When one of those sub-agents is open, the count control marks which family owns the conversation
+being read.
 
 Settled and snoozed conversations remain reachable through the header tabs and command palette.
 New activity wakes or un-settles a conversation according to its lifecycle rules.

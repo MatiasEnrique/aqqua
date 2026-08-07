@@ -38,6 +38,7 @@ export interface PersistedUiState {
   worktreeExpandedByKey?: Record<string, boolean>;
   activeWorktreeOverrideKey?: string | null;
   openConversationTabKeys?: string[];
+  /** @deprecated Ignored on read and omitted on write. Descendants now use popovers. */
   collapsedConversationTabFamilyKeys?: string[];
   /** @deprecated Ignored on read; never written. Tombstones are ephemeral request state. */
   removedWorktreeAtByKey?: Record<string, string>;
@@ -74,14 +75,6 @@ export interface UiThreadState {
    * pruned once every environment has bootstrapped.
    */
   openConversationTabKeys: string[];
-  /**
-   * The orchestrator tabs whose sub-agents are folded away into a count.
-   *
-   * Collapsed rather than expanded is the stored fact, so a family a user has
-   * never touched is open — a sub-agent that opened a tab is one the user is
-   * meant to see, and it should not need a click to become visible.
-   */
-  collapsedConversationTabFamilyKeys: string[];
 }
 
 export interface UiEndpointState {
@@ -98,7 +91,6 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   activeWorktreeOverrideKey: null,
   openConversationTabKeys: [],
-  collapsedConversationTabFamilyKeys: [],
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -181,9 +173,6 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         ? parsed.activeWorktreeOverrideKey
         : null,
     openConversationTabKeys: sanitizeStringArray(parsed.openConversationTabKeys),
-    collapsedConversationTabFamilyKeys: sanitizeStringArray(
-      parsed.collapsedConversationTabFamilyKeys,
-    ),
     // Legacy removedWorktreeAtByKey tombstones are intentionally dropped: hide
     // state after deleteWorktree is request-local, not a durable preference.
     threadChangedFilesExpandedById:
@@ -224,7 +213,7 @@ export function readPersistedState(): UiState {
 /** The strip's own state: this window's, not the shared preference blob's. */
 type WindowLocalUiState = Pick<
   PersistedUiState,
-  "activeWorktreeOverrideKey" | "openConversationTabKeys" | "collapsedConversationTabFamilyKeys"
+  "activeWorktreeOverrideKey" | "openConversationTabKeys"
 >;
 
 /**
@@ -255,9 +244,6 @@ function withWindowLocalState(state: UiState): UiState {
         ? parsed.activeWorktreeOverrideKey
         : null,
     openConversationTabKeys: sanitizeStringArray(parsed.openConversationTabKeys),
-    collapsedConversationTabFamilyKeys: sanitizeStringArray(
-      parsed.collapsedConversationTabFamilyKeys,
-    ),
   };
 }
 
@@ -316,7 +302,6 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         activeWorktreeOverrideKey: state.activeWorktreeOverrideKey,
         openConversationTabKeys: state.openConversationTabKeys,
-        collapsedConversationTabFamilyKeys: state.collapsedConversationTabFamilyKeys,
       } satisfies WindowLocalUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -410,44 +395,13 @@ export function setActiveWorktreeOverrideKey(state: UiState, key: string | null)
 
 export function setOpenConversationTabKeys(state: UiState, keys: readonly string[]): UiState {
   const next = [...keys];
-  const nextKeySet = new Set(next);
-  const collapsedConversationTabFamilyKeys = state.collapsedConversationTabFamilyKeys.filter(
-    (key) => nextKeySet.has(key),
-  );
   if (
     next.length === state.openConversationTabKeys.length &&
-    next.every((key, index) => key === state.openConversationTabKeys[index]) &&
-    collapsedConversationTabFamilyKeys.length === state.collapsedConversationTabFamilyKeys.length
+    next.every((key, index) => key === state.openConversationTabKeys[index])
   ) {
     return state;
   }
-  return { ...state, openConversationTabKeys: next, collapsedConversationTabFamilyKeys };
-}
-
-/**
- * Folds an orchestrator's sub-agents away, or unfolds them.
- *
- * Keyed by the orchestrator's tab key and pruned with the strip, so a family
- * that leaves and comes back arrives expanded rather than remembering a
- * collapse from a conversation that is no longer present.
- */
-export function toggleCollapsedConversationTabFamily(state: UiState, key: string): UiState {
-  const collapsed = state.collapsedConversationTabFamilyKeys;
-  return {
-    ...state,
-    collapsedConversationTabFamilyKeys: collapsed.includes(key)
-      ? collapsed.filter((candidate) => candidate !== key)
-      : [...collapsed, key],
-  };
-}
-
-export function retainCollapsedConversationTabFamilies(
-  state: UiState,
-  knownKeys: ReadonlySet<string>,
-): UiState {
-  const retained = state.collapsedConversationTabFamilyKeys.filter((key) => knownKeys.has(key));
-  if (retained.length === state.collapsedConversationTabFamilyKeys.length) return state;
-  return { ...state, collapsedConversationTabFamilyKeys: retained };
+  return { ...state, openConversationTabKeys: next };
 }
 
 export function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): UiState {
@@ -625,8 +579,6 @@ interface UiStateStore extends UiState {
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setActiveWorktreeOverrideKey: (key: string | null) => void;
   setOpenConversationTabKeys: (keys: readonly string[]) => void;
-  toggleCollapsedConversationTabFamily: (key: string) => void;
-  retainCollapsedConversationTabFamilies: (knownKeys: ReadonlySet<string>) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -651,10 +603,6 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setActiveWorktreeOverrideKey: (key) => set((state) => setActiveWorktreeOverrideKey(state, key)),
   setOpenConversationTabKeys: (keys) => set((state) => setOpenConversationTabKeys(state, keys)),
-  toggleCollapsedConversationTabFamily: (key) =>
-    set((state) => toggleCollapsedConversationTabFamily(state, key)),
-  retainCollapsedConversationTabFamilies: (knownKeys) =>
-    set((state) => retainCollapsedConversationTabFamilies(state, knownKeys)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>

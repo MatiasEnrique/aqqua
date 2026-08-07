@@ -1300,11 +1300,7 @@ function ChatViewContent(props: ChatViewProps) {
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const worktreeTabsHeader = surfaceTabs === undefined;
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
-  const {
-    tabs: conversationTabs,
-    collapsedFamilyKeys: collapsedConversationTabFamilyKeys,
-    toggleFamilyCollapsed: toggleConversationTabFamilyCollapsed,
-  } = useConversationTabs({
+  const { tabs: conversationTabs } = useConversationTabs({
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
@@ -1709,6 +1705,10 @@ function ChatViewContent(props: ChatViewProps) {
   const rightPanelWorkspaceOwner = useMemo(
     () => workspacePanelOwner(activeWorkspacePanelRef),
     [activeWorkspacePanelRef],
+  );
+  const rightPanelDiffOwner = useMemo(
+    () => (rightPanelContext ? rightPanelOwnerForKind(rightPanelContext, "diff") : null),
+    [rightPanelContext],
   );
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
@@ -2756,10 +2756,10 @@ function ChatViewContent(props: ChatViewProps) {
     if (!diffOpen) {
       onDiffPanelOpen?.();
     }
-    if (rightPanelWorkspaceOwner) {
-      useRightPanelStore.getState().toggle(rightPanelWorkspaceOwner, "diff");
+    if (rightPanelDiffOwner) {
+      useRightPanelStore.getState().toggle(rightPanelDiffOwner, "diff");
     }
-  }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelWorkspaceOwner]);
+  }, [diffOpen, diffSurfaceAvailable, onDiffPanelOpen, rightPanelDiffOwner]);
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -3331,13 +3331,13 @@ function ChatViewContent(props: ChatViewProps) {
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
+    if (!activeThreadRef || !rightPanelDiffOwner || !diffSurfaceAvailable) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
     const store = useRightPanelStore.getState();
     store.close(activeThreadRef);
-    store.open(rightPanelWorkspaceOwner, "diff");
+    store.open(rightPanelDiffOwner, "diff");
     onDiffPanelOpen?.();
   }, [
     activeThreadRef,
@@ -3345,7 +3345,7 @@ function ChatViewContent(props: ChatViewProps) {
     dismissPlanSidebarForCurrentTurn,
     onDiffPanelOpen,
     planSidebarOpen,
-    rightPanelWorkspaceOwner,
+    rightPanelDiffOwner,
   ]);
   const addHistorySurface = useCallback(() => {
     if (!activeThreadRef || !rightPanelWorkspaceOwner || !diffSurfaceAvailable) return;
@@ -6208,10 +6208,10 @@ function ChatViewContent(props: ChatViewProps) {
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
       useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
-      useRightPanelStore.getState().open(rightPanelWorkspaceOwner ?? activeThreadRef, "diff");
+      useRightPanelStore.getState().open(rightPanelDiffOwner ?? activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, isServerThread, onDiffPanelOpen, rightPanelWorkspaceOwner],
+    [activeThreadRef, isServerThread, onDiffPanelOpen, rightPanelDiffOwner],
   );
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.
@@ -6471,8 +6471,6 @@ function ChatViewContent(props: ChatViewProps) {
               confirmArchive={confirmThreadArchive}
               onNewThread={handleNewThreadInActiveWorktree}
               newThreadLabel={newConversationTabLabel}
-              collapsedFamilyKeys={collapsedConversationTabFamilyKeys}
-              onToggleFamilyCollapsed={toggleConversationTabFamilyCollapsed}
             />
           ) : null)}
 

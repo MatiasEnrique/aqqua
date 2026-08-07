@@ -1,6 +1,10 @@
 import { ThreadId } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { createTabFamilyPopoverMock } from "../TabFamilyPopover.test-utils";
+
+vi.mock("../TabFamilyPopover", () => createTabFamilyPopoverMock());
 
 import type { CardTreeModel } from "./CardDetail.logic";
 import { FlowStepTabs } from "./FlowStepTabs";
@@ -41,7 +45,16 @@ const model: CardTreeModel = {
       status: "working",
       threadId: ThreadId.make("thread-implement"),
       trailing: "28s",
-      leaves: [],
+      leaves: [
+        {
+          kind: "subagent",
+          stepIndex: 1,
+          threadId: ThreadId.make("thread-implement-code"),
+          title: "Implement the changes",
+          status: "working",
+          elapsed: "8s",
+        },
+      ],
     },
     {
       stepIndex: 2,
@@ -88,17 +101,38 @@ describe("FlowStepTabs", () => {
     expect(markup).toContain('data-active-flow-step="true"');
   });
 
-  it("expands step children in the same banded tray as conversation families", () => {
+  it("names the current leaf on its owning step trigger", () => {
+    const markup = renderToStaticMarkup(
+      <FlowStepTabs
+        model={model}
+        selection={{
+          kind: "subagent",
+          stepIndex: 0,
+          threadId: ThreadId.make("thread-plan-reviewer"),
+        }}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Open 2 details of Plan, current Review the plan"');
+    expect(markup).toContain(
+      'data-tab-family-popover-item="subagent:thread-plan-reviewer" aria-current="page"',
+    );
+  });
+
+  it("keeps step details out of the tab strip behind a compact picker", () => {
     const markup = renderToStaticMarkup(
       <FlowStepTabs model={model} selection={{ kind: "step", stepIndex: 0 }} onSelect={() => {}} />,
     );
 
-    expect(markup).toContain('data-flow-step-family="0"');
-    expect(markup).toContain("data-flow-step-leaf");
-    expect(markup).toContain("Review the plan");
-    expect(markup).toContain("Plan.md");
-    expect(markup).toContain('aria-label="Hide 2 details of Plan"');
-    expect(markup).toContain('aria-expanded="true"');
-    expect(markup).not.toContain('aria-label="Open Plan details"');
+    expect(markup).not.toContain("data-flow-step-family");
+    expect(markup).not.toContain("data-flow-step-leaf");
+    expect(markup).toContain('data-tab-family-popover-item="subagent:thread-plan-reviewer"');
+    expect(markup).toContain('data-tab-family-popover-item="artifact:0"');
+    expect(markup).toContain('data-tab-family-popover-item="subagent:thread-implement-code"');
+    expect(markup.match(/data-tab-family-popover(?!-item)/g) ?? []).toHaveLength(2);
+    expect(markup.match(/data-flow-step-count/g) ?? []).toHaveLength(2);
+    expect(markup).toContain('aria-label="Open 2 details of Plan"');
+    expect(markup).toContain('aria-label="Open 1 detail of Implement"');
   });
 });
