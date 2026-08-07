@@ -1,0 +1,69 @@
+---
+/**
+ * Captured product footage, played only while it is near the viewport.
+ *
+ * `preload="none"` keeps the bytes off the initial page load entirely; the
+ * shared observer in scripts/demos.ts calls play() when the demo enters the
+ * viewport, which is also what triggers the first fetch. The poster fills the
+ * box until then, and width/height are real attributes so the space is reserved
+ * and the section keeps its zero CLS.
+ */
+interface Props {
+  /** WebM source, e.g. "/demos/flows.webm". */
+  webm: string;
+  /** MP4 source preferred for its smaller total payload and hardware decode. */
+  mp4: string;
+  /** Poster still shown before playback and under prefers-reduced-motion. */
+  poster: string;
+  /** Intrinsic pixel width of the capture. */
+  width: number;
+  /** Intrinsic pixel height of the capture. */
+  height: number;
+  class?: string;
+}
+
+const { webm, mp4, poster, width, height, class: className } = Astro.props;
+---
+
+<div class:list={["dm", "dm-media", className]} data-demo aria-hidden="true">
+  <div class="dm-media-frame">
+    <video
+      class="dm-media-el"
+      poster={poster}
+      width={width}
+      height={height}
+      preload="none"
+      muted
+      playsinline
+      disablepictureinpicture
+    >
+      <source src={mp4} type="video/mp4" />
+      <source src={webm} type="video/webm" />
+    </video>
+  </div>
+</div>
+
+<style>
+  .dm-media {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-lg);
+    background: var(--aq-white-04);
+    user-select: none;
+  }
+
+  .dm-media-frame {
+    overflow: hidden;
+    border-radius: inherit;
+    line-height: 0;
+  }
+
+  .dm-media-el {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--aq-white-04);
+  }
+</style>

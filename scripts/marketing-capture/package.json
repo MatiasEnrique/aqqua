@@ -1,0 +1,9 @@
+{
+  "name": "marketing-capture",
+  "private": true,
+  "description": "Standalone harness that records aqqua feature demos for the marketing site. Not part of the pnpm workspace (see pnpm-workspace.yaml: only `scripts` itself is a package); install with `npm ci` in this directory.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

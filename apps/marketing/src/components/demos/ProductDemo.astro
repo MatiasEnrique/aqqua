@@ -1,0 +1,33 @@
+---
+import captureManifest from "../../../public/demos/manifest.json";
+import VideoDemo from "./VideoDemo.astro";
+
+interface Props {
+  readonly slug: string;
+  readonly class?: string;
+}
+
+interface DemoAsset {
+  readonly webm: string;
+  readonly mp4: string;
+  readonly poster: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+const { slug, class: className } = Astro.props;
+const asset = (captureManifest as Record<string, DemoAsset>)[slug];
+
+if (!asset) {
+  throw new Error(`Missing rendered marketing demo asset for "${slug}".`);
+}
+---
+
+<VideoDemo
+  webm={`/demos/${asset.webm}`}
+  mp4={`/demos/${asset.mp4}`}
+  poster={`/demos/${asset.poster}`}
+  width={asset.width}
+  height={asset.height}
+  class={className}
+/>

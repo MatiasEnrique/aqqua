@@ -1,0 +1,64 @@
+---
+interface Props {
+  readonly id?: string;
+  readonly title: string;
+  readonly body: string;
+}
+
+const { id, title, body } = Astro.props;
+---
+
+<div class="feature-card" id={id}>
+  <div class="feature-card-demo">
+    <slot />
+  </div>
+
+  <div class="feature-card-copy">
+    <h3>{title}</h3>
+    <p set:html={body} />
+  </div>
+</div>
+
+<style>
+  .feature-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-width: 0;
+    padding: clamp(18px, 2vw, 24px);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-lg);
+    background: #1c1c1c;
+  }
+
+  .feature-card-demo {
+    min-width: 0;
+  }
+
+  .feature-card-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature-card-copy h3 {
+    font-size: 17px;
+    line-height: 1.25;
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  .feature-card-copy p {
+    max-width: 46ch;
+    color: rgba(255, 255, 255, 0.64);
+    font-size: 13.5px;
+    line-height: 20px;
+    text-wrap: pretty;
+  }
+
+  .feature-card-copy :global(code) {
+    font-family: var(--font-code);
+    font-size: 12.5px;
+    color: var(--text-strong);
+  }
+</style>

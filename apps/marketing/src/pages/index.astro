@@ -3,8 +3,11 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import DownloadButton from "../components/DownloadButton.astro";
+import FeatureCard from "../components/FeatureCard.astro";
+import FeatureRow from "../components/FeatureRow.astro";
 import GithubGlyph from "../components/GithubGlyph.astro";
 import PlatformGlyph from "../components/PlatformGlyph.astro";
+import ProductDemo from "../components/demos/ProductDemo.astro";
 import Layout from "../layouts/Layout.astro";
 import { RELEASES_URL } from "../lib/releases";
 import { GITHUB_FORK_URL, GITHUB_REPOSITORY_URL, UPSTREAM_NAME } from "../lib/site";
@@ -15,6 +18,7 @@ const HARNESSES = [
   { name: "Grok", product: "Grok CLI", mark: "/harnesses/grok-dark.svg" },
   { name: "opencode", product: "OpenCode", mark: "/harnesses/opencode-dark.svg" },
   { name: "Cursor", product: "Cursor", mark: "/harnesses/cursor_light.svg" },
+  { name: "pi", product: "pi coding agent", mark: "/harnesses/pi.svg" },
 ] as const;
 
 const BUILDS = [
@@ -161,9 +165,9 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
         <h2>Drop a card in. Walk away.</h2>
         <p>
           A card carries its own branch and worktree, and every step opens a
-          fresh thread on the agent profile you assigned it. Steps hand
-          artifacts forward, pause where you asked them to, and keep going while
-          you read something else.
+          fresh thread on the exact model you named for it. Steps hand artifacts
+          forward, pause where you asked them to, and keep going while you read
+          something else.
         </p>
       </div>
 
@@ -199,197 +203,113 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
         <h2>Define the agent. Run the swarm. Repeat the pipeline.</h2>
         <p>
           aqqua speaks ACP, so every provider lands in one interface. Name the
-          agents you trust, run them in parallel, and pin the work you repeat to
-          a flow.
+          agents you trust, run them in parallel across providers, and pin the
+          work you repeat to a flow.
         </p>
       </div>
 
-      <div class="feature-row reveal">
-        <div class="feature-copy">
-          <h3>Name a model once, use it everywhere</h3>
-          <p>
-            A profile pins the provider, model and runtime a main agent runs
-            under, saved under a name you choose. Cheap model for triage, deep
-            reasoning for design.
-          </p>
-          <ul class="dashlist">
-            <li><span aria-hidden="true">—</span><span>Provider, model, service tier and reasoning in one profile</span></li>
-            <li><span aria-hidden="true">—</span><span>Assigned to the main agent on a thread or a flow step</span></li>
-            <li><span aria-hidden="true">—</span><span>Assign per step in a flow, or per swarm</span></li>
-          </ul>
-        </div>
+      <FeatureRow
+        title="Name an instance and a model. That's what runs."
+        body="No settings record standing in front of the model you picked. Every model your configured providers advertise is directly selectable, and a flow step or a sub-agent spawn names one exact row plus a reasoning level."
+        points={[
+          "The identity is the provider instance and the model together, never a bare slug",
+          "Reasoning level chosen per step, from what that model actually advertises",
+          "Unavailable rows stay listed with the provider's own reason, instead of silently vanishing",
+        ]}
+      >
+        <ProductDemo slug="agent-models" />
+      </FeatureRow>
 
-        <div class="panel">
-          <div class="panel-head">
-            <span class="panel-title">Agent Profiles</span>
-            <span class="pill">+ Add profile</span>
-          </div>
-          <p class="panel-note">
-            Machine-local roles for your main agents. Each profile pins the
-            provider, model, and runtime the agent runs under, and can be
-            assigned per thread or per flow step.
-          </p>
-          <div class="profiles">
-            <div class="profile">
-              <div class="profile-meta">
-                <div class="profile-name">
-                  <span>implementer</span>
-                  <span class="tag">Built-in</span>
-                </div>
-                <span class="profile-spec">First enabled Codex · Inherits project default</span>
-              </div>
-              <span class="pill">Customize</span>
-            </div>
+      <FeatureRow
+        id="agents"
+        reverse
+        title="Cross-provider agent orchestration"
+        body="Spawn a swarm against one branch and supervise every thread in one place. Claude, Codex and Grok can each take a lane of the same change — the provider is a setting, not a rewrite."
+        points={[
+          'Sub-agents spawned with the <code class="code-skill">$orchestrate</code> skill',
+          "Each lane pinned to its own provider, model and reasoning level",
+          "Or straight from the <code>aqqua agent spawn</code> CLI",
+        ]}
+      >
+        <ProductDemo slug="orchestration" />
+      </FeatureRow>
 
-            <div class="profile">
-              <div class="profile-meta">
-                <div class="profile-name"><span>coding</span></div>
-                <span class="profile-spec">Claude · claude-fable-5 · Reasoning: High</span>
-              </div>
-              <div class="profile-actions" aria-hidden="true">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
-              </div>
-            </div>
+      <FeatureRow
+        id="flows"
+        title="Deterministic steps, parameterised prompts"
+        body="Describe the pipeline once. Each step runs in its own thread, in order, taking parameters and artifacts from the steps before it."
+        points={[
+          "Reference an earlier step's artifact by name",
+          'Call agent skills inline with <code class="code-skill">$orchestrate</code>',
+          "Same handoff contract, every run",
+        ]}
+      >
+        <ProductDemo slug="flows" />
+      </FeatureRow>
 
-            <div class="profile">
-              <div class="profile-meta">
-                <div class="profile-name"><span>Planning</span></div>
-                <span class="profile-spec">Codex · gpt-5.6-sol · Service Tier: Standard · Reasoning: High</span>
-              </div>
-              <div class="profile-actions" aria-hidden="true">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FeatureRow
+        id="worktrees"
+        reverse
+        title="A card per worktree, a tab per conversation"
+        body="The sidebar is a registry of projects and worktrees; each worktree's conversations live as tabs under the chat header. An orchestrator keeps its whole sub-agent tree behind one numbered control, so a large delegation never widens the strip."
+        points={[
+          "Branch, checkout type and highest-priority state on every card",
+          "Drag to reorder; worktrees stay inside their project",
+          "Merged pull requests show their number on the card",
+        ]}
+      >
+        <ProductDemo slug="worktree-tabs" />
+      </FeatureRow>
 
-      <div id="agents" class="feature-row reveal">
-        <div class="panel">
-          <div class="panel-legend">
-            <span>Active threads</span><span>Illustration</span>
-          </div>
-          <div class="threads">
-            <div class="thread">
-              <span class="dot dot--run" aria-hidden="true"></span>
-              <span class="thread-name">coding · auth-refactor</span>
-              <span class="thread-model">claude-fable-5</span>
-            </div>
-            <div class="thread">
-              <span class="dot dot--plan" aria-hidden="true"></span>
-              <span class="thread-name">Planning · api/routes</span>
-              <span class="thread-model">gpt-5.6-sol</span>
-            </div>
-            <div class="thread">
-              <span class="dot dot--wait" aria-hidden="true"></span>
-              <span class="thread-name">implementer · issue #482</span>
-              <span class="thread-model">gpt-5.6-luna</span>
-            </div>
-            <div class="thread">
-              <span class="dot dot--docs" aria-hidden="true"></span>
-              <span class="thread-name">docs · changelog</span>
-              <span class="thread-model">grok-4.5</span>
-            </div>
-          </div>
-        </div>
+      <div class="feature-grid reveal">
+        <FeatureCard
+          title="Git graph and history"
+          body="Follow the branch's commit graph in the app — lanes, merges and tags — and open any commit's multi-file diff beside it. aqqua reads refs already in the repository and never fetches behind your back."
+        >
+          <ProductDemo slug="git-graph" />
+        </FeatureCard>
 
-        <div class="feature-copy">
-          <h3>Cross-provider agent orchestration</h3>
-          <p>
-            Spawn a swarm against one branch and supervise every thread in one
-            place. The provider is a setting, not a rewrite.
-          </p>
-          <ul class="dashlist">
-            <li><span aria-hidden="true">—</span><span>Sub-agents spawned with the <code class="code-skill">$orchestrate</code> skill</span></li>
-            <li><span aria-hidden="true">—</span><span>Git graph, diff and AI auto-commit alongside</span></li>
-            <li><span aria-hidden="true">—</span><span>Or straight from the <code>aqqua</code> CLI</span></li>
-          </ul>
-        </div>
-      </div>
+        <FeatureCard
+          title="Pull requests, without leaving"
+          body="Watch the change request for the checked-out branch: state, base and head, aggregate CI and every individual check. Merge, set auto-merge, close or reopen from the same panel — and threads settle themselves once the PR lands."
+        >
+          <ProductDemo slug="pull-request" />
+        </FeatureCard>
 
-      <div id="flows" class="feature-row reveal">
-        <div class="feature-copy">
-          <h3>Deterministic steps, parameterised prompts</h3>
-          <p>
-            Describe the pipeline once. Each step runs in its own thread, in
-            order, taking parameters and artifacts from the steps before it.
-          </p>
-          <ul class="dashlist">
-            <li><span aria-hidden="true">—</span><span>Reference an earlier step's artifact by name</span></li>
-            <li><span aria-hidden="true">—</span><span>Call agent skills inline with <code class="code-skill">$orchestrate</code></span></li>
-            <li><span aria-hidden="true">—</span><span>Same input, same run, every time</span></li>
-          </ul>
-        </div>
+        <FeatureCard
+          title="Know what the agents cost"
+          body="Live rate-limit gauges for Claude and Codex, plus a historical ledger — tokens, turns, cache share and estimated cost by model and project. Scanning is opt-in, the logs never leave the machine, and totals are per environment."
+        >
+          <ProductDemo slug="usage" />
+        </FeatureCard>
 
-        <div class="panel">
-          <div class="panel-crumbs">
-            <div class="crumbs">
-              <span class="crumb">aqqua</span>
-              <span class="crumb-sep" aria-hidden="true">›</span>
-              <span>New flow</span>
-            </div>
-            <span class="crumb-hint">esc to close</span>
-          </div>
+        <FeatureCard
+          title="Queue the next three messages"
+          body="Submitting during a running turn queues the message instead of interrupting. aqqua sends them one turn at a time, or steer one into the running turn early. The queue is durable thread state, so it survives reconnects across web, desktop and mobile."
+        >
+          <ProductDemo slug="message-queue" />
+        </FeatureCard>
 
-          <div class="flow-title">
-            <span>Aqqua coding flow</span>
-            <span>Describe the pipeline. Each step runs in its own thread, in order.</span>
-          </div>
+        <FeatureCard
+          title="Resume a terminal conversation"
+          body="Started something in the Claude Code or Codex CLI? Type <code>/resume</code> in a new draft and pick it up in aqqua. The thread adopts the provider session and keeps the earlier transcript one click away."
+        >
+          <ProductDemo slug="resume-cli" />
+        </FeatureCard>
 
-          <div class="panel-legend">
-            <span>Steps</span><span>Reorder</span>
-          </div>
+        <FeatureCard
+          title="Scope the sidebar to what you're on"
+          body="Run many projects from one window and narrow the registry to the ones you care about right now. Projects group their worktree cards and collapse independently."
+        >
+          <ProductDemo slug="project-scope" />
+        </FeatureCard>
 
-          <div class="steps">
-            <div class="step">
-              <span class="step-index">1</span>
-              <div class="step-body">
-                <div class="step-head">
-                  <span class="step-name">Analysis</span>
-                  <span class="step-agent"><span class="dot dot--plan" aria-hidden="true"></span>analysis</span>
-                </div>
-                <span class="step-prompt">
-                  Create an analysis on the current issue <span class="token">issue_id</span> and save it…
-                </span>
-              </div>
-            </div>
-
-            <div class="step is-active">
-              <span class="step-index">2</span>
-              <div class="step-body">
-                <div class="step-head">
-                  <span class="step-name">Design</span>
-                  <span class="step-agent"><span class="dot dot--docs" aria-hidden="true"></span>designer</span>
-                </div>
-                <p class="step-prompt step-prompt--full">
-                  Grab the <span class="ref-artifact">{"${artifact:Analysis}"}</span> and design the code
-                  solution. Analyze the modules affected, use <span class="ref-skill">$orchestrate</span> to
-                  spawn sub agents. Use <span class="ref-guide">$codebase-design</span> as guidelines
-                </p>
-              </div>
-            </div>
-
-            <div class="step">
-              <span class="step-index">3</span>
-              <div class="step-body">
-                <div class="step-head">
-                  <span class="step-name">Implementation</span>
-                  <span class="step-agent"><span class="dot dot--run" aria-hidden="true"></span>review</span>
-                </div>
-                <span class="step-prompt">
-                  Implement code for <span class="token token--artifact">{"${artifact:Design}"}</span>
-                </span>
-              </div>
-            </div>
-
-            <div class="step-add">
-              <span class="step-index step-index--ghost" aria-hidden="true">+</span>
-              <span>Add step</span>
-            </div>
-          </div>
-        </div>
+        <FeatureCard
+          title="pi is a first-class provider"
+          body="Use pi beside Claude, Codex, Grok, Cursor and OpenCode. Its advertised models appear in the same picker and can be pinned to a flow step with the exact provider-and-model selection used everywhere else."
+        >
+          <ProductDemo slug="pi-agent" />
+        </FeatureCard>
       </div>
     </div>
   </section>
@@ -582,7 +502,8 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
 </Layout>
 
 <script>
-  import { fetchLatestRelease, RELEASES_URL, type ReleaseAsset } from "../lib/releases";
+  import { initDemos } from "../scripts/demos";
+  import { fetchLatestRelease, type ReleaseAsset } from "../lib/releases";
 
   type Platform = { os: "mac" | "win" | "linux"; label: string; arch?: string };
 
@@ -653,6 +574,7 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
     }
   }
 
+  initDemos();
   init();
 </script>
 
@@ -691,23 +613,6 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
 
   .eyebrow--dim {
     color: var(--aq-white-55);
-  }
-
-  .dot {
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border-radius: var(--radius-pill);
-  }
-
-  .dot--run { background: #22c55e; }
-  .dot--plan { background: #7dd3fc; }
-  .dot--wait { background: #f59e0b; }
-  .dot--docs { background: #c4b5fd; }
-
-  .step-agent .dot {
-    width: 5px;
-    height: 5px;
   }
 
   .sec-product {
@@ -787,391 +692,17 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
     max-width: 660px;
   }
 
-  .feature-row {
+  /* Second tier: the features that read fine at half width. */
+  .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: clamp(var(--space-8), 4vw, var(--space-16));
-    align-items: center;
-  }
-
-  .feature-copy {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-6);
-    max-width: 46ch;
-    min-width: 0;
   }
 
-  .feature-copy h3 {
-    font-family: var(--font-display);
-    font-size: clamp(24px, 2.6vw, 32px);
-    line-height: 1.1;
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-tight);
-  }
-
-  .feature-copy p {
-    color: var(--text-secondary);
-    font-size: var(--text-16);
-    line-height: var(--leading-16);
-    text-wrap: pretty;
-  }
-
-  .dashlist {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-size: var(--text-14);
-    line-height: var(--leading-14);
-    color: var(--text-secondary);
-  }
-
-  .dashlist li {
-    display: flex;
-    gap: 10px;
-  }
-
-  .dashlist li > span:first-child {
-    color: var(--aq-white-40);
-  }
-
-  .dashlist code {
-    font-family: var(--font-code);
-    font-size: 13px;
-    color: var(--text-strong);
-  }
-
-  .dashlist code.code-skill {
-    color: #7dd3fc;
-  }
-
-  .panel {
-    min-width: 0;
-    padding: 20px;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-lg);
-    background: var(--aq-white-04);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-  }
-
-  .panel-title {
-    font-family: var(--font-display);
-    font-size: 19px;
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-tight);
-  }
-
-  .panel-note {
-    font-size: 13px;
-    line-height: 19px;
-    color: var(--aq-white-55);
-    text-wrap: pretty;
-  }
-
-  .panel-legend {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 11px;
-    line-height: 14px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--aq-white-45);
-  }
-
-  .pill {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border-radius: var(--radius-control);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    font-size: 12.5px;
-    font-weight: var(--weight-medium);
-    color: rgba(255, 255, 255, 0.85);
-    white-space: nowrap;
-  }
-
-  .profiles {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .profile {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding: 14px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .profile-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
-  }
-
-  .profile-name {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: 15px;
-    font-weight: var(--weight-semibold);
-  }
-
-  .tag {
-    padding: 2px 7px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    font-size: 10.5px;
-    font-weight: var(--weight-medium);
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  .profile-spec {
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--aq-white-55);
-  }
-
-  .profile-actions {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding-top: var(--space-1);
-    color: var(--aq-white-45);
-  }
-
-  .threads {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .thread {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: 12px 14px;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-md);
-    background: var(--aq-white-04);
-  }
-
-  .thread-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-code);
-    font-size: 13px;
-    color: var(--text-strong);
-  }
-
-  .thread-model {
-    flex: none;
-    font-size: 11px;
-    color: var(--aq-white-55);
-    white-space: nowrap;
-  }
-
-  .panel-crumbs {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-    font-size: var(--text-12);
-    line-height: var(--leading-12);
-    color: var(--text-secondary);
-  }
-
-  .crumb {
-    padding: 3px 8px;
-    border: 1px solid var(--border-hairline);
-    border-radius: 6px;
-    background: var(--aq-white-08);
-    white-space: nowrap;
-  }
-
-  .crumb-sep {
-    color: var(--aq-white-40);
-  }
-
-  .crumb-hint {
-    font-size: 11px;
-    color: var(--aq-white-40);
-    white-space: nowrap;
-  }
-
-  .flow-title {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-  }
-
-  .flow-title > span:first-child {
-    font-family: var(--font-display);
-    font-size: 22px;
-    font-weight: var(--weight-semibold);
-    letter-spacing: -0.025em;
-  }
-
-  .flow-title > span:last-child {
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--aq-white-55);
-  }
-
-  .steps {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .step {
-    display: flex;
-    gap: var(--space-3);
-    padding: 10px 12px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-  }
-
-  .step.is-active {
-    padding: 14px;
-    border-color: rgba(255, 255, 255, 0.28);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .step-index {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border-radius: var(--radius-pill);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    font-size: 11px;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    color: var(--aq-white-55);
-  }
-
-  .step.is-active .step-index {
-    border-color: var(--aq-white);
-    background: var(--aq-white);
-    color: var(--aq-ink);
-    font-weight: var(--weight-semibold);
-  }
-
-  .step-body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .step.is-active .step-body {
-    gap: var(--space-2);
-  }
-
-  .step-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
-  .step-name {
-    font-size: 15px;
-    font-weight: var(--weight-medium);
-  }
-
-  .step-agent {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 9px;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-chip);
-    font-size: 11px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  .step-prompt {
-    font-family: var(--font-code);
-    font-size: 12.5px;
-    line-height: 18px;
-    color: var(--aq-white-55);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .step-prompt--full {
-    line-height: 19px;
-    color: var(--text-strong);
-    overflow: visible;
-    white-space: normal;
-    text-wrap: pretty;
-  }
-
-  .token {
-    padding: 1px 5px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .token--artifact,
-  .ref-artifact {
-    color: #86efac;
-  }
-
-  .token--artifact {
-    background: rgba(134, 239, 172, 0.14);
-  }
-
-  .ref-skill { color: #7dd3fc; }
-  .ref-guide { color: #c4b5fd; }
-
-  .step-add {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: 10px 12px;
-    font-size: var(--text-14);
-    color: var(--aq-white-45);
-  }
-
-  .step-index--ghost {
-    border: 0;
-    color: inherit;
+  @media (max-width: 860px) {
+    .feature-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .sec-workspace {
