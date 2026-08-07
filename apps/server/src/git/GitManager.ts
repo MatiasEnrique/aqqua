@@ -906,6 +906,28 @@ export const make = Effect.gen(function* () {
   const canonicalizeExistingPath = (value: string) =>
     fileSystem.realPath(value).pipe(Effect.orElseSucceed(() => value));
   const normalizeStatusCacheKey = canonicalizeExistingPath;
+  const isLinkedWorktree = Effect.fn("GitManager.isLinkedWorktree")(function* (cwd: string) {
+    const [gitDirResult, gitCommonDirResult] = yield* Effect.all(
+      [
+        gitCore.execute({
+          operation: "GitManager.isLinkedWorktree.gitDir",
+          cwd,
+          args: ["rev-parse", "--path-format=absolute", "--git-dir"],
+        }),
+        gitCore.execute({
+          operation: "GitManager.isLinkedWorktree.gitCommonDir",
+          cwd,
+          args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        }),
+      ],
+      { concurrency: 2 },
+    );
+    const [gitDir, gitCommonDir] = yield* Effect.all([
+      canonicalizeExistingPath(gitDirResult.stdout.trim()),
+      canonicalizeExistingPath(gitCommonDirResult.stdout.trim()),
+    ]);
+    return gitDir !== gitCommonDir;
+  });
   const nonRepositoryStatusDetails = {
     isRepo: false,
     hasOriginRemote: false,
@@ -2198,7 +2220,9 @@ export const make = Effect.gen(function* () {
       const worktreePath = localBranch.worktreePath
         ? yield* canonicalizeExistingPath(localBranch.worktreePath)
         : null;
-      if (worktreePath !== null && worktreePath !== cwd) {
+      const checkedOutInLinkedWorktree =
+        worktreePath !== null && worktreePath === cwd && (yield* isLinkedWorktree(cwd));
+      if (worktreePath !== null && (worktreePath !== cwd || checkedOutInLinkedWorktree)) {
         local = {
           _tag: "worktree",
           refName: remote.branch,
