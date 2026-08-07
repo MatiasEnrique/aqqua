@@ -1,8 +1,9 @@
 import { BoardId } from "@aqqua/contracts";
+import type { OrchestrationCard } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { BoardSelector, InFlightCardRow } from "./SidebarBoardRows";
+import { BoardSelector, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
 
 const boards = [
   { id: BoardId.make("flow-a"), name: "Delivery" },
@@ -21,7 +22,7 @@ const card = {
   archivedAt: null,
   settledAt: null,
   lastError: null,
-} as never;
+} as unknown as OrchestrationCard;
 
 describe("BoardSelector", () => {
   it("uses the same empty-is-all multi-select model as project scope", () => {
@@ -66,26 +67,35 @@ describe("InFlightCardRow", () => {
     const markup = renderToStaticMarkup(
       <InFlightCardRow
         card={card}
-        boardName={null}
+        projectIcon={<span data-project-icon="aqqua" />}
+        projectName="aqqua"
+        flowName="Delivery"
         selected={false}
         onOpen={() => {}}
         onDelete={() => {}}
         pending={false}
       />,
     );
+    const rowClassName = markup.match(/class="(group\/v2-row[^"]+)"/)?.[1] ?? "";
 
-    expect(markup).toContain("h-8");
+    expect(markup).toContain("h-11");
     expect(markup).toContain("rounded-lg");
     expect(markup).toContain("text-xs font-semibold");
     expect(markup).not.toContain("h-[3.25rem]");
     expect(markup).not.toContain("rounded-2xl border");
+    expect(rowClassName).toContain("hover:bg-sidebar-control-surface/60");
+    expect(rowClassName).not.toContain("hover:bg-sidebar-row-hover");
+    expect(markup).toContain('data-project-icon="aqqua"');
+    expect(markup).toContain('data-flow-name="Delivery"');
   });
 
   it("keeps the idle status from intercepting the delete action on hover", () => {
     const markup = renderToStaticMarkup(
       <InFlightCardRow
         card={{ ...card, status: "cancelled" } as never}
-        boardName={null}
+        projectIcon={<span data-project-icon="aqqua" />}
+        projectName="aqqua"
+        flowName="Delivery"
         selected={false}
         onOpen={() => {}}
         onDelete={() => {}}
@@ -98,5 +108,24 @@ describe("InFlightCardRow", () => {
     expect(markup).toContain("pointer-events-none");
     expect(markup).toContain("group-hover/v2-row:pointer-events-auto");
     expect(markup).not.toContain("group-hover/v2-row:static");
+  });
+});
+
+describe("FlowSlimRow", () => {
+  it("keeps the project and flow identity on compact lifecycle rows", () => {
+    const markup = renderToStaticMarkup(
+      <FlowSlimRow
+        card={card}
+        projectIcon={<span data-project-icon="aqqua" />}
+        projectName="aqqua"
+        flowName="Delivery"
+        selected={false}
+        onOpen={() => {}}
+        trailing={<span>Start</span>}
+      />,
+    );
+
+    expect(markup).toContain('data-project-icon="aqqua"');
+    expect(markup).toContain('data-flow-name="Delivery"');
   });
 });

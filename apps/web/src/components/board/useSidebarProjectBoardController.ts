@@ -162,8 +162,8 @@ export function useSidebarProjectBoardController({
   const attachAnimatedList = useCallback((node: HTMLElement | null) => {
     if (node) autoAnimate(node, { duration: 150, easing: "ease-out" });
   }, []);
-  const boardNameFor = (card: OrchestrationCard): string | null =>
-    visibleBoards.length > 1 ? (boardById.get(card.boardId)?.name ?? null) : null;
+  const boardNameFor = (card: OrchestrationCard): string =>
+    boardById.get(card.boardId)?.name ?? "Unknown flow";
   const openCard = (cardId: CardId) => {
     void navigate({
       to: "/board/$environmentId/$projectId/card/$cardId",

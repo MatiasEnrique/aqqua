@@ -155,10 +155,12 @@ To-Do; it also requires the running server.
 ## Position and status
 
 In Flows the sidebar can filter several projects and several flows at once. It
-lists their cards as compact one-line rows, grouped by urgency: **Needs you**
-(paused, needs input, or failed), **Active** (running), **To-Do** (the backlog,
-with Start inline), **Done**, and collapsed **Settled** and **Archived** history
-at the bottom.
+lists their cards as compact two-line rows: the project icon and card title sit
+above the flow name and worktree, with the current state at the right edge. The
+small project-grouping button adds project headers when several projects are in
+scope. Cards remain grouped by urgency: **Needs you** (paused, needs input, or
+failed), **Active** (running), **To-Do** (the backlog, with Start inline),
+**Done**, and collapsed **Settled** and **Archived** history at the bottom.
 When active cards exist, opening a flow lands on the most urgent one. If the
 flow contains only settled cards, its landing stays empty until you choose
 **Settled** history. A card's
@@ -198,10 +200,10 @@ steps receive earlier artifacts only where the template says so — `${artifact}
 for the previous step's file, `${artifact:Step name}` for any earlier one.
 Opening a card replaces the regular conversation tabs with one tab per flow
 step. Every step stays visible; future steps are muted and become interactive
-only when the card reaches them. A started step's menu exposes its
-conversation, spawned sub-agents, and, after the step succeeds, its artifact.
-This keeps the chat full-width without creating conversations early or adding
-another sidebar.
+only when the card reaches them. Spawned sub-agents and completed artifacts
+expand beside their owning step in the same family-tray style as conversation
+tabs, and the count chip folds or reveals those details. This keeps the chat
+full-width without creating conversations early or adding another sidebar.
 Artifacts are not shown as drafts while the agent is still working. You can
 edit a finished artifact in place; edits made while a card is paused are exactly
 what the next step reads.

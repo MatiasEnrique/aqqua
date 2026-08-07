@@ -10,7 +10,7 @@ import {
   SidebarCardActionButton,
   SidebarCardItem,
   SidebarCardStatusSwapSlot,
-  sidebarCardSurfaceClassName,
+  sidebarRegistryRowSurfaceClassName,
 } from "../sidebar/card";
 import { ComboboxEmpty, ComboboxItem, ComboboxList } from "../ui/combobox";
 import { SidebarScopePicker } from "../sidebar-v2/SidebarScopePicker";
@@ -191,12 +191,15 @@ function FlowRowSurfaceButton({
 }
 
 /**
- * The one-line flow row: To-Do, Done, Settled and Deleting all reduce to a
- * title, a state, and whatever that shelf lets you do about it. Same panel as
- * the card above it, at the height a conversation's slim row uses.
+ * The compact lifecycle row keeps two readable lines: project + card identity
+ * above, then flow + worktree context below. Operational state stays pinned at
+ * the right edge instead of competing with the title.
  */
 export function FlowSlimRow({
   card,
+  projectIcon,
+  projectName,
+  flowName,
   selected,
   onOpen,
   leading,
@@ -207,6 +210,9 @@ export function FlowSlimRow({
   interactive = true,
 }: {
   readonly card: OrchestrationCard;
+  readonly projectIcon: ReactNode;
+  readonly projectName: string;
+  readonly flowName: string;
   readonly selected: boolean;
   readonly onOpen: () => void;
   readonly leading?: ReactNode;
@@ -217,29 +223,42 @@ export function FlowSlimRow({
   readonly interactive?: boolean;
 }) {
   return (
-    <SidebarCardItem size="slim">
+    <SidebarCardItem size="flow">
       <div
         className={cn(
-          sidebarCardSurfaceClassName({
-            isActive: selected,
-            isSelected: false,
-            recede,
-            inFlight: false,
-            band: "none",
-          }),
-          "flex h-8 items-center gap-1.5 rounded-lg px-1.5",
+          "group/v2-row relative flex h-11 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-left outline-none select-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+          sidebarRegistryRowSurfaceClassName(selected),
+          recede && !selected && "text-sidebar-muted-foreground/75",
           !interactive && "cursor-default opacity-70",
         )}
       >
         {interactive ? (
           <FlowRowSurfaceButton label={card.title} selected={selected} onOpen={onOpen} />
         ) : null}
-        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-1.5">
-          {leading === undefined ? null : leading}
-          <span className={cn("min-w-0 flex-1 truncate text-[13px]", titleClassName)}>
-            {card.title}
+        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-2">
+          <span
+            role="img"
+            aria-label={`Project: ${projectName}`}
+            title={projectName}
+            className="flex size-5 shrink-0 items-center justify-center"
+          >
+            {projectIcon}
           </span>
-          <span className="pointer-events-auto contents">{trailing}</span>
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              {leading === undefined ? null : leading}
+              <span className={cn("min-w-0 flex-1 truncate text-[13px]", titleClassName)}>
+                {card.title}
+              </span>
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-none text-sidebar-muted-foreground/70">
+              <span data-flow-name={flowName} title={flowName} className="min-w-0 truncate">
+                {flowName}
+              </span>
+              <FlowCardBranch card={card} className="max-w-28" />
+            </span>
+          </span>
+          <span className="pointer-events-auto flex shrink-0 items-center gap-1.5">{trailing}</span>
         </div>
       </div>
       <FlowCardFailureNote card={card} />
@@ -248,21 +267,23 @@ export function FlowSlimRow({
 }
 
 /**
- * A card that is on the pipeline, in the same 32px registry language as a
- * worktree card. The flow name appears only in a merged scope; branch and
- * status keep their established trailing positions.
+ * A card that is on the pipeline. It uses the same two-line identity as every
+ * other flow row so moving between lifecycle shelves never drops context.
  */
 export function InFlightCardRow({
   card,
-  boardName,
+  projectIcon,
+  projectName,
+  flowName,
   selected,
   onOpen,
   onDelete,
   pending,
 }: {
   readonly card: OrchestrationCard;
-  /** Set in the merged "All boards" view so a row says where it runs. */
-  readonly boardName: string | null;
+  readonly projectIcon: ReactNode;
+  readonly projectName: string;
+  readonly flowName: string;
   readonly selected: boolean;
   readonly onOpen: () => void;
   readonly onDelete: (() => void) | null;
@@ -272,33 +293,37 @@ export function InFlightCardRow({
   // rest faded and come back on hover; a card blocked on you never fades.
   const inFlight = !cardNeedsYou(card);
   return (
-    <SidebarCardItem size="slim">
+    <SidebarCardItem size="flow">
       <div
         className={cn(
-          sidebarCardSurfaceClassName({
-            isActive: selected,
-            isSelected: false,
-            recede: false,
-            inFlight,
-            band: "none",
-          }),
-          "flex h-8 items-center gap-1.5 rounded-lg px-1.5",
+          "group/v2-row relative flex h-11 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-left outline-none select-none duration-(--duration-fast) ease-(--ease-fluid)",
+          sidebarRegistryRowSurfaceClassName(selected),
+          inFlight && !selected
+            ? "opacity-70 transition-[background-color,color,opacity] hover:opacity-100"
+            : "transition-colors",
         )}
       >
         <FlowRowSurfaceButton label={card.title} selected={selected} onOpen={onOpen} />
-        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-sidebar-foreground">
-            {card.title}
+        <div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-1 items-center gap-2">
+          <span
+            role="img"
+            aria-label={`Project: ${projectName}`}
+            title={projectName}
+            className="flex size-5 shrink-0 items-center justify-center"
+          >
+            {projectIcon}
           </span>
-          {boardName === null ? null : (
-            <span className="hidden max-w-20 shrink truncate text-[10px] text-sidebar-muted-foreground/70 @[19rem]/sidebar-conversations:inline">
-              {boardName}
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+            <span className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground">
+              {card.title}
             </span>
-          )}
-          <FlowCardBranch
-            card={card}
-            className="hidden @[17rem]/sidebar-conversations:inline-flex"
-          />
+            <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-none text-sidebar-muted-foreground/70">
+              <span data-flow-name={flowName} title={flowName} className="min-w-0 truncate">
+                {flowName}
+              </span>
+              <FlowCardBranch card={card} className="max-w-28" />
+            </span>
+          </span>
           <span className="pointer-events-auto">
             <SidebarCardStatusSwapSlot
               className="h-5"

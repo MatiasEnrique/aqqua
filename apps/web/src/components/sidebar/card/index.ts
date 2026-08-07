@@ -16,4 +16,5 @@ export {
   SidebarCardMeta,
   type SidebarCardSurfaceState,
   sidebarCardSurfaceClassName,
+  sidebarRegistryRowSurfaceClassName,
 } from "./SidebarCardSurface";
