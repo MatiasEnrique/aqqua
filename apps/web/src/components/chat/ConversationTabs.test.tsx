@@ -23,7 +23,6 @@ const render = (tabs: readonly ConversationTab[]) =>
       tabs={tabs}
       onSelectThread={() => {}}
       onSelectDraft={() => {}}
-      onCloseTab={() => {}}
       onArchiveThread={() => {}}
       confirmArchive={true}
       onNewThread={() => {}}
@@ -53,10 +52,10 @@ describe("ConversationTabs", () => {
     expect(markup).toContain('data-active-tab="false"');
   });
 
-  it("gives every persisted conversation both close and archive controls", () => {
+  it("keeps persisted conversations open while still offering archive", () => {
     const markup = render([tab()]);
 
-    expect(markup).toContain('aria-label="Close Fix palette warmth"');
+    expect(markup).not.toContain('aria-label="Close Fix palette warmth"');
     expect(markup).toContain('aria-label="Archive Fix palette warmth"');
     // Nothing in the strip offers the removed settled lifecycle or deletion.
     expect(markup).not.toContain("Settle");

@@ -65,8 +65,9 @@ export interface UiThreadState {
    *
    * Local and durable on purpose: which conversations you are juggling is a
    * property of this window, like a browser's tabs — not of the thread, which
-   * every other device and client shares. Membership changes only when you open
-   * a conversation or close its tab; settling or snoozing leaves it alone.
+   * every other device and client shares. Membership grows as conversations
+   * open; settling or snoozing leaves it alone, while deleted conversations are
+   * pruned once every environment has bootstrapped.
    */
   openConversationTabKeys: string[];
 }

@@ -1,5 +1,5 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { ArchiveIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { ArchiveIcon, PlusIcon, SquarePenIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
@@ -12,8 +12,7 @@ import type { ConversationTab } from "./openConversationTabs";
  *
  * Tabs are global rather than per-worktree: the strip is the set of
  * conversations you are currently juggling, and picking one takes you to it
- * wherever it lives — the sidebar follows by highlighting its worktree. Closing
- * a tab is a pure view operation; the conversation itself is untouched.
+ * wherever it lives — the sidebar follows by highlighting its worktree.
  *
  * Deliberately borderless. The toolbar above and the transcript below already
  * separate themselves by content; a rule on either edge of a row of bordered
@@ -23,7 +22,6 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly tabs: readonly ConversationTab[];
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
-  readonly onCloseTab: (tabKey: string) => void;
   readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
   readonly confirmArchive: boolean;
   readonly onNewThread: () => void;
@@ -62,7 +60,6 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
                   ? props.onSelectThread(tab.threadRef)
                   : props.onSelectDraft(tab.draftId)
               }
-              onClose={() => props.onCloseTab(tab.key)}
               onArchive={
                 tab._tag === "thread" ? () => props.onArchiveThread(tab.threadRef) : undefined
               }
@@ -95,14 +92,13 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
 /**
  * One tab: a white shell that carries its own border.
  *
- * The close control is a sibling button rather than a nested one — a button
- * inside a button is invalid and unreachable by keyboard — so the shell is a
- * flex row of two controls sharing one surface.
+ * The archive control is a sibling button rather than a nested one — a button
+ * inside a button is invalid and unreachable by keyboard — so persisted-thread
+ * tabs are flex rows of two controls sharing one surface.
  */
 function ConversationTabShell(props: {
   readonly tab: ConversationTab;
   readonly onSelect: () => void;
-  readonly onClose: () => void;
   readonly onArchive?: (() => void) | undefined;
   readonly confirmArchive: boolean;
 }) {
@@ -177,21 +173,6 @@ function ConversationTabShell(props: {
             <TooltipPopup side="bottom">Archive conversation</TooltipPopup>
           </Tooltip>
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`Close ${tab.title}`}
-                onClick={props.onClose}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            }
-          >
-            <XIcon aria-hidden className="size-3" />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">Close tab · the conversation stays</TooltipPopup>
-        </Tooltip>
       </div>
     </li>
   );
