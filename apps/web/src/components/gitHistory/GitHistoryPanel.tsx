@@ -243,7 +243,13 @@ export function GitHistoryPanel(
         }
       />
 
-      <div className="@min-[720px]/history:grid @min-[720px]/history:grid-cols-[minmax(0,1fr)_minmax(320px,38%)] flex min-h-0 flex-1">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1",
+          selectedCommit &&
+            "@min-[720px]/history:grid @min-[720px]/history:grid-cols-[minmax(0,1fr)_minmax(320px,38%)]",
+        )}
+      >
         {selectedCommit ? (
           <GitHistoryCommitPane
             key={selectedCommit.id}
@@ -255,19 +261,14 @@ export function GitHistoryPanel(
             workspaceRef={props.workspaceRef}
             onBack={() => setSelectedCommitId(null)}
           />
-        ) : (
-          <div
-            className="@max-[719px]/history:hidden hidden min-h-0 items-center justify-center p-6 text-center text-xs text-muted-foreground @min-[720px]/history:flex"
-            data-history-pane="diff"
-          >
-            Select a commit to view its diff.
-          </div>
-        )}
+        ) : null}
 
         <div
           className={cn(
-            "min-h-0 min-w-0 flex-1 flex-col @min-[720px]/history:border-l @min-[720px]/history:border-border/60",
-            selectedCommit ? "hidden @min-[720px]/history:flex" : "flex",
+            "min-h-0 min-w-0 flex-1 flex-col",
+            selectedCommit
+              ? "hidden @min-[720px]/history:flex @min-[720px]/history:border-l @min-[720px]/history:border-border/60"
+              : "flex",
           )}
           data-history-pane="graph"
         >

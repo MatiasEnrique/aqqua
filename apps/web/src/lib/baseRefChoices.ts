@@ -46,6 +46,35 @@ export function buildBaseRefChoices(
   return [...pairedChoices, ...remoteOnlyChoices];
 }
 
+export interface RefPickerOption {
+  readonly id: string;
+  /** Ref name used as the selection value. */
+  readonly value: string;
+  readonly label: string;
+  readonly badge: "remote" | null;
+}
+
+/**
+ * Flattens paired local/remote choices into one row per ref so the picker reads
+ * like the branch toolbar list instead of exposing a per-row remote toggle.
+ */
+export function toRefPickerOptions(
+  choices: ReadonlyArray<BaseRefChoice>,
+): ReadonlyArray<RefPickerOption> {
+  const options: RefPickerOption[] = [];
+  const seenValues = new Set<string>();
+  const push = (id: string, ref: VcsRef, badge: "remote" | null) => {
+    if (seenValues.has(ref.name)) return;
+    seenValues.add(ref.name);
+    options.push({ id, value: ref.name, label: ref.name, badge });
+  };
+  for (const choice of choices) {
+    if (choice.local) push(`${choice.id}:local`, choice.local, null);
+    if (choice.remote) push(`${choice.id}:remote`, choice.remote, "remote");
+  }
+  return options;
+}
+
 export function filterBaseRefChoices(
   choices: ReadonlyArray<BaseRefChoice>,
   query: string,
