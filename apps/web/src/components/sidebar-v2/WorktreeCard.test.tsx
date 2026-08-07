@@ -8,7 +8,7 @@ vi.mock("../ProjectFavicon", () => ({
   ProjectFavicon: ({ cwd }: { cwd: string }) => <span data-project-favicon={cwd} />,
 }));
 
-const { WorktreeCard } = await import("./WorktreeCard");
+const { SortableWorktreeCardList, WorktreeCard } = await import("./WorktreeCard");
 
 const group = (overrides: Partial<SidebarWorktreeGroup> = {}): SidebarWorktreeGroup =>
   ({
@@ -133,5 +133,22 @@ describe("WorktreeCard", () => {
     expect(markup).toContain('aria-label="Pull request #42 merged"');
     expect(markup).toContain("text-violet-600");
     expect(markup).toContain(">#42</span>");
+  });
+
+  it("exposes an accessible drag handle when sibling worktrees can be reordered", () => {
+    const markup = renderToStaticMarkup(
+      <SortableWorktreeCardList
+        groups={[group(), group({ key: "local:/repo-other", label: "other-worktree" })]}
+        activeWorktreeKey={null}
+        removingWorktreeKey={null}
+        onSelect={() => {}}
+        onDeleteWorktree={() => {}}
+        onContextMenu={() => {}}
+        onReorder={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Reorder worktree header-refactor"');
+    expect(markup).toContain('aria-label="Reorder worktree other-worktree"');
   });
 });

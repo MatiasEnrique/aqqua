@@ -29,6 +29,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
+  worktreeOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
   threadExpandedById?: Record<string, boolean>;
   worktreeExpandedByKey?: Record<string, boolean>;
@@ -47,6 +48,7 @@ export interface PersistedUiState {
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  worktreeOrder: string[];
 }
 
 export interface UiThreadState {
@@ -80,6 +82,7 @@ export interface UiState extends UiProjectState, UiThreadState, UiEndpointState 
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  worktreeOrder: [],
   threadLastVisitedAtById: {},
   threadExpandedById: {},
   threadChangedFilesExpandedById: {},
@@ -161,6 +164,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
+    worktreeOrder: sanitizeStringArray(parsed.worktreeOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadExpandedById: sanitizeBooleanRecord(parsed.threadExpandedById),
     worktreeExpandedByKey: sanitizeBooleanRecord(parsed.worktreeExpandedByKey),
@@ -280,6 +284,7 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
+        worktreeOrder: state.worktreeOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         threadExpandedById: state.threadExpandedById,
         worktreeExpandedByKey: state.worktreeExpandedByKey,
@@ -558,6 +563,41 @@ export function reorderProjects(
   };
 }
 
+export function reorderWorktrees(
+  state: UiState,
+  currentWorktreeOrder: readonly string[],
+  draggedWorktreeKey: string,
+  targetWorktreeKey: string,
+): UiState {
+  const draggedIndex = currentWorktreeOrder.indexOf(draggedWorktreeKey);
+  const targetIndex = currentWorktreeOrder.indexOf(targetWorktreeKey);
+  if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+    return state;
+  }
+
+  const worktreeOrder = [...currentWorktreeOrder];
+  const [dragged] = worktreeOrder.splice(draggedIndex, 1);
+  if (dragged === undefined) return state;
+  worktreeOrder.splice(targetIndex, 0, dragged);
+  return {
+    ...state,
+    worktreeOrder,
+  };
+}
+
+export function rememberWorktreeOrder(
+  state: UiState,
+  creationOrderedWorktreeKeys: readonly string[],
+): UiState {
+  const rememberedKeys = new Set(state.worktreeOrder);
+  const newKeys = creationOrderedWorktreeKeys.filter((key) => !rememberedKeys.has(key));
+  if (newKeys.length === 0) return state;
+  return {
+    ...state,
+    worktreeOrder: [...state.worktreeOrder, ...newKeys],
+  };
+}
+
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -574,6 +614,12 @@ interface UiStateStore extends UiState {
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
   ) => void;
+  reorderWorktrees: (
+    currentWorktreeOrder: readonly string[],
+    draggedWorktreeKey: string,
+    targetWorktreeKey: string,
+  ) => void;
+  rememberWorktreeOrder: (creationOrderedWorktreeKeys: readonly string[]) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -600,6 +646,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
     ),
+  reorderWorktrees: (currentWorktreeOrder, draggedWorktreeKey, targetWorktreeKey) =>
+    set((state) =>
+      reorderWorktrees(state, currentWorktreeOrder, draggedWorktreeKey, targetWorktreeKey),
+    ),
+  rememberWorktreeOrder: (creationOrderedWorktreeKeys) =>
+    set((state) => rememberWorktreeOrder(state, creationOrderedWorktreeKeys)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

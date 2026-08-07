@@ -60,6 +60,11 @@ persisted conversation tab has separate close and **Archive** controls; closing 
 conversation, while archiving moves the conversation to **Settings → Archive**. Archiving a parent
 conversation archives its complete sub-agent tree. Draft tabs cannot be archived.
 
+Worktrees start in creation order, oldest first, and conversation activity does not move them.
+When a project has multiple worktrees, drag the grip on its card or group header to save a custom
+order for that browser or desktop client. Worktrees stay within their project while being
+rearranged.
+
 Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
 button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
 When a merged pull request is known for the worktree, its pull-request icon and `#number` are shown

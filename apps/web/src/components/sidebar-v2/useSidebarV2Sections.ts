@@ -166,6 +166,9 @@ export type SidebarV2Runtime = {
 export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): SidebarV2Sections {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const worktreeOrder = useUiStateStore((store) => store.worktreeOrder);
+  const reorderWorktrees = useUiStateStore((store) => store.reorderWorktrees);
+  const rememberWorktreeOrder = useUiStateStore((store) => store.rememberWorktreeOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -784,9 +787,31 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
       return next ?? current;
     });
   }, [unfilteredWorktreeGroups]);
-  const worktreeGroups = useMemo(
+  const visibleWorktreeGroups = useMemo(
     () => filterHiddenSidebarWorktreeGroups(unfilteredWorktreeGroups, hiddenWorktreeKeys),
     [hiddenWorktreeKeys, unfilteredWorktreeGroups],
+  );
+  useEffect(() => {
+    rememberWorktreeOrder(visibleWorktreeGroups.map((worktree) => worktree.key));
+  }, [rememberWorktreeOrder, visibleWorktreeGroups]);
+  const worktreeGroups = useMemo(
+    () =>
+      orderItemsByPreferredIds({
+        items: visibleWorktreeGroups,
+        preferredIds: worktreeOrder,
+        getId: (worktree) => worktree.key,
+      }),
+    [visibleWorktreeGroups, worktreeOrder],
+  );
+  const reorderWorktree = useCallback(
+    (draggedWorktreeKey: string, targetWorktreeKey: string) => {
+      reorderWorktrees(
+        worktreeGroups.map((worktree) => worktree.key),
+        draggedWorktreeKey,
+        targetWorktreeKey,
+      );
+    },
+    [reorderWorktrees, worktreeGroups],
   );
   const repositoryGroups = useMemo(
     () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
@@ -1057,6 +1082,7 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     setActiveWorktreeOverrideKey,
     worktreeExpandedByKey,
     setWorktreeExpanded,
+    reorderWorktree,
     removingWorktreeKey,
     settlingWorktreeKey,
     setRemovingWorktreeKey,

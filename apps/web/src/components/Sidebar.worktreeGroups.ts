@@ -40,6 +40,8 @@ export interface SidebarWorktreeGroup {
   readonly summaryState: SidebarWorktreeSummaryState | null;
   /** Pull request that most recently merged this worktree, when known. */
   readonly mergedChangeRequestNumber: number | null;
+  /** Earliest conversation or draft creation in this worktree. */
+  readonly createdAt: number;
   readonly updatedAt: number;
   readonly drafts: readonly WorktreeDraftRow[];
   readonly active: readonly EnvironmentThreadShell[];
@@ -312,6 +314,7 @@ export function buildSidebarWorktreeGroups(input: {
       environmentLabel: string | null;
       label: string;
       isProjectCheckout: boolean;
+      createdAt: number;
       updatedAt: number;
       drafts: WorktreeDraftRow[];
       active: EnvironmentThreadShell[];
@@ -350,6 +353,7 @@ export function buildSidebarWorktreeGroups(input: {
       seed.workspaceRoot !== null &&
       normalizeProjectPathForComparison(seed.workspaceRoot) ===
         normalizeProjectPathForComparison(seed.project.workspaceRoot),
+    createdAt: Number.POSITIVE_INFINITY,
     updatedAt: 0,
     drafts: [],
     active: [],
@@ -378,6 +382,7 @@ export function buildSidebarWorktreeGroups(input: {
     } else {
       current[bucket].push(thread);
     }
+    current.createdAt = Math.min(current.createdAt, timestamp(thread.createdAt));
     const nextUpdatedAt = timestamp(thread.updatedAt);
     if (
       thread.settledChangeRequestNumber !== undefined &&
@@ -412,6 +417,7 @@ export function buildSidebarWorktreeGroups(input: {
           label: draft.baseBranch ?? basename(project.workspaceRoot),
         });
       current.drafts.push(draft);
+      current.createdAt = Math.min(current.createdAt, timestamp(draft.createdAt));
       current.updatedAt = Math.max(current.updatedAt, timestamp(draft.createdAt));
       groups.set(key, current);
       continue;
@@ -431,6 +437,7 @@ export function buildSidebarWorktreeGroups(input: {
           label: draft.baseBranch ?? basename(draft.worktreePath),
         });
       current.drafts.push(draft);
+      current.createdAt = Math.min(current.createdAt, timestamp(draft.createdAt));
       current.updatedAt = Math.max(current.updatedAt, timestamp(draft.createdAt));
       groups.set(key, current);
       continue;
@@ -444,6 +451,7 @@ export function buildSidebarWorktreeGroups(input: {
         project,
         label: `New worktree · ${draft.title}`,
       }),
+      createdAt: timestamp(draft.createdAt),
       updatedAt: timestamp(draft.createdAt),
       drafts: [draft],
     });
@@ -489,6 +497,7 @@ export function buildSidebarWorktreeGroups(input: {
           settledCount: group.settledCount,
         }),
         mergedChangeRequestNumber: group.mergedChangeRequestNumber,
+        createdAt: Number.isFinite(group.createdAt) ? group.createdAt : 0,
         updatedAt: group.updatedAt,
         drafts: group.drafts,
         active:
@@ -508,10 +517,7 @@ export function buildSidebarWorktreeGroups(input: {
       };
     })
     .toSorted(
-      (left, right) =>
-        Number(right.isProjectCheckout) - Number(left.isProjectCheckout) ||
-        right.updatedAt - left.updatedAt ||
-        left.label.localeCompare(right.label),
+      (left, right) => left.createdAt - right.createdAt || left.label.localeCompare(right.label),
     );
 }
 

@@ -135,6 +135,7 @@ export type SidebarWorktreesSection = {
   readonly setActiveWorktreeOverrideKey: (key: string | null) => void;
   readonly worktreeExpandedByKey: Readonly<Record<string, boolean>>;
   readonly setWorktreeExpanded: (worktreeKey: string, expanded: boolean) => void;
+  readonly reorderWorktree: (draggedWorktreeKey: string, targetWorktreeKey: string) => void;
   readonly removingWorktreeKey: string | null;
   readonly settlingWorktreeKey: string | null;
   readonly setRemovingWorktreeKey: (key: string | null) => void;
