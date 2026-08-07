@@ -10,6 +10,6 @@ import { useSidebarV2Model } from "./sidebar-v2/useSidebarV2Model";
  * is the fast path.
  */
 export default function SidebarWorktreeCards() {
-  const model = useSidebarV2Model({ groupingMode: "worktree" });
+  const model = useSidebarV2Model({ groupingMode: "worktree", enableManualWorktreeOrdering: true });
   return <SidebarV2View model={model} presentation="cards" />;
 }

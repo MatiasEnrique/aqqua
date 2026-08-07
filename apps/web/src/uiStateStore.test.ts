@@ -137,6 +137,26 @@ describe("uiStateStore pure functions", () => {
     expect(next.worktreeOrder).toEqual(["local:/repo", "local:/repo-b", "local:/repo-a"]);
   });
 
+  it("preserves saved worktree positions outside the filtered view", () => {
+    const state = makeUiState({
+      worktreeOrder: ["project-a:/one", "project-b:/one", "project-a:/two", "project-b:/two"],
+    });
+
+    const next = reorderWorktrees(
+      state,
+      ["project-a:/one", "project-a:/two"],
+      "project-a:/two",
+      "project-a:/one",
+    );
+
+    expect(next.worktreeOrder).toEqual([
+      "project-a:/two",
+      "project-b:/one",
+      "project-a:/one",
+      "project-b:/two",
+    ]);
+  });
+
   it("remembers the initial creation order without reacting to later derived reordering", () => {
     const remembered = rememberWorktreeOrder(makeUiState(), ["local:/older", "local:/newer"]);
 

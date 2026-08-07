@@ -151,4 +151,20 @@ describe("WorktreeCard", () => {
     expect(markup).toContain('aria-label="Reorder worktree header-refactor"');
     expect(markup).toContain('aria-label="Reorder worktree other-worktree"');
   });
+
+  it("does not expose a drag handle for a worktree without a sortable sibling", () => {
+    const markup = renderToStaticMarkup(
+      <SortableWorktreeCardList
+        groups={[group()]}
+        activeWorktreeKey={null}
+        removingWorktreeKey={null}
+        onSelect={() => {}}
+        onDeleteWorktree={() => {}}
+        onContextMenu={() => {}}
+        onReorder={() => {}}
+      />,
+    );
+
+    expect(markup).not.toContain("Reorder worktree");
+  });
 });

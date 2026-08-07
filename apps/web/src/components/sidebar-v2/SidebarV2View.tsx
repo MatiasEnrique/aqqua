@@ -47,12 +47,7 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { SidebarProjectStateIndicator, SidebarStateCounters } from "./SidebarStatusPresentations";
 import { useSidebarRowRenderers } from "./useSidebarRowRenderers";
 import { WorktreeActionsPopover } from "./WorktreeActionsPopover";
-import {
-  SortableWorktreeCardList,
-  SortableWorktreeRun,
-  WorktreeDragHandle,
-  type WorktreeSortable,
-} from "./WorktreeCard";
+import { SortableWorktreeCardList } from "./WorktreeCard";
 
 const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
@@ -475,10 +470,7 @@ export function SidebarV2View(props: {
                     });
                   }
                   if (sidebarThreadGroupingMode === "worktree") {
-                    const renderWorktreeGroup = (
-                      group: SidebarWorktreeGroup,
-                      sortable: WorktreeSortable | null,
-                    ): ReactNode => {
+                    const renderWorktreeGroup = (group: SidebarWorktreeGroup): ReactNode => {
                       const groupItems: ReactNode[] = [];
                       const hasVisibleChildren = sidebarWorktreeHasVisibleChildren(group);
                       // A routed descendant does not override the user's collapse:
@@ -492,13 +484,6 @@ export function SidebarV2View(props: {
                           data-thread-selection-safe
                           className="mb-1 mt-1 flex items-start gap-1 rounded-lg"
                         >
-                          {sortable ? (
-                            <WorktreeDragHandle
-                              label={group.label}
-                              sortable={sortable}
-                              className="mt-1"
-                            />
-                          ) : null}
                           <button
                             type="button"
                             aria-expanded={hasVisibleChildren ? expanded : undefined}
@@ -600,14 +585,8 @@ export function SidebarV2View(props: {
                       return (
                         <li
                           key={`worktree:${group.key}`}
-                          ref={sortable?.setNodeRef}
-                          style={sortable?.style}
                           data-thread-selection-safe
-                          className={cn(
-                            "list-none rounded-lg",
-                            sortable?.isDragging && "z-20 opacity-80",
-                            sortable?.isOver && !sortable.isDragging && "ring-1 ring-primary/40",
-                          )}
+                          className="list-none"
                         >
                           {groupItems[0]}
                           {expanded ? (
@@ -683,27 +662,16 @@ export function SidebarV2View(props: {
                             </div>
                             {expanded ? (
                               <ul className="ml-2 border-l border-sidebar-border/60 pl-1.5">
-                                <SortableWorktreeRun
-                                  groups={repository.worktrees}
-                                  onReorder={reorderWorktree}
-                                >
-                                  {renderWorktreeGroup}
-                                </SortableWorktreeRun>
+                                {repository.worktrees.map(renderWorktreeGroup)}
                               </ul>
                             ) : null}
                           </li>,
                         );
                       }
                     } else {
-                      items.push(
-                        <SortableWorktreeRun
-                          key="worktree-groups"
-                          groups={worktreeGroups}
-                          onReorder={reorderWorktree}
-                        >
-                          {renderWorktreeGroup}
-                        </SortableWorktreeRun>,
-                      );
+                      for (const group of worktreeGroups) {
+                        items.push(renderWorktreeGroup(group));
+                      }
                     }
                   } else {
                     items.push(

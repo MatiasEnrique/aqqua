@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-// The two sidebar entries share one implementation; grouping is the whole
-// difference between them, so it is what these tests pin down.
+// The sidebar entries share one implementation; these options pin each entry's
+// supported presentation behavior at the boundary.
 const sidebarModel = vi.hoisted(() => vi.fn(() => ({})));
 
 vi.mock("./sidebar-v2/useSidebarV2Model", () => ({
@@ -30,5 +30,17 @@ describe("sidebar entry components", () => {
     SidebarWorktree();
 
     expect(sidebarModel).toHaveBeenCalledWith();
+  });
+
+  it("enables manual worktree ordering only for the worktree-card view", async () => {
+    sidebarModel.mockClear();
+    const { default: SidebarWorktreeCards } = await import("./SidebarWorktreeCards");
+
+    SidebarWorktreeCards();
+
+    expect(sidebarModel).toHaveBeenCalledWith({
+      groupingMode: "worktree",
+      enableManualWorktreeOrdering: true,
+    });
   });
 });

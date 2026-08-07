@@ -71,6 +71,7 @@ import {
   buildProjectRootByProjectKey,
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
+  canReorderSidebarWorktrees,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
   sidebarProjectKey,
@@ -113,6 +114,8 @@ export type SidebarV2SectionsOptions = {
    * `sidebarThreadGroupingMode` — the worktree view's own preference.
    */
   readonly groupingMode?: SidebarThreadsSection["sidebarThreadGroupingMode"];
+  /** The worktree-card entry is the only surface that exposes persisted drag ordering. */
+  readonly enableManualWorktreeOrdering?: boolean;
 };
 
 export type SidebarV2Sections = {
@@ -792,30 +795,44 @@ export function useSidebarV2Sections(options: SidebarV2SectionsOptions = {}): Si
     [hiddenWorktreeKeys, unfilteredWorktreeGroups],
   );
   useEffect(() => {
+    if (options.enableManualWorktreeOrdering !== true) return;
     rememberWorktreeOrder(visibleWorktreeGroups.map((worktree) => worktree.key));
-  }, [rememberWorktreeOrder, visibleWorktreeGroups]);
+  }, [options.enableManualWorktreeOrdering, rememberWorktreeOrder, visibleWorktreeGroups]);
   const worktreeGroups = useMemo(
     () =>
-      orderItemsByPreferredIds({
-        items: visibleWorktreeGroups,
-        preferredIds: worktreeOrder,
-        getId: (worktree) => worktree.key,
-      }),
-    [visibleWorktreeGroups, worktreeOrder],
+      options.enableManualWorktreeOrdering === true
+        ? orderItemsByPreferredIds({
+            items: visibleWorktreeGroups,
+            preferredIds: worktreeOrder,
+            getId: (worktree) => worktree.key,
+          })
+        : visibleWorktreeGroups,
+    [options.enableManualWorktreeOrdering, visibleWorktreeGroups, worktreeOrder],
+  );
+  const repositoryGroups = useMemo(
+    () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
+    [projectGroups, worktreeGroups],
   );
   const reorderWorktree = useCallback(
     (draggedWorktreeKey: string, targetWorktreeKey: string) => {
+      if (options.enableManualWorktreeOrdering !== true) return;
+      if (
+        !canReorderSidebarWorktrees({
+          repositories: repositoryGroups,
+          worktrees: worktreeGroups,
+          draggedWorktreeKey,
+          targetWorktreeKey,
+        })
+      ) {
+        return;
+      }
       reorderWorktrees(
         worktreeGroups.map((worktree) => worktree.key),
         draggedWorktreeKey,
         targetWorktreeKey,
       );
     },
-    [reorderWorktrees, worktreeGroups],
-  );
-  const repositoryGroups = useMemo(
-    () => buildSidebarRepositoryGroups({ projects: projectGroups, worktrees: worktreeGroups }),
-    [projectGroups, worktreeGroups],
+    [options.enableManualWorktreeOrdering, reorderWorktrees, repositoryGroups, worktreeGroups],
   );
   const scopedProjectState = useMemo(
     () =>

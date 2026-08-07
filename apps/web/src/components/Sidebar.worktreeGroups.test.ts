@@ -4,6 +4,7 @@ import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models"
 import {
   buildSidebarRepositoryGroups,
   buildSidebarWorktreeGroups,
+  canReorderSidebarWorktrees,
   filterExpandedSidebarWorktreeGroups,
   filterHiddenSidebarWorktreeGroups,
   filterRemovedSidebarWorktreeGroups,
@@ -550,6 +551,45 @@ describe("buildSidebarRepositoryGroups", () => {
         working: 0,
       },
     ]);
+  });
+
+  it("allows reordering only within one logical repository", () => {
+    const repositories = [
+      { worktrees: [{ key: "aqqua-local:/main" }, { key: "aqqua-remote:/feature" }] },
+      { worktrees: [{ key: "ciber:/main" }, { key: "ciber:/feature" }] },
+    ];
+    const worktrees = [
+      { key: "aqqua-local:/main", environmentId: "local", projectId: "aqqua-local" },
+      { key: "aqqua-remote:/feature", environmentId: "remote", projectId: "aqqua-remote" },
+      { key: "ciber:/main", environmentId: "local", projectId: "ciber" },
+      { key: "orphan:/one", environmentId: "local", projectId: "orphan" },
+      { key: "orphan:/two", environmentId: "local", projectId: "orphan" },
+    ];
+
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "aqqua-local:/main",
+        targetWorktreeKey: "aqqua-remote:/feature",
+      }),
+    ).toBe(true);
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "aqqua-local:/main",
+        targetWorktreeKey: "ciber:/main",
+      }),
+    ).toBe(false);
+    expect(
+      canReorderSidebarWorktrees({
+        repositories,
+        worktrees,
+        draggedWorktreeKey: "orphan:/one",
+        targetWorktreeKey: "orphan:/two",
+      }),
+    ).toBe(true);
   });
 });
 

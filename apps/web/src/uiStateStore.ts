@@ -579,9 +579,28 @@ export function reorderWorktrees(
   const [dragged] = worktreeOrder.splice(draggedIndex, 1);
   if (dragged === undefined) return state;
   worktreeOrder.splice(targetIndex, 0, dragged);
+
+  const visibleKeys = new Set(currentWorktreeOrder);
+  const mergedWorktreeOrder: string[] = [];
+  let nextVisibleIndex = 0;
+  for (const persistedKey of state.worktreeOrder) {
+    if (!visibleKeys.has(persistedKey)) {
+      mergedWorktreeOrder.push(persistedKey);
+      continue;
+    }
+    mergedWorktreeOrder.push(worktreeOrder[nextVisibleIndex]!);
+    nextVisibleIndex++;
+  }
+  mergedWorktreeOrder.push(...worktreeOrder.slice(nextVisibleIndex));
+  if (
+    mergedWorktreeOrder.length === state.worktreeOrder.length &&
+    mergedWorktreeOrder.every((key, index) => key === state.worktreeOrder[index])
+  ) {
+    return state;
+  }
   return {
     ...state,
-    worktreeOrder,
+    worktreeOrder: mergedWorktreeOrder,
   };
 }
 

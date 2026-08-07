@@ -18,12 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GitBranchIcon, GitPullRequestIcon, GripVerticalIcon, Trash2Icon } from "lucide-react";
-import {
-  Fragment,
-  type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  type ReactNode,
-} from "react";
+import { type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import {
   resolveSidebarWorktreeDeleteAction,
@@ -186,19 +181,25 @@ export function WorktreeDragHandle(props: {
 
 function SortableWorktreeItem(props: {
   readonly group: SidebarWorktreeGroup;
-  readonly children: (group: SidebarWorktreeGroup, sortable: WorktreeSortable) => ReactNode;
+  readonly disabled: boolean;
+  readonly children: (group: SidebarWorktreeGroup, sortable: WorktreeSortable | null) => ReactNode;
 }) {
-  const sortable = useSortable({ id: props.group.key });
-  return props.children(props.group, {
-    ...sortable,
-    style: {
-      transform: CSS.Translate.toString(sortable.transform),
-      transition: sortable.transition,
-    },
-  });
+  const sortable = useSortable({ id: props.group.key, disabled: props.disabled });
+  return props.children(
+    props.group,
+    props.disabled
+      ? null
+      : {
+          ...sortable,
+          style: {
+            transform: CSS.Translate.toString(sortable.transform),
+            transition: sortable.transition,
+          },
+        },
+  );
 }
 
-export function SortableWorktreeRun(props: {
+function SortableWorktreeRun(props: {
   readonly groups: readonly SidebarWorktreeGroup[];
   readonly onReorder: (draggedWorktreeKey: string, targetWorktreeKey: string) => void;
   readonly children: (group: SidebarWorktreeGroup, sortable: WorktreeSortable | null) => ReactNode;
@@ -207,16 +208,11 @@ export function SortableWorktreeRun(props: {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const sortable = props.groups.length >= 2;
   const handleDragEnd = (event: DragEndEvent) => {
-    if (!event.over || event.active.id === event.over.id) return;
+    if (!sortable || !event.over || event.active.id === event.over.id) return;
     props.onReorder(String(event.active.id), String(event.over.id));
   };
-
-  if (props.groups.length < 2) {
-    return props.groups.map((group) => (
-      <Fragment key={`worktree:${group.key}`}>{props.children(group, null)}</Fragment>
-    ));
-  }
 
   return (
     <DndContext
@@ -230,7 +226,7 @@ export function SortableWorktreeRun(props: {
         strategy={verticalListSortingStrategy}
       >
         {props.groups.map((group) => (
-          <SortableWorktreeItem key={`worktree:${group.key}`} group={group}>
+          <SortableWorktreeItem key={`worktree:${group.key}`} group={group} disabled={!sortable}>
             {props.children}
           </SortableWorktreeItem>
         ))}

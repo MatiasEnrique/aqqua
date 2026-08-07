@@ -573,6 +573,39 @@ export function buildSidebarRepositoryGroups<
   });
 }
 
+/** Manual ordering stays inside one logical repository, or one ungrouped physical project. */
+export function canReorderSidebarWorktrees(input: {
+  readonly repositories: readonly {
+    readonly worktrees: readonly Pick<SidebarWorktreeGroup, "key">[];
+  }[];
+  readonly worktrees: readonly {
+    readonly key: string;
+    readonly environmentId: string;
+    readonly projectId: string;
+  }[];
+  readonly draggedWorktreeKey: string;
+  readonly targetWorktreeKey: string;
+}): boolean {
+  for (const repository of input.repositories) {
+    let includesDragged = false;
+    let includesTarget = false;
+    for (const worktree of repository.worktrees) {
+      includesDragged ||= worktree.key === input.draggedWorktreeKey;
+      includesTarget ||= worktree.key === input.targetWorktreeKey;
+    }
+    if (includesDragged && includesTarget) return true;
+  }
+
+  const dragged = input.worktrees.find((worktree) => worktree.key === input.draggedWorktreeKey);
+  const target = input.worktrees.find((worktree) => worktree.key === input.targetWorktreeKey);
+  return (
+    dragged !== undefined &&
+    target !== undefined &&
+    dragged.environmentId === target.environmentId &&
+    dragged.projectId === target.projectId
+  );
+}
+
 export function filterExpandedSidebarWorktreeGroups<TWorktree, TRepository>(input: {
   readonly worktrees: readonly TWorktree[];
   readonly repositories: readonly TRepository[];
