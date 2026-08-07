@@ -17,6 +17,14 @@ const model: CardTreeModel = {
       trailing: "12s",
       leaves: [
         {
+          kind: "subagent",
+          stepIndex: 0,
+          threadId: ThreadId.make("thread-plan-reviewer"),
+          title: "Review the plan",
+          status: "done",
+          elapsed: "4s",
+        },
+        {
           kind: "artifact",
           stepIndex: 0,
           stepName: "Plan",
@@ -78,5 +86,19 @@ describe("FlowStepTabs", () => {
 
     expect(markup).toContain("Plan.md");
     expect(markup).toContain('data-active-flow-step="true"');
+  });
+
+  it("expands step children in the same banded tray as conversation families", () => {
+    const markup = renderToStaticMarkup(
+      <FlowStepTabs model={model} selection={{ kind: "step", stepIndex: 0 }} onSelect={() => {}} />,
+    );
+
+    expect(markup).toContain('data-flow-step-family="0"');
+    expect(markup).toContain("data-flow-step-leaf");
+    expect(markup).toContain("Review the plan");
+    expect(markup).toContain("Plan.md");
+    expect(markup).toContain('aria-label="Hide 2 details of Plan"');
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).not.toContain('aria-label="Open Plan details"');
   });
 });

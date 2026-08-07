@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GitBranchIcon, GitPullRequestIcon, GripVerticalIcon, Trash2Icon } from "lucide-react";
 import { type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import { sidebarRegistryRowSurfaceClassName } from "../sidebar/card/SidebarCardSurface";
 import {
   resolveSidebarWorktreeDeleteAction,
   type SidebarWorktreeGroup,
@@ -77,9 +78,7 @@ export function WorktreeCard(props: {
           // Selection is a *tinted* surface, not a lifted white one: the
           // registry sits on the sidebar's own ground, and hover is the same
           // material at half strength so the two never read as one state.
-          props.isSelected
-            ? "bg-sidebar-control-surface"
-            : "bg-transparent hover:bg-sidebar-control-surface/60",
+          sidebarRegistryRowSurfaceClassName(props.isSelected),
         )}
       >
         {props.sortable ? (

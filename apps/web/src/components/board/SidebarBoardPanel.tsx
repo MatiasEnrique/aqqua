@@ -1,17 +1,25 @@
 import { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import { canDeleteCard, cardOperation } from "@aqqua/client-runtime/state/boards";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@aqqua/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationCard,
+  ProjectId,
+  ScopedProjectRef,
+} from "@aqqua/contracts";
 import {
   ArchiveIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
+  FolderIcon,
+  FolderTreeIcon,
   Trash2Icon,
   Undo2Icon,
 } from "lucide-react";
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useEnvironmentsBoards } from "../../state/boards";
+import { ProjectFavicon } from "../ProjectFavicon";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -25,7 +33,6 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { SidebarGroup } from "../ui/sidebar";
 import {
-  FlowCardBranch,
   FlowCardStateBadge,
   SidebarCardActionButton,
   SidebarCardHoverActionSlot,
@@ -92,6 +99,53 @@ function RelativeCardAge({ at }: { readonly at: string | null }) {
   return cardAge(at, nowMs);
 }
 
+export function TodoCardStateBadge({
+  card,
+  isStarting,
+}: {
+  readonly card: OrchestrationCard;
+  readonly isStarting: boolean;
+}) {
+  if (!isStarting) return <FlowCardStateBadge card={card} />;
+
+  const operation = cardOperation(card);
+  return (
+    <StatusIndicator
+      state="working"
+      label={operation === null ? "Starting…" : `${cardOperationPresentation(operation).label}…`}
+      showLabel
+      size="size-2"
+      className="px-1 text-sidebar-muted-foreground text-xs"
+    />
+  );
+}
+
+export function FlowProjectGroupingToggle({
+  grouped,
+  onToggle,
+}: {
+  readonly grouped: boolean;
+  readonly onToggle: () => void;
+}) {
+  const label = grouped ? "Show flow cards without project groups" : "Group flow cards by project";
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={grouped}
+      onClick={onToggle}
+      className={cn(
+        "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+        "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+        grouped && "bg-sidebar-row-selected text-sidebar-foreground",
+      )}
+    >
+      <FolderTreeIcon aria-hidden className="size-3.5" />
+    </button>
+  );
+}
+
 export interface BoardPanelProject {
   readonly environmentId: EnvironmentId;
   readonly id: ProjectId;
@@ -111,6 +165,7 @@ export function SidebarBoardPanel({
   readonly scopedProjectRef: ScopedProjectRef | null;
   readonly projects: ReadonlyArray<BoardPanelProject>;
 }) {
+  const [groupByProject, setGroupByProject] = useState(false);
   const scopedProject = useMemo(
     () =>
       scopedProjectRef === null
@@ -134,6 +189,7 @@ export function SidebarBoardPanel({
       <ProjectBoardSection
         projectRef={scopedProjectRef}
         projectTitle={scopedProject?.displayName ?? scopedProjectRef.projectId}
+        groupedByProject={false}
         showWhenMissing
       />
     );
@@ -141,6 +197,14 @@ export function SidebarBoardPanel({
 
   return (
     <>
+      {projects.length > 1 ? (
+        <div className="flex justify-end px-2 pb-1">
+          <FlowProjectGroupingToggle
+            grouped={groupByProject}
+            onToggle={() => setGroupByProject((current) => !current)}
+          />
+        </div>
+      ) : null}
       {allEnvironmentBoards.length === 0 ? (
         <SidebarGroup className="px-2 pt-0">
           <p className="px-2 text-sidebar-muted-foreground text-xs">
@@ -153,6 +217,7 @@ export function SidebarBoardPanel({
           key={project.projectKey}
           projectRef={scopeProjectRef(project.environmentId, project.id)}
           projectTitle={project.displayName}
+          groupedByProject={groupByProject}
           showWhenMissing={false}
         />
       ))}
@@ -168,10 +233,12 @@ export function SidebarBoardPanel({
 function ProjectBoardSection({
   projectRef,
   projectTitle,
+  groupedByProject,
   showWhenMissing,
 }: {
   readonly projectRef: ScopedProjectRef;
   readonly projectTitle: string;
+  readonly groupedByProject: boolean;
   /** Scoped view explains a missing board; the all-projects list skips it. */
   readonly showWhenMissing: boolean;
 }) {
@@ -217,8 +284,30 @@ function ProjectBoardSection({
 
   if (boards.length === 0 && !showWhenMissing) return null;
 
+  const projectIcon =
+    project === null ? (
+      <FolderIcon className="size-4 shrink-0 text-sidebar-muted-foreground/50" />
+    ) : (
+      <ProjectFavicon
+        environmentId={environmentId}
+        cwd={project.workspaceRoot}
+        className="size-4 shrink-0 rounded-sm"
+      />
+    );
+
   return (
     <SidebarGroup className="gap-3 px-2 pt-0 pb-4">
+      {groupedByProject ? (
+        <div
+          data-flow-project-group={projectTitle}
+          className="flex h-7 items-center gap-1.5 rounded-md px-1"
+        >
+          {projectIcon}
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-muted-foreground">
+            {projectTitle}
+          </span>
+        </div>
+      ) : null}
       <BoardSelector
         boards={boards}
         selectedBoardIds={chosenBoardIds}
@@ -255,7 +344,9 @@ function ProjectBoardSection({
               <InFlightCardRow
                 key={card.id}
                 card={card}
-                boardName={boardNameFor(card)}
+                projectIcon={projectIcon}
+                projectName={projectTitle}
+                flowName={boardNameFor(card)}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
                 onDelete={
@@ -280,7 +371,9 @@ function ProjectBoardSection({
               <InFlightCardRow
                 key={card.id}
                 card={card}
-                boardName={boardNameFor(card)}
+                projectIcon={projectIcon}
+                projectName={projectTitle}
+                flowName={boardNameFor(card)}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
                 onDelete={
@@ -313,32 +406,20 @@ function ProjectBoardSection({
                 <FlowSlimRow
                   key={card.id}
                   card={card}
+                  projectIcon={projectIcon}
+                  projectName={projectTitle}
+                  flowName={boardNameFor(card)}
                   selected={card.id === selectedCardId}
                   onOpen={() => openCard(card.id)}
                   recede
                   titleClassName="text-sidebar-foreground/90"
                   trailing={
                     <>
-                      {/* A reset card keeps its checkout, so a To-Do row can
-                          still name the worktree its next run picks back up. */}
-                      <FlowCardBranch card={card} className="shrink" />
-                      <FlowCardStateBadge card={card} />
-                      {starting ? (
-                        // Release runs server-side (worktree + checkout + setup)
-                        // after the RPC returns — the row keeps saying so until
-                        // the card enters its first step and leaves To-Do.
-                        <StatusIndicator
-                          state="working"
-                          label={
-                            operation === null
-                              ? "Starting…"
-                              : `${cardOperationPresentation(operation).label}…`
-                          }
-                          showLabel
-                          size="size-2"
-                          className="px-1 text-sidebar-muted-foreground text-xs"
-                        />
-                      ) : (
+                      {/* Release runs server-side (worktree + checkout + setup)
+                          after the RPC returns — the row keeps saying so until
+                          the card enters its first step and leaves To-Do. */}
+                      <TodoCardStateBadge card={card} isStarting={starting} />
+                      {starting ? null : (
                         <>
                           <button
                             type="button"
@@ -387,6 +468,9 @@ function ProjectBoardSection({
                 <FlowSlimRow
                   key={card.id}
                   card={card}
+                  projectIcon={projectIcon}
+                  projectName={projectTitle}
+                  flowName={boardNameFor(card)}
                   selected={card.id === selectedCardId}
                   onOpen={() => openCard(card.id)}
                   titleClassName="text-sidebar-foreground/90"
@@ -395,7 +479,6 @@ function ProjectBoardSection({
                   }
                   trailing={
                     <>
-                      <FlowCardBranch card={card} className="shrink" />
                       <SidebarCardHoverActionSlot
                         reserveWidth
                         resting={
@@ -478,6 +561,9 @@ function ProjectBoardSection({
                     <FlowSlimRow
                       key={card.id}
                       card={card}
+                      projectIcon={projectIcon}
+                      projectName={projectTitle}
+                      flowName={boardNameFor(card)}
                       selected={card.id === selectedCardId}
                       onOpen={() => openCard(card.id)}
                       recede
@@ -582,6 +668,9 @@ function ProjectBoardSection({
                   <FlowSlimRow
                     key={card.id}
                     card={card}
+                    projectIcon={projectIcon}
+                    projectName={projectTitle}
+                    flowName={boardNameFor(card)}
                     selected={false}
                     interactive={false}
                     onOpen={() => undefined}
@@ -633,6 +722,9 @@ function ProjectBoardSection({
               <FlowSlimRow
                 key={card.id}
                 card={card}
+                projectIcon={projectIcon}
+                projectName={projectTitle}
+                flowName={boardNameFor(card)}
                 selected={false}
                 onOpen={() => undefined}
                 interactive={false}

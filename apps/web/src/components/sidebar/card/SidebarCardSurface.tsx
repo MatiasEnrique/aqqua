@@ -21,6 +21,13 @@ export interface SidebarCardSurfaceState {
   readonly band?: SidebarCardBand;
 }
 
+/** The flat registry material shared by thread worktrees and flow cards. */
+export function sidebarRegistryRowSurfaceClassName(isActive: boolean): string {
+  return isActive
+    ? "bg-sidebar-control-surface"
+    : "bg-transparent hover:bg-sidebar-control-surface/60";
+}
+
 /**
  * A conversation and its sub-agents share one panel, the composer's. Rows render
  * as siblings in a flat list rather than nested, so that panel is assembled from
@@ -84,6 +91,7 @@ export function sidebarCardSurfaceClassName(state: SidebarCardSurfaceState): str
  */
 const INTRINSIC_SIZE = {
   card: "[content-visibility:auto] [contain-intrinsic-size:auto_52px]",
+  flow: "[content-visibility:auto] [contain-intrinsic-size:auto_46px]",
   slim: "[content-visibility:auto] [contain-intrinsic-size:auto_34px]",
   /**
    * Nested rows inside a family panel. Their guides used to paint outside the
