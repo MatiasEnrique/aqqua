@@ -171,12 +171,7 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
-import {
-  useClientSettings,
-  useEnvironmentSettings,
-  useSidebarV2Enabled,
-} from "../hooks/useSettings";
-import { resolveChatHeaderMode } from "./chat/chatHeaderMode";
+import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { ConversationTabs } from "./chat/ConversationTabs";
 import { useConversationTabs } from "./chat/useConversationTabs";
 import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
@@ -1290,14 +1285,8 @@ function ChatViewContent(props: ChatViewProps) {
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
-  // The tabbed header rides the same setting as the worktree-card sidebar, so
-  // the two surfaces turn on together or not at all.
-  const worktreeViewEnabled = useSidebarV2Enabled();
-  const threadGroupingMode = useClientSettings((s) => s.sidebarThreadGroupingMode);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
-  const worktreeTabsHeader =
-    surfaceTabs === undefined &&
-    resolveChatHeaderMode({ threadGroupingMode, worktreeViewEnabled }) === "worktree-tabs";
+  const worktreeTabsHeader = surfaceTabs === undefined;
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
   const {
     tabs: conversationTabs,

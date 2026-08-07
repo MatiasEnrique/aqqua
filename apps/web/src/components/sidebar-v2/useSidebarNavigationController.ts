@@ -1,25 +1,22 @@
-import { autoAnimate } from "@formkit/auto-animate";
-import { scopeThreadRef, scopedThreadKey } from "@aqqua/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environment";
 import type { ScopedThreadRef } from "@aqqua/contracts";
+import { autoAnimate } from "@formkit/auto-animate";
 import { useCallback, useEffect } from "react";
+import { openCommandPalette } from "../../commandPaletteBus";
+import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
-  shouldShowThreadJumpHintsForModifiers,
-  threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
 } from "../../keybindings";
-import { useShortcutModifierState } from "../../shortcutModifierState";
+import { startNewThreadFromContext } from "../../lib/chatThreadActions";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
-import { openCommandPalette } from "../../commandPaletteBus";
-import { startNewThreadFromContext } from "../../lib/chatThreadActions";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
 import { resolveAdjacentThreadId } from "../Sidebar.logic";
-import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import type { SidebarNavigationController } from "./models";
 import type { SidebarV2Sections } from "./useSidebarV2Sections";
 
@@ -29,15 +26,7 @@ export function useSidebarNavigationController(
   const { route, projects, threads, runtime } = sections;
   const { routeThreadKey, routeDraftId, routeThreadRef, isMobile, setOpenMobile } = route;
   const { projectGroups } = projects;
-  const {
-    orderedThreadKeys,
-    orderedThreadKeysRef,
-    settledThreadKeysRef,
-    snoozedThreadKeysRef,
-    threadByKey,
-    threadByKeyRef,
-    setShowJumpHints,
-  } = threads;
+  const { orderedThreadKeys, threadByKey } = threads;
   const { router, keybindings, newThreadContext, clearSelection, setSelectionAnchor } = runtime;
 
   const navigateToThread = useCallback(
@@ -138,19 +127,6 @@ export function useSidebarNavigationController(
     routeThreadKey,
     threadByKey,
   ]);
-
-  // Same predicate as v1: hints show only while the held modifiers exactly
-  // match a thread-jump binding. Adding Shift (screenshots) or Alt no
-  // longer matches ⌘1..9, so the overlay hides for chords like ⌘⇧4.
-  const shortcutModifiers = useShortcutModifierState();
-  const shouldShowJumpHintsNow = shouldShowThreadJumpHintsForModifiers(
-    shortcutModifiers,
-    keybindings,
-    { platform: navigator.platform },
-  );
-  useEffect(() => {
-    setShowJumpHints(shouldShowJumpHintsNow);
-  }, [shouldShowJumpHintsNow]);
 
   const attachListAutoAnimateRef = useCallback((node: HTMLUListElement | null) => {
     if (!node) return;

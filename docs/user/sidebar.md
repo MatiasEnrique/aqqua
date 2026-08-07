@@ -1,111 +1,39 @@
 # Sidebar conversations and worktrees
 
-The left sidebar can show conversations as a flat list or group them by worktree.
+On web and desktop, the sidebar is a registry of projects and worktrees. Each worktree appears as
+one card; its conversations appear as tabs below the chat header. This is the only sidebar layout.
+Settings routes use their dedicated section navigation sidebar.
 
-On web and desktop, the regular sidebar is the flat Sidebar V2 from the original T3 Code repo.
-Enable **Settings → Beta → Worktree view** to use the worktree-aware sidebar described below
-instead. The worktree view is opt-in in every build — local dev builds start on the
-regular sidebar too, and only your own choice in Settings turns it on. Mobile keeps its separate,
-device-local **Thread List v2** preference and is not changed by the web/desktop sidebar switch.
+Mobile uses its separate native thread list and device-local preferences.
 
-Both sidebars are the same implementation with different grouping: the regular sidebar is always
-flat, while **Settings → Appearance → General → Group threads by worktree** shapes the worktree view
-(and can flatten it without leaving the beta).
+## Projects and worktrees
 
-In the regular sidebar, an orchestrator card keeps its own state label and also shows a colored
-counter for every nonzero state among its sub-agents, including sub-agents hidden by a collapsed
-branch. This uses the same state colors and hover breakdown as worktree summaries, so Working,
-Needs input, Done, Stale, and Settled work remain visible without expanding the delegation.
+- Use the project scope control to show all projects or narrow the registry to selected projects.
+- Projects group their worktree cards and can be collapsed independently.
+- Each worktree card shows its branch, checkout type, and highest-priority conversation state.
+  Pending approvals or user input take priority over working, done, stale, and settled work.
+- Terminal **Done** or **Failed** status remains visible until the relevant conversation is opened.
+  Live **Working** and **Needs input** status remains until the underlying condition changes.
+- Selecting a worktree opens its most relevant conversation or draft. For an empty worktree, the
+  selection remains active so a new conversation can be created there.
+- Worktrees start in creation order, oldest first. Drag a card by its grip to save a custom order;
+  worktrees remain within their project while being rearranged.
+- Right-click a project or worktree to create a conversation in that location. Project menus also
+  offer **New worktree here**.
+- Secondary worktrees have a delete button. Deleting archives their conversation history before
+  removing the filesystem worktree; the project checkout itself cannot be deleted.
+- A merged pull request is shown on its worktree card with its pull request number.
 
-In worktree mode:
+## Conversation tabs
 
-- Empty conversation groups use the selected base branch as their label.
-- When **All projects** is selected, every repository gets its own collapsible section above its
-  worktrees. Project sections remain visible when they have no conversations and when only one
-  project currently has active work. Conversation cards inside these sections omit the repeated
-  project folder label.
-- Worktrees use summary cards with a branch name, checkout type, and a colored counter for every
-  nonzero state: blue **Working**, violet **Needs input**, green **Done**, gray **Stale**, and yellow
-  **Settled**. There is no separate total-conversation counter. Pending user input and pending
-  approvals both count as Needs input, so one worktree can report several states without hiding
-  any of them. Hover the colored state counters for the same breakdown with readable labels and
-  descriptions. The rest of the worktree card does not open this detail. Settled-only cards have
-  no expand affordance because their conversations already live in the shared Settled shelf.
-- Active conversations use shorter, flat rows so they read as children of the worktree card.
-  Each one-line row shows the conversation name, provider icon, recent activity, and a persistent
-  **Working**, **Done**, or **Stale** state. Recent activity hides when the sidebar narrows so
-  the name, provider, and state remain legible. Branch, worktree, and project-folder labels stay
-  on their containing sections instead of repeating inside conversation rows. The check button
-  settles that conversation without deleting its history.
-- A subtle guide connects each project to its worktrees and each expanded worktree to its
-  conversations. Worktree summaries stay transparent at rest and use a surface only for hover
-  feedback.
-- Right-click a project or an existing worktree and choose **New conversation here** to open a
-  draft in that location. Project menus also offer **New worktree here**, which opens the standard
-  new-worktree conversation dialog with that project preselected. The branch-plus button at the
-  end of each project row opens that dialog directly.
-- Each project row shows one compact status icon. It prioritizes **Needs input**, then
-  **Working**, **Done**, and **Settled**; projects with only stale conversations (or no
-  conversations) show **Idle**. The same icon language is used on worktrees and conversations.
-  Draft worktrees that have not been created yet do not offer these actions.
-- Repository and worktree sections can stay collapsed even when the open conversation is inside
-  them. The same applies to sub-agent branches and the Snoozed and Settled shelves. Collapsing
-  affects only the sidebar; it does not navigate away from the conversation or leave hidden rows
-  in keyboard navigation and range selection.
-- Settled conversations live in one shared **Settled** section below every worktree rather than
-  inside individual worktree groups. These history rows omit the extra project/message glyph.
+The header tab strip contains the open conversations and drafts for the selected worktree.
+Persisted conversation tabs have an **Archive** action; archiving a parent conversation archives
+its sub-agent tree, while draft tabs cannot be archived.
 
-In the worktree-card layout, conversations move to the tab strip below the chat header. Each
-persisted conversation tab has an **Archive** control, which moves the conversation to
-**Settings → Archive**. Archiving a parent conversation archives its complete sub-agent tree. Draft
-tabs cannot be archived. An orchestrator and its open sub-agent conversations share one family tray.
-Use the numbered sub-agent control to collapse or expand that tray. A family can stay collapsed
-while one of its sub-agents is open; the count control then marks that the conversation being read
-is inside the collapsed family. Collapse state belongs to the current window and is forgotten when
-the orchestrator is no longer in the tab strip.
+An orchestrator and its open sub-agent conversations share one family tray. Use the numbered
+sub-agent control to collapse or expand that tray. When an open sub-agent is inside a collapsed
+family, the count control marks that the conversation being read is folded into it. Collapse state
+belongs to the current window and is forgotten when the orchestrator leaves the tab strip.
 
-A worktree reports terminal **Done** or **Failed** status until the relevant conversation is opened.
-Opening acknowledges the worktree alert, while a failed conversation itself stays visibly failed
-until a later turn changes its state. Live **Working** and **Needs input** status remains until the
-underlying condition changes. Archiving or deleting a conversation removes all of its status from
-the worktree summary.
-
-Worktrees start in creation order, oldest first, and conversation activity does not move them.
-In the worktree-card sidebar, drag the grip on a card to save a custom order for that browser or
-desktop client. Worktrees stay within their project while being rearranged.
-
-Worktree cards do not expose the Settled lifecycle. A secondary worktree instead has a gray trash
-button directly on its card; it turns red on hover and opens the worktree-deletion confirmation.
-When a merged pull request is known for the worktree, its pull-request icon and `#number` are shown
-in violet. The project checkout itself cannot be deleted.
-
-The worktree three-dot menu contains only **Settle all** and **Delete**. Snoozed conversations are
-woken first; no conversations to settle, running conversations, or conversations waiting for
-attention keep the batch action disabled. Settling preserves every conversation in the shared
-**Settled** shelf.
-
-Deleting a secondary worktree first archives every live or settled conversation under that path,
-including sub-agent descendants, then removes the filesystem worktree. Already archived history is
-preserved. The confirmation also offers an unchecked **Also delete local branch** option; selecting
-it removes the exact inspected local branch after the worktree, while remote branches are always
-preserved. If the directory was already removed outside aqqua, retrying the action archives its
-remaining conversations, leaves any unverified directory untouched, and cleans up the stale
-sidebar entry.
-
-## The Settled shelf
-
-Both sidebars share one Settled shelf, and it behaves identically in each — conversations and
-sub-agents are supported the same way everywhere.
-
-- Settled rows carry selection checkboxes, and **Delete N** appears in the Settled header once
-  anything is selected. Deleting conversations cannot be undone.
-- Settling an orchestrator settles its whole delegation: the sub-agents follow it out of the inbox
-  and fold underneath it, represented by a count next to the row. Click the count to expand them.
-  The **Settled** header count and **Show more** count orchestrators too, so a delegation that
-  fanned out to ten sub-agents settles as `1`, not `11`. Un-settling the orchestrator brings the
-  whole family back — nothing is settled on the server but the orchestrator itself.
-- A sub-agent that is snoozed in its own right keeps its return date and stays on the **Snoozed**
-  shelf. A snoozed orchestrator does not take its sub-agents with it; they stay in the inbox until
-  it wakes.
-- Opening a settled sub-agent (by deep link or search) expands its orchestrator and pulls the
-  whole group onto the page, so the open conversation is never hidden behind **Show more**.
+Settled and snoozed conversations remain reachable through the header tabs and command palette.
+New activity wakes or un-settles a conversation according to its lifecycle rules.

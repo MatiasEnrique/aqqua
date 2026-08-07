@@ -3,28 +3,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   legacyProjectCwdPreferenceKey,
+  MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS,
   markThreadUnread,
   markThreadVisited,
-  parsePersistedState,
   PERSISTED_STATE_KEY,
   rememberWorktreeOrder,
-  WINDOW_STATE_KEY,
   type PersistedUiState,
+  parsePersistedState,
   persistState,
   readPersistedState,
-  retainThreadExpansionForKnownThreads,
   reorderProjects,
   reorderWorktrees,
   resolveProjectExpanded,
-  resolveThreadExpanded,
   setDefaultAdvertisedEndpointKey,
   retainCollapsedConversationTabFamilies,
   setOpenConversationTabKeys,
   toggleCollapsedConversationTabFamily,
   setProjectExpanded,
-  setThreadExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
+  WINDOW_STATE_KEY,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
@@ -33,9 +31,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     worktreeOrder: [],
     threadLastVisitedAtById: {},
-    threadExpandedById: {},
     threadChangedFilesExpandedById: {},
-    worktreeExpandedByKey: {},
     activeWorktreeOverrideKey: null,
     openConversationTabKeys: [],
     collapsedConversationTabFamilyKeys: [],
@@ -171,6 +167,40 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("bounds inactive worktree history while preserving every visible worktree", () => {
+    const inactiveKeys = Array.from(
+      { length: MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + 2 },
+      (_, index) => `inactive:${index}`,
+    );
+    const visibleKeys = ["local:/current-a", "local:/current-b"];
+
+    const next = rememberWorktreeOrder(
+      makeUiState({ worktreeOrder: [...inactiveKeys, visibleKeys[0]!] }),
+      visibleKeys,
+    );
+
+    expect(next.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(next.worktreeOrder).toEqual(
+      expect.arrayContaining([
+        ...inactiveKeys.slice(-MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS),
+        ...visibleKeys,
+      ]),
+    );
+
+    const reordered = reorderWorktrees(
+      makeUiState({ worktreeOrder: [...inactiveKeys, ...visibleKeys] }),
+      visibleKeys,
+      visibleKeys[1]!,
+      visibleKeys[0]!,
+    );
+    expect(reordered.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(reordered.worktreeOrder.slice(-visibleKeys.length)).toEqual(visibleKeys.toReversed());
+  });
+
   it("stores explicit changed-file expansion choices", () => {
     const threadId = ThreadId.make("thread-1");
     const collapsed = setThreadChangedFilesExpanded(makeUiState(), threadId, "turn-1", false);
@@ -188,61 +218,6 @@ describe("uiStateStore pure functions", () => {
         "turn-1": true,
       },
     });
-  });
-
-  it("resolves thread expansion from the first matching preference key", () => {
-    const threadKey = "environment-a:thread-1";
-    const aliasKey = "legacy:thread-1";
-
-    expect(resolveThreadExpanded({ [threadKey]: false, [aliasKey]: true }, [threadKey])).toBe(
-      false,
-    );
-    expect(resolveThreadExpanded({ [aliasKey]: false }, ["new-key", aliasKey])).toBe(false);
-    expect(resolveThreadExpanded({}, [threadKey])).toBe(true);
-  });
-
-  it("applies the caller's fallback only when no preference is recorded", () => {
-    const threadKey = "environment-a:thread-1";
-
-    expect(resolveThreadExpanded({}, [threadKey], { fallback: false })).toBe(false);
-    expect(resolveThreadExpanded({ [threadKey]: true }, [threadKey], { fallback: false })).toBe(
-      true,
-    );
-    expect(resolveThreadExpanded({ [threadKey]: false }, [threadKey], { fallback: true })).toBe(
-      false,
-    );
-  });
-
-  it("sets expansion for every stable key belonging to a thread", () => {
-    const initialState = makeUiState();
-    const keys = ["environment-a:thread-1", "environment-b:thread-1"];
-
-    const next = setThreadExpanded(initialState, keys, false);
-
-    expect(next.threadExpandedById).toEqual({
-      "environment-a:thread-1": false,
-      "environment-b:thread-1": false,
-    });
-    expect(setThreadExpanded(next, keys, false)).toBe(next);
-  });
-
-  it("retains expansion preferences only for currently known threads", () => {
-    const initialState = makeUiState({
-      threadExpandedById: {
-        "environment-a:thread-current": false,
-        "environment-a:thread-removed": true,
-      },
-    });
-
-    const next = retainThreadExpansionForKnownThreads(initialState, [
-      "environment-a:thread-current",
-      "environment-a:thread-new",
-    ]);
-
-    expect(next.threadExpandedById).toEqual({
-      "environment-a:thread-current": false,
-    });
-    expect(retainThreadExpansionForKnownThreads(next, ["environment-a:thread-current"])).toBe(next);
   });
 
   it("stores the endpoint preference by stable key", () => {
@@ -269,10 +244,6 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
       },
-      threadExpandedById: {
-        "environment:thread-1": false,
-        invalid: "no" as unknown as boolean,
-      },
       removedWorktreeAtByKey: {
         "local:/worktrees/ciber/dev-22": "2026-07-29T22:00:00.000Z",
         invalid: "not-a-date",
@@ -296,10 +267,6 @@ describe("parsePersistedState", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
-      threadExpandedById: {
-        "environment:thread-1": false,
-      },
-      worktreeExpandedByKey: {},
       activeWorktreeOverrideKey: null,
       openConversationTabKeys: [],
       collapsedConversationTabFamilyKeys: [],
@@ -462,8 +429,6 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
-      threadExpandedById: {},
-      worktreeExpandedByKey: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       threadChangedFilesExpansionVersion: 1,
       threadChangedFilesExpandedById: {
@@ -486,6 +451,45 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("drops legacy sidebar expansion state when rewriting persisted UI state", () => {
+    const hydrated = parsePersistedState({
+      threadExpandedById: { "environment:thread": false },
+      worktreeExpandedByKey: { "environment:/worktree": false },
+    });
+
+    expect(hydrated).toEqual(makeUiState());
+
+    persistState(hydrated);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted).not.toHaveProperty("threadExpandedById");
+    expect(persisted).not.toHaveProperty("worktreeExpandedByKey");
+  });
+
+  it("persists only the bounded inactive worktree-order history", () => {
+    const inactiveKeys = Array.from(
+      { length: MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + 2 },
+      (_, index) => `inactive:${index}`,
+    );
+    const visibleKeys = ["local:/current-a", "local:/current-b"];
+    const bounded = rememberWorktreeOrder(
+      makeUiState({ worktreeOrder: [...inactiveKeys, visibleKeys[0]!] }),
+      visibleKeys,
+    );
+
+    persistState(bounded);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(persisted.worktreeOrder).toEqual(expect.arrayContaining(visibleKeys));
   });
 
   it("drops the temporary expanded-only migration fallback when rewriting state", () => {

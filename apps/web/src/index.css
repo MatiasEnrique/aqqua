@@ -917,12 +917,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   }
 }
 
-/* Keep both navigation implementations on the same quiet ink hierarchy:
-   ink-50 navigation, ink-25 hover, and white selected/raised surfaces.
-   The version attribute remains useful for layout-specific styling without
-   changing the color system when the beta is toggled. */
-[data-sidebar-version="v1"],
-[data-sidebar-version="v2"] {
+/* Keep navigation on the quiet ink hierarchy: ink-50 navigation, ink-25 hover,
+   and white selected/raised surfaces. */
+[data-app-sidebar] {
   --background: var(--color-ink-25);
   --foreground: var(--color-ink-800);
   --card: var(--color-paper);
@@ -944,8 +941,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   background-color: var(--sidebar);
 }
 
-.dark [data-sidebar-version="v1"],
-.dark [data-sidebar-version="v2"] {
+.dark [data-app-sidebar] {
   --background: var(--color-ink-950);
   --foreground: var(--color-ink-100);
   --card: var(--color-ink-950);

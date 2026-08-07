@@ -76,48 +76,9 @@ describe("ClientSettings environment identification", () => {
   });
 });
 
-describe("ClientSettings sidebar v2", () => {
-  it("defaults to worktree cards with a three-day auto-settle threshold", () => {
-    const settings = decodeClientSettings({});
-    // The stored flag stays false; `resolveSidebarV2Enabled` owns the default,
-    // so an untouched setting is "unconfigured" rather than "opted out".
-    expect(settings.sidebarV2Enabled).toBe(false);
-    expect(settings.sidebarAutoSettleAfterDays).toBe(3);
-    expect(settings.sidebarThreadGroupingMode).toBe("worktree_cards");
-  });
-
-  it("accepts flat thread grouping in settings and patches", () => {
-    expect(
-      decodeClientSettings({ sidebarThreadGroupingMode: "flat" }).sidebarThreadGroupingMode,
-    ).toBe("flat");
-    expect(
-      decodeClientSettingsPatch({ sidebarThreadGroupingMode: "flat" }).sidebarThreadGroupingMode,
-    ).toBe("flat");
-  });
-
-  it("treats settings written before the beta had a per-channel default as unconfigured", () => {
-    // The stored blob always carries `sidebarV2Enabled`, so only the companion
-    // flag can distinguish "user opted out" from "never touched it".
-    expect(decodeClientSettings({ sidebarV2Enabled: false }).sidebarV2ConfiguredByUser).toBe(false);
-    expect(decodeClientSettings({ sidebarV2Enabled: true }).sidebarV2ConfiguredByUser).toBe(false);
-  });
-
-  it("preserves an explicit beta choice", () => {
-    const settings = decodeClientSettings({
-      sidebarV2Enabled: false,
-      sidebarV2ConfiguredByUser: true,
-    });
-    expect(settings.sidebarV2Enabled).toBe(false);
-    expect(settings.sidebarV2ConfiguredByUser).toBe(true);
-  });
-
-  it("carries an explicit beta opt-out through the patch the beta toggle writes", () => {
-    const patch = decodeClientSettingsPatch({
-      sidebarV2Enabled: false,
-      sidebarV2ConfiguredByUser: true,
-    });
-    expect(patch.sidebarV2Enabled).toBe(false);
-    expect(patch.sidebarV2ConfiguredByUser).toBe(true);
+describe("ClientSettings sidebar", () => {
+  it("defaults to a three-day auto-settle threshold", () => {
+    expect(decodeClientSettings({}).sidebarAutoSettleAfterDays).toBe(3);
   });
 
   it("allows auto-settle by inactivity to be disabled", () => {
