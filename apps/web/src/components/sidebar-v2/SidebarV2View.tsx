@@ -1,7 +1,7 @@
 import { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, FolderPlusIcon, PlusIcon, SearchIcon, SquarePenIcon } from "lucide-react";
-import { Fragment, lazy, Suspense, useEffect } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo } from "react";
 import { isElectron } from "../../env";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../../uiStateStore";
@@ -111,6 +111,16 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   // this list renders, rather than re-deriving the settled/snoozed partition.
   const setHeaderWorktree = useWorktreeHeaderStore((store) => store.setActiveWorktree);
   const worktreeCount = worktreeGroups.length;
+  const worktreeCardGroups = useMemo(
+    () =>
+      buildWorktreeCardGroups({
+        repositories: repositoryGroups,
+        worktrees: worktreeGroups,
+        selection: projectScopeSelection,
+      }),
+    [projectScopeSelection, repositoryGroups, worktreeGroups],
+  );
+  const hasVisibleWorktrees = worktreeCardGroups.some((group) => group.worktrees.length > 0);
   useEffect(() => {
     setHeaderWorktree({ group: activeWorktreeGroup, worktreeCount });
     return () => setHeaderWorktree({ group: null, worktreeCount: 0 });
@@ -335,11 +345,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
               timeout={400}
             >
               <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1">
-                {buildWorktreeCardGroups({
-                  repositories: repositoryGroups,
-                  worktrees: worktreeGroups,
-                  selection: projectScopeSelection,
-                }).map((cardGroup) => {
+                {worktreeCardGroups.map((cardGroup) => {
                   const { project } = cardGroup;
                   if (project === null) {
                     return (
@@ -384,7 +390,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                 })}
               </ul>
             </TooltipProvider>
-            {worktreeGroups.length === 0 ? (
+            {!hasVisibleWorktrees ? (
               <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
                 {projects.length === 0 ? (
                   <>

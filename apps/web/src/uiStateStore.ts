@@ -13,6 +13,7 @@ export const PERSISTED_STATE_KEY = "aqqua:ui-state:v1";
  */
 export const WINDOW_STATE_KEY = "aqqua:ui-window-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 1;
+export const MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS = 128;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "aqqua:renderer-state:v8",
   "aqqua:renderer-state:v7",
@@ -31,6 +32,10 @@ export interface PersistedUiState {
   projectOrder?: string[];
   worktreeOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
+  /** @deprecated Ignored on read and omitted on write. */
+  threadExpandedById?: Record<string, boolean>;
+  /** @deprecated Ignored on read and omitted on write. */
+  worktreeExpandedByKey?: Record<string, boolean>;
   activeWorktreeOverrideKey?: string | null;
   openConversationTabKeys?: string[];
   collapsedConversationTabFamilyKeys?: string[];
@@ -562,28 +567,56 @@ export function reorderWorktrees(
     nextVisibleIndex++;
   }
   mergedWorktreeOrder.push(...worktreeOrder.slice(nextVisibleIndex));
+  const boundedWorktreeOrder = retainBoundedInactiveWorktreeOrderKeys(
+    mergedWorktreeOrder,
+    visibleKeys,
+  );
   if (
-    mergedWorktreeOrder.length === state.worktreeOrder.length &&
-    mergedWorktreeOrder.every((key, index) => key === state.worktreeOrder[index])
+    boundedWorktreeOrder.length === state.worktreeOrder.length &&
+    boundedWorktreeOrder.every((key, index) => key === state.worktreeOrder[index])
   ) {
     return state;
   }
   return {
     ...state,
-    worktreeOrder: mergedWorktreeOrder,
+    worktreeOrder: boundedWorktreeOrder,
   };
+}
+
+function retainBoundedInactiveWorktreeOrderKeys(
+  worktreeOrder: readonly string[],
+  visibleKeys: ReadonlySet<string>,
+): string[] {
+  const inactiveKeys = worktreeOrder.filter((key) => !visibleKeys.has(key));
+  const inactiveKeysToDrop = new Set(
+    inactiveKeys.slice(
+      0,
+      Math.max(0, inactiveKeys.length - MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS),
+    ),
+  );
+  return worktreeOrder.filter((key) => !inactiveKeysToDrop.has(key));
 }
 
 export function rememberWorktreeOrder(
   state: UiState,
   creationOrderedWorktreeKeys: readonly string[],
 ): UiState {
+  const visibleKeys = new Set(creationOrderedWorktreeKeys);
   const rememberedKeys = new Set(state.worktreeOrder);
   const newKeys = creationOrderedWorktreeKeys.filter((key) => !rememberedKeys.has(key));
-  if (newKeys.length === 0) return state;
+  const worktreeOrder = retainBoundedInactiveWorktreeOrderKeys(
+    [...state.worktreeOrder, ...newKeys],
+    visibleKeys,
+  );
+  if (
+    worktreeOrder.length === state.worktreeOrder.length &&
+    worktreeOrder.every((key, index) => key === state.worktreeOrder[index])
+  ) {
+    return state;
+  }
   return {
     ...state,
-    worktreeOrder: [...state.worktreeOrder, ...newKeys],
+    worktreeOrder,
   };
 }
 

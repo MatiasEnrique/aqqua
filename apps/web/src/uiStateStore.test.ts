@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   legacyProjectCwdPreferenceKey,
+  MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS,
   markThreadUnread,
   markThreadVisited,
   PERSISTED_STATE_KEY,
@@ -164,6 +165,40 @@ describe("uiStateStore pure functions", () => {
     ).toMatchObject({
       worktreeOrder: ["local:/older", "local:/newer", "local:/latest"],
     });
+  });
+
+  it("bounds inactive worktree history while preserving every visible worktree", () => {
+    const inactiveKeys = Array.from(
+      { length: MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + 2 },
+      (_, index) => `inactive:${index}`,
+    );
+    const visibleKeys = ["local:/current-a", "local:/current-b"];
+
+    const next = rememberWorktreeOrder(
+      makeUiState({ worktreeOrder: [...inactiveKeys, visibleKeys[0]!] }),
+      visibleKeys,
+    );
+
+    expect(next.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(next.worktreeOrder).toEqual(
+      expect.arrayContaining([
+        ...inactiveKeys.slice(-MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS),
+        ...visibleKeys,
+      ]),
+    );
+
+    const reordered = reorderWorktrees(
+      makeUiState({ worktreeOrder: [...inactiveKeys, ...visibleKeys] }),
+      visibleKeys,
+      visibleKeys[1]!,
+      visibleKeys[0]!,
+    );
+    expect(reordered.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(reordered.worktreeOrder.slice(-visibleKeys.length)).toEqual(visibleKeys.toReversed());
   });
 
   it("stores explicit changed-file expansion choices", () => {
@@ -416,6 +451,45 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("drops legacy sidebar expansion state when rewriting persisted UI state", () => {
+    const hydrated = parsePersistedState({
+      threadExpandedById: { "environment:thread": false },
+      worktreeExpandedByKey: { "environment:/worktree": false },
+    });
+
+    expect(hydrated).toEqual(makeUiState());
+
+    persistState(hydrated);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted).not.toHaveProperty("threadExpandedById");
+    expect(persisted).not.toHaveProperty("worktreeExpandedByKey");
+  });
+
+  it("persists only the bounded inactive worktree-order history", () => {
+    const inactiveKeys = Array.from(
+      { length: MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + 2 },
+      (_, index) => `inactive:${index}`,
+    );
+    const visibleKeys = ["local:/current-a", "local:/current-b"];
+    const bounded = rememberWorktreeOrder(
+      makeUiState({ worktreeOrder: [...inactiveKeys, visibleKeys[0]!] }),
+      visibleKeys,
+    );
+
+    persistState(bounded);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted.worktreeOrder).toHaveLength(
+      MAX_RETAINED_INACTIVE_WORKTREE_ORDER_KEYS + visibleKeys.length,
+    );
+    expect(persisted.worktreeOrder).toEqual(expect.arrayContaining(visibleKeys));
   });
 
   it("drops the temporary expanded-only migration fallback when rewriting state", () => {

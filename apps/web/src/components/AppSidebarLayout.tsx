@@ -15,7 +15,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import ConversationSidebar from "./ConversationSidebar";
-import SettingsSidebar from "./Sidebar";
+import SettingsSidebar from "./SettingsSidebar";
 import { resolveAppSidebarSurface } from "./AppSidebarLayout.logic";
 import {
   resolveInitialThreadSidebarWidth,
@@ -144,7 +144,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
     const unsubscribe = onMenuAction((action) => {
       if (action === "open-settings") {
-        const isSettingsRoute = /^\/settings(\/|$)/.test(pathname);
+        const isSettingsRoute = resolveAppSidebarSurface(pathname) === "settings";
         if (!isSettingsRoute) {
           void navigate({ to: "/settings" });
         }
