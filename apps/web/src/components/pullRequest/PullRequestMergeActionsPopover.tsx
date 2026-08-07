@@ -234,7 +234,7 @@ export function PullRequestMergeActionsPopover({
         <ChevronDownIcon className="size-3.5 opacity-70" aria-hidden />
       </PopoverTrigger>
       <PopoverPopup
-        align="center"
+        align="start"
         className="w-(--anchor-width) min-w-64"
         viewportClassName="py-1.5 [--viewport-inline-padding:--spacing(1.5)]"
       >
