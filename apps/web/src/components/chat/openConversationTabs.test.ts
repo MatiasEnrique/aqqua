@@ -413,8 +413,56 @@ describe("retainKnownConversationTabs", () => {
 });
 
 describe("resolveWorktreeFocusTarget", () => {
-  const older = { environmentId: "env", id: "older", updatedAt: "2026-01-01T00:00:00.000Z" };
-  const newer = { environmentId: "env", id: "newer", updatedAt: "2026-02-01T00:00:00.000Z" };
+  const older = {
+    environmentId: "env",
+    id: "older",
+    parentThreadId: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const newer = {
+    environmentId: "env",
+    id: "newer",
+    parentThreadId: null,
+    updatedAt: "2026-02-01T00:00:00.000Z",
+  };
+
+  it("focuses the parent conversation instead of an open running sub-thread", () => {
+    const parent = {
+      environmentId: "env",
+      id: "parent",
+      parentThreadId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const subThread = {
+      environmentId: "env",
+      id: "sub-thread",
+      parentThreadId: "parent",
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    };
+
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [], active: [parent, subThread] as never },
+        openKeys: new Set([key("sub-thread")]),
+      }),
+    ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "parent" } });
+  });
+
+  it("keeps an orphaned sub-thread reachable when its parent is unavailable", () => {
+    const subThread = {
+      environmentId: "env",
+      id: "sub-thread",
+      parentThreadId: "missing-parent",
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    };
+
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [], active: [subThread] as never },
+        openKeys: new Set(),
+      }),
+    ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "sub-thread" } });
+  });
 
   it("focuses an already-open conversation over a more recent closed one", () => {
     expect(

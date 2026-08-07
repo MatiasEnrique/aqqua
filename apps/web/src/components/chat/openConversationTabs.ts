@@ -298,6 +298,7 @@ interface WorktreeFocusCandidate {
   readonly active: readonly {
     readonly environmentId: EnvironmentId;
     readonly id: ThreadId;
+    readonly parentThreadId?: ThreadId | null | undefined;
     readonly updatedAt: string;
   }[];
 }
@@ -305,10 +306,10 @@ interface WorktreeFocusCandidate {
 /**
  * Where clicking a worktree lands.
  *
- * An already-open tab wins, so selecting a worktree resumes what you were doing
- * there instead of yanking a stale conversation into the strip. Within either
- * pool the most recently active conversation wins — the code had no prior rule,
- * and recency is the one the strip's own ordering already implies.
+ * A worktree with sub-threads always lands on a top-level conversation. Among
+ * top-level conversations, an already-open tab wins, then recency. If the
+ * parent shell is unavailable, the same rule falls back across the remaining
+ * conversations so an orphaned sub-thread stays reachable.
  */
 export function resolveWorktreeFocusTarget(input: {
   readonly worktree: WorktreeFocusCandidate;
@@ -317,13 +318,15 @@ export function resolveWorktreeFocusTarget(input: {
   const byRecency = [...input.worktree.active].sort(
     (left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt),
   );
+  const topLevel = byRecency.filter((candidate) => candidate.parentThreadId == null);
+  const focusableThreads = topLevel.length > 0 ? topLevel : byRecency;
   const isOpen = (ref: { environmentId: EnvironmentId; threadId: ThreadId }) =>
     input.openKeys.has(conversationTabKey(scopeThreadRef(ref.environmentId, ref.threadId)));
 
   // Open beats closed across BOTH pools before recency gets a say. Checking
   // threads to exhaustion first meant a worktree holding one closed thread and
   // one open draft focused the thread, abandoning the draft being written in.
-  const openThread = byRecency.find((candidate) =>
+  const openThread = focusableThreads.find((candidate) =>
     isOpen({ environmentId: candidate.environmentId, threadId: candidate.id }),
   );
   if (openThread !== undefined) {
@@ -332,7 +335,7 @@ export function resolveWorktreeFocusTarget(input: {
   const openDraft = input.worktree.drafts.find(isOpen);
   if (openDraft !== undefined) return { _tag: "draft", draftId: openDraft.draftId };
 
-  const thread = byRecency[0];
+  const thread = focusableThreads[0];
   if (thread !== undefined) {
     return {
       _tag: "thread",
