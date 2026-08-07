@@ -1,12 +1,14 @@
 import { assert, it, afterEach, expect, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { VcsProcessExitError } from "@aqqua/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitLabCli from "./GitLabCli.ts";
+import { decodeGitLabMergeRequestJson } from "./gitLabMergeRequests.ts";
 
 const mockedRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
 const layer = it.layer(
@@ -31,6 +33,40 @@ function processOutput(stdout: string): VcsProcess.VcsProcessOutput {
 
 afterEach(() => {
   mockedRun.mockReset();
+});
+
+it("normalizes GitLab merge request conflict statuses", () => {
+  const cases: ReadonlyArray<{
+    readonly detailedMergeStatus?: string;
+    readonly hasConflicts?: boolean;
+    readonly expected: boolean | undefined;
+  }> = [
+    { detailedMergeStatus: "conflict", expected: true },
+    { detailedMergeStatus: "mergeable", expected: false },
+    { detailedMergeStatus: "checking", expected: undefined },
+    { detailedMergeStatus: "unchecked", expected: undefined },
+    { detailedMergeStatus: "future_status", expected: undefined },
+    { hasConflicts: true, expected: true },
+  ] as const;
+
+  for (const { detailedMergeStatus, hasConflicts, expected } of cases) {
+    const result = decodeGitLabMergeRequestJson(
+      JSON.stringify({
+        iid: 42,
+        title: "Conflict status",
+        web_url: "https://gitlab.com/acme/repo/-/merge_requests/42",
+        target_branch: "main",
+        source_branch: "feature/conflict-status",
+        detailed_merge_status: detailedMergeStatus,
+        has_conflicts: hasConflicts,
+      }),
+    );
+
+    assert.isTrue(Result.isSuccess(result));
+    if (Result.isSuccess(result)) {
+      assert.strictEqual(result.success.hasConflicts, expected);
+    }
+  }
 });
 
 layer("GitLabCli.layer", (it) => {

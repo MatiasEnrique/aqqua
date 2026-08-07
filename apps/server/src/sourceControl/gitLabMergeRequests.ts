@@ -84,8 +84,10 @@ function normalizeGitLabConflictStatus(input: {
     case undefined:
     case "":
       return input.has_conflicts;
-    default:
+    case "mergeable":
       return false;
+    default:
+      return undefined;
   }
 }
 
