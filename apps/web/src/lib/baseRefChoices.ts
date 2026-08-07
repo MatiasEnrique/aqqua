@@ -75,6 +75,16 @@ export function toRefPickerOptions(
   return options;
 }
 
+/** Filters picker rows by their own ref name, so a remote match never drags in its local sibling. */
+export function filterRefPickerOptions(
+  options: ReadonlyArray<RefPickerOption>,
+  query: string,
+): ReadonlyArray<RefPickerOption> {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (normalizedQuery.length === 0) return options;
+  return options.filter((option) => option.label.toLocaleLowerCase().includes(normalizedQuery));
+}
+
 export function filterBaseRefChoices(
   choices: ReadonlyArray<BaseRefChoice>,
   query: string,

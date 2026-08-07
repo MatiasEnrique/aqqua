@@ -12,7 +12,7 @@ import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { useTurnDiffSummaries } from "../../hooks/useTurnDiffSummaries";
 import {
   buildBaseRefChoices,
-  filterBaseRefChoices,
+  filterRefPickerOptions,
   toRefPickerOptions,
 } from "../../lib/baseRefChoices";
 import { useCheckpointDiff } from "../../lib/checkpointDiffState";
@@ -535,17 +535,15 @@ function useWorkspaceDiffSourceController({
     localRefs.filter((ref) => ref.name !== effectiveHeadRef),
     remoteRefs.filter((ref) => ref.name !== effectiveHeadRef),
   );
-  const matchingBaseRefChoices = filterBaseRefChoices(baseRefChoices, baseRefQuery);
   const baseRefOptions = toRefPickerOptions(baseRefChoices);
-  const filteredBaseRefOptions = toRefPickerOptions(matchingBaseRefChoices);
+  const filteredBaseRefOptions = filterRefPickerOptions(baseRefOptions, baseRefQuery);
   const baseRefItems = [AUTOMATIC_BASE_REF, ...baseRefOptions.map((option) => option.value)];
   const filteredBaseRefItems = [
     ...(baseRefQuery.trim().length === 0 ? [AUTOMATIC_BASE_REF] : []),
     ...filteredBaseRefOptions.map((option) => option.value),
   ];
-  const matchingHeadRefChoices = filterBaseRefChoices(headRefChoices, headRefQuery);
   const headRefOptions = toRefPickerOptions(headRefChoices);
-  const filteredHeadRefOptions = toRefPickerOptions(matchingHeadRefChoices);
+  const filteredHeadRefOptions = filterRefPickerOptions(headRefOptions, headRefQuery);
   const headRefItems = [CURRENT_BRANCH_HEAD_REF, ...headRefOptions.map((option) => option.value)];
   const filteredHeadRefItems = [
     CURRENT_BRANCH_HEAD_REF,
@@ -584,8 +582,6 @@ function useWorkspaceDiffSourceController({
     emptyPatchLabel: "No patch available for this selection.",
     latestTurn,
     localBranchRefs,
-    matchingBaseRefChoices,
-    matchingHeadRefChoices,
     openInPreferredEditor,
     orderedTurnDiffSummaries,
     remoteBranchRefs,
