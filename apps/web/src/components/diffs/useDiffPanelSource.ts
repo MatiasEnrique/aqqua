@@ -10,7 +10,11 @@ import { useCallback, useEffect, useMemo } from "react";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../../diffPanelStore";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { useTurnDiffSummaries } from "../../hooks/useTurnDiffSummaries";
-import { buildBaseRefChoices, filterBaseRefChoices } from "../../lib/baseRefChoices";
+import {
+  buildBaseRefChoices,
+  filterRefPickerOptions,
+  toRefPickerOptions,
+} from "../../lib/baseRefChoices";
 import { useCheckpointDiff } from "../../lib/checkpointDiffState";
 import { areAllDiffFilesCollapsed } from "../../lib/diffCollapse";
 import {
@@ -531,25 +535,19 @@ function useWorkspaceDiffSourceController({
     localRefs.filter((ref) => ref.name !== effectiveHeadRef),
     remoteRefs.filter((ref) => ref.name !== effectiveHeadRef),
   );
-  const matchingBaseRefChoices = filterBaseRefChoices(baseRefChoices, baseRefQuery);
-  const valueForBaseRefChoice = (choice: (typeof baseRefChoices)[number]) =>
-    selectedBaseRef && selectedBaseRef === choice.remote?.name
-      ? selectedBaseRef
-      : (choice.local?.name ?? choice.remote?.name ?? choice.id);
-  const baseRefItems = [AUTOMATIC_BASE_REF, ...baseRefChoices.map(valueForBaseRefChoice)];
+  const baseRefOptions = toRefPickerOptions(baseRefChoices);
+  const filteredBaseRefOptions = filterRefPickerOptions(baseRefOptions, baseRefQuery);
+  const baseRefItems = [AUTOMATIC_BASE_REF, ...baseRefOptions.map((option) => option.value)];
   const filteredBaseRefItems = [
     ...(baseRefQuery.trim().length === 0 ? [AUTOMATIC_BASE_REF] : []),
-    ...matchingBaseRefChoices.map(valueForBaseRefChoice),
+    ...filteredBaseRefOptions.map((option) => option.value),
   ];
-  const matchingHeadRefChoices = filterBaseRefChoices(headRefChoices, headRefQuery);
-  const valueForHeadRefChoice = (choice: (typeof headRefChoices)[number]) =>
-    selectedHeadRef && selectedHeadRef === choice.remote?.name
-      ? selectedHeadRef
-      : (choice.local?.name ?? choice.remote?.name ?? choice.id);
-  const headRefItems = [CURRENT_BRANCH_HEAD_REF, ...headRefChoices.map(valueForHeadRefChoice)];
+  const headRefOptions = toRefPickerOptions(headRefChoices);
+  const filteredHeadRefOptions = filterRefPickerOptions(headRefOptions, headRefQuery);
+  const headRefItems = [CURRENT_BRANCH_HEAD_REF, ...headRefOptions.map((option) => option.value)];
   const filteredHeadRefItems = [
     CURRENT_BRANCH_HEAD_REF,
-    ...matchingHeadRefChoices.map(valueForHeadRefChoice),
+    ...filteredHeadRefOptions.map((option) => option.value),
   ];
   const source = selectedTurn !== undefined ? checkpointController.source : gitController.source;
   const rendered = useRenderableDiffSource({
@@ -567,6 +565,10 @@ function useWorkspaceDiffSourceController({
     ...rendered,
     baseRefChoices,
     baseRefItems,
+    baseRefOptions,
+    filteredBaseRefOptions,
+    filteredHeadRefOptions,
+    headRefOptions,
     branchDiffPreview,
     collapseScopeKey,
     environmentId,
@@ -580,8 +582,6 @@ function useWorkspaceDiffSourceController({
     emptyPatchLabel: "No patch available for this selection.",
     latestTurn,
     localBranchRefs,
-    matchingBaseRefChoices,
-    matchingHeadRefChoices,
     openInPreferredEditor,
     orderedTurnDiffSummaries,
     remoteBranchRefs,
@@ -610,8 +610,6 @@ function useWorkspaceDiffSourceController({
     source,
     showWhitespaceControl: true,
     supportsPull: true,
-    valueForBaseRefChoice,
-    valueForHeadRefChoice,
     headRefChoices,
     headRefItems,
     workspaceOwner,

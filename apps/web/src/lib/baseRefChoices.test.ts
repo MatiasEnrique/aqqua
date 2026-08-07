@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { VcsRef } from "@aqqua/contracts";
-import { buildBaseRefChoices, filterBaseRefChoices } from "./baseRefChoices";
+import {
+  buildBaseRefChoices,
+  filterBaseRefChoices,
+  filterRefPickerOptions,
+  toRefPickerOptions,
+} from "./baseRefChoices";
 
 function ref(name: string, remoteName?: string): VcsRef {
   return {
@@ -31,6 +36,26 @@ describe("buildBaseRefChoices", () => {
         local: null,
         remote: expect.objectContaining({ name: "upstream/main" }),
       }),
+    ]);
+  });
+});
+
+describe("filterRefPickerOptions", () => {
+  it("keeps only the rows whose own ref name matches the query", () => {
+    const options = toRefPickerOptions(
+      buildBaseRefChoices([ref("main")], [ref("origin/main", "origin")]),
+    );
+
+    expect(options.map((option) => [option.value, option.badge])).toEqual([
+      ["main", null],
+      ["origin/main", "remote"],
+    ]);
+    expect(filterRefPickerOptions(options, "ORIGIN").map((option) => option.value)).toEqual([
+      "origin/main",
+    ]);
+    expect(filterRefPickerOptions(options, "  ").map((option) => option.value)).toEqual([
+      "main",
+      "origin/main",
     ]);
   });
 });

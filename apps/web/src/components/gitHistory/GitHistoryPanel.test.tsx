@@ -140,7 +140,7 @@ describe("GitHistoryPanel", () => {
     expect(renderPanel()).toContain("No commits yet");
   });
 
-  it("renders commit identity, refs, selection semantics, and the graph on the right", () => {
+  it("renders commit identity, refs, selection semantics, and no diff pane until a commit is picked", () => {
     testState.history.data = {
       commits: [commit],
       isRepo: true,
@@ -159,9 +159,7 @@ describe("GitHistoryPanel", () => {
     expect(markup).toContain("<svg");
     expect(markup).toContain('aria-hidden="true"');
     expect(markup).not.toContain('data-testid="regular-diff-panel"');
-    expect(markup.indexOf('data-history-pane="diff"')).toBeLessThan(
-      markup.indexOf('data-history-pane="graph"'),
-    );
+    expect(markup).not.toContain('data-history-pane="diff"');
   });
 
   it("mounts the regular diff viewer with only the selected commit target", () => {

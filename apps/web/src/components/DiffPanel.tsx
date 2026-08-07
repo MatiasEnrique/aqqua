@@ -5,13 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import type { EnvironmentId, GitObjectId, ScopedThreadRef, TurnId } from "@aqqua/contracts";
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  SearchIcon,
-} from "lucide-react";
+import { ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSourceControlActionRunning, useVcsPullAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
@@ -62,7 +56,6 @@ import {
   ComboboxPopup,
   ComboboxTrigger,
 } from "./ui/combobox";
-import { Switch } from "./ui/switch";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -142,7 +135,6 @@ export default function DiffPanel({
     activeCwd,
     allowsCommitControls,
     allDiffFilesCollapsed,
-    baseRefChoices,
     baseRefItems,
     branchDiffPreview,
     codeViewFiles,
@@ -154,10 +146,11 @@ export default function DiffPanel({
     emptyPatchLabel,
     environmentId,
     filteredBaseRefItems,
+    filteredBaseRefOptions,
     filteredHeadRefItems,
+    filteredHeadRefOptions,
     currentBranchRef,
     effectiveHeadRef,
-    headRefChoices,
     headRefItems,
     inferredCheckpointTurnCountByTurnId,
     isGitRepo,
@@ -186,8 +179,6 @@ export default function DiffPanel({
     showWhitespaceControl,
     source,
     supportsPull,
-    valueForBaseRefChoice,
-    valueForHeadRefChoice,
     workspaceOwner,
   } = useDiffPanelSource({
     initialGitScope,
@@ -497,13 +488,6 @@ export default function DiffPanel({
                     />
                   </div>
                 </div>
-                <div className="grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 ps-3 pe-6.5 pt-2 pb-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
-                  <span aria-hidden="true" />
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center">
-                    <span>Branch</span>
-                    <span className="text-right">Remote</span>
-                  </div>
-                </div>
                 <ComboboxEmpty>No matching branches.</ComboboxEmpty>
                 <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
                   <ComboboxItem
@@ -515,47 +499,23 @@ export default function DiffPanel({
                       Current branch ({currentBranchRef ?? "HEAD"})
                     </span>
                   </ComboboxItem>
-                  {headRefChoices.map((choice) => {
-                    const item = valueForHeadRefChoice(choice);
-                    const hasBoth = choice.local !== null && choice.remote !== null;
-                    const useRemote = choice.remote?.name === item;
-                    return (
-                      <ComboboxItem
-                        key={choice.id}
-                        className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                        contentClassName="w-full min-w-0 overflow-hidden"
-                        value={item}
-                      >
-                        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center overflow-hidden">
-                          <span className="block min-w-0 truncate pe-2">{choice.label}</span>
-                          {hasBoth ? (
-                            <div className="flex justify-end">
-                              <Switch
-                                onClick={(event) => event.stopPropagation()}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                aria-label={`Use remote version of ${choice.label}`}
-                                checked={useRemote}
-                                className="[--thumb-size:--spacing(3)]"
-                                onCheckedChange={(checked) => {
-                                  const nextRef = checked
-                                    ? choice.remote?.name
-                                    : choice.local?.name;
-                                  if (nextRef) selectBranchHeadRef(nextRef);
-                                }}
-                              />
-                            </div>
-                          ) : choice.remote ? (
-                            <span
-                              className="flex justify-end text-muted-foreground"
-                              title="Remote only"
-                            >
-                              <CheckIcon aria-hidden="true" className="size-3" />
-                            </span>
-                          ) : null}
-                        </div>
-                      </ComboboxItem>
-                    );
-                  })}
+                  {filteredHeadRefOptions.map((option) => (
+                    <ComboboxItem
+                      key={option.id}
+                      className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
+                      contentClassName="w-full min-w-0 overflow-hidden"
+                      value={option.value}
+                    >
+                      <div className="flex w-full min-w-0 items-center justify-between gap-2">
+                        <span className="min-w-0 truncate">{option.label}</span>
+                        {option.badge ? (
+                          <span className="shrink-0 text-[10px] text-muted-foreground/45">
+                            {option.badge}
+                          </span>
+                        ) : null}
+                      </div>
+                    </ComboboxItem>
+                  ))}
                 </ComboboxList>
               </ComboboxPopup>
             </Combobox>
@@ -603,63 +563,34 @@ export default function DiffPanel({
                         />
                       </div>
                     </div>
-                    <div className="grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 ps-3 pe-6.5 pt-2 pb-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
-                      <span aria-hidden="true" />
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center">
-                        <span>Branch</span>
-                        <span className="text-right">Remote</span>
-                      </div>
-                    </div>
                     <ComboboxEmpty>No matching refs.</ComboboxEmpty>
                     <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
-                      <ComboboxItem
-                        className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                        contentClassName="w-full min-w-0 overflow-hidden"
-                        value={AUTOMATIC_BASE_REF}
-                      >
-                        <span className="block min-w-0 truncate">Automatic</span>
-                      </ComboboxItem>
-                      {baseRefChoices.map((choice) => {
-                        const item = valueForBaseRefChoice(choice);
-                        const hasBoth = choice.local !== null && choice.remote !== null;
-                        const useRemote = choice.remote?.name === item;
-                        return (
-                          <ComboboxItem
-                            key={choice.id}
-                            className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                            contentClassName="w-full min-w-0 overflow-hidden"
-                            value={item}
-                          >
-                            <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center overflow-hidden">
-                              <span className="block min-w-0 truncate pe-2">{choice.label}</span>
-                              {hasBoth ? (
-                                <div className="flex justify-end">
-                                  <Switch
-                                    onClick={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    aria-label={`Use remote version of ${choice.label}`}
-                                    checked={useRemote}
-                                    className="[--thumb-size:--spacing(3)]"
-                                    onCheckedChange={(checked) => {
-                                      const nextRef = checked
-                                        ? choice.remote?.name
-                                        : choice.local?.name;
-                                      if (nextRef) selectBranchBaseRef(nextRef);
-                                    }}
-                                  />
-                                </div>
-                              ) : choice.remote ? (
-                                <span
-                                  className="flex justify-end text-muted-foreground"
-                                  title="Remote only"
-                                >
-                                  <CheckIcon aria-hidden="true" className="size-3" />
-                                </span>
-                              ) : null}
-                            </div>
-                          </ComboboxItem>
-                        );
-                      })}
+                      {baseRefQuery.trim().length === 0 ? (
+                        <ComboboxItem
+                          className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
+                          contentClassName="w-full min-w-0 overflow-hidden"
+                          value={AUTOMATIC_BASE_REF}
+                        >
+                          <span className="block min-w-0 truncate">Automatic</span>
+                        </ComboboxItem>
+                      ) : null}
+                      {filteredBaseRefOptions.map((option) => (
+                        <ComboboxItem
+                          key={option.id}
+                          className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
+                          contentClassName="w-full min-w-0 overflow-hidden"
+                          value={option.value}
+                        >
+                          <div className="flex w-full min-w-0 items-center justify-between gap-2">
+                            <span className="min-w-0 truncate">{option.label}</span>
+                            {option.badge ? (
+                              <span className="shrink-0 text-[10px] text-muted-foreground/45">
+                                {option.badge}
+                              </span>
+                            ) : null}
+                          </div>
+                        </ComboboxItem>
+                      ))}
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
