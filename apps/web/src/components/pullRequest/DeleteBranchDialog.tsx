@@ -196,9 +196,9 @@ export function DeleteBranchDialog(props: {
             </DialogHeader>
             <DialogPanel className="space-y-3">
               <p className="text-sm text-destructive">
-                Deleting the worktree permanently deletes its aqqua conversations and the worktree.
-                In the next step, you can choose whether to also delete its local branch. This
-                cannot be undone.
+                Deleting the worktree archives its aqqua conversations and permanently deletes the
+                worktree. In the next step, you can choose whether to also delete its local branch.
+                This cannot be undone.
               </p>
             </DialogPanel>
             <DialogFooter>

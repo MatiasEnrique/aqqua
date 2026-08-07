@@ -3709,6 +3709,23 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           },
         });
 
+        const { manager: currentWorktreeManager } = yield* makeDeleteManager();
+        expect(
+          yield* currentWorktreeManager.deleteChangeRequestBranch({
+            cwd: worktreePath,
+            reference: "#42",
+            deleteLocalBranch: true,
+          }),
+        ).toEqual({
+          branch: "feature/delete-me",
+          remote: "deleted",
+          local: {
+            _tag: "worktree",
+            refName: "feature/delete-me",
+            worktreePath: NodeFS.realpathSync.native(worktreePath),
+          },
+        });
+
         const checkedOutRepo = yield* makeTempDir("aqqua-git-manager-delete-checked-out-");
         yield* initRepo(checkedOutRepo);
         yield* runGit(checkedOutRepo, ["checkout", "-b", "feature/delete-me"]);

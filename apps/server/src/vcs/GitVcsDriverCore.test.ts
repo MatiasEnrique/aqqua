@@ -1516,7 +1516,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
-    it.effect("creates and removes a worktree for a new refName", () =>
+    it.effect("creates and removes the current linked worktree for a new refName", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
@@ -1538,7 +1538,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.equal(created.worktree.refName, "feature/worktree");
         assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "feature/worktree");
 
-        yield* driver.removeWorktree({ cwd, path: worktreePath });
+        yield* driver.removeWorktree({ cwd: worktreePath, path: worktreePath });
         const fileSystem = yield* FileSystem.FileSystem;
         assert.equal(yield* fileSystem.exists(worktreePath), false);
       }),
