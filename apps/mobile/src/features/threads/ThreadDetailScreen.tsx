@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import type { ThreadQueuedMessagePresentation } from "../../state/use-thread-composer-state";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import type {
@@ -76,7 +77,7 @@ export interface ThreadDetailScreenProps {
   readonly environmentId: EnvironmentId;
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
-  readonly selectedThreadQueueCount: number;
+  readonly selectedThreadQueuedMessages: ReadonlyArray<ThreadQueuedMessagePresentation>;
   readonly serverConfig: AqquaServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -88,6 +89,8 @@ export interface ThreadDetailScreenProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onQueueMessage: () => Promise<MessageId | null>;
+  readonly onDequeueQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onReconnectEnvironment: () => void;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
@@ -453,7 +456,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               threadSyncPhase={threadSyncPhase}
               selectedThread={props.selectedThread}
               serverConfig={props.serverConfig}
-              queueCount={props.selectedThreadQueueCount}
+              queuedMessages={props.selectedThreadQueuedMessages}
               activeThreadBusy={props.activeThreadBusy}
               environmentId={props.environmentId}
               projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
@@ -464,6 +467,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               onRemoveDraftImage={props.onRemoveDraftImage}
               onStopThread={props.onStopThread}
               onSendMessage={handleSendMessage}
+              onQueueMessage={props.onQueueMessage}
+              onDequeueQueuedMessage={props.onDequeueQueuedMessage}
               onReconnectEnvironment={props.onReconnectEnvironment}
               onUpdateModelSelection={props.onUpdateThreadModelSelection}
               onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}

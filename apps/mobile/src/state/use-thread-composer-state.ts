@@ -11,6 +11,10 @@ import {
   type ThreadId,
 } from "@aqqua/contracts";
 import { safeErrorLogAttributes } from "@aqqua/client-runtime/errors";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@aqqua/client-runtime/state/runtime";
 import { deriveActiveWorkStartedAt } from "@aqqua/shared/orchestrationTiming";
 
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
@@ -38,8 +42,21 @@ import {
 import { setPendingConnectionError } from "../state/use-remote-environment-registry";
 import { useSelectedThreadDetail } from "../state/use-thread-detail";
 import { useThreadSelection } from "../state/use-thread-selection";
-import { enqueueThreadOutboxMessage } from "./thread-outbox";
+import { enqueueThreadOutboxMessage, removeThreadOutboxMessage } from "./thread-outbox";
 import { useThreadOutboxMessages } from "./use-thread-outbox";
+import { threadEnvironment } from "./threads";
+import { useAtomCommand } from "./use-atom-command";
+import {
+  cancelDispatchingQueuedMessage,
+  cancelledQueuedMessageIdsAtom,
+} from "./use-thread-outbox-drain";
+
+export interface ThreadQueuedMessagePresentation {
+  readonly messageId: MessageId;
+  readonly text: string;
+  readonly attachmentCount: number;
+  readonly source: "local" | "server";
+}
 
 export function appendReviewCommentToDraft(input: {
   readonly environmentId: EnvironmentId;
@@ -77,6 +94,10 @@ export function useThreadComposerState() {
   const selectedThreadDetail = useSelectedThreadDetail();
   const composerDrafts = useAtomValue(composerDraftsAtom);
   const queuedMessagesByThreadKey = useThreadOutboxMessages();
+  const cancelledQueuedMessageIds = useAtomValue(cancelledQueuedMessageIdsAtom);
+  const dequeueThreadMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
+    reportFailure: false,
+  });
 
   useEffect(() => {
     ensureComposerDraftsLoaded();
@@ -85,10 +106,47 @@ export function useThreadComposerState() {
   const selectedThreadKey = selectedThreadShell
     ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
     : null;
-  const selectedThreadQueuedMessages = useMemo(
+  const selectedThreadOutboxMessages = useMemo(
     () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
     [queuedMessagesByThreadKey, selectedThreadKey],
   );
+  const selectedThreadLocalQueuedMessages = useMemo(
+    () =>
+      selectedThreadOutboxMessages.filter(
+        (message) =>
+          message.deliveryMode !== "steer" && !cancelledQueuedMessageIds.has(message.messageId),
+      ),
+    [cancelledQueuedMessageIds, selectedThreadOutboxMessages],
+  );
+  const selectedThreadQueuedMessages = useMemo(() => {
+    const messages = new Map<MessageId, ThreadQueuedMessagePresentation>();
+    for (const message of selectedThreadDetail?.queuedMessages ?? []) {
+      if (cancelledQueuedMessageIds.has(message.messageId)) {
+        continue;
+      }
+      messages.set(message.messageId, {
+        messageId: message.messageId,
+        text: message.text,
+        attachmentCount: message.attachments.length,
+        source: "server",
+      });
+    }
+    for (const message of selectedThreadLocalQueuedMessages) {
+      if (!messages.has(message.messageId)) {
+        messages.set(message.messageId, {
+          messageId: message.messageId,
+          text: message.text,
+          attachmentCount: message.attachments.length,
+          source: "local",
+        });
+      }
+    }
+    return [...messages.values()];
+  }, [
+    cancelledQueuedMessageIds,
+    selectedThreadDetail?.queuedMessages,
+    selectedThreadLocalQueuedMessages,
+  ]);
   const selectedThreadFeed = useMemo(
     () => (selectedThreadDetail ? buildThreadFeed(selectedThreadDetail) : []),
     [selectedThreadDetail],
@@ -132,44 +190,113 @@ export function useThreadComposerState() {
     !!selectedThread &&
     (selectedThread.session?.status === "running" || selectedThread.session?.status === "starting");
 
-  const onSendMessage = useCallback(async () => {
-    if (!selectedThreadShell) {
-      return null;
-    }
+  const submitDraft = useCallback(
+    async (deliveryMode: "queue" | "steer") => {
+      if (!selectedThreadShell) {
+        return null;
+      }
 
-    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
-    const draft = getComposerDraftSnapshot(threadKey);
-    const thread = selectedThreadDetail ?? selectedThreadShell;
-    const text = draft.text.trim();
-    const attachments = draft.attachments;
-    if (text.length === 0 && attachments.length === 0) {
-      return null;
-    }
+      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+      const draft = getComposerDraftSnapshot(threadKey);
+      const thread = selectedThreadDetail ?? selectedThreadShell;
+      const text = draft.text.trim();
+      const attachments = draft.attachments;
+      if (text.length === 0 && attachments.length === 0) {
+        return null;
+      }
 
-    const metadata = makeQueuedMessageMetadata();
-    const messageId = MessageId.make(metadata.messageId);
-    try {
-      await enqueueThreadOutboxMessage({
-        environmentId: selectedThreadShell.environmentId,
-        threadId: selectedThreadShell.id,
-        messageId,
-        commandId: CommandId.make(metadata.commandId),
-        text,
-        attachments,
-        modelSelection: draft.modelSelection ?? thread.modelSelection,
-        runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
-        interactionMode: draft.interactionMode ?? thread.interactionMode,
-        createdAt: metadata.createdAt,
-      });
+      const metadata = makeQueuedMessageMetadata();
+      const messageId = MessageId.make(metadata.messageId);
       clearComposerDraftContent(threadKey);
-      return messageId;
-    } catch (error) {
-      setPendingConnectionError(
-        error instanceof Error ? error.message : "Failed to save the queued message.",
+      try {
+        await enqueueThreadOutboxMessage({
+          environmentId: selectedThreadShell.environmentId,
+          threadId: selectedThreadShell.id,
+          messageId,
+          commandId: CommandId.make(metadata.commandId),
+          text,
+          attachments,
+          modelSelection: draft.modelSelection ?? thread.modelSelection,
+          runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
+          interactionMode: draft.interactionMode ?? thread.interactionMode,
+          deliveryMode,
+          createdAt: metadata.createdAt,
+        });
+        return messageId;
+      } catch (error) {
+        const currentDraft = getComposerDraftSnapshot(threadKey);
+        const restoredText = [text, currentDraft.text]
+          .filter((value) => value.length > 0)
+          .join("\n\n");
+        const restoredAttachments = [...attachments, ...currentDraft.attachments].filter(
+          (attachment, index, all) =>
+            all.findIndex((candidate) => candidate.id === attachment.id) === index,
+        );
+        clearComposerDraftContent(threadKey);
+        setComposerDraftText(threadKey, restoredText);
+        appendComposerDraftAttachments(threadKey, restoredAttachments);
+        updateComposerDraftSettings(threadKey, {
+          modelSelection: currentDraft.modelSelection ?? draft.modelSelection,
+          runtimeMode: currentDraft.runtimeMode ?? draft.runtimeMode,
+          interactionMode: currentDraft.interactionMode ?? draft.interactionMode,
+        });
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to save the queued message.",
+        );
+        return null;
+      }
+    },
+    [selectedThreadDetail, selectedThreadShell],
+  );
+
+  const onSendMessage = useCallback(() => submitDraft("steer"), [submitDraft]);
+  const onQueueMessage = useCallback(() => submitDraft("queue"), [submitDraft]);
+
+  const onDequeueQueuedMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!selectedThreadShell) {
+        return;
+      }
+      const localMessage = selectedThreadLocalQueuedMessages.find(
+        (message) => message.messageId === messageId,
       );
-      return null;
-    }
-  }, [selectedThreadDetail, selectedThreadShell]);
+      const serverHasMessage = (selectedThreadDetail?.queuedMessages ?? []).some(
+        (message) => message.messageId === messageId,
+      );
+      try {
+        if (!serverHasMessage && localMessage) {
+          if (cancelDispatchingQueuedMessage(messageId)) {
+            return;
+          }
+          await removeThreadOutboxMessage(localMessage);
+          return;
+        }
+        const result = await dequeueThreadMessage({
+          environmentId: selectedThreadShell.environmentId,
+          input: {
+            threadId: selectedThreadShell.id,
+            messageId,
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          throw squashAtomCommandFailure(result);
+        }
+        if (result._tag === "Success" && localMessage) {
+          await removeThreadOutboxMessage(localMessage);
+        }
+      } catch (error) {
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to remove the queued message.",
+        );
+      }
+    },
+    [
+      dequeueThreadMessage,
+      selectedThreadDetail?.queuedMessages,
+      selectedThreadLocalQueuedMessages,
+      selectedThreadShell,
+    ],
+  );
 
   const onChangeDraftMessage = useCallback(
     (value: string) => {
@@ -292,6 +419,7 @@ export function useThreadComposerState() {
   return {
     selectedThreadFeed,
     selectedThreadQueueCount,
+    selectedThreadQueuedMessages,
     activeWorkStartedAt,
     draftMessage,
     draftAttachments,
@@ -305,6 +433,8 @@ export function useThreadComposerState() {
     onNativePasteImages,
     onRemoveDraftImage,
     onSendMessage,
+    onQueueMessage,
+    onDequeueQueuedMessage,
     onUpdateModelSelection,
     onUpdateRuntimeMode,
     onUpdateInteractionMode,

@@ -132,6 +132,43 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       yield* sql`
+        INSERT INTO projection_queued_messages (
+          message_id,
+          thread_id,
+          text,
+          attachments_json,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          created_at,
+          sequence
+        )
+        VALUES
+          (
+            'queued-z',
+            'thread-1',
+            'first queued',
+            '[]',
+            '{"instanceId":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            '2026-02-24T00:00:05.000Z',
+            10
+          ),
+          (
+            'queued-a',
+            'thread-1',
+            'second queued',
+            '[]',
+            '{"instanceId":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            '2026-02-24T00:00:05.000Z',
+            11
+          )
+      `;
+
+      yield* sql`
         INSERT INTO projection_thread_proposed_plans (
           plan_id,
           thread_id,
@@ -328,6 +365,34 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               streaming: false,
               createdAt: "2026-02-24T00:00:04.000Z",
               updatedAt: "2026-02-24T00:00:05.000Z",
+            },
+          ],
+          queuedMessages: [
+            {
+              messageId: asMessageId("queued-z"),
+              text: "first queued",
+              attachments: [],
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("codex"),
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              createdAt: "2026-02-24T00:00:05.000Z",
+              sequence: 10,
+            },
+            {
+              messageId: asMessageId("queued-a"),
+              text: "second queued",
+              attachments: [],
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("codex"),
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              createdAt: "2026-02-24T00:00:05.000Z",
+              sequence: 11,
             },
           ],
           proposedPlans: [

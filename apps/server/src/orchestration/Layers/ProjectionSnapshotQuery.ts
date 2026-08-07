@@ -634,9 +634,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          sequence
         FROM projection_queued_messages
-        ORDER BY thread_id ASC, created_at ASC, message_id ASC
+        ORDER BY thread_id ASC, sequence ASC
       `,
   });
 
@@ -1025,10 +1026,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          sequence
         FROM projection_queued_messages
         WHERE thread_id = ${threadId}
-        ORDER BY created_at ASC, message_id ASC
+        ORDER BY sequence ASC
       `,
   });
 
@@ -1346,6 +1348,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
                   createdAt: row.createdAt,
+                  sequence: row.sequence,
                 });
                 queuedMessagesByThread.set(row.threadId, threadQueuedMessages);
               }
@@ -2470,6 +2473,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           runtimeMode: row.runtimeMode,
           interactionMode: row.interactionMode,
           createdAt: row.createdAt,
+          sequence: row.sequence,
         })),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),
         activities: activityRows.map((row) => {

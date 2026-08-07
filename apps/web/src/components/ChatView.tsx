@@ -300,6 +300,7 @@ import {
   cloneComposerImageForRetry,
   deriveLockedProvider,
   getThreadErrorIdentity,
+  IMAGE_ONLY_BOOTSTRAP_PROMPT,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
   resolveThreadErrorCandidate,
@@ -341,8 +342,6 @@ import {
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 
-const IMAGE_ONLY_BOOTSTRAP_PROMPT =
-  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -2109,6 +2108,7 @@ function ChatViewContent(props: ChatViewProps) {
   const serverConfig = activeThread
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
+  const messageQueueSupported = serverConfig?.environment.capabilities.threadMessageQueue === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -5019,7 +5019,10 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (submissionIntent === "queue" && (phase !== "running" || !isServerThread)) {
+    if (
+      submissionIntent === "queue" &&
+      (phase !== "running" || !isServerThread || !messageQueueSupported)
+    ) {
       return;
     }
     if (activePendingProgress) {
@@ -5193,6 +5196,13 @@ function ChatViewContent(props: ChatViewProps) {
     }));
     if (submissionIntent === "queue") {
       setThreadError(threadIdForSend, null);
+      // Release the submitted draft before attachment encoding and the RPC so
+      // anything typed while those are in flight belongs to the next message.
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      setComposerResumeSession(composerDraftTarget, null);
+      composerRef.current?.resetCursorState();
+
       const turnAttachmentsResult = await settlePromise(() => turnAttachmentsPromise);
       let failure: AtomCommandResult<unknown, unknown> | null =
         turnAttachmentsResult._tag === "Failure" ? turnAttachmentsResult : null;
@@ -5220,10 +5230,9 @@ function ChatViewContent(props: ChatViewProps) {
       }
 
       if (failure === null) {
-        promptRef.current = "";
-        clearComposerDraftContent(composerDraftTarget);
-        setComposerResumeSession(composerDraftTarget, null);
-        composerRef.current?.resetCursorState();
+        for (const image of composerImagesSnapshot) {
+          revokeBlobPreviewUrl(image.previewUrl);
+        }
         if (expiredTerminalContextCount > 0) {
           const toastCopy = buildExpiredTerminalContextToastCopy(
             expiredTerminalContextCount,
@@ -5237,12 +5246,60 @@ function ChatViewContent(props: ChatViewProps) {
             }),
           );
         }
-      } else if (!isAtomCommandInterrupted(failure)) {
-        const error = squashAtomCommandFailure(failure);
-        setThreadError(
-          threadIdForSend,
-          error instanceof Error ? error.message : "Failed to queue message.",
+      } else {
+        const currentDraft =
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget) ?? null;
+        const currentPrompt = currentDraft?.prompt ?? "";
+        const restoredPrompt = [promptForSend, currentPrompt]
+          .filter((value) => value.length > 0)
+          .join("\n\n");
+        const restoredImages = [...composerImagesSnapshot, ...(currentDraft?.images ?? [])].filter(
+          (image, index, images) =>
+            images.findIndex((candidate) => candidate.id === image.id) === index,
         );
+        const restoredTerminalContexts = [
+          ...composerTerminalContextsSnapshot,
+          ...(currentDraft?.terminalContexts ?? []),
+        ];
+        const restoredElementContexts = [
+          ...composerElementContextsSnapshot,
+          ...(currentDraft?.elementContexts ?? []),
+        ];
+        const restoredPreviewAnnotations = [
+          ...composerPreviewAnnotationsSnapshot,
+          ...(currentDraft?.previewAnnotations ?? []),
+        ];
+        const restoredReviewComments = [
+          ...composerReviewCommentsSnapshot,
+          ...(currentDraft?.reviewComments ?? []),
+        ];
+        clearComposerDraftContent(composerDraftTarget);
+        promptRef.current = restoredPrompt;
+        composerImagesRef.current = restoredImages;
+        composerTerminalContextsRef.current = restoredTerminalContexts;
+        composerElementContextsRef.current = restoredElementContexts;
+        setComposerDraftPrompt(composerDraftTarget, restoredPrompt);
+        addComposerDraftImages(composerDraftTarget, restoredImages);
+        setComposerDraftTerminalContexts(composerDraftTarget, restoredTerminalContexts);
+        setComposerDraftElementContexts(composerDraftTarget, restoredElementContexts);
+        setComposerDraftPreviewAnnotations(composerDraftTarget, restoredPreviewAnnotations);
+        setComposerDraftReviewComments(composerDraftTarget, restoredReviewComments);
+        setComposerResumeSession(
+          composerDraftTarget,
+          currentDraft?.resumeSession ?? resumeSessionSnapshot,
+        );
+        composerRef.current?.resetCursorState({
+          cursor: collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length),
+          prompt: restoredPrompt,
+          detectTrigger: true,
+        });
+        if (!isAtomCommandInterrupted(failure)) {
+          const error = squashAtomCommandFailure(failure);
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to queue message.",
+          );
+        }
       }
 
       sendInFlightRef.current = false;
@@ -6623,6 +6680,7 @@ function ChatViewContent(props: ChatViewProps) {
                             isSendBusy={isSendBusy}
                             sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
                             isPreparingWorktree={isPreparingWorktree}
+                            messageQueueSupported={messageQueueSupported}
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             pendingApprovals={pendingApprovals}

@@ -103,15 +103,18 @@ type TestThreadInput = OrchestrationThreadStreamItem | Error;
 
 function testSession(
   client: WsRpcProtocolClient,
-  options?: { readonly completionMarker?: boolean },
+  options?: { readonly completionMarker?: boolean; readonly messageQueue?: boolean },
 ): RpcSession.RpcSession {
   return {
     client,
-    initialConfig: Effect.succeed(
-      options?.completionMarker === true
-        ? ({ threadResumeCompletionMarker: true } as never)
-        : ({} as never),
-    ),
+    initialConfig: Effect.succeed({
+      ...(options?.completionMarker === true ? { threadResumeCompletionMarker: true } : {}),
+      environment: {
+        capabilities: {
+          ...(options?.messageQueue === true ? { threadMessageQueue: true } : {}),
+        },
+      },
+    } as never),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
@@ -133,6 +136,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   readonly cached?: OrchestrationThread;
   readonly httpSnapshot?: Option.Option<OrchestrationThreadDetailSnapshot>;
   readonly completionMarker?: boolean;
+  readonly messageQueue?: boolean;
 }) {
   const inputs = yield* Queue.unbounded<TestThreadInput>();
   const observed = yield* Queue.unbounded<EnvironmentThreadState>();
@@ -142,6 +146,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   const loaderCalls = yield* Ref.make(0);
   const lastSubscribeAfterSequence = yield* Ref.make<number | undefined>(undefined);
   const lastRequestCompletionMarker = yield* Ref.make<boolean | undefined>(undefined);
+  const lastMessageQueueEvents = yield* Ref.make<boolean | undefined>(undefined);
   const savedThreads = yield* Ref.make<ReadonlyArray<OrchestrationThreadDetailSnapshot>>([]);
   const removedThreads = yield* Ref.make<ReadonlyArray<ThreadId>>([]);
   const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
@@ -158,21 +163,23 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     [ORCHESTRATION_WS_METHODS.subscribeThread]: (input: {
       readonly afterSequence?: number;
       readonly requestCompletionMarker?: boolean;
+      readonly messageQueueEvents?: boolean;
     }) =>
       Stream.unwrap(
         Ref.updateAndGet(subscriptionCount, (count) => count + 1).pipe(
           Effect.andThen(Ref.set(lastSubscribeAfterSequence, input.afterSequence)),
           Effect.andThen(Ref.set(lastRequestCompletionMarker, input.requestCompletionMarker)),
+          Effect.andThen(Ref.set(lastMessageQueueEvents, input.messageQueueEvents)),
           Effect.as(streamFrom(inputs)),
         ),
       ),
   } as unknown as WsRpcProtocolClient;
   const supervisorSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
     Option.some(
-      testSession(
-        client,
-        options?.completionMarker === true ? { completionMarker: true } : undefined,
-      ),
+      testSession(client, {
+        completionMarker: options?.completionMarker === true,
+        messageQueue: options?.messageQueue === true,
+      }),
     ),
   );
   const prepared = yield* SubscriptionRef.make<Option.Option<PreparedConnection>>(
@@ -246,6 +253,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     loaderCalls,
     lastSubscribeAfterSequence,
     lastRequestCompletionMarker,
+    lastMessageQueueEvents,
     supervisorState,
     supervisorSession,
     savedThreads,
@@ -254,10 +262,10 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     replaceSession: SubscriptionRef.set(
       supervisorSession,
       Option.some(
-        testSession(
-          client,
-          options?.completionMarker === true ? { completionMarker: true } : undefined,
-        ),
+        testSession(client, {
+          completionMarker: options?.completionMarker === true,
+          messageQueue: options?.messageQueue === true,
+        }),
       ),
     ),
   };
@@ -627,6 +635,20 @@ describe("EnvironmentThreads", () => {
         (value) => value.status === "live" && Option.isSome(value.data),
       );
       expect(Option.getOrThrow(live.data).title).toBe("Caught-up title");
+    }),
+  );
+
+  it.effect("opts into queue event variants only when the server advertises support", () =>
+    Effect.gen(function* () {
+      const supported = yield* makeHarness({ messageQueue: true });
+      yield* Queue.offer(supported.inputs, snapshot(BASE_THREAD));
+      yield* awaitThreadState(supported.observed, (value) => Option.isSome(value.data));
+      expect(yield* Ref.get(supported.lastMessageQueueEvents)).toBe(true);
+
+      const legacy = yield* makeHarness();
+      yield* Queue.offer(legacy.inputs, snapshot(BASE_THREAD));
+      yield* awaitThreadState(legacy.observed, (value) => Option.isSome(value.data));
+      expect(yield* Ref.get(legacy.lastMessageQueueEvents)).toBeUndefined();
     }),
   );
 

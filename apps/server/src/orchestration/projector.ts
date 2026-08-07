@@ -528,9 +528,11 @@ export function projectEvent(
             ...(thread.queuedMessages ?? []).filter(
               (message) => message.messageId !== payload.message.messageId,
             ),
-            payload.message,
+            { ...payload.message, sequence: event.sequence },
           ].toSorted(
             (left, right) =>
+              (left.sequence ?? Number.MAX_SAFE_INTEGER) -
+                (right.sequence ?? Number.MAX_SAFE_INTEGER) ||
               left.createdAt.localeCompare(right.createdAt) ||
               left.messageId.localeCompare(right.messageId),
           );

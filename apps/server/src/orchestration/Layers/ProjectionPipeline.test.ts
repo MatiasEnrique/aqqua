@@ -139,6 +139,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("aqqua-projection-m
               runtimeMode: "full-access",
               interactionMode: "default",
               createdAt: now,
+              sequence: 2,
             },
           ]);
           assert.deepEqual(queuedThread.value.messages, []);

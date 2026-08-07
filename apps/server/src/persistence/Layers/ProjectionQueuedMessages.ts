@@ -40,7 +40,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
           model_selection_json,
           runtime_mode,
           interaction_mode,
-          created_at
+          created_at,
+          sequence
         ) VALUES (
           ${message.messageId},
           ${message.threadId},
@@ -49,7 +50,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
           ${encodeModelSelection(message.modelSelection)},
           ${message.runtimeMode},
           ${message.interactionMode},
-          ${message.createdAt}
+          ${message.createdAt},
+          ${message.sequence}
         )
         ON CONFLICT (message_id)
         DO UPDATE SET
@@ -59,7 +61,8 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
-          created_at = excluded.created_at
+          created_at = excluded.created_at,
+          sequence = excluded.sequence
       `,
   });
   const listRows = SqlSchema.findAll({
@@ -75,18 +78,23 @@ const makeProjectionQueuedMessageRepository = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          sequence
         FROM projection_queued_messages
         WHERE thread_id = ${threadId}
-        ORDER BY created_at ASC, message_id ASC
+        ORDER BY sequence ASC
       `,
   });
   const deleteMessageRow = SqlSchema.void({
-    Request: Schema.Struct({ messageId: ProjectionQueuedMessage.fields.messageId }),
-    execute: ({ messageId }) =>
+    Request: Schema.Struct({
+      threadId: ProjectionQueuedMessage.fields.threadId,
+      messageId: ProjectionQueuedMessage.fields.messageId,
+    }),
+    execute: ({ threadId, messageId }) =>
       sql`
         DELETE FROM projection_queued_messages
-        WHERE message_id = ${messageId}
+        WHERE thread_id = ${threadId}
+          AND message_id = ${messageId}
       `,
   });
   const deleteThreadRows = SqlSchema.void({

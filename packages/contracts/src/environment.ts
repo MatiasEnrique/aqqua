@@ -47,6 +47,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server understands thread.snooze / thread.unsnooze commands. Same
       version-skew contract as threadSettlement. */
   threadSnooze: Schema.optionalKey(Schema.Boolean),
+  /** Server persists per-thread queued messages and understands enqueue /
+      dequeue commands. Absent on older servers, so clients keep queued work
+      in their local outbox until the thread is idle. */
+  threadMessageQueue: Schema.optionalKey(Schema.Boolean),
   /** Server can key right-panel terminal processes and history by a canonical
       workspace root instead of by the conversation that opened them. */
   workspaceTerminalSessions: Schema.optionalKey(Schema.Boolean),

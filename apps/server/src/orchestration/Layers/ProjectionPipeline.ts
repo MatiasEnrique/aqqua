@@ -347,7 +347,7 @@ function retainProjectionProposedPlansAfterRevert(
 function collectThreadAttachmentRelativePaths(
   threadId: string,
   messages: ReadonlyArray<{
-    readonly attachments?: ReadonlyArray<ChatAttachment> | null;
+    readonly attachments?: ReadonlyArray<ChatAttachment> | null | undefined;
   }>,
 ): Set<string> {
   const threadSegment = toSafeThreadAttachmentSegment(threadId);
@@ -1040,6 +1040,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionQueuedMessageRepository.upsert({
             threadId: event.payload.threadId,
             ...event.payload.message,
+            sequence: event.sequence,
           });
           return;
 
@@ -1068,6 +1069,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             );
           }
           yield* projectionQueuedMessageRepository.deleteByMessageId({
+            threadId: event.payload.threadId,
             messageId: event.payload.messageId,
           });
           return;

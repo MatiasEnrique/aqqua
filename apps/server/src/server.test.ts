@@ -6187,6 +6187,76 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("sends queue event variants only to clients that opt in", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const event = {
+        sequence: 1,
+        eventId: EventId.make("event-message-enqueued"),
+        aggregateKind: "thread",
+        aggregateId: defaultThreadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.message-enqueued",
+        payload: {
+          threadId: defaultThreadId,
+          message: {
+            messageId: MessageId.make("queued-message"),
+            text: "Run the tests",
+            attachments: [],
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: now,
+          },
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.message-enqueued" }>;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => Stream.make(event),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const legacyItems = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId: defaultThreadId,
+            afterSequence: 0,
+            requestCompletionMarker: true,
+          }).pipe(Stream.take(1), Stream.runCollect),
+        ),
+      );
+      assert.deepEqual(Array.from(legacyItems), [{ kind: "synchronized" }]);
+
+      const capableItems = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId: defaultThreadId,
+            afterSequence: 0,
+            requestCompletionMarker: true,
+            messageQueueEvents: true,
+          }).pipe(Stream.take(2), Stream.runCollect),
+        ),
+      );
+      assert.equal(capableItems[0]?.kind, "event");
+      assert.equal(
+        capableItems[0]?.kind === "event" ? capableItems[0].event.type : null,
+        "thread.message-enqueued",
+      );
+      assert.deepEqual(capableItems[1], { kind: "synchronized" });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("marks a socket thread snapshot as synchronized when requested", () =>
     Effect.gen(function* () {
       const thread = makeDefaultOrchestrationReadModel().threads[0]!;

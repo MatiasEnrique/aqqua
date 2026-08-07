@@ -17,8 +17,12 @@ import { buildProjectThreadStartTurnInput } from "../lib/projectThreadStartTurn"
 import { toUploadChatImageAttachments } from "../lib/composerImages";
 import { randomHex } from "../lib/uuid";
 import { appAtomRegistry } from "./atom-registry";
-import { useProjects, useThreadShells } from "./entities";
-import { ensureThreadOutboxLoaded, removeThreadOutboxMessage } from "./thread-outbox";
+import { useProjects, useServerConfigs, useThreadShells } from "./entities";
+import {
+  enqueueThreadOutboxMessage,
+  ensureThreadOutboxLoaded,
+  removeThreadOutboxMessage,
+} from "./thread-outbox";
 import {
   isQueuedThreadCreationSendable,
   modelSelectionsEqual,
@@ -43,6 +47,30 @@ export const dispatchingQueuedMessageIdAtom = Atom.make<MessageId | null>(null).
   Atom.keepAlive,
   Atom.withLabel("mobile:thread-outbox:dispatching-message-id"),
 );
+export const cancelledQueuedMessageIdsAtom = Atom.make<ReadonlySet<MessageId>>(
+  new Set<MessageId>(),
+).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-outbox:cancelled-message-ids"));
+
+export function cancelDispatchingQueuedMessage(messageId: MessageId): boolean {
+  if (appAtomRegistry.get(dispatchingQueuedMessageIdAtom) !== messageId) {
+    return false;
+  }
+  appAtomRegistry.set(
+    cancelledQueuedMessageIdsAtom,
+    new Set([...appAtomRegistry.get(cancelledQueuedMessageIdsAtom), messageId]),
+  );
+  return true;
+}
+
+function clearQueuedMessageCancellation(messageId: MessageId): void {
+  const cancelled = appAtomRegistry.get(cancelledQueuedMessageIdsAtom);
+  if (!cancelled.has(messageId)) {
+    return;
+  }
+  const next = new Set(cancelled);
+  next.delete(messageId);
+  appAtomRegistry.set(cancelledQueuedMessageIdsAtom, next);
+}
 
 function beginDispatchingQueuedMessage(queuedMessageId: MessageId): void {
   appAtomRegistry.set(dispatchingQueuedMessageIdAtom, queuedMessageId);
@@ -80,6 +108,12 @@ function settingsCommandId(message: QueuedThreadMessage, setting: string): Comma
 
 export function useThreadOutboxDrain(): void {
   const startTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const enqueueMessage = useAtomCommand(threadEnvironment.enqueueMessage, {
+    reportFailure: false,
+  });
+  const dequeueMessage = useAtomCommand(threadEnvironment.dequeueMessage, {
+    reportFailure: false,
+  });
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -95,6 +129,7 @@ export function useThreadOutboxDrain(): void {
   const shellStatuses = useThreadOutboxShellStatuses();
   const threads = useThreadShells();
   const projects = useProjects();
+  const serverConfigs = useServerConfigs();
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const [retryTick, setRetryTick] = useState(0);
   const retryAttemptRef = useRef(new Map<MessageId, number>());
@@ -137,8 +172,9 @@ export function useThreadOutboxDrain(): void {
     };
     const completeDelivery = async (
       deliveryResult: AtomCommandResult<unknown, unknown>,
+      stage: ThreadOutboxCommandStage = "start-turn",
     ): Promise<boolean> => {
-      if (reportFailure(deliveryResult, "start-turn")) {
+      if (reportFailure(deliveryResult, stage)) {
         return false;
       }
 
@@ -238,6 +274,86 @@ export function useThreadOutboxDrain(): void {
     ],
   );
 
+  const enqueueQueuedMessage = useCallback(
+    async (queuedMessage: QueuedThreadMessage, thread: EnvironmentThreadShell) => {
+      const settings = resolveQueuedThreadSettings(queuedMessage, thread);
+      const { completeDelivery, reportFailure } = makeDeliveryHelpers(queuedMessage);
+      const deliveryResult = await enqueueMessage({
+        environmentId: queuedMessage.environmentId,
+        input: {
+          commandId: queuedMessage.commandId,
+          threadId: queuedMessage.threadId,
+          message: {
+            messageId: queuedMessage.messageId,
+            role: "user",
+            text: queuedMessage.text,
+            attachments: toUploadChatImageAttachments(queuedMessage.attachments),
+          },
+          modelSelection: settings.modelSelection,
+          runtimeMode: settings.runtimeMode,
+          interactionMode: settings.interactionMode,
+          createdAt: queuedMessage.createdAt,
+        },
+      });
+      if (
+        !AsyncResult.isFailure(deliveryResult) &&
+        appAtomRegistry.get(cancelledQueuedMessageIdsAtom).has(queuedMessage.messageId)
+      ) {
+        const dequeueResult = await dequeueMessage({
+          environmentId: queuedMessage.environmentId,
+          input: {
+            commandId: settingsCommandId(queuedMessage, "dequeue"),
+            threadId: queuedMessage.threadId,
+            messageId: queuedMessage.messageId,
+          },
+        });
+        const completed = await completeDelivery(dequeueResult, "enqueue-message");
+        if (completed) {
+          clearQueuedMessageCancellation(queuedMessage.messageId);
+        }
+        return completed;
+      }
+      const completed = await completeDelivery(deliveryResult, "enqueue-message");
+      if (
+        !completed ||
+        !appAtomRegistry.get(cancelledQueuedMessageIdsAtom).has(queuedMessage.messageId)
+      ) {
+        return completed;
+      }
+
+      const dequeueResult = await dequeueMessage({
+        environmentId: queuedMessage.environmentId,
+        input: {
+          commandId: settingsCommandId(queuedMessage, "dequeue-late"),
+          threadId: queuedMessage.threadId,
+          messageId: queuedMessage.messageId,
+        },
+      });
+      if (AsyncResult.isFailure(dequeueResult)) {
+        reportFailure(dequeueResult, "enqueue-message");
+        try {
+          await enqueueThreadOutboxMessage(queuedMessage);
+          return false;
+        } catch (error) {
+          // Do not leave the durable server item permanently hidden when the
+          // local retry record itself cannot be persisted. Clearing the
+          // tombstone makes it visible again so the user can retry removal.
+          clearQueuedMessageCancellation(queuedMessage.messageId);
+          console.warn("[thread-outbox] failed to persist late dequeue retry", {
+            environmentId: queuedMessage.environmentId,
+            threadId: queuedMessage.threadId,
+            messageId: queuedMessage.messageId,
+            error,
+          });
+          return true;
+        }
+      }
+      clearQueuedMessageCancellation(queuedMessage.messageId);
+      return true;
+    },
+    [dequeueMessage, enqueueMessage, makeDeliveryHelpers],
+  );
+
   const sendQueuedCreation = useCallback(
     async (
       queuedMessage: QueuedThreadMessage,
@@ -308,6 +424,10 @@ export function useThreadOutboxDrain(): void {
         shellStatus,
         environmentConnected: environment?.connectionState === "connected",
         threadBusy: thread?.session?.status === "running" || thread?.session?.status === "starting",
+        deliveryMode: nextQueuedMessage.deliveryMode,
+        serverQueueSupported:
+          serverConfigs.get(nextQueuedMessage.environmentId)?.environment.capabilities
+            .threadMessageQueue === true,
       });
       if (deliveryAction === "wait") {
         continue;
@@ -354,7 +474,9 @@ export function useThreadOutboxDrain(): void {
               ? sendQueuedCreation(nextQueuedMessage, creation, creationProjectCwd)
               : removeQueuedMessage("[thread-outbox] dropped pending task for a missing project")
             : thread !== undefined
-              ? sendQueuedMessage(nextQueuedMessage, thread)
+              ? deliveryAction === "enqueue"
+                ? enqueueQueuedMessage(nextQueuedMessage, thread)
+                : sendQueuedMessage(nextQueuedMessage, thread)
               : Promise.resolve(false);
       void delivery
         .then((sent) => {
@@ -392,9 +514,11 @@ export function useThreadOutboxDrain(): void {
     connectedEnvironments,
     dispatchingQueuedMessageId,
     editingQueuedMessageIds,
+    enqueueQueuedMessage,
     projects,
     queuedMessagesByThreadKey,
     retryTick,
+    serverConfigs,
     sendQueuedCreation,
     sendQueuedMessage,
     shellStatuses,

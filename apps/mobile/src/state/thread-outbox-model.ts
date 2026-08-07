@@ -47,6 +47,7 @@ export const QueuedThreadMessageSchema = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   runtimeMode: Schema.optional(RuntimeMode),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  deliveryMode: Schema.optional(Schema.Literals(["queue", "steer"])),
   // Present when the queued item creates a brand-new thread (pending task)
   // instead of appending a turn to an existing one.
   creation: Schema.optional(QueuedThreadCreationSchema),
@@ -76,6 +77,7 @@ export interface QueuedThreadMessage {
   readonly modelSelection?: ModelSelectionType;
   readonly runtimeMode?: RuntimeModeType;
   readonly interactionMode?: ProviderInteractionModeType;
+  readonly deliveryMode?: "queue" | "steer";
   readonly creation?: QueuedThreadCreation;
   readonly createdAt: string;
 }
@@ -146,7 +148,7 @@ export function threadOutboxRetryDelayMs(attempt: number): number {
   return Math.min(1_000 * 2 ** Math.max(0, attempt - 1), THREAD_OUTBOX_MAX_RETRY_DELAY_MS);
 }
 
-export type ThreadOutboxDeliveryAction = "wait" | "remove" | "send";
+export type ThreadOutboxDeliveryAction = "wait" | "remove" | "send" | "enqueue";
 
 export function resolveThreadOutboxDeliveryAction(input: {
   readonly isCreation: boolean;
@@ -154,6 +156,8 @@ export function resolveThreadOutboxDeliveryAction(input: {
   readonly shellStatus: EnvironmentShellStatus;
   readonly environmentConnected: boolean;
   readonly threadBusy: boolean;
+  readonly deliveryMode?: "queue" | "steer";
+  readonly serverQueueSupported?: boolean;
 }): ThreadOutboxDeliveryAction {
   if (input.isCreation) {
     // A pending task creates its thread on delivery. If the thread already
@@ -169,7 +173,13 @@ export function resolveThreadOutboxDeliveryAction(input: {
   if (!input.threadExists) {
     return input.shellStatus === "live" ? "remove" : "wait";
   }
-  return input.environmentConnected && !input.threadBusy ? "send" : "wait";
+  if (!input.environmentConnected) {
+    return "wait";
+  }
+  if (input.deliveryMode === "queue") {
+    return input.serverQueueSupported ? "enqueue" : "wait";
+  }
+  return !input.threadBusy || input.deliveryMode === "steer" ? "send" : "wait";
 }
 
 /**
@@ -208,7 +218,7 @@ export function shouldRetryThreadOutboxDelivery(error: unknown): boolean {
   return isTransportConnectionErrorMessage(errorMessage(error));
 }
 
-export type ThreadOutboxCommandStage = "settings-sync" | "start-turn";
+export type ThreadOutboxCommandStage = "settings-sync" | "start-turn" | "enqueue-message";
 export type ThreadOutboxFailureAction = "retry" | "discard";
 
 export function resolveThreadOutboxFailureAction(input: {
@@ -218,6 +228,7 @@ export function resolveThreadOutboxFailureAction(input: {
 }): ThreadOutboxFailureAction {
   if (
     input.stage === "settings-sync" ||
+    input.stage === "enqueue-message" ||
     input.interrupted ||
     shouldRetryThreadOutboxDelivery(input.error)
   ) {

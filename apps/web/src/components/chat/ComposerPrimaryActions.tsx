@@ -42,6 +42,7 @@ interface ComposerPrimaryActionsProps {
   isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
+  messageQueueSupported: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
@@ -51,6 +52,7 @@ interface ComposerPrimaryActionsProps {
 }
 
 export const resolveRunningComposerActions = (input: {
+  messageQueueSupported: boolean;
   hasSendableContent: boolean;
   isSendBusy: boolean;
   sendDisabledReason: string | null;
@@ -64,7 +66,7 @@ export const resolveRunningComposerActions = (input: {
     input.isConnecting ||
     input.isEnvironmentUnavailable;
   return {
-    queueDisabled: disabled,
+    queueDisabled: !input.messageQueueSupported || disabled,
     steerDisabled: disabled,
   };
 };
@@ -103,6 +105,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isConnecting,
   isEnvironmentUnavailable,
   isPreparingWorktree,
+  messageQueueSupported,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
   onPreviousPendingQuestion,
@@ -166,6 +169,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   if (isRunning) {
     const runningActions = resolveRunningComposerActions({
+      messageQueueSupported,
       hasSendableContent,
       isSendBusy,
       sendDisabledReason,
@@ -174,18 +178,20 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     });
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        <Button
-          type="button"
-          size={compact ? "icon-sm" : "sm"}
-          variant="outline"
-          {...pointerFocusProps}
-          onClick={onQueue}
-          disabled={runningActions.queueDisabled}
-          aria-label="Queue message"
-        >
-          <ListPlusIcon className="size-3.5" aria-hidden="true" />
-          {!compact ? "Queue" : null}
-        </Button>
+        {messageQueueSupported ? (
+          <Button
+            type="button"
+            size={compact ? "icon-sm" : "sm"}
+            variant="outline"
+            {...pointerFocusProps}
+            onClick={onQueue}
+            disabled={runningActions.queueDisabled}
+            aria-label="Queue message"
+          >
+            <ListPlusIcon className="size-3.5" aria-hidden="true" />
+            {!compact ? "Queue" : null}
+          </Button>
+        ) : null}
         <Button
           type="submit"
           size={compact ? "icon-sm" : "sm"}

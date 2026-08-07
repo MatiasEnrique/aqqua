@@ -13,12 +13,13 @@ export default Effect.gen(function* () {
       model_selection_json TEXT NOT NULL,
       runtime_mode TEXT NOT NULL,
       interaction_mode TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      sequence INTEGER NOT NULL
     )
   `;
 
   yield* sql`
-    CREATE INDEX IF NOT EXISTS idx_projection_queued_messages_thread_created
-    ON projection_queued_messages(thread_id, created_at, message_id)
+    CREATE INDEX IF NOT EXISTS idx_projection_queued_messages_thread_sequence
+    ON projection_queued_messages(thread_id, sequence)
   `;
 });

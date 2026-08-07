@@ -53,6 +53,7 @@ import {
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import type { ThreadQueuedMessagePresentation } from "../../state/use-thread-composer-state";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
@@ -89,6 +90,8 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
  * Used by the parent to compute the larger feed bottom inset when the composer is focused.
  */
 export const COMPOSER_EXPANDED_CHROME = 174;
+const IMAGE_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 
 export interface ThreadComposerProps {
   readonly draftMessage: string;
@@ -107,7 +110,7 @@ export interface ThreadComposerProps {
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
   readonly serverConfig: AqquaServerConfig | null;
-  readonly queueCount: number;
+  readonly queuedMessages: ReadonlyArray<ThreadQueuedMessagePresentation>;
   readonly activeThreadBusy: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
@@ -118,6 +121,8 @@ export interface ThreadComposerProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onQueueMessage: () => Promise<MessageId | null>;
+  readonly onDequeueQueuedMessage: (messageId: MessageId) => Promise<void>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -317,10 +322,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting";
 
-  const sendLabel =
-    props.connectionState !== "connected" || props.activeThreadBusy || props.queueCount > 0
-      ? "Queue"
-      : "Send";
+  const sendLabel = props.activeThreadBusy ? "Steer" : "Send";
+  const messageQueueSupported =
+    props.serverConfig?.environment.capabilities.threadMessageQueue === true;
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
@@ -556,6 +560,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.id,
     props.selectedThread.title,
   ]);
+  const handleQueue = useCallback(async () => {
+    const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+    if (inFlightThreadIdsRef.current.has(threadKey)) return;
+    inFlightThreadIdsRef.current.add(threadKey);
+    try {
+      await props.onQueueMessage();
+    } finally {
+      inFlightThreadIdsRef.current.delete(threadKey);
+    }
+  }, [props.environmentId, props.onQueueMessage, props.selectedThread.id]);
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!composerTrigger) return;
@@ -873,7 +887,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           {!isExpanded ? (
             <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
               {showStopAction ? (
-                <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
+                <View className="flex-row gap-1">
+                  <ControlPill
+                    icon="arrow.up"
+                    variant="primary"
+                    disabled={!canSend}
+                    onPress={handleSend}
+                  />
+                  <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
+                </View>
               ) : (
                 <ControlPill
                   icon="arrow.up"
@@ -932,6 +954,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : null}
               </ComposerToolbarScroller>
+              {showStopAction && messageQueueSupported ? (
+                <ComposerToolbarButton
+                  accessibilityLabel="Queue message"
+                  icon="text.badge.plus"
+                  disabled={!canSend}
+                  onPress={handleQueue}
+                  showChevron={false}
+                />
+              ) : null}
               <ComposerToolbarButton
                 accessibilityLabel={sendLabel}
                 icon="arrow.up"
@@ -944,13 +975,40 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </Animated.View>
         ) : null}
 
-        {/* Queue count */}
-        {props.queueCount > 0 ? (
+        {props.queuedMessages.length > 0 ? (
           <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-            <Text className="pt-2 text-xs text-foreground-muted">
-              {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
-              automatically.
+            <Text className="pt-2 text-xs font-aqqua-bold text-foreground-muted">
+              Queued · {props.queuedMessages.length}
             </Text>
+            <View className="gap-1 pt-1">
+              {props.queuedMessages.map((message) => {
+                const trimmedText = message.text.trim();
+                const preview =
+                  trimmedText.length > 0 && trimmedText !== IMAGE_ONLY_BOOTSTRAP_PROMPT
+                    ? trimmedText
+                    : message.attachmentCount === 1
+                      ? "1 image"
+                      : `${message.attachmentCount} images`;
+                return (
+                  <View
+                    key={message.messageId}
+                    className="flex-row items-center gap-2 rounded-lg bg-subtle px-2 py-1.5"
+                  >
+                    <Text className="min-w-0 flex-1 text-xs text-foreground" numberOfLines={1}>
+                      {preview}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove queued message: ${preview}`}
+                      onPress={() => void props.onDequeueQueuedMessage(message.messageId)}
+                      className="size-6 items-center justify-center rounded-full active:bg-subtle-strong"
+                    >
+                      <Text className="text-base leading-none text-foreground-muted">×</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
           </Animated.View>
         ) : null}
       </Animated.View>

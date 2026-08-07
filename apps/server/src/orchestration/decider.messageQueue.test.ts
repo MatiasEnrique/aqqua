@@ -213,6 +213,80 @@ it.layer(NodeServices.layer)("message queue decider", (it) => {
     }),
   );
 
+  it.effect("rejects removing a message that is not queued on the thread", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.message.dequeue",
+          commandId: CommandId.make("dequeue-wrong-thread-message"),
+          threadId: THREAD_ID,
+          messageId: MessageId.make("queued-on-another-thread"),
+          createdAt: NOW,
+        } as unknown as OrchestrationCommand,
+        readModel: makeReadModel({
+          status: "running",
+          queuedMessages: [
+            { messageId: MessageId.make("queued-here"), text: "first", createdAt: NOW },
+          ],
+        }),
+      }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+
+  it.effect("does not promote queued work during pre-subscription orphan reconciliation", () =>
+    Effect.gen(function* () {
+      const messageId = MessageId.make("queued-across-restart");
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.session.set",
+          commandId: CommandId.make("session-stopped-before-subscription"),
+          threadId: THREAD_ID,
+          session: {
+            threadId: THREAD_ID,
+            status: "stopped",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "Server restarted",
+            updatedAt: NOW,
+          },
+          promoteQueuedMessage: false,
+          createdAt: NOW,
+        },
+        readModel: makeReadModel({
+          status: "running",
+          queuedMessages: [{ messageId, text: "continue after restart", createdAt: NOW }],
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+
+      expect(events.map((event) => event.type)).toEqual(["thread.session-set"]);
+    }),
+  );
+
+  it.effect("appends behind an existing queue even when the session is ready", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: enqueueCommand(MessageId.make("queued-message-2")),
+        readModel: makeReadModel({
+          status: "ready",
+          queuedMessages: [
+            {
+              messageId: MessageId.make("queued-message-1"),
+              text: "first",
+              createdAt: NOW,
+            },
+          ],
+        }),
+      });
+      const events = Array.isArray(result) ? result : [result];
+
+      expect(events.map((event) => event.type)).toEqual(["thread.message-enqueued"]);
+    }),
+  );
+
   it.effect("submits the first queued message after the running turn is stopped", () =>
     Effect.gen(function* () {
       const messageId = MessageId.make("queued-message-after-stop");

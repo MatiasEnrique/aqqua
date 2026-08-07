@@ -231,9 +231,11 @@ export function applyThreadDetailEvent(
         ...(thread.queuedMessages ?? []).filter(
           (message) => message.messageId !== event.payload.message.messageId,
         ),
-        event.payload.message,
+        { ...event.payload.message, sequence: event.sequence },
       ].toSorted(
         (left, right) =>
+          (left.sequence ?? Number.MAX_SAFE_INTEGER) -
+            (right.sequence ?? Number.MAX_SAFE_INTEGER) ||
           left.createdAt.localeCompare(right.createdAt) ||
           left.messageId.localeCompare(right.messageId),
       );

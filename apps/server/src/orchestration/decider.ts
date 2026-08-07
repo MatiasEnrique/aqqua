@@ -1174,7 +1174,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         interactionMode: command.interactionMode,
         createdAt: command.createdAt,
       };
-      const isBusy = thread.session?.status === "starting" || thread.session?.status === "running";
+      const isBusy =
+        thread.session?.status === "starting" ||
+        thread.session?.status === "running" ||
+        threadHasQueuedTurnStart(thread, command.createdAt) ||
+        (thread.queuedMessages?.length ?? 0) > 0;
       if (!isBusy) {
         return yield* buildTurnStartEvents({
           thread,
@@ -1203,11 +1207,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.dequeue": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        !(thread.queuedMessages ?? []).some((message) => message.messageId === command.messageId)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not belong to thread '${command.threadId}'.`,
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1396,7 +1408,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const nextQueuedMessage = thread.queuedMessages?.[0];
       const turnEnded =
         command.session.status !== "starting" && command.session.status !== "running";
-      if (!nextQueuedMessage || !turnEnded) {
+      if (!nextQueuedMessage || !turnEnded || command.promoteQueuedMessage === false) {
         return sessionEvents;
       }
       const queuedTurnEvents = yield* buildTurnStartEvents({

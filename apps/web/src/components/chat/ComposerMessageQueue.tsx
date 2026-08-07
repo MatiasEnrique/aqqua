@@ -3,10 +3,11 @@ import { XIcon } from "lucide-react";
 import { memo } from "react";
 
 import { Button } from "../ui/button";
+import { IMAGE_ONLY_BOOTSTRAP_PROMPT } from "../ChatView.logic";
 
 export const queuedMessagePreview = (message: OrchestrationQueuedMessage) => {
   const text = message.text.trim();
-  if (text.length > 0) {
+  if (text.length > 0 && text !== IMAGE_ONLY_BOOTSTRAP_PROMPT) {
     return text;
   }
   const imageCount = message.attachments.length;

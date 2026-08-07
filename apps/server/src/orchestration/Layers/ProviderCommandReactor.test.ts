@@ -421,6 +421,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provide(SqlitePersistenceMemory),
     );
     runtime = ManagedRuntime.make(layer);
 
@@ -541,6 +542,135 @@ describe("ProviderCommandReactor", () => {
     // The binding survives so the next message can resume the thread.
     expect(session?.providerName).toBe("codex");
     expect(session?.providerInstanceId).toBe(ProviderInstanceId.make("codex-default"));
+  });
+
+  it("promotes queued work only after the restart listener is active", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "stopped",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      seedSession: {
+        threadId: ThreadId.make("thread-1"),
+        status: "running",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex-default"),
+        runtimeMode: "approval-required",
+        activeTurnId: asTurnId("turn-stranded"),
+        lastError: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-after-restart"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-after-restart"),
+          role: "user",
+          text: "continue after restart",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "continue after restart",
+    });
+    const thread = (await harness.readModel()).threads.find(
+      (candidate) => candidate.id === ThreadId.make("thread-1"),
+    );
+    expect(thread?.queuedMessages).toEqual([]);
+  });
+
+  it("recovers a persisted queued turn start that was committed before a crash", async () => {
+    const harness = await createHarness({ deferReactorStart: true });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-before-crash"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-before-crash"),
+          role: "user",
+          text: "resume the committed queue handoff",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "resume the committed queue handoff",
+    });
+  });
+
+  it("does not recover a pending turn start still claimed by another server", async () => {
+    const harness = await createHarness({
+      deferReactorStart: true,
+      providerBindings: [
+        {
+          threadId: ThreadId.make("thread-1"),
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex-default"),
+          status: "running",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.enqueue",
+        commandId: CommandId.make("cmd-queue-owned"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-owned"),
+          role: "user",
+          text: "do not duplicate this turn",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await harness.startReactor();
+    await harness.drain();
+
+    expect(harness.sendTurn).not.toHaveBeenCalled();
   });
 
   it("leaves a still-claimed binding alone so a second server keeps its session", async () => {

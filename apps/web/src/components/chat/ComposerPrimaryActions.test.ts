@@ -9,6 +9,7 @@ describe("resolveRunningComposerActions", () => {
   it("keeps steer and queue available while a turn is running", () => {
     expect(
       resolveRunningComposerActions({
+        messageQueueSupported: true,
         hasSendableContent: true,
         isSendBusy: false,
         isConnecting: false,
@@ -24,6 +25,7 @@ describe("resolveRunningComposerActions", () => {
   it("disables both message actions without sendable content", () => {
     expect(
       resolveRunningComposerActions({
+        messageQueueSupported: true,
         hasSendableContent: false,
         isSendBusy: false,
         isConnecting: false,
@@ -33,6 +35,22 @@ describe("resolveRunningComposerActions", () => {
     ).toEqual({
       queueDisabled: true,
       steerDisabled: true,
+    });
+  });
+
+  it("keeps steering available when an older server does not advertise the queue", () => {
+    expect(
+      resolveRunningComposerActions({
+        messageQueueSupported: false,
+        hasSendableContent: true,
+        isSendBusy: false,
+        isConnecting: false,
+        isEnvironmentUnavailable: false,
+        sendDisabledReason: null,
+      }),
+    ).toEqual({
+      queueDisabled: true,
+      steerDisabled: false,
     });
   });
 });

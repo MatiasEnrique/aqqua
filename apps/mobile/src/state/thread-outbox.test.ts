@@ -365,6 +365,17 @@ describe("thread outbox", () => {
     expect(
       resolveThreadOutboxDeliveryAction({
         isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: false,
+        deliveryMode: "queue",
+        serverQueueSupported: false,
+      }),
+    ).toBe("wait");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
         threadExists: false,
         shellStatus: "live",
         environmentConnected: true,
@@ -378,6 +389,42 @@ describe("thread outbox", () => {
         shellStatus: "live",
         environmentConnected: true,
         threadBusy: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("hands explicit queues to a capable server and keeps normal sends as steering", () => {
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "queue",
+        serverQueueSupported: true,
+      }),
+    ).toBe("enqueue");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "queue",
+        serverQueueSupported: false,
+      }),
+    ).toBe("wait");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: true,
+        deliveryMode: "steer",
+        serverQueueSupported: true,
       }),
     ).toBe("send");
   });

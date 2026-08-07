@@ -428,6 +428,53 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
+    it("uses event sequence when messages share the same timestamp", () => {
+      const firstEvent = {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T08:00:00.000Z",
+        aggregateKind: "thread" as const,
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-enqueued" as const,
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: MessageId.make("queued-z"),
+            text: "First",
+            attachments: [],
+            modelSelection: baseThread.modelSelection,
+            runtimeMode: "full-access" as const,
+            interactionMode: "default" as const,
+            createdAt: "2026-04-01T08:00:00.000Z",
+          },
+        },
+      };
+      const first = applyThreadDetailEvent(baseThread, firstEvent);
+      expect(first.kind).toBe("updated");
+      if (first.kind !== "updated") return;
+
+      const second = applyThreadDetailEvent(first.thread, {
+        ...firstEvent,
+        eventId: EventId.make("event-2"),
+        sequence: 10,
+        payload: {
+          ...firstEvent.payload,
+          message: {
+            ...firstEvent.payload.message,
+            messageId: MessageId.make("queued-a"),
+            text: "Second",
+          },
+        },
+      });
+      expect(second.kind).toBe("updated");
+      if (second.kind === "updated") {
+        expect((second.thread.queuedMessages ?? []).map((message) => message.messageId)).toEqual([
+          "queued-z",
+          "queued-a",
+        ]);
+      }
+    });
+
     it("removes only the dequeued message", () => {
       const threadWithQueue: OrchestrationThread = {
         ...baseThread,

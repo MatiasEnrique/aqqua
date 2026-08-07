@@ -13,5 +13,9 @@ Queued messages appear above the composer. Remove a queued message with its clos
 is submitted.
 
 The queue is part of the environment's durable thread state, so it survives reconnects and is
-visible to connected web and desktop clients. Each queued message keeps the model, runtime mode,
-interaction mode, and attachments selected when it was queued.
+visible to connected web, desktop, and mobile clients. Mobile keeps an offline outbox and hands
+queued messages to the environment when it reconnects. Each queued message keeps the model,
+runtime mode, interaction mode, and attachments selected when it was queued.
+
+Queue controls are shown only when the connected environment advertises queue support. Normal
+submit remains available for steering when a client connects to an older server.

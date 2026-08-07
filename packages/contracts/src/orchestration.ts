@@ -430,6 +430,8 @@ export const OrchestrationQueuedMessage = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   createdAt: IsoDateTime,
+  // Assigned from the persisted enqueue event. Older snapshots omit it.
+  sequence: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationQueuedMessage = typeof OrchestrationQueuedMessage.Type;
 
@@ -646,6 +648,11 @@ export const OrchestrationSubscribeThreadInput = Schema.Struct({
    * snapshot or catch-up replay and before it begins emitting live events.
    */
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Opts into queue-specific event variants. Older clients omit this field,
+   * so new servers suppress variants their strict event union cannot decode.
+   */
+  messageQueueEvents: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
 
@@ -1037,6 +1044,7 @@ const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
+  promoteQueuedMessage: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
