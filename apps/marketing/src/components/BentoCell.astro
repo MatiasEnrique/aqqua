@@ -1,0 +1,151 @@
+---
+/**
+ * One cell of the feature bento.
+ *
+ * `span` drives the 12-column desktop grid, so the section can run wide/narrow
+ * pairs and a triple row instead of a uniform card grid.
+ *
+ * The capture is always shown whole — never cropped to fill leftover height. It
+ * runs edge to edge along the bottom of the cell so it gets the full column
+ * width, and the cell's own rounding clips its bottom corners.
+ */
+interface Props {
+  readonly id?: string;
+  readonly kicker?: string;
+  readonly title: string;
+  readonly body: string;
+  /** Desktop column span out of 12. */
+  readonly span?: 4 | 5 | 6 | 7 | 8;
+}
+
+const { id, kicker, title, body, span = 6 } = Astro.props;
+---
+
+<article class:list={["cell", `cell--${span}`, "reveal"]} id={id}>
+  <div class="cell-copy">
+    {kicker && <span class="cell-kicker">{kicker}</span>}
+    <h3>{title}</h3>
+    <p set:html={body} />
+  </div>
+
+  <div class="cell-media">
+    <slot />
+  </div>
+</article>
+
+<style>
+  .cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-width: 0;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xl);
+    background: var(--surface-card);
+    overflow: hidden;
+    transition:
+      border-color var(--duration-ui) var(--ease-aqqua),
+      transform var(--duration-ui) var(--ease-aqqua);
+  }
+
+  .cell:hover {
+    border-color: var(--aq-accent-32);
+    transform: translateY(-2px);
+  }
+
+  .cell--4 {
+    grid-column: span 4;
+  }
+  .cell--5 {
+    grid-column: span 5;
+  }
+  .cell--6 {
+    grid-column: span 6;
+  }
+  .cell--7 {
+    grid-column: span 7;
+  }
+  .cell--8 {
+    grid-column: span 8;
+  }
+
+  /* Only the copy is inset; the capture below it runs to the cell edges. */
+  .cell-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 48ch;
+    padding: clamp(24px, 2.2vw, 32px) clamp(24px, 2.2vw, 32px) 0;
+  }
+
+  .cell-kicker {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--aq-accent);
+  }
+
+  .cell-copy h3 {
+    font-family: var(--font-display);
+    font-size: clamp(20px, 1.8vw, 24px);
+    line-height: 1.15;
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-display);
+  }
+
+  .cell-copy p {
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  .cell-copy :global(code) {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    color: var(--aq-accent);
+  }
+
+  .cell-media {
+    min-width: 0;
+    margin-top: auto;
+  }
+
+  /*
+   * The demo frame drops its own border and rounding here: the cell is the
+   * frame. Only the hairline along the top survives, to separate shot from copy.
+   */
+  .cell-media :global(.dm-media) {
+    border: 0;
+    border-top: 1px solid var(--border-hairline);
+    border-radius: 0;
+  }
+
+  .cell-media :global(img.dm-media-el),
+  .cell-media :global(video.dm-media-el) {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  @media (max-width: 1080px) {
+    .cell--4,
+    .cell--5,
+    .cell--7,
+    .cell--8 {
+      grid-column: span 6;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .cell--4,
+    .cell--5,
+    .cell--6,
+    .cell--7,
+    .cell--8 {
+      grid-column: span 12;
+    }
+  }
+</style>

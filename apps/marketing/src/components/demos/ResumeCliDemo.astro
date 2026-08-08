@@ -1,0 +1,122 @@
+---
+/**
+ * `/resume` in a new thread draft, adopting a Claude Code or Codex CLI session.
+ *
+ * The command is revealed with a stepped clip-path rather than an animated width,
+ * so "typing" costs paint only.
+ */
+const CONVERSATIONS = [
+  { title: "Fix the failing auth test", meta: "~/aqqua · 2 hours ago" },
+  { title: "Wire up queue steering", meta: "~/aqqua/worktrees/api · yesterday" },
+] as const;
+---
+
+<div class="dm resume" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">New conversation</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-mark">
+      <img src="/harnesses/openai_dark.svg" alt="" width="12" height="12" loading="lazy" />
+    </span>
+    <span class="dm-sub">Codex</span>
+  </div>
+
+  <div class="picker">
+    <span class="dm-legend">Resume a CLI conversation</span>
+    {
+      CONVERSATIONS.map((conversation, index) => (
+        <div class={`conv c${index}`}>
+          <span class="dm-title conv-title">{conversation.title}</span>
+          <span class="dm-sub conv-meta">{conversation.meta}</span>
+        </div>
+      ))
+    }
+    <span class="earlier">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+      Earlier conversation
+    </span>
+  </div>
+
+  <div class="composer">
+    <span class="typed dm-mono">/resume</span><span class="dm-caret"></span>
+  </div>
+</div>
+
+<style>
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 12px 14px 0;
+    padding: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: var(--radius-md);
+    background: #232323;
+    animation: resume-picker 8s var(--ease-aqqua) infinite;
+  }
+
+  .conv {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+  }
+
+  .conv-title {
+    font-size: 12px;
+  }
+
+  .conv-meta {
+    font-family: var(--font-code);
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .c0 { animation: resume-pick-0 8s steps(1, end) infinite; }
+
+  /* The collapsed transcript block the adopted session lands in. */
+  .earlier {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    padding: 6px 9px;
+    border-top: 1px solid var(--border-hairline);
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--aq-white-55);
+  }
+
+  .composer {
+    display: flex;
+    align-items: center;
+    margin: 12px 14px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  /* Seven characters, revealed one step at a time. */
+  .typed {
+    color: #7dd3fc;
+    animation: resume-type 8s steps(7, end) infinite;
+  }
+
+  @keyframes resume-type {
+    0% { clip-path: inset(0 100% 0 0); }
+    22%, 100% { clip-path: inset(0 0 0 0); }
+  }
+
+  @keyframes resume-picker {
+    0%, 20% { opacity: 0; transform: translateY(6px); }
+    30%, 100% { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes resume-pick-0 {
+    0%, 44% { background: transparent; }
+    45%, 100% { background: rgba(255, 255, 255, 0.08); }
+  }
+</style>

@@ -1,0 +1,189 @@
+---
+/**
+ * A flow running its steps in order, handing artifacts forward.
+ *
+ * The active state travels 1 -> 2 -> 3 on a 9s loop. Steps keep constant padding
+ * so nothing here animates a layout property; only border, background and colour
+ * move. With animations off the panel reads as a flow definition at rest, which
+ * is a valid state rather than a broken one.
+ */
+---
+
+<div class="dm flow" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">Steps</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-sub">Aqqua coding flow</span>
+  </div>
+
+  <div class="dm-body">
+    <div class="step" style="--i:0">
+      <span class="step-index">1</span>
+      <div class="step-body">
+        <div class="step-head">
+          <span class="step-name">Analysis</span>
+          <span class="dm-chip"><span class="dm-dot dm-dot--plan"></span>analysis</span>
+        </div>
+        <span class="step-prompt dm-mono">
+          Create an analysis on issue <span class="dm-token">issue_id</span> and save it…
+        </span>
+        <span class="artifact-out">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 13l4 4L19 7"></path>
+          </svg>
+          wrote <span class="dm-artifact">Analysis</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="step" style="--i:1">
+      <span class="step-index">2</span>
+      <div class="step-body">
+        <div class="step-head">
+          <span class="step-name">Design</span>
+          <span class="dm-chip"><span class="dm-dot dm-dot--docs"></span>designer</span>
+        </div>
+        <p class="step-prompt step-prompt--full dm-mono">
+          Grab the <span class="artifact-in dm-artifact">{"${artifact:Analysis}"}</span> and design the
+          solution. Use <span class="dm-skill">$orchestrate</span> to spawn sub agents, with{" "}
+          <span class="dm-guide">$codebase-design</span> as guidelines
+        </p>
+      </div>
+    </div>
+
+    <div class="step" style="--i:2">
+      <span class="step-index">3</span>
+      <div class="step-body">
+        <div class="step-head">
+          <span class="step-name">Implementation</span>
+          <span class="dm-chip"><span class="dm-dot dm-dot--run"></span>review</span>
+        </div>
+        <span class="step-prompt dm-mono">
+          Implement code for <span class="dm-token dm-artifact">{"${artifact:Design}"}</span>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .step {
+    position: relative;
+    display: flex;
+    gap: var(--space-3);
+    /* Constant padding across active and idle: nothing here shifts layout. */
+    padding: 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    animation: flow-step 9s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 3s);
+  }
+
+  .step-index {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 11px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--aq-white-55);
+    animation: flow-index 9s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 3s);
+  }
+
+  .step-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .step-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .step-name {
+    font-size: 14px;
+    font-weight: var(--weight-medium);
+  }
+
+  .step-prompt {
+    font-size: 12px;
+    color: var(--aq-white-55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .step-prompt--full {
+    color: var(--text-strong);
+    overflow: visible;
+    white-space: normal;
+    text-wrap: pretty;
+  }
+
+  /* Step 1's output artifact, revealed as step 1 finishes. */
+  .artifact-out {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    line-height: 15px;
+    color: #86efac;
+    opacity: 0;
+    animation: flow-artifact-out 9s var(--ease-aqqua) infinite;
+  }
+
+  /* The same artifact, arriving in step 2's prompt. */
+  .artifact-in {
+    border-radius: 5px;
+    box-shadow: 0 0 0 0 rgba(134, 239, 172, 0);
+    animation: flow-artifact-in 9s var(--ease-aqqua) infinite;
+  }
+
+  @keyframes flow-step {
+    0%, 32% {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    33%, 100% {
+      border-color: transparent;
+      background: transparent;
+    }
+  }
+
+  @keyframes flow-index {
+    0%, 32% {
+      border-color: var(--aq-white);
+      background: var(--aq-white);
+      color: var(--aq-ink);
+      font-weight: var(--weight-semibold);
+    }
+    33%, 100% {
+      border-color: rgba(255, 255, 255, 0.2);
+      background: transparent;
+      color: var(--aq-white-55);
+      font-weight: var(--weight-regular);
+    }
+  }
+
+  @keyframes flow-artifact-out {
+    0%, 22% { opacity: 0; }
+    30%, 100% { opacity: 1; }
+  }
+
+  @keyframes flow-artifact-in {
+    0%, 32% { background: transparent; box-shadow: 0 0 0 0 rgba(134, 239, 172, 0); }
+    38% { background: rgba(134, 239, 172, 0.22); box-shadow: 0 0 0 3px rgba(134, 239, 172, 0.12); }
+    62%, 100% { background: rgba(134, 239, 172, 0.1); box-shadow: 0 0 0 0 rgba(134, 239, 172, 0); }
+  }
+</style>

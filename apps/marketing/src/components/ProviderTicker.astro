@@ -1,0 +1,123 @@
+---
+/**
+ * Full-bleed provider band.
+ *
+ * Deliberately headless — no eyebrow, no h2, no paragraph — so the beat right
+ * under the hero reads as a strip of proof rather than another section block.
+ * The track is duplicated once and translated by exactly -50%, which is what
+ * makes the loop seamless; the copy is marked aria-hidden so the list is
+ * announced a single time.
+ */
+interface Harness {
+  readonly name: string;
+  readonly product: string;
+  readonly mark: string;
+}
+
+interface Props {
+  readonly harnesses: readonly Harness[];
+}
+
+const { harnesses } = Astro.props;
+---
+
+<div class="ticker" role="group" aria-label="Supported coding agents">
+  <div class="ticker-track">
+    {
+      [0, 1].map((pass) => (
+        <ul class="ticker-run" aria-hidden={pass === 1 ? "true" : undefined}>
+          {harnesses.map((harness) => (
+            <li class="ticker-item">
+              <img src={harness.mark} alt="" width="22" height="22" loading="lazy" decoding="async" />
+              <span class="ticker-name">{harness.name}</span>
+              <span class="ticker-product">{harness.product}</span>
+            </li>
+          ))}
+        </ul>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .ticker {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(16px, 2.4vw, 24px) 0;
+    border-top: 1px solid var(--border-faint);
+    border-bottom: 1px solid var(--border-faint);
+    /* Fade the ends so items enter and leave instead of popping at the edge. */
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 8%,
+      #000 92%,
+      transparent
+    );
+    mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  .ticker-track {
+    display: flex;
+    width: max-content;
+    animation: aq-marquee 46s linear infinite;
+  }
+
+  .ticker:hover .ticker-track {
+    animation-play-state: paused;
+  }
+
+  .ticker-run {
+    display: flex;
+    align-items: center;
+    list-style: none;
+  }
+
+  .ticker-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 0 clamp(24px, 3.4vw, 48px);
+    white-space: nowrap;
+  }
+
+  .ticker-item::after {
+    content: "";
+    align-self: center;
+    width: 3px;
+    height: 3px;
+    margin-left: clamp(24px, 3.4vw, 48px);
+    margin-right: calc(-1 * clamp(24px, 3.4vw, 48px));
+    border-radius: 50%;
+    background: var(--aq-accent-32);
+  }
+
+  .ticker-item img {
+    align-self: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: var(--radius-xs);
+    object-fit: contain;
+  }
+
+  .ticker-name {
+    font-size: clamp(16px, 1.5vw, 18px);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text-strong);
+  }
+
+  .ticker-product {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.02em;
+    color: var(--aq-white-40);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-track {
+      animation: none;
+    }
+  }
+</style>

@@ -1,0 +1,152 @@
+---
+// Authoring surface for public/og.png — not part of the published site.
+//
+// This route exists so the social card is composed with the site's real tokens,
+// fonts and brand mark rather than hand-placed in an image editor. Render it at
+// exactly 1200x630 and screenshot to `public/og.png` whenever the tagline or
+// brand changes. It ships as a noindex page so the card stays reproducible.
+import BrandMark from "../components/BrandMark.astro";
+import "../styles/aqqua.css";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <title>aqqua — social card</title>
+  </head>
+  <body>
+    <div class="card">
+      <img class="art" src="/hero/hero-2200.jpg" alt="" />
+      <div class="scrim"></div>
+      <div class="edge"></div>
+
+      <div class="inner">
+        <div class="top">
+          <BrandMark height={34} />
+          <span class="eyebrow">Agentic development environment</span>
+        </div>
+
+        <h1 class="title display">Surf your backlog<br />with Aqqua ADE</h1>
+
+        <p class="foot">
+          <span class="oss">100&#37; free and open source</span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span>MIT licensed</span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span>aqqua.ai</span>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+
+<style>
+  :global(html),
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    background: var(--aq-ink);
+  }
+
+  .card {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: var(--surface-media);
+  }
+
+  .art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 22% 58%;
+    display: block;
+  }
+
+  /* Dark at the left where the type sits, clear at the right over the wave. */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to right,
+      rgba(24, 23, 22, 0.92) 0%,
+      rgba(24, 23, 22, 0.78) 38%,
+      rgba(24, 23, 22, 0.34) 68%,
+      rgba(24, 23, 22, 0.12) 100%
+    );
+  }
+
+  .edge {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(24, 23, 22, 0.55) 0%, rgba(24, 23, 22, 0) 42%);
+  }
+
+  .inner {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 64px 72px;
+  }
+
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    color: var(--text-primary);
+  }
+
+  .top .eyebrow {
+    display: block;
+    padding-left: 20px;
+    border-left: 1px solid var(--aq-white-40);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-eyebrow);
+  }
+
+  .title {
+    font-size: 72px;
+    line-height: 1.02;
+    letter-spacing: var(--tracking-display);
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 20px;
+    line-height: 1;
+    font-weight: var(--weight-medium);
+    color: var(--aq-white-74);
+  }
+
+  .oss {
+    color: var(--text-primary);
+  }
+
+  .sep {
+    color: var(--aq-white-40);
+  }
+</style>

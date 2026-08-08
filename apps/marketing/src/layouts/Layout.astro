@@ -1,6 +1,7 @@
 ---
 import BrandMark from "../components/BrandMark.astro";
 import GithubGlyph from "../components/GithubGlyph.astro";
+import { RELEASES_URL } from "../lib/releases";
 import {
   GITHUB_REPOSITORY,
   GITHUB_REPOSITORY_URL,
@@ -15,14 +16,53 @@ interface Props {
   description?: string;
   pageClass?: string;
   navOverlay?: boolean;
+  image?: string;
+  imageAlt?: string;
 }
 
 const {
-  title = "aqqua",
-  description = "aqqua — The open-source control plane for coding agents.",
+  title = "aqqua — Surf your backlog",
+  description = "The free, open source control plane for coding agents. Hand a card to Claude Code, Codex and more — come back to a branch, a diff and a pull request.",
   pageClass,
   navOverlay = false,
+  image = "/og.png",
+  imageAlt = "aqqua — surf your backlog. The open-source control plane for coding agents.",
 } = Astro.props;
+
+const DISCORD_URL = "https://discord.gg/jn4EGJjrvv";
+
+const FOOTER_COLUMNS = [
+  {
+    heading: "Product",
+    links: [
+      { label: "Orchestration", href: "/#agents" },
+      { label: "Flows", href: "/#flows" },
+      { label: "Features", href: "/#features" },
+      { label: "Download", href: "/download" },
+    ],
+  },
+  {
+    heading: "Open source",
+    links: [
+      { label: "Repository", href: GITHUB_REPOSITORY_URL, external: true },
+      { label: "Releases", href: RELEASES_URL, external: true },
+      { label: "Issues", href: `${GITHUB_REPOSITORY_URL}/issues`, external: true },
+      { label: "Discord", href: DISCORD_URL, external: true },
+    ],
+  },
+  {
+    heading: "Legal",
+    links: [
+      { label: "Terms of service", href: "/terms-of-service" },
+      { label: "Privacy policy", href: "/privacy-policy" },
+      { label: "Security policy", href: "/security-policy" },
+    ],
+  },
+] as const;
+
+// Crawlers require absolute URLs for og:image, so resolve everything against `site`.
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const imageUrl = new URL(image, Astro.site).href;
 ---
 
 <html lang="en">
@@ -30,11 +70,30 @@ const {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#181818" />
+    <meta name="theme-color" content="#201f1e" />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="aqqua" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <meta name="twitter:image:alt" content={imageAlt} />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Inter:opsz,wght@14..32,400..700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
@@ -45,6 +104,8 @@ const {
   </head>
   <body>
     <div class:list={["page", pageClass, navOverlay && "page--nav-overlay"]}>
+      <a class="skip-link" href="#main">Skip to content</a>
+
       <nav class="nav" aria-label="Primary">
         <div class="nav-brand">
           <a href="/" aria-label="aqqua home" class="nav-crest">
@@ -63,41 +124,99 @@ const {
         </div>
 
         <div class="nav-links">
-          <a href="/#providers">Providers</a>
           <a href="/#agents">Agents</a>
+          <a href="/#flows">Flows</a>
           <a href="/#features">Features</a>
-          <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/#open">Open source</a>
+          <a href="/#faq">FAQ</a>
         </div>
 
         <div class="nav-actions">
-          <a class="btn btn-outline" href="/download">Download</a>
+          <a
+            class="nav-icon"
+            href={GITHUB_REPOSITORY_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="aqqua on GitHub"
+          >
+            <GithubGlyph />
+          </a>
+          <a class="btn btn-primary nav-download" href="/download">Download</a>
         </div>
       </nav>
 
-      <main class="main">
+      <main class="main" id="main">
         <slot />
       </main>
 
       <footer class="footer">
         <div class="footer-inner">
-          <div class="footer-brand">
-            <BrandMark height={20} />
-            <span>
-              &copy; {new Date().getFullYear()} {SITE_OPERATOR} · MIT licensed · A community fork of{" "}
-              <a href={UPSTREAM_URL} target="_blank" rel="noreferrer">{UPSTREAM_NAME}</a>
-            </span>
+          <div class="footer-lead">
+            <a href="/" aria-label="aqqua home" class="footer-crest">
+              <BrandMark height={22} />
+            </a>
+            <p class="footer-pitch">
+              The open source control plane for coding agents. Runs on your
+              machine, on the subscriptions you already pay for.
+            </p>
+            <p class="footer-badge">
+              <span class="footer-dot" aria-hidden="true"></span>
+              MIT licensed · no account · no telemetry
+            </p>
           </div>
-          <div class="footer-links">
-            <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">GitHub</a>
-            <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noreferrer">Discord</a>
-            <a href="/download">Download</a>
-            <a href="/terms-of-service">Terms</a>
-            <a href="/privacy-policy">Privacy</a>
-            <a href="/security-policy">Security</a>
+
+          <div class="footer-cols">
+            {
+              FOOTER_COLUMNS.map((column) => (
+                <nav class="footer-col" aria-label={column.heading}>
+                  <h2 class="footer-heading">{column.heading}</h2>
+                  <ul>
+                    {column.links.map((link) => (
+                      <li>
+                        <a
+                          href={link.href}
+                          target={"external" in link && link.external ? "_blank" : undefined}
+                          rel={"external" in link && link.external ? "noreferrer" : undefined}
+                        >
+                          {link.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              ))
+            }
           </div>
+        </div>
+
+        <div class="footer-base">
+          <span>
+            &copy; {new Date().getFullYear()} {SITE_OPERATOR} · A community fork of{" "}
+            <a href={UPSTREAM_URL} target="_blank" rel="noreferrer">{UPSTREAM_NAME}</a>
+          </span>
+          <span class="footer-base-links">
+            <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer" aria-label="GitHub">
+              <GithubGlyph />
+            </a>
+            <a href={DISCORD_URL} target="_blank" rel="noreferrer" aria-label="Discord">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
+                ><path
+                  d="M19.27 5.33A16.6 16.6 0 0 0 15.2 4l-.25.5a15 15 0 0 1 3.62 1.4 12.7 12.7 0 0 0-8.65-1.06c-.7.15-1.4.35-2.06.6L7.6 4.9A16.4 16.4 0 0 0 4.7 5.33 17.9 17.9 0 0 0 1.6 18.6a16.5 16.5 0 0 0 5 2.4l.6-1.13a11 11 0 0 1-1.9-.9l.47-.36a11.8 11.8 0 0 0 10.5 0l.47.36c-.6.36-1.24.66-1.9.9l.6 1.13a16.5 16.5 0 0 0 5-2.4 17.9 17.9 0 0 0-3.17-13.27ZM8.9 15.2c-.98 0-1.78-.9-1.78-2s.78-2 1.78-2 1.8.9 1.78 2c0 1.1-.79 2-1.78 2Zm6.2 0c-.98 0-1.78-.9-1.78-2s.78-2 1.78-2 1.79.9 1.77 2c0 1.1-.78 2-1.77 2Z"
+                ></path></svg
+              >
+            </a>
+          </span>
         </div>
       </footer>
     </div>
+
+    <script>
+      import { initNavScroll, initReveals, initTaglineReveal } from "../scripts/reveal";
+
+      initNavScroll();
+      initReveals();
+      initTaglineReveal();
+    </script>
   </body>
 </html>
 
@@ -110,22 +229,66 @@ const {
     overflow-x: clip;
   }
 
+  .skip-link {
+    position: absolute;
+    top: -100px;
+    left: var(--gutter-x);
+    z-index: 60;
+    padding: 8px 16px;
+    border-radius: var(--radius-control);
+    background: var(--aq-ink-100);
+    color: var(--aq-ink-950);
+    font-size: var(--text-14);
+    font-weight: var(--weight-semibold);
+  }
+
+  .skip-link:focus-visible {
+    top: 12px;
+    color: var(--aq-ink-950);
+  }
+
+  /*
+   * The sentinel is injected at the very top of the page by scripts/reveal.ts
+   * and never occupies layout; the nav swaps to its solid state once it clears.
+   */
+  .page :global(.nav-sentinel) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 88px;
+    pointer-events: none;
+  }
+
   .nav {
-    position: relative;
-    z-index: 20;
+    position: sticky;
+    top: 0;
+    z-index: 40;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 16px 32px;
+    gap: 12px 28px;
     padding: var(--gutter-y-nav) var(--gutter-x);
+    border-bottom: 1px solid transparent;
+    transition:
+      background-color var(--duration-ui) var(--ease-aqqua),
+      border-color var(--duration-ui) var(--ease-aqqua),
+      backdrop-filter var(--duration-ui) var(--ease-aqqua);
   }
 
   .page--nav-overlay .nav {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
+  }
+
+  .page.is-scrolled .nav {
+    background: rgba(26, 25, 24, 0.72);
+    border-bottom-color: var(--border-hairline);
+    backdrop-filter: saturate(140%) var(--blur-veil);
+    -webkit-backdrop-filter: saturate(140%) var(--blur-veil);
   }
 
   .nav-brand {
@@ -139,6 +302,11 @@ const {
   .nav-crest {
     display: block;
     color: var(--text-primary);
+    transition: opacity var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .nav-crest:hover {
+    opacity: 0.75;
   }
 
   .nav-repo {
@@ -154,22 +322,27 @@ const {
     font-family: var(--font-ui);
     font-size: var(--text-12);
     line-height: var(--leading-12);
-    transition: color var(--duration-ui) var(--ease-aqqua);
+    opacity: 1;
+    transition:
+      color var(--duration-ui) var(--ease-aqqua),
+      opacity var(--duration-ui) var(--ease-aqqua);
+  }
+
+  /* Once the nav is solid the repo line would collide with the band under it. */
+  .page.is-scrolled .nav-repo {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .nav-repo:hover {
     color: var(--text-primary);
   }
 
-  .nav-repo:active {
-    transform: translateY(var(--press-nudge));
-  }
-
   .nav-links {
     display: flex;
     align-items: center;
     align-self: center;
-    gap: clamp(16px, 2.4vw, 32px);
+    gap: clamp(14px, 2.2vw, 30px);
     font-family: var(--font-ui);
     font-size: var(--text-14);
     line-height: var(--leading-14);
@@ -177,22 +350,53 @@ const {
   }
 
   .nav-links a {
+    position: relative;
     color: var(--text-nav);
-    transition: color var(--duration-ui) var(--ease-aqqua);
+    padding: 4px 0;
+    transition: color var(--duration-fast) var(--ease-aqqua);
   }
 
-  .nav-links a:hover {
-    color: var(--text-primary);
+  .nav-links a::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: var(--aq-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--duration-fast) var(--ease-aqqua);
   }
 
-  .nav-links a:active {
-    transform: translateY(var(--press-nudge));
+  .nav-links a:hover::after {
+    transform: scaleX(1);
   }
 
   .nav-actions {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .nav-icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    transition: var(--transition-ui);
+  }
+
+  .nav-icon:hover {
+    background: var(--aq-white-08);
+    color: var(--text-primary);
+  }
+
+  .nav-download {
+    height: 40px;
+    padding: 8px 12px;
   }
 
   .main {
@@ -201,75 +405,136 @@ const {
     flex-direction: column;
   }
 
+  /* ── Footer ───────────────────────────────────────────────────────────── */
   .footer {
     margin-top: auto;
+    background: var(--aq-abyss);
     border-top: 1px solid var(--border-hairline);
-    padding: var(--space-12) 0 var(--space-8);
+    padding: clamp(48px, 8vh, 80px) 0 var(--space-8);
   }
 
-  .footer-inner {
+  .footer-inner,
+  .footer-base {
     max-width: var(--measure-page);
     margin: 0 auto;
     padding: 0 var(--gutter-x);
+  }
+
+  .footer-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr);
+    gap: clamp(32px, 5vw, 72px);
+  }
+
+  .footer-lead {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-6);
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
   }
 
-  .footer-brand {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    font-size: var(--text-12);
-    line-height: var(--leading-12);
-    color: var(--text-secondary);
-  }
-
-  .footer-brand :global(svg) {
-    color: var(--text-secondary);
-    flex: none;
-  }
-
-  .footer-brand a {
-    color: var(--text-secondary);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: var(--aq-white-40);
-    transition: var(--transition-ui);
-  }
-
-  .footer-brand a:hover {
+  .footer-crest {
     color: var(--text-primary);
-    text-decoration-color: var(--text-primary);
   }
 
-  .footer-links {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--space-6);
-  }
-
-  .footer-links a {
+  .footer-pitch {
+    max-width: 34ch;
+    color: var(--text-secondary);
     font-size: var(--text-14);
     line-height: var(--leading-14);
-    color: var(--text-secondary);
-    transition: color var(--duration-ui) var(--ease-aqqua);
+    text-wrap: pretty;
   }
 
-  .footer-links a:hover {
+  .footer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+  }
+
+  .footer-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--aq-accent);
+  }
+
+  .footer-cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-8);
+  }
+
+  .footer-heading {
+    margin-bottom: var(--space-4);
+    font-family: var(--font-ui);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--aq-white-45);
+  }
+
+  .footer-col ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .footer-col a {
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .footer-col a:hover {
     color: var(--text-primary);
   }
 
-  .footer-links a:active {
-    transform: translateY(var(--press-nudge));
+  .footer-base {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: clamp(40px, 6vh, 64px);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--border-faint);
+    color: var(--aq-white-45);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
   }
 
-  @media (max-width: 900px) {
+  .footer-base a {
+    color: var(--aq-white-45);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .footer-base a:hover {
+    color: var(--text-primary);
+  }
+
+  .footer-base-links {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  @media (max-width: 960px) {
     .nav-links {
       display: none;
+    }
+
+    .footer-inner {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 
@@ -281,19 +546,12 @@ const {
     .footer {
       padding-bottom: max(var(--space-8), env(safe-area-inset-bottom));
     }
+  }
 
-    .footer-inner {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: var(--space-8);
-    }
-
-    .footer-links {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      width: 100%;
-      gap: 14px var(--space-6);
-      justify-content: initial;
+  @media (max-width: 560px) {
+    .footer-cols {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-6);
     }
   }
 

@@ -1,0 +1,205 @@
+---
+/**
+ * The change-request panel: state, refs, and each check the host reports,
+ * settling from pending to passing before merge unlocks.
+ *
+ * Both status labels occupy the same grid cell and cross-fade, so the rows never
+ * reflow as the text changes.
+ */
+const CHECKS = ["build", "typecheck", "test (ubuntu-latest)"] as const;
+---
+
+<div class="dm pr" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">Pull request</span>
+    <span class="dm-mono pr-num">#482</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-chip dm-chip--ok">Open</span>
+  </div>
+
+  <div class="refs dm-mono">
+    main <span class="arrow">&#8592;</span> feat/auth-refactor
+  </div>
+
+  <div class="checks">
+    {
+      CHECKS.map((check, index) => (
+        <div class="check" style={`--i:${index}`}>
+          <span class="ring"></span>
+          <span class="dm-title check-name">{check}</span>
+          <span class="status">
+            <span class="status-pending">pending</span>
+            <span class="status-pass">passing</span>
+          </span>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="foot">
+    <span class="agg">
+      <span class="agg-wait dm-chip dm-chip--wait">Checks running</span>
+      <span class="agg-ok dm-chip dm-chip--ok">All checks passed</span>
+    </span>
+    <span class="dm-spacer"></span>
+    <span class="merge">Merge</span>
+  </div>
+</div>
+
+<style>
+  .pr-num {
+    color: var(--aq-white-55);
+  }
+
+  .refs {
+    padding: 10px 14px 0;
+    font-size: 11.5px;
+    color: var(--aq-white-55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .arrow {
+    color: var(--aq-white-40);
+  }
+
+  .checks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 10px 4px;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 6px;
+  }
+
+  .check-name {
+    font-size: 12px;
+  }
+
+  /*
+   * Every base style below is the settled state — passing, green, merge enabled.
+   * The keyframes only rewind it to pending. That matters because with animation
+   * off (reduced motion) the base is all that renders, and two stacked labels at
+   * full opacity would print on top of each other.
+   */
+  .ring {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    border-radius: var(--radius-pill);
+    border: 1.5px solid #22c55e;
+    background: #22c55e;
+    animation:
+      spin 0.9s linear infinite,
+      pr-ring 8s steps(1, end) infinite;
+    animation-delay: 0s, calc(var(--i) * 0.55s);
+  }
+
+  /* Both labels share one cell so the row width never changes. */
+  .status {
+    display: grid;
+    flex: none;
+  }
+
+  .status > span {
+    grid-area: 1 / 1;
+    justify-self: end;
+    font-size: 11px;
+    line-height: 15px;
+    white-space: nowrap;
+  }
+
+  .status-pending {
+    color: #fcd34d;
+    opacity: 0;
+    animation: pr-fade-out 8s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 0.55s);
+  }
+
+  .status-pass {
+    color: #86efac;
+    animation: pr-fade-in 8s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 0.55s);
+  }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .agg {
+    display: grid;
+    min-width: 0;
+  }
+
+  .agg > span {
+    grid-area: 1 / 1;
+    justify-self: start;
+  }
+
+  .agg-wait {
+    opacity: 0;
+    animation: pr-fade-out 8s steps(1, end) infinite;
+    animation-delay: 1.4s;
+  }
+
+  .agg-ok {
+    animation: pr-fade-in 8s steps(1, end) infinite;
+    animation-delay: 1.4s;
+  }
+
+  /* Enabled at rest; the keyframes grey it out while checks are still running. */
+  .merge {
+    flex: none;
+    padding: 5px 14px;
+    border-radius: var(--radius-control);
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+    background: var(--aq-white);
+    color: var(--aq-ink);
+    animation: pr-merge 8s steps(1, end) infinite;
+    animation-delay: 1.4s;
+  }
+
+  @keyframes pr-ring {
+    0%, 24% {
+      border-color: #f59e0b;
+      border-top-color: transparent;
+      background: transparent;
+    }
+    25%, 100% {
+      border-color: #22c55e;
+      background: #22c55e;
+    }
+  }
+
+  @keyframes pr-fade-out {
+    0%, 24% { opacity: 1; }
+    25%, 100% { opacity: 0; }
+  }
+
+  @keyframes pr-fade-in {
+    0%, 24% { opacity: 0; }
+    25%, 100% { opacity: 1; }
+  }
+
+  @keyframes pr-merge {
+    0%, 24% { background: var(--aq-white-08); color: var(--aq-white-45); }
+    25%, 100% { background: var(--aq-white); color: var(--aq-ink); }
+  }
+
+  @media (max-width: 420px) {
+    .check-name { font-size: 11.5px; }
+  }
+</style>

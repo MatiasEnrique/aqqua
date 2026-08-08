@@ -1,0 +1,291 @@
+---
+/**
+ * `aqqua agent` — the orchestration CLI, replayed as a terminal session.
+ *
+ * A terminal is monospace text, so unlike the app demos this one is not a
+ * likeness: every command, flag and output line below is exactly what
+ * `apps/server/src/cli/agent.ts` accepts and prints. The catalog rows come from
+ * `formatModelLine()`, the spawn confirmations from `formatSpawnStarted()`, and
+ * the `list` rows from `${status.padEnd(11)} ${threadId}  ${title}`.
+ *
+ * The transcript is the base state: with every `animation:` declaration removed
+ * the whole session renders, finished and readable. Typing is decoration layered
+ * on top — a stepped `clip-path` reveal, never an animated width — and each line
+ * carries an absolute `--at` offset so one shared keyframe pair drives the whole
+ * replay without per-line keyframes or drift.
+ *
+ * Long lines are handled deliberately: the `reasoning=` suffix and the
+ * "Await it with:" tail are dropped until the card is wide enough to hold them,
+ * and the body font is sized from the container so the widest surviving line
+ * (74 columns) fits. Anything past that clips — the demo never scrolls sideways.
+ */
+interface Seg {
+  readonly t: string;
+  readonly c?: string;
+}
+
+interface Line {
+  /** Seconds into the replay at which this line appears. */
+  readonly at: number;
+  readonly segs: readonly Seg[];
+  /** Present on lines that are typed rather than printed. */
+  readonly type?: { readonly dur: number; readonly n: number };
+  readonly prompt?: boolean;
+  /** Starts a new block, i.e. a blank line above it. */
+  readonly sp?: boolean;
+}
+
+const LINES: readonly Line[] = [
+  {
+    at: 0.15,
+    prompt: true,
+    type: { dur: 0.55, n: 18 },
+    segs: [{ t: "aqqua agent models" }],
+  },
+  {
+    at: 0.95,
+    segs: [
+      { t: "Claude (claudeAgent, claudeAgent)  ", c: "dim" },
+      { t: "claude-fable-5", c: "slug" },
+      { t: "  Claude Fable 5  " },
+      { t: "DEFAULT", c: "ok" },
+      { t: "  reasoning=low,medium,high,xhigh,max,ultracode,ultrathink", c: "dim rs" },
+    ],
+  },
+  {
+    at: 1.1,
+    segs: [
+      { t: "Codex (codex, codex)  ", c: "dim" },
+      { t: "gpt-5.6-sol", c: "slug" },
+      { t: "  GPT-5.6-Sol" },
+      { t: "  reasoning=low,medium,high,xhigh,max,ultra", c: "dim rs" },
+    ],
+  },
+  {
+    at: 1.25,
+    segs: [
+      { t: "Grok (grok, grok)  ", c: "dim" },
+      { t: "grok-4.5", c: "slug" },
+      { t: "  Grok 4.5" },
+      { t: "  reasoning=high,medium,low", c: "dim rs" },
+    ],
+  },
+
+  {
+    at: 1.85,
+    sp: true,
+    prompt: true,
+    type: { dur: 1.25, n: 56 },
+    segs: [
+      { t: "aqqua agent spawn " },
+      { t: "--instance", c: "flag" },
+      { t: " " },
+      { t: "codex", c: "slug" },
+      { t: " " },
+      { t: "--model", c: "flag" },
+      { t: " " },
+      { t: "gpt-5.6-sol", c: "slug" },
+      { t: " " },
+      { t: "\\", c: "dim" },
+    ],
+  },
+  {
+    at: 3.1,
+    type: { dur: 1.4, n: 62 },
+    segs: [
+      { t: "    " },
+      { t: "--task-file", c: "flag" },
+      { t: " lanes/contracts.md " },
+      { t: "--title", c: "flag" },
+      { t: " " },
+      { t: '"lane A: contracts"', c: "str" },
+    ],
+  },
+  {
+    at: 4.85,
+    segs: [
+      { t: "Started model " },
+      { t: "gpt-5.6-sol", c: "slug" },
+      { t: " as sub-agent " },
+      { t: "thr_8f21ac", c: "ok" },
+      { t: "." },
+      { t: " Await it with: aqqua agent await thr_8f21ac", c: "dim aw" },
+    ],
+  },
+
+  {
+    at: 5.45,
+    sp: true,
+    prompt: true,
+    type: { dur: 1.45, n: 65 },
+    segs: [
+      { t: "aqqua agent spawn " },
+      { t: "--instance", c: "flag" },
+      { t: " " },
+      { t: "claudeAgent", c: "slug" },
+      { t: " " },
+      { t: "--model", c: "flag" },
+      { t: " " },
+      { t: "claude-fable-5", c: "slug" },
+      { t: " " },
+      { t: "\\", c: "dim" },
+    ],
+  },
+  {
+    at: 6.9,
+    type: { dur: 1.3, n: 57 },
+    segs: [
+      { t: "    " },
+      { t: "--task-file", c: "flag" },
+      { t: " lanes/rpc.md " },
+      { t: "--title", c: "flag" },
+      { t: " " },
+      { t: '"lane B: rpc client"', c: "str" },
+    ],
+  },
+  {
+    at: 8.55,
+    segs: [
+      { t: "Started model " },
+      { t: "claude-fable-5", c: "slug" },
+      { t: " as sub-agent " },
+      { t: "thr_4c90de", c: "ok" },
+      { t: "." },
+      { t: " Await it with: aqqua agent await thr_4c90de", c: "dim aw" },
+    ],
+  },
+
+  {
+    at: 9.15,
+    sp: true,
+    prompt: true,
+    type: { dur: 0.5, n: 16 },
+    segs: [{ t: "aqqua agent list" }],
+  },
+  {
+    at: 9.95,
+    segs: [
+      { t: "running", c: "run" },
+      { t: "     " },
+      { t: "thr_8f21ac", c: "ok" },
+      { t: "  lane A: contracts" },
+    ],
+  },
+  {
+    at: 10.1,
+    segs: [
+      { t: "running", c: "run" },
+      { t: "     " },
+      { t: "thr_4c90de", c: "ok" },
+      { t: "  lane B: rpc client" },
+    ],
+  },
+];
+
+const END = 10.45;
+---
+
+<div class="dm cli" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">Orchestrator shell</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-branch">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="9" r="2.5"></circle>
+        <path d="M6 8.5v7"></path><path d="M8.5 6h4a3 3 0 0 1 3 3v.5"></path>
+      </svg>
+      feat/auth-refactor
+    </span>
+  </div>
+
+  <div class="term">
+    {
+      LINES.map((line) => (
+        <div class:list={["ln", line.sp && "sp"]} style={`--at:${line.at}s`}>{line.prompt ? <span class="prompt">$ </span> : null}{line.type ? <span class="typed" style={`--dur:${line.type.dur}s;--n:${line.type.n}`}>{line.segs.map((seg) => <span class={seg.c}>{seg.t}</span>)}</span> : line.segs.map((seg) => <span class={seg.c}>{seg.t}</span>)}</div>
+      ))
+    }
+    <div class="ln sp" style={`--at:${END}s`}><span class="prompt">$ </span><span class="dm-caret"></span></div>
+  </div>
+</div>
+
+<style>
+  .cli {
+    /* The line length the transcript is sized against, so the body font can be
+     * derived from the card's own width rather than the viewport's. */
+    container-type: inline-size;
+  }
+
+  .term {
+    padding: 12px 14px 14px;
+    background: rgba(0, 0, 0, 0.22);
+    font-family: var(--font-code);
+    /* Fallback for engines without container query units. */
+    font-size: 11px;
+    /* 74 columns at a 0.6em advance, inside 14px of padding either side. */
+    font-size: clamp(9.5px, calc((100cqi - 34px) / 44.5), 12px);
+    line-height: 1.55;
+    color: var(--aq-white-70);
+  }
+
+  .ln {
+    /* Column alignment is the whole point of `padEnd`, so runs of spaces stay. */
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    animation-name: cli-in;
+    animation-duration: 0.14s;
+    animation-delay: var(--at);
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
+
+  .sp {
+    margin-top: 0.9em;
+  }
+
+  .prompt {
+    color: var(--aq-white-45);
+  }
+
+  /* Typed text is revealed one column at a time; `--at` is inherited from .ln. */
+  .typed {
+    color: var(--text-strong);
+    animation-name: cli-type;
+    animation-duration: var(--dur);
+    animation-delay: var(--at);
+    animation-timing-function: steps(var(--n), end);
+    animation-fill-mode: both;
+  }
+
+  .dim { color: var(--aq-white-45); }
+  .flag { color: var(--aq-white-45); }
+  .slug { color: #7dd3fc; }
+  .ok { color: #86efac; }
+  .run { color: #f59e0b; }
+  .str { color: #c4b5fd; }
+
+  /* Tails that only fit once the card is wide enough to print them in full.
+   * Hidden, they still leave a true line — the CLI prints these suffixes last. */
+  .rs,
+  .aw {
+    display: none;
+  }
+
+  @container (min-width: 720px) {
+    .aw { display: inline; }
+  }
+
+  @container (min-width: 1000px) {
+    .rs { display: inline; }
+  }
+
+  @keyframes cli-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes cli-type {
+    from { clip-path: inset(0 100% 0 0); }
+    to { clip-path: inset(0 0 0 0); }
+  }
+</style>

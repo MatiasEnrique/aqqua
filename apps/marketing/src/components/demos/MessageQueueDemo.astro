@@ -1,0 +1,152 @@
+---
+/**
+ * Messages queued during a running turn, submitted one turn at a time.
+ *
+ * The stack is clipped to a fixed height and slides up by exactly one row per
+ * drain, so the queue visibly collapses without animating any layout property.
+ */
+const QUEUED = [
+  "also update the tests",
+  "then run typecheck",
+  "open a PR once it is green",
+  "rebase onto main first",
+  "reply to the review comments",
+] as const;
+
+// The first window is repeated at the end so the scroll can restart from the
+// top without a visible jump: translating by the full list lands on an
+// identical frame.
+const VISIBLE = 3;
+const ROWS = [...QUEUED, ...QUEUED.slice(0, VISIBLE)];
+---
+
+<div class="dm queue" data-demo>
+  <div class="dm-bar">
+    <span class="dm-dot dm-dot--run pulse"></span>
+    <span class="dm-title turn">Working — turn in progress</span>
+    <span class="dm-chip">Stop</span>
+  </div>
+
+  <div class="qhead">
+    <span class="dm-legend">Queued</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-chip dm-chip--solid">Send all</span>
+  </div>
+
+  <div class="qwrap">
+    <div class="qstack">
+      {
+        ROWS.map((message) => (
+          <div class="qitem">
+            <span class="dm-title qtext">{message}</span>
+            <span class="qacts">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </span>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="composer">
+    <span class="dm-sub">Message aqqua…</span>
+    <span class="dm-spacer"></span>
+    <span class="send">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>
+    </span>
+  </div>
+</div>
+
+<style>
+  /* One row plus its gap. The stack moves in exact multiples of this. */
+  .queue {
+    --row: 34px;
+  }
+
+  .turn {
+    font-size: 12.5px;
+  }
+
+  .pulse {
+    animation: pulse 1.6s var(--ease-aqqua) infinite;
+  }
+
+  .qhead {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px 8px;
+  }
+
+  .qwrap {
+    height: calc(var(--row) * 3);
+    padding: 0 14px;
+    overflow: hidden;
+  }
+
+  .qstack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    animation: queue-stack 9s var(--ease-aqqua) infinite;
+  }
+
+  .qitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-sm);
+    background: var(--aq-white-04);
+  }
+
+  .qtext {
+    font-size: 11.5px;
+  }
+
+  .qacts {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--aq-white-45);
+  }
+
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 12px 14px 14px;
+    padding: 9px 10px 9px 12px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .send {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    background: var(--aq-white-08);
+    color: var(--text-strong);
+  }
+
+  /*
+   * Each submitted turn lifts the queue by exactly one row. The final position
+   * shows the repeated head of the list, so looping back to 0 is invisible and
+   * the box never empties out mid-cycle.
+   */
+  @keyframes queue-stack {
+    0%, 15% { transform: translateY(0); }
+    18%, 33% { transform: translateY(calc(var(--row) * -1)); }
+    36%, 51% { transform: translateY(calc(var(--row) * -2)); }
+    54%, 69% { transform: translateY(calc(var(--row) * -3)); }
+    72%, 87% { transform: translateY(calc(var(--row) * -4)); }
+    90%, 100% { transform: translateY(calc(var(--row) * -5)); }
+  }
+</style>

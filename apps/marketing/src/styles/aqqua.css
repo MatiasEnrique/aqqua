@@ -1,7 +1,56 @@
+/*
+ * aqqua design system — "editorial instrument".
+ *
+ * Direction: the palette is the product's. Every colour derives from the app's
+ * ink ramp (apps/web/src/index.css) — a single low-chroma warm-grey scale plus
+ * one paper white and one brand ink. Colour is state, never decoration: on dark
+ * bands the accent is the light end of the ramp, on the paper band it is the
+ * brand ink. The hero painting supplies imagery, not tokens.
+ *
+ * Type is the app's stack: IBM Plex Sans carries display moments (never above
+ * 600), Inter carries every working surface, IBM Plex Mono handles indices,
+ * captions and code. No italics anywhere.
+ *
+ * Rhythm is the other half of the job: sections alternate ink → deep → paper
+ * rather than repeating one header block on one background, so the page reads
+ * as chapters instead of a list.
+ */
+
 :root {
-  --aq-ink: #181818;
-  --aq-deep: #08161f;
-  --aq-sea: #9eb9ca;
+  /* ── Palette — the app's ink ramp, verbatim from apps/web/src/index.css ── */
+  --aq-ink-25: oklch(0.988 0.006 85);
+  --aq-ink-50: oklch(0.97 0.006 85);
+  --aq-ink-100: oklch(0.93 0.006 84);
+  --aq-ink-200: oklch(0.87 0.006 83);
+  --aq-ink-300: oklch(0.775 0.005 82);
+  --aq-ink-400: oklch(0.655 0.004 80);
+  --aq-ink-500: oklch(0.508 0.004 78);
+  --aq-ink-700: oklch(0.363 0.003 74);
+  --aq-ink-800: oklch(0.28 0.002 72);
+  --aq-ink-900: oklch(0.22 0.002 70);
+  --aq-ink-950: oklch(0.17 0.002 70);
+  --aq-paper-raised: oklch(0.997 0.003 85);
+  --aq-brand-ink: oklch(0.35 0.038 258);
+
+  /* Marketing surfaces derived the way the app derives its own: bands lift
+     from ink-950 by mixing in white or black, never by changing hue. */
+  --aq-ink: color-mix(in srgb, var(--aq-ink-950) 96%, white);
+  --aq-deep: var(--aq-ink-950);
+  --aq-abyss: color-mix(in srgb, var(--aq-ink-950) 90%, black);
+  --aq-card: color-mix(in srgb, var(--aq-ink-950) 94%, white);
+  --aq-card-hi: color-mix(in srgb, var(--aq-ink-950) 90%, white);
+  --aq-paper: var(--aq-ink-25);
+  --aq-paper-2: var(--aq-ink-100);
+  --aq-paper-ink: var(--aq-ink-800);
+
+  /* Accent follows the app's rule: on a near-black band the accent is the
+     light end of the ramp. The paper band re-points these at the brand ink. */
+  --aq-accent: var(--aq-ink-300);
+  --aq-accent-bright: var(--aq-ink-100);
+  --aq-accent-08: rgba(255, 255, 255, 0.06);
+  --aq-accent-16: rgba(255, 255, 255, 0.12);
+  --aq-accent-32: rgba(255, 255, 255, 0.3);
+
   --aq-white: #ffffff;
   --aq-grey: #9b9b9b;
 
@@ -17,35 +66,48 @@
   --aq-white-04: rgba(255, 255, 255, 0.04);
 
   --surface-page: var(--aq-ink);
-  --surface-media: var(--aq-sea);
+  --surface-media: var(--aq-ink-400);
   --surface-raised: var(--aq-white-08);
+  --surface-card: var(--aq-card);
   --surface-hover: var(--aq-white-14);
 
   --text-primary: var(--aq-white);
   --text-strong: var(--aq-white-92);
-  --text-secondary: var(--aq-white-70);
+  --text-secondary: var(--aq-ink-400);
   --text-eyebrow: var(--aq-white-74);
   --text-nav: var(--aq-white-88);
 
   --border-subtle: var(--aq-white-45);
   --border-strong: rgba(255, 255, 255, 0.8);
-  --border-hairline: var(--aq-white-14);
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-faint: rgba(255, 255, 255, 0.05);
 
-  --focus-ring: var(--aq-white);
+  --focus-ring: var(--aq-ink-300);
 
   --gradient-display: linear-gradient(90deg, #ffffff 0%, #9b9b9b 100%);
+  /* Scrims sit in the same neutral charcoal family as ink-950. */
   --scrim-bottom: linear-gradient(
     to top,
-    rgba(8, 22, 31, 0.8) 0%,
-    rgba(8, 22, 31, 0.52) 34%,
-    rgba(8, 22, 31, 0.14) 62%,
-    rgba(8, 22, 31, 0.1) 100%
+    rgba(24, 23, 22, 0.8) 0%,
+    rgba(24, 23, 22, 0.52) 34%,
+    rgba(24, 23, 22, 0.14) 62%,
+    rgba(24, 23, 22, 0.1) 100%
   );
-  --scrim-top: linear-gradient(to bottom, rgba(8, 22, 31, 0.35) 0%, rgba(8, 22, 31, 0) 22%);
+  --scrim-top: linear-gradient(to bottom, rgba(24, 23, 22, 0.35) 0%, rgba(24, 23, 22, 0) 22%);
+  /* Phone hero: type sits over the wave rather than open sky, so it needs more cover. */
+  --scrim-bottom-strong: linear-gradient(
+    to top,
+    rgba(24, 23, 22, 0.88) 0%,
+    rgba(24, 23, 22, 0.74) 30%,
+    rgba(24, 23, 22, 0.42) 52%,
+    rgba(24, 23, 22, 0.12) 78%,
+    rgba(24, 23, 22, 0.06) 100%
+  );
 
-  --font-display: "Inter", Helvetica, Arial, sans-serif;
-  --font-ui: "IBM Plex Sans", Helvetica, Arial, sans-serif;
-  --font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* ── Type — the app's stack ────────────────────────────────────────────── */
+  --font-display: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --text-12: 12px;
   --leading-12: 16px;
@@ -53,86 +115,107 @@
   --leading-14: 20px;
   --text-16: 16px;
   --leading-16: 24px;
+  --text-18: 18px;
+  --leading-18: 28px;
   --text-24: 24px;
   --leading-24: 32px;
-  --text-36: 36px;
-  --leading-36: 38px;
-  --text-48: 48px;
-  --leading-48: 50px;
-  --text-72: 72px;
-  --leading-72: 76px;
 
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
+  --weight-bold: 700;
 
-  --tracking-display: -0.035em;
-  --tracking-tight: -0.02em;
-  --tracking-eyebrow: 0.22em;
+  /* IBM Plex Sans at display size wants only light negative tracking. */
+  --tracking-display: -0.02em;
+  --tracking-tight: -0.01em;
+  --tracking-eyebrow: 0.2em;
 
-  --display-fluid: clamp(36px, 7vw, 72px);
-  --section-fluid: clamp(28px, 4vw, 48px);
-  --eyebrow-fluid: clamp(10px, 1.1vw, 12px);
+  /* Fluid endpoints land on the type scale: 36→96, 30→60, 20→30. */
+  --display-hero: clamp(36px, 7.4vw, 96px);
+  --display-section: clamp(30px, 4.6vw, 60px);
+  --display-sub: clamp(20px, 2.6vw, 30px);
+  --eyebrow-fluid: 12px;
 
+  /* Kept for pages that predate the redesign (legal, download). */
+  --text-36: 36px;
+  --leading-36: 40px;
+  --text-48: 48px;
+  --leading-48: 52px;
+  --text-72: 72px;
+  --leading-72: 76px;
+  --section-fluid: var(--display-section);
+  --display-fluid: var(--display-hero);
+
+  /* ── Space ─────────────────────────────────────────────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  /* The scale skips 20 — spacing resolves to 0/2/4/8/12/16/24/32/40/48/64/80/96. */
+  --space-5: 24px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
   --space-24: 96px;
 
-  --gutter-x: clamp(16px, 4vw, 48px);
+  --gutter-x: clamp(18px, 4vw, 56px);
   --gutter-x-content: clamp(16px, 5vw, 64px);
-  --gutter-y-nav: clamp(16px, 3vw, 24px);
-  --gutter-y-section: clamp(48px, 12vh, 96px);
+  --gutter-y-nav: clamp(14px, 2.4vw, 22px);
+  --gutter-y-section: clamp(64px, 13vh, 96px);
 
-  --measure-display: 680px;
+  --measure-display: 720px;
   --measure-prose: 60ch;
   --measure-page: 1240px;
+  --measure-wide: 1560px;
 
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-pill: 9999px;
 
-  --radius-control: 6px;
+  --radius-control: 8px;
   --radius-chip: 4px;
 
   --ease-aqqua: cubic-bezier(0.32, 0.72, 0, 1);
   --duration-fast: 200ms;
-  --duration-ui: 700ms;
+  --duration-ui: 500ms;
   --duration-reveal: 900ms;
   --transition-ui:
     color var(--duration-ui) var(--ease-aqqua),
     background-color var(--duration-ui) var(--ease-aqqua),
     border-color var(--duration-ui) var(--ease-aqqua),
-    transform var(--duration-ui) var(--ease-aqqua);
+    box-shadow var(--duration-ui) var(--ease-aqqua), transform var(--duration-ui) var(--ease-aqqua);
   --press-scale: 0.98;
   --press-nudge: 1px;
 
   --shadow-none: none;
+  --shadow-plate: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px -24px rgba(0, 0, 0, 0.75);
+  --shadow-lift: 0 32px 80px -32px rgba(0, 0, 0, 0.85);
   --blur-veil: blur(12px);
 
+  /* Legacy aliases still referenced by the demo primitives. */
   --bg: var(--aq-ink);
-  --bg-elev: var(--aq-ink);
-  --bg-card: var(--surface-raised);
+  --bg-elev: var(--aq-card);
+  --bg-card: var(--surface-card);
   --fg: var(--text-primary);
-  --fg-muted: var(--aq-white-70);
+  --fg-muted: var(--text-secondary);
   --fg-dim: var(--aq-white-55);
   --fg-faint: var(--aq-white-40);
   --border: var(--border-hairline);
-  --accent: var(--aq-white);
-  --accent-dim: var(--aq-white-14);
+  --accent: var(--aq-accent);
+  --accent-dim: var(--aq-accent-16);
   --ok: var(--aq-white);
-  --warn: var(--aq-white);
+  /* The app's dark-mode warning token — the demos' one true signal colour. */
+  --warn: oklch(0.8 0.14 75);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
   --radius: var(--radius-lg);
 }
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -142,6 +225,7 @@
 html {
   color-scheme: dark;
   scroll-behavior: smooth;
+  scroll-padding-top: 96px;
 }
 
 body {
@@ -154,6 +238,7 @@ body {
   line-height: var(--leading-16);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -185,6 +270,11 @@ svg {
   border-radius: var(--radius-xs);
 }
 
+::selection {
+  background: var(--aq-brand-ink);
+  color: var(--aq-white);
+}
+
 .container {
   width: 100%;
   max-width: var(--measure-page);
@@ -192,8 +282,63 @@ svg {
   padding: 0 var(--gutter-x);
 }
 
+.container-wide {
+  width: 100%;
+  max-width: var(--measure-wide);
+  margin: 0 auto;
+  padding: 0 var(--gutter-x);
+}
+
+/* ── Section tones ─────────────────────────────────────────────────────────
+ * Every band declares its own ground. Alternating these is what keeps the page
+ * from reading as one long column of identical blocks.
+ */
+.tone-ink {
+  background: var(--aq-ink);
+}
+
+.tone-deep {
+  background: var(--aq-deep);
+  color: var(--text-primary);
+}
+
+.tone-paper {
+  background: var(--aq-paper);
+  color: var(--aq-paper-ink);
+  /* The app's light theme: brand ink carries the accent, the ramp carries text. */
+  --aq-accent: var(--aq-brand-ink);
+  --aq-accent-bright: color-mix(in srgb, var(--aq-brand-ink) 85%, black);
+  --aq-accent-08: rgba(47, 59, 78, 0.08);
+  --aq-accent-16: rgba(47, 59, 78, 0.16);
+  --aq-accent-32: rgba(47, 59, 78, 0.32);
+  --text-primary: var(--aq-ink-900);
+  --text-strong: var(--aq-ink-800);
+  --text-secondary: var(--aq-ink-500);
+  --text-eyebrow: var(--aq-ink-500);
+  --border-hairline: rgba(0, 0, 0, 0.12);
+  --border-faint: rgba(0, 0, 0, 0.07);
+  --surface-card: var(--aq-paper-raised);
+  --focus-ring: var(--aq-brand-ink);
+}
+
+.tone-paper a {
+  color: inherit;
+}
+
+/*
+ * Grain: a tiled turbulence that keeps the flat darks from banding. It rides on
+ * the section's own background rather than an overlay, so it never sits on top
+ * of a screenshot or a video.
+ */
+.grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-blend-mode: soft-light;
+}
+
 .eyebrow {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-ui);
   font-size: var(--eyebrow-fluid);
   line-height: var(--leading-12);
@@ -203,12 +348,32 @@ svg {
   color: var(--text-eyebrow);
 }
 
+/* The tick is the accent's smallest recurring appearance across the page. */
+.eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  flex: none;
+  background: var(--aq-accent);
+}
+
+.eyebrow--plain::before {
+  display: none;
+}
+
+/* Display never exceeds 600, matching the app's IBM Plex Sans usage. */
 .display {
   font-family: var(--font-display);
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-display);
-  line-height: 1.05;
+  line-height: 1;
   text-wrap: balance;
+}
+
+/* The accent is colour, never a slant — no italics anywhere on the site. */
+.display em {
+  font-style: normal;
+  color: var(--aq-accent);
 }
 
 .display-wash {
@@ -218,19 +383,65 @@ svg {
   color: transparent;
 }
 
+/*
+ * Tagline reveal: one large statement whose words switch from a muted tone to
+ * full colour one at a time as the block scrolls through its trigger line.
+ * scripts/reveal.ts flips `is-on` per word off a rAF-throttled scroll read.
+ */
+.tagline-word {
+  /* Astro strips the whitespace between mapped spans; the gap is restored here. */
+  display: inline-block;
+  margin-right: 0.26em;
+  color: var(--tagline-dim, rgba(255, 255, 255, 0.3));
+  transition: color 700ms var(--ease-aqqua);
+}
+
+.tagline-word:last-child {
+  margin-right: 0;
+}
+
+.tagline-word.is-on {
+  color: var(--tagline-full, var(--text-primary));
+}
+
+.tagline-line {
+  display: block;
+}
+
+.tagline-line--accent .tagline-word {
+  --tagline-dim: rgba(255, 255, 255, 0.14);
+  --tagline-full: var(--aq-accent);
+}
+
+.lede {
+  color: var(--text-secondary);
+  font-size: var(--text-18);
+  line-height: var(--leading-18);
+  text-wrap: pretty;
+}
+
+.rule {
+  height: 1px;
+  border: 0;
+  background: var(--border-hairline);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   height: 40px;
-  padding: 8px 16px;
+  padding: 8px 12px;
   border-radius: var(--radius-control);
   border: 1px solid transparent;
   font-family: var(--font-ui);
   font-size: var(--text-14);
   line-height: var(--leading-14);
   font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
   white-space: nowrap;
   transition: var(--transition-ui);
 }
@@ -241,34 +452,63 @@ svg {
 
 .btn-lg {
   height: 48px;
-  padding: 12px 24px;
+  padding: 8px 16px;
   font-size: var(--text-16);
   line-height: var(--leading-16);
 }
 
+/* The app's dark primary: on a near-black field the button is the light end
+   of the ramp — a dark fill would lose all weight. The paper band inverts it
+   back to brand ink below. */
 .btn-primary {
-  background: var(--aq-white);
-  border-color: var(--aq-white);
-  color: var(--aq-ink);
+  background: var(--aq-ink-100);
+  border-color: var(--aq-ink-100);
+  color: var(--aq-ink-950);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
 }
 
 .btn-primary:hover {
-  color: var(--aq-ink);
-  opacity: 0.9;
+  background: var(--aq-paper-raised);
+  border-color: var(--aq-paper-raised);
+  color: var(--aq-ink-950);
+  box-shadow: 0 16px 40px -14px rgba(0, 0, 0, 0.7);
+}
+
+.tone-paper .btn-primary {
+  background: var(--aq-brand-ink);
+  border-color: var(--aq-brand-ink);
+  color: var(--aq-white);
+  box-shadow: 0 10px 30px -12px rgba(47, 59, 78, 0.5);
+}
+
+.tone-paper .btn-primary:hover {
+  background: color-mix(in srgb, var(--aq-brand-ink) 85%, black);
+  border-color: color-mix(in srgb, var(--aq-brand-ink) 85%, black);
+  color: var(--aq-white);
 }
 
 .btn-ghost,
 .btn-outline {
   background: transparent;
-  border-color: var(--border-subtle);
+  border-color: var(--border-hairline);
   color: var(--text-primary);
 }
 
 .btn-ghost:hover,
 .btn-outline:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
+  background: var(--aq-white-08);
+  border-color: var(--border-subtle);
   color: var(--text-primary);
+}
+
+.tone-paper .btn-outline {
+  border-color: rgba(0, 0, 0, 0.2);
+  color: var(--aq-paper-ink);
+}
+
+.tone-paper .btn-outline:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.4);
 }
 
 .tile {
@@ -281,11 +521,12 @@ svg {
   box-shadow: var(--shadow-none);
 }
 
+/* ── Motion ────────────────────────────────────────────────────────────── */
 @keyframes aq-rise {
   from {
     opacity: 0;
-    transform: translateY(64px);
-    filter: blur(12px);
+    transform: translateY(40px);
+    filter: blur(10px);
   }
   to {
     opacity: 1;
@@ -305,11 +546,39 @@ svg {
   }
 }
 
+/*
+ * Scroll reveals run off the view timeline where it exists and off a tiny
+ * IntersectionObserver everywhere else (scripts/reveal.ts adds `is-visible`).
+ */
 @supports (animation-timeline: view()) {
   .reveal {
     animation: aq-reveal linear both;
     animation-timeline: view();
-    animation-range: entry 0% entry 75%;
+    animation-range: entry 0% entry 70%;
+  }
+}
+
+@supports not (animation-timeline: view()) {
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition:
+      opacity 700ms var(--ease-aqqua),
+      transform 700ms var(--ease-aqqua);
+  }
+
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes aq-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
   }
 }
 
@@ -349,5 +618,10 @@ svg {
     animation: none !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

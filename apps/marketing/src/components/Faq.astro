@@ -1,0 +1,146 @@
+---
+/**
+ * FAQ built on native <details>, so it works with JS off and keyboards for
+ * free. `name` groups them into a single-open accordion in browsers that ship
+ * exclusive disclosure; elsewhere they simply open independently.
+ */
+interface Props {
+  readonly items: readonly { readonly q: string; readonly a: string }[];
+}
+
+const { items } = Astro.props;
+---
+
+<div class="faq">
+  {
+    items.map((item) => (
+      <details class="faq-item" name="faq">
+        <summary>
+          <span class="faq-q">{item.q}</span>
+          <span class="faq-sign" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M2 7h10" />
+              <path class="faq-sign-v" d="M7 2v10" />
+            </svg>
+          </span>
+        </summary>
+        <div class="faq-a">
+          <p set:html={item.a} />
+        </div>
+      </details>
+    ))
+  }
+</div>
+
+<style>
+  .faq {
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .faq-item {
+    border-bottom: 1px solid var(--border-hairline);
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding: clamp(16px, 2vw, 24px) 0;
+    cursor: pointer;
+    list-style: none;
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary:hover .faq-q {
+    color: var(--text-primary);
+  }
+
+  .faq-q {
+    font-size: clamp(16px, 1.6vw, 18px);
+    line-height: 1.35;
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text-strong);
+    text-wrap: balance;
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .faq-sign {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    border: 1px solid var(--border-hairline);
+    border-radius: 50%;
+    color: var(--aq-accent);
+    transition:
+      background-color var(--duration-fast) var(--ease-aqqua),
+      border-color var(--duration-fast) var(--ease-aqqua),
+      transform var(--duration-ui) var(--ease-aqqua);
+  }
+
+  summary:hover .faq-sign {
+    background: var(--aq-accent-08);
+    border-color: var(--aq-accent-32);
+  }
+
+  [open] .faq-sign {
+    transform: rotate(90deg);
+  }
+
+  .faq-sign-v {
+    transform-origin: center;
+    transition: opacity var(--duration-fast) var(--ease-aqqua);
+  }
+
+  [open] .faq-sign-v {
+    opacity: 0;
+  }
+
+  .faq-a {
+    overflow: hidden;
+    padding-bottom: clamp(16px, 2vw, 24px);
+  }
+
+  .faq-a p {
+    max-width: 68ch;
+    color: var(--text-secondary);
+    font-size: var(--text-16);
+    line-height: var(--leading-16);
+    text-wrap: pretty;
+  }
+
+  .faq-a :global(code) {
+    font-family: var(--font-code);
+    font-size: var(--text-14);
+    color: var(--aq-accent);
+  }
+
+  .faq-a :global(a) {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--aq-accent-32);
+  }
+
+  [open] .faq-a {
+    animation: faq-open 380ms var(--ease-aqqua) both;
+  }
+
+  @keyframes faq-open {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>

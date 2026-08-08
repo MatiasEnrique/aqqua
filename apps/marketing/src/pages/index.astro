@@ -1,16 +1,32 @@
 ---
+/*
+ * aqqua landing page.
+ *
+ * Aesthetic direction — "editorial instrument" on the product's own palette:
+ * the app's ink ramp for every surface, its brand ink on the paper band, the
+ * dusk surf painting as imagery only. IBM Plex Sans carries every display
+ * moment and Inter every working one, exactly as in the app.
+ *
+ * Structure is deliberately un-uniform. Each band gets its own shape — a
+ * headless ticker, a bleeding product plate with a numbered step rail, a
+ * centred cinema block, an asymmetric bento, a bare ledger, a warm-paper
+ * manifesto, a split FAQ, a photographic close — so the page reads as chapters
+ * rather than a stack of identical header-plus-grid sections.
+ */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import BentoCell from "../components/BentoCell.astro";
 import DownloadButton from "../components/DownloadButton.astro";
-import FeatureCard from "../components/FeatureCard.astro";
-import FeatureRow from "../components/FeatureRow.astro";
+import Faq from "../components/Faq.astro";
 import GithubGlyph from "../components/GithubGlyph.astro";
 import PlatformGlyph from "../components/PlatformGlyph.astro";
+import ProviderTicker from "../components/ProviderTicker.astro";
+import FlowEditorDialogDemo from "../components/demos/FlowEditorDialogDemo.astro";
 import ProductDemo from "../components/demos/ProductDemo.astro";
 import Layout from "../layouts/Layout.astro";
 import { RELEASES_URL } from "../lib/releases";
-import { GITHUB_FORK_URL, GITHUB_REPOSITORY_URL, UPSTREAM_NAME } from "../lib/site";
+import { GITHUB_FORK_URL, GITHUB_REPOSITORY_URL, UPSTREAM_NAME, UPSTREAM_URL } from "../lib/site";
 
 const HARNESSES = [
   { name: "Claude", product: "Claude Code", mark: "/harnesses/claude-ai-icon.svg" },
@@ -28,14 +44,124 @@ const BUILDS = [
   { os: "linux", name: "Linux", arch: "x86_64", format: "AppImage", asset: "x86_64.AppImage", detect: true },
 ] as const;
 
-const PRODUCT_SHOT = "/demos/flows.webp";
-const PRODUCT_SHOT_WIDTH = 2560;
-const PRODUCT_SHOT_HEIGHT = 1600;
+/** The flow in the editor beside it: Plan → Implement → Review, then Done. */
+const FLOW_STEPS = [
+  {
+    name: "Plan",
+    body: "The planning agent opens its own thread on the exact provider and model you pinned to it, and saves its plan as a named artifact.",
+  },
+  {
+    name: "Implement",
+    body: "The next agent starts clean. It reads the plan by name, works the task's own branch and worktree, and never inherits the last step's context.",
+  },
+  {
+    name: "Review",
+    body: "Mark a step to pause and the task waits with everything written down. Resume once you've read the work — or don't, and it holds.",
+  },
+] as const;
+
+const WORKSPACE = [
+  {
+    title: "AI commit messages",
+    body: "Stage the work and let the agent write the message from the diff itself — title, body and scope, no placeholder text.",
+  },
+  {
+    title: "Diff viewer",
+    body: "Read every change side by side before it lands, file by file, without leaving the thread that made it.",
+  },
+  {
+    title: "File explorer and editor",
+    body: "Browse and edit the repository in place. No second window to check what an agent touched.",
+  },
+  {
+    title: "Remote access and mobile",
+    body: "Reach the same threads from another machine or the phone app while the agents keep running on your hardware.",
+  },
+  {
+    title: "Command palette and keybindings",
+    body: "Every surface is one chord away, and the bindings are yours to rewrite when they don't match your muscle memory.",
+  },
+  {
+    title: "Every platform",
+    body: "macOS, Windows and Linux from the same build. Same app, same threads, whichever machine you sit down at.",
+  },
+] as const;
+
+const FAQS = [
+  {
+    q: "Is aqqua actually free, or is this the free tier?",
+    a: "Actually free. The repository is the product — MIT licensed, top to bottom, with no hosted tier holding features back and nothing to upgrade to. Clone it, change it, ship your own build under your own name.",
+  },
+  {
+    q: "Do I need API keys or a billing account?",
+    a: "No. aqqua drives the harnesses you already sign in to — Claude Code, Codex CLI, Grok, OpenCode, Cursor and pi — on the plans you already pay for. Nothing is metered, resold or routed through us.",
+  },
+  {
+    q: "Does my code or my prompts leave the machine?",
+    a: "No. Everything runs locally against your own checkouts, and the app talks to the same provider endpoints your CLI already does. Usage scanning stays off until you switch it on, and the logs never leave the machine.",
+  },
+  {
+    q: "What does “a card per worktree” actually mean?",
+    a: "Each card owns a real git branch and a real git worktree on disk. Agents working different cards never share a checkout, so a swarm can run in parallel without three threads fighting over the same working tree.",
+  },
+  {
+    q: "How do flows differ from just prompting an agent repeatedly?",
+    a: "A flow is the pipeline written down once: ordered steps, each with its own prompt, its own pinned model and its own fresh thread. Steps take parameters and named artifacts from the steps before them, so every card takes the same path instead of whatever you happened to type that morning.",
+  },
+  {
+    q: "Can I mix providers on the same change?",
+    a: 'Yes — that is the point of speaking ACP. Spawn agents with the <code>$orchestrate</code> skill or the <code>aqqua agent spawn</code> CLI and give each lane its own provider, model and reasoning level, all against one branch.',
+  },
+  {
+    q: "Which platforms are supported?",
+    a: "macOS on Apple Silicon and Intel, Windows 10 and 11 on x64, and Linux x86_64 as an AppImage — all cut from the same build. There is a mobile app for reaching threads that are running back home.",
+  },
+  {
+    q: `How does this relate to ${UPSTREAM_NAME}?`,
+    a: `aqqua is a community fork of ${UPSTREAM_NAME}, kept MIT and shipped as its own builds. Forking is a supported way to use it: adding a provider is a settings schema and an icon, and every surface is yours to restyle or rip out.`,
+  },
+] as const;
+
+const OPEN_ROWS = [
+  {
+    title: "Change the UI",
+    body: "Every surface is yours to restyle or rip out. Not a theme API, not a plugin sandbox — the same source we build the release from.",
+  },
+  {
+    title: "Add a provider",
+    body: "A driver is a settings schema and an icon. Point aqqua at whatever harness you run internally and it lands in the same picker.",
+  },
+  {
+    title: "Ship your own build",
+    body: "Run it in house behind your own signing keys, or hand it out under your name. MIT asks for nothing back.",
+  },
+] as const;
+
+/**
+ * The tagline reveal band. Split into words at build time so each one can flip
+ * from muted to full colour as it crosses the scroll trigger; the second line
+ * carries the coral accent.
+ */
+const TAGLINE_LINES = [
+  { words: ["Bring", "the", "subscription"], accent: false },
+  { words: ["you", "already", "pay", "for."], accent: true },
+] as const;
+
+const TAGLINE_TEXT = TAGLINE_LINES.map((line) => line.words.join(" ")).join(" ");
+
+/** FAQ answers reused as FAQPage JSON-LD, with markup stripped. */
+const FAQ_SCHEMA = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQS.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a.replace(/<[^>]+>/g, "") },
+  })),
+});
 
 const publicFile = (path: string) =>
   NodeFS.existsSync(NodePath.join(process.cwd(), "public", path)) ? `/${path}` : null;
-
-const productShot = publicFile(PRODUCT_SHOT.slice(1));
 
 const heroFile = (name: string) => publicFile(`hero/${name}`);
 
@@ -61,9 +187,12 @@ const heroPortraitWebp = srcset("hero-mobile", HERO_PORTRAIT_WIDTHS, "webp");
 const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
   .filter((src) => src !== null)
   .at(-1);
+
+const closeShot = heroFile("hero-2200.webp") ?? heroFile("hero-2200.jpg");
 ---
 
 <Layout navOverlay>
+  <!-- ── 1 · Hero ─────────────────────────────────────────────────────── -->
   <section class="hero" id="top">
     {
       heroWide && (
@@ -107,333 +236,279 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
 
     <div class="hero-content">
       <div class="hero-block">
-        <span class="hero-eyebrow">Not just another agentic development environment</span>
+        <span class="hero-eyebrow">Agentic development environment</span>
 
-        <h1 class="hero-title display">
+        <h1 class="hero-title display display-wash">
           Surf your backlog<br />with Aqqua ADE
         </h1>
 
-        <div class="hero-meta">
-          <div class="hero-meta-copy">
-            <p class="hero-oss">
-              <span>100% free and open source</span>
-              <GithubGlyph />
-            </p>
-            <p class="hero-fork">
-              A community fork of <a href="https://t3.codes" target="_blank" rel="noreferrer">t3.codes</a>
-            </p>
-          </div>
+        <a class="hero-fork" href={UPSTREAM_URL} target="_blank" rel="noreferrer">
+          A community fork of {UPSTREAM_NAME}
+        </a>
 
-          <a class="hero-cta" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">
-            Try it now!
+        <div class="hero-actions">
+          <DownloadButton id="hero-download" labelId="hero-download-label" href={RELEASES_URL} />
+          <a class="btn btn-outline btn-lg hero-ghost" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">
+            <GithubGlyph size={15} />
+            Read the source
           </a>
         </div>
+
+        <ul class="hero-proof">
+          <li>100% free and open source</li>
+          <li>No account, no API keys</li>
+          <li>macOS · Windows · Linux</li>
+        </ul>
       </div>
     </div>
   </section>
 
-  <section id="providers" class="sec-providers">
-    <div class="container">
-      <div class="section-head reveal">
-        <span class="eyebrow eyebrow--dim">No API keys</span>
-        <h2>Bring the subscription you already pay for.</h2>
-        <p>
-          aqqua drives every provider and harness through the plan you already
-          have. Nothing is metered, resold, or routed through us — no token
-          resale, no data collection, everything on your own machine.
-        </p>
-      </div>
-
-      <div class="provider-row reveal">
-        <span class="provider-label">Works with</span>
+  <!-- ── 2 · Provider band: the tagline reveal ────────────────────────── -->
+  <section id="providers" class="band tone-deep grain">
+    <div class="container band-claim reveal">
+      <p class="band-line display" data-tagline aria-label={TAGLINE_TEXT}>
         {
-          HARNESSES.map((harness) => (
-            <span class="provider">
-              <img src={harness.mark} alt={harness.product} width="20" height="20" loading="lazy" />
-              {harness.name}
+          TAGLINE_LINES.map((line) => (
+            <span class:list={["tagline-line", line.accent && "tagline-line--accent"]} aria-hidden="true">
+              {line.words.map((word) => (
+                <span class="tagline-word">{word}</span>
+              ))}
             </span>
           ))
         }
-      </div>
+      </p>
+      <p class="band-note">
+        aqqua speaks ACP, so every harness lands in the same interface. Nothing
+        is metered, resold or routed through us — your prompts go straight to
+        your provider, and your code never leaves your machine.
+      </p>
     </div>
+
+    <ProviderTicker harnesses={HARNESSES} />
   </section>
 
-  <section id="product" class="sec-product">
-    <div class="container">
-      <div class="section-head reveal">
-        <span class="eyebrow eyebrow--dim">A card, mid-flight</span>
-        <h2>Drop a card in. Walk away.</h2>
+  <!-- ── 3 · Orchestration: the cinema block ──────────────────────────── -->
+  <section id="agents" class="sec-agents tone-ink">
+    <div class="container agents-head reveal">
+      <span class="eyebrow">Three providers, one branch</span>
+      <h2 class="display agents-title">Agent orchestration <em>across providers</em></h2>
+      <p class="lede agents-lede">
+        Spawn a swarm against a single change and supervise every thread in one
+        place. Below, Claude runs the orchestration and hands one lane to Codex
+        and one to pi — the provider is a setting, not a rewrite.
+      </p>
+    </div>
+
+    <div class="container agents-stage reveal">
+      <ProductDemo slug="orchestration" class="agents-media" />
+    </div>
+
+    <div class="container agents-notes reveal">
+      <div class="note">
+        <span class="note-idx" aria-hidden="true">01</span>
         <p>
-          A card carries its own branch and worktree, and every step opens a
-          fresh thread on the exact model you named for it. Steps hand artifacts
-          forward, pause where you asked them to, and keep going while you read
-          something else.
+          Agents spawned with the <code>$orchestrate</code> skill, or straight
+          from the <code>aqqua agent spawn</code> CLI.
         </p>
       </div>
-
-      <div class="product-actions reveal">
-        <DownloadButton id="download-btn" labelId="download-label" href={RELEASES_URL} />
-        <a class="btn btn-outline btn-lg" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">
-          <GithubGlyph size={16} />
-          Read the source
-        </a>
+      <div class="note">
+        <span class="note-idx" aria-hidden="true">02</span>
+        <p>
+          Every lane pinned to its own provider instance, model and reasoning
+          level — chosen from what that model actually advertises.
+        </p>
       </div>
-
-      {
-        productShot && (
-          <figure class="product-shot reveal">
-            <img
-              src={productShot}
-              alt="aqqua's Flows screen showing a card paused after its Plan step, with the Plan artifact written and Resume ready while another card waits in the backlog"
-              width={PRODUCT_SHOT_WIDTH}
-              height={PRODUCT_SHOT_HEIGHT}
-              loading="lazy"
-              decoding="async"
-            />
-          </figure>
-        )
-      }
+      <div class="note">
+        <span class="note-idx" aria-hidden="true">03</span>
+        <p>
+          An orchestrator keeps its whole agent tree behind one numbered
+          control, so a large delegation never widens the tab strip.
+        </p>
+      </div>
     </div>
   </section>
 
-  <section id="features" class="sec-features">
+  <!-- ── 4 · Flows: the product plate ─────────────────────────────────── -->
+  <section id="flows" class="sec-flows tone-deep grain">
+    <div class="container-wide flows-grid">
+      <div class="flows-copy reveal">
+        <span class="eyebrow">A flow, before launch</span>
+        <h2 class="display flows-title">Define your workflow.</h2>
+        <p class="lede flows-lede">
+          Flows make your workflow native to aqqua: ordered steps, written down
+          once. Each step runs a specific agent — its own prompt, provider and
+          model — hands its artifact to the next, and keeps going while you
+          read something else.
+        </p>
+
+        <ol class="steps">
+          {
+            FLOW_STEPS.map((step, index) => (
+              <li class="step">
+                <span class="step-num" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                <div class="step-copy">
+                  <h3>{step.name}</h3>
+                  <p>{step.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+
+        <p class="steps-foot">
+          Same handoff contract, every run. Each task carries its own branch
+          and worktree the whole way, so two tasks never fight over one
+          checkout.
+        </p>
+
+        <div class="flows-actions">
+          <DownloadButton id="flows-download" labelId="flows-download-label" href={RELEASES_URL} />
+          <a class="flows-link" href="#features">
+            See the rest of the workspace
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="reveal">
+        <FlowEditorDialogDemo />
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 5 · Feature bento ────────────────────────────────────────────── -->
+  <section id="features" class="sec-features tone-ink">
     <div class="container">
-      <div class="section-head reveal">
+      <div class="split-head reveal">
         <span class="eyebrow">Core features</span>
-        <h2>Define the agent. Run the swarm. Repeat the pipeline.</h2>
-        <p>
-          aqqua speaks ACP, so every provider lands in one interface. Name the
-          agents you trust, run them in parallel across providers, and pin the
-          work you repeat to a flow.
-        </p>
+        <h2 class="display split-title">
+          One window for <em>the whole loop.</em>
+        </h2>
       </div>
 
-      <FeatureRow
-        title="Name an instance and a model. That's what runs."
-        body="No settings record standing in front of the model you picked. Every model your configured providers advertise is directly selectable, and a flow step or a sub-agent spawn names one exact row plus a reasoning level."
-        points={[
-          "The identity is the provider instance and the model together, never a bare slug",
-          "Reasoning level chosen per step, from what that model actually advertises",
-          "Unavailable rows stay listed with the provider's own reason, instead of silently vanishing",
-        ]}
-      >
-        <ProductDemo slug="agent-models" />
-      </FeatureRow>
-
-      <FeatureRow
-        id="agents"
-        reverse
-        title="Cross-provider agent orchestration"
-        body="Spawn a swarm against one branch and supervise every thread in one place. Claude, Codex and Grok can each take a lane of the same change — the provider is a setting, not a rewrite."
-        points={[
-          'Sub-agents spawned with the <code class="code-skill">$orchestrate</code> skill',
-          "Each lane pinned to its own provider, model and reasoning level",
-          "Or straight from the <code>aqqua agent spawn</code> CLI",
-        ]}
-      >
-        <ProductDemo slug="orchestration" />
-      </FeatureRow>
-
-      <FeatureRow
-        id="flows"
-        title="Deterministic steps, parameterised prompts"
-        body="Describe the pipeline once. Each step runs in its own thread, in order, taking parameters and artifacts from the steps before it."
-        points={[
-          "Reference an earlier step's artifact by name",
-          'Call agent skills inline with <code class="code-skill">$orchestrate</code>',
-          "Same handoff contract, every run",
-        ]}
-      >
-        <ProductDemo slug="flows" />
-      </FeatureRow>
-
-      <FeatureRow
-        id="worktrees"
-        reverse
-        title="A card per worktree, a tab per conversation"
-        body="The sidebar is a registry of projects and worktrees; each worktree's conversations live as tabs under the chat header. An orchestrator keeps its whole sub-agent tree behind one numbered control, so a large delegation never widens the strip."
-        points={[
-          "Branch, checkout type and highest-priority state on every card",
-          "Drag to reorder; worktrees stay inside their project",
-          "Merged pull requests show their number on the card",
-        ]}
-      >
-        <ProductDemo slug="worktree-tabs" />
-      </FeatureRow>
-
-      <div class="feature-grid reveal">
-        <FeatureCard
-          title="Git graph and history"
-          body="Follow the branch's commit graph in the app — lanes, merges and tags — and open any commit's multi-file diff beside it. aqqua reads refs already in the repository and never fetches behind your back."
+      <div class="bento">
+        <BentoCell
+          id="worktrees"
+          span={7}
+          kicker="Worktrees"
+          title="A card per worktree, a tab per conversation"
+          body="Each card is a real branch and worktree; each conversation is a tab beneath it. Branch, checkout type and highest priority state ride on the card's face, and merged pull requests show their number — the whole swarm readable at a glance."
         >
-          <ProductDemo slug="git-graph" />
-        </FeatureCard>
+          <ProductDemo slug="worktree-tabs" />
+        </BentoCell>
 
-        <FeatureCard
-          title="Pull requests, without leaving"
-          body="Watch the change request for the checked-out branch: state, base and head, aggregate CI and every individual check. Merge, set auto-merge, close or reopen from the same panel — and threads settle themselves once the PR lands."
-        >
-          <ProductDemo slug="pull-request" />
-        </FeatureCard>
-
-        <FeatureCard
-          title="Know what the agents cost"
-          body="Live rate-limit gauges for Claude and Codex, plus a historical ledger — tokens, turns, cache share and estimated cost by model and project. Scanning is opt-in, the logs never leave the machine, and totals are per environment."
-        >
-          <ProductDemo slug="usage" />
-        </FeatureCard>
-
-        <FeatureCard
+        <BentoCell
+          span={5}
+          kicker="Queue"
           title="Queue the next three messages"
-          body="Submitting during a running turn queues the message instead of interrupting. aqqua sends them one turn at a time, or steer one into the running turn early. The queue is durable thread state, so it survives reconnects across web, desktop and mobile."
+          body="Submitting during a running turn queues the message instead of interrupting it. aqqua sends them one turn at a time — steer one in early if it can't wait. The queue is durable thread state, so it survives reconnects across web, desktop and mobile."
         >
           <ProductDemo slug="message-queue" />
-        </FeatureCard>
+        </BentoCell>
 
-        <FeatureCard
+        <BentoCell
+          span={5}
+          kicker="History"
+          title="Git graph and history"
+          body="Follow the branch's commit graph in the app — lanes, merges and tags — and open any commit's full diff beside it. aqqua reads refs already in the repository and never fetches behind your back."
+        >
+          <ProductDemo slug="git-graph" />
+        </BentoCell>
+
+        <BentoCell
+          span={7}
+          kicker="Review"
+          title="Pull requests, without leaving"
+          body="Watch the change request for the branch you have checked out: state, base and head, aggregate CI and every individual check. Merge, arm auto merge, close or reopen from the same panel — and threads settle themselves once the PR lands."
+        >
+          <ProductDemo slug="pull-request" />
+        </BentoCell>
+
+        <BentoCell
+          span={4}
+          kicker="Spend"
+          title="Know what the agents cost"
+          body="Live rate limit gauges plus a historical ledger — tokens, turns, cache share and estimated cost by model and project. Scanning stays off until you turn it on, and the logs never leave the machine."
+        >
+          <ProductDemo slug="usage" />
+        </BentoCell>
+
+        <BentoCell
+          span={4}
+          kicker="Continuity"
           title="Resume a terminal conversation"
-          body="Started something in the Claude Code or Codex CLI? Type <code>/resume</code> in a new draft and pick it up in aqqua. The thread adopts the provider session and keeps the earlier transcript one click away."
+          body="Started something in the Claude Code or Codex CLI? Type <code>/resume</code> in a new draft and pick it up here. The thread adopts the provider session and keeps the earlier transcript one click away."
         >
           <ProductDemo slug="resume-cli" />
-        </FeatureCard>
+        </BentoCell>
 
-        <FeatureCard
+        <BentoCell
+          span={4}
+          kicker="Focus"
           title="Scope the sidebar to what you're on"
-          body="Run many projects from one window and narrow the registry to the ones you care about right now. Projects group their worktree cards and collapse independently."
+          body="Run many projects from one window and narrow the registry to the ones that matter right now. Projects group their worktree cards and collapse independently."
         >
           <ProductDemo slug="project-scope" />
-        </FeatureCard>
-
-        <FeatureCard
-          title="pi is a first-class provider"
-          body="Use pi beside Claude, Codex, Grok, Cursor and OpenCode. Its advertised models appear in the same picker and can be pinned to a flow step with the exact provider-and-model selection used everywhere else."
-        >
-          <ProductDemo slug="pi-agent" />
-        </FeatureCard>
+        </BentoCell>
       </div>
     </div>
   </section>
 
-  <section id="workspace" class="sec-workspace">
-    <div class="container">
-      <div class="section-head reveal">
-        <span class="eyebrow eyebrow--dim">Built in</span>
-        <h2>Everything you'd otherwise alt-tab for.</h2>
-        <p>
+  <!-- ── 6 · Workspace ledger ─────────────────────────────────────────── -->
+  <section id="workspace" class="sec-workspace tone-deep grain">
+    <div class="container ledger-grid">
+      <div class="ledger-aside reveal">
+        <span class="eyebrow">Built in</span>
+        <h2 class="display ledger-title">
+          Everything you kept <em>a second window</em> for.
+        </h2>
+        <p class="ledger-sub">
           Reviewing what an agent did shouldn't mean leaving the app that ran
-          it. Commits, diffs, history, files and worktrees all live beside the
-          thread that produced them.
+          it. Commits, diffs, files and the rest of the workspace live beside
+          the thread that produced them.
         </p>
       </div>
 
-      <div class="workspace-grid reveal">
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v6"/><path d="M12 15v6"/></svg>
-          </span>
-          <h3>AI auto-commit</h3>
-          <p>
-            Stage the work and let the agent write the message from the diff
-            itself — title, body and scope, no placeholder text.
-          </p>
-        </div>
-
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6"/><path d="M9 6h6"/><path d="M9 18h6"/><path d="M4 12h16"/></svg>
-          </span>
-          <h3>Diff viewer</h3>
-          <p>
-            Read every change side by side before it lands, file by file,
-            without leaving the thread that made it.
-          </p>
-        </div>
-
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7"/><path d="M8.5 6h4a3 3 0 0 1 3 3v.5"/></svg>
-          </span>
-          <h3>Git graph and history</h3>
-          <p>
-            Follow the branch's commit graph in the app — lanes, merges and tags
-            — and open any commit's diff beside it.
-          </p>
-        </div>
-
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h5l2 2h9v12H4Z"/><path d="M4 11h16"/></svg>
-          </span>
-          <h3>File explorer and editor</h3>
-          <p>
-            Browse and edit the repository in place. No second window, no
-            context switch to check what an agent touched.
-          </p>
-        </div>
-
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M12 7.2v3.3a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2.3"/><path d="M12 10.5a2 2 0 0 0 2 2h2a2 2 0 0 1 2 2v2.3"/></svg>
-          </span>
-          <h3>Worktree management</h3>
-          <p>
-            Give each agent its own worktree so parallel work never collides.
-            Create, switch and prune them from the app or the CLI.
-          </p>
-        </div>
-
-        <div class="cell">
-          <span class="cell-mark" aria-hidden="true">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="1.8"/><path d="M8 20h8"/><path d="M12 16.5V20"/></svg>
-          </span>
-          <h3>Every platform</h3>
-          <p>
-            macOS, Windows and Linux from the same build. Same app, same
-            threads, whichever machine you sit down at.
-          </p>
-        </div>
-      </div>
+      <ul class="ledger reveal">
+        {
+          WORKSPACE.map((item, index) => (
+            <li class="ledger-row">
+              <span class="ledger-idx" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </li>
+          ))
+        }
+      </ul>
     </div>
   </section>
 
-  <section id="open" class="sec-open">
+  <!-- ── 7 · Open source manifesto, on paper ──────────────────────────────
+       The one light band on the page. Dropping to warm paper here is what
+       stops the dark sections reading as a single continuous run. -->
+  <section id="open" class="sec-open tone-paper">
     <div class="container">
-      <div class="section-head reveal">
+      <div class="open-head reveal">
         <span class="eyebrow">Open source</span>
-        <h2>A fork is a first‑class way to use this.</h2>
-        <p>
+        <h2 class="display open-title">
+          Yours to fork,<br /><em>rename and ship.</em>
+        </h2>
+        <p class="lede open-lede">
           There is no hosted tier holding the good parts back. The repository is
           the product — clone it, change it, ship it under your own name.
         </p>
       </div>
 
       <div class="open-ledger reveal">
-        <div class="open-row">
-          <span class="open-row-num" aria-hidden="true">01</span>
-          <h3>Change the UI</h3>
-          <p>
-            Every surface is yours to restyle or rip out. Not a theme API, not a
-            plugin sandbox — the same source we build the release from.
-          </p>
-        </div>
-
-        <div class="open-row">
-          <span class="open-row-num" aria-hidden="true">02</span>
-          <h3>Add a provider</h3>
-          <p>
-            A driver is a settings schema and an icon. Point aqqua at whatever
-            harness you run internally and it lands in the same picker.
-          </p>
-        </div>
-
-        <div class="open-row">
-          <span class="open-row-num" aria-hidden="true">03</span>
-          <h3>Ship your own build</h3>
-          <p>
-            Run it in-house behind your own signing keys, or hand it out under
-            your name. MIT asks for nothing back.
-          </p>
-        </div>
+        {
+          OPEN_ROWS.map((row, index) => (
+            <div class="open-row">
+              <span class="open-row-num" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+              <h3>{row.title}</h3>
+              <p>{row.body}</p>
+            </div>
+          ))
+        }
       </div>
 
       <div class="open-footer reveal">
@@ -442,7 +517,7 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
         </p>
 
         <div class="open-actions">
-          <a class="btn btn-primary" href={GITHUB_FORK_URL} target="_blank" rel="noreferrer">
+          <a class="btn btn-outline" href={GITHUB_FORK_URL} target="_blank" rel="noreferrer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><path d="M6 7.2v2A3 3 0 0 0 9 12.2h6A3 3 0 0 0 18 9.2v-2M12 14v2.8"/></svg>
             Fork on GitHub
           </a>
@@ -455,16 +530,47 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
     </div>
   </section>
 
-  <section id="download" class="sec-cta">
-    <div class="container cta-grid">
-      <div class="cta-lede">
+  <!-- ── 8 · FAQ ──────────────────────────────────────────────────────── -->
+  <section id="faq" class="sec-faq tone-deep grain">
+    <div class="container faq-grid">
+      <div class="faq-aside reveal">
+        <span class="eyebrow">Questions</span>
+        <h2 class="display faq-title">Before you<br />download.</h2>
+        <p class="faq-sub">
+          Still stuck? The repository's issues and the Discord are both open —
+          and so is every line of the answer.
+        </p>
+      </div>
+
+      <div class="faq-body reveal">
+        <Faq items={FAQS} />
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 9 · Close ───────────────────────────────────────────────────── -->
+  <section id="download" class="sec-close">
+    {closeShot && <img class="close-media" src={closeShot} alt="" width="2200" height="922" loading="lazy" decoding="async" />}
+    <div class="close-scrim" aria-hidden="true"></div>
+
+    <div class="container close-inner">
+      <div class="close-lede reveal">
         <span class="eyebrow">Get aqqua</span>
-        <h2 class="cta-title">Install it, then hand over the backlog.</h2>
-        <p class="cta-sub">
+        <h2 class="display close-title">Take the wave.</h2>
+        <p class="close-sub">
           One download, no account, no server to point it at. Sign in to the
           harnesses you already pay for and the workspace is yours.
         </p>
-        <p class="cta-release">
+
+        <div class="close-actions">
+          <DownloadButton id="cta-download" labelId="cta-download-label" href={RELEASES_URL} />
+          <a class="btn btn-outline btn-lg" href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">
+            <GithubGlyph size={15} />
+            Star on GitHub
+          </a>
+        </div>
+
+        <p class="close-release">
           <span id="cta-release-label">Checking the latest release…</span>
           <a href={RELEASES_URL} target="_blank" rel="noreferrer">
             All releases
@@ -473,7 +579,7 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
         </p>
       </div>
 
-      <div class="cta-builds">
+      <div class="close-builds reveal">
         {
           BUILDS.map((build) => (
             <a
@@ -499,6 +605,8 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
       </div>
     </div>
   </section>
+
+  <script is:inline type="application/ld+json" set:html={FAQ_SCHEMA} />
 </Layout>
 
 <script>
@@ -533,15 +641,16 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
   }
 
   async function init() {
-    const button = document.getElementById("download-btn") as HTMLAnchorElement | null;
-    const label = document.getElementById("download-label");
+    // The page carries several download buttons; they all resolve together.
+    const buttons = document.querySelectorAll<HTMLAnchorElement>("a[data-download]");
+    const labels = document.querySelectorAll<HTMLElement>("[data-download-label]");
     const releaseLabel = document.getElementById("cta-release-label");
     const builds = document.querySelectorAll<HTMLAnchorElement>(".build[data-asset]");
 
     const platform = detectPlatform();
     if (platform) {
       document.documentElement.dataset.platform = platform.os;
-      if (label) label.textContent = platform.label;
+      for (const label of labels) label.textContent = platform.label;
     }
 
     let release;
@@ -564,12 +673,14 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
       if (match) build.href = match.browser_download_url;
     }
 
-    if (button && platform) {
+    if (platform) {
       const url = pickAsset(assets, platform);
       if (url) {
-        button.href = url;
-        button.removeAttribute("target");
-        button.removeAttribute("rel");
+        for (const button of buttons) {
+          button.href = url;
+          button.removeAttribute("target");
+          button.removeAttribute("rel");
+        }
       }
     }
   }
@@ -582,425 +693,20 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
   section {
     position: relative;
     padding: var(--gutter-y-section) 0;
-    border-top: 1px solid var(--border-hairline);
   }
 
-  .section-head {
-    max-width: 720px;
-    margin-bottom: var(--space-12);
-  }
-
-  .section-head .eyebrow {
-    margin-bottom: 14px;
-  }
-
-  .section-head h2 {
-    font-family: var(--font-display);
-    font-size: var(--section-fluid);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-display);
-    line-height: 1.05;
-    text-wrap: balance;
-    margin-bottom: var(--space-4);
-  }
-
-  .section-head p {
-    max-width: 620px;
-    color: var(--text-secondary);
-    font-size: var(--text-16);
-    line-height: var(--leading-16);
-  }
-
-  .eyebrow--dim {
-    color: var(--aq-white-55);
-  }
-
-  .sec-product {
-    border-top: 0;
-  }
-
-  .product-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-bottom: var(--space-12);
-  }
-
-  .product-shot {
-    overflow: hidden;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-lg);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-none);
-  }
-
-  .product-shot img {
-    width: 100%;
-    height: auto;
-    display: block;
-  }
-
-  .provider-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-4) clamp(28px, 4vw, 56px);
-    padding-top: clamp(var(--space-6), 3vh, var(--space-8));
-  }
-
-  .provider-label {
-    font-size: 11px;
-    line-height: 26px;
-    font-weight: var(--weight-medium);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--aq-white-45);
-    white-space: nowrap;
-  }
-
-  .provider {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    font-size: clamp(16px, 1.6vw, 19px);
-    line-height: 26px;
-    font-weight: var(--weight-medium);
-    color: var(--text-strong);
-    white-space: nowrap;
-  }
-
-  .provider img {
-    flex: none;
-    width: 20px;
-    height: 20px;
-    border-radius: var(--radius-xs);
-    object-fit: contain;
-  }
-
-  .sec-features {
-    border-top: 0;
-  }
-
-  .sec-features .container {
-    display: flex;
-    flex-direction: column;
-    gap: clamp(72px, 10vh, 128px);
-  }
-
-  .sec-features .section-head {
-    margin-bottom: 0;
-    max-width: 660px;
-  }
-
-  /* Second tier: the features that read fine at half width. */
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-6);
-  }
-
-  @media (max-width: 860px) {
-    .feature-grid {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
-  .sec-workspace {
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  .sec-workspace .section-head {
-    max-width: 520px;
-  }
-
-  .workspace-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1px;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-lg);
-    background: var(--border-hairline);
-    overflow: hidden;
-  }
-
-  .cell {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: clamp(20px, 2.2vw, 28px);
-    background: #1c1c1c;
-  }
-
-  .cell-mark {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    flex: none;
-    border-radius: 10px;
-    background: var(--aq-white-08);
-    color: var(--text-strong);
-  }
-
-  .cell h3 {
-    font-size: 15px;
-    font-weight: var(--weight-semibold);
-  }
-
-  .cell p {
-    max-width: 38ch;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 13.5px;
-    line-height: 20px;
-    text-wrap: pretty;
-  }
-
-  .open-ledger {
-    border-top: 1px solid var(--border-hairline);
-  }
-
-  .open-row {
-    display: grid;
-    grid-template-columns: 3rem minmax(0, 5fr) minmax(0, 7fr);
-    align-items: start;
-    gap: var(--space-6);
-    padding: clamp(24px, 3vw, 36px) 0;
-    border-bottom: 1px solid var(--border-hairline);
-  }
-
-  .open-row-num {
-    font-family: var(--font-code);
-    font-size: var(--text-12);
-    line-height: 1.9;
-    letter-spacing: 0.14em;
-    color: var(--aq-white-45);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .open-row h3 {
-    font-size: clamp(19px, 2vw, 24px);
-    line-height: 1.25;
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-tight);
-    text-wrap: balance;
-  }
-
-  .open-row p {
-    max-width: 52ch;
-    color: var(--text-secondary);
-    font-size: 15px;
-    line-height: 1.6;
-    text-wrap: pretty;
-  }
-
-  .open-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-6);
-    margin-top: var(--space-8);
-  }
-
-  .open-license {
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.5;
-  }
-
-  .open-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-6);
-    flex-wrap: wrap;
-  }
-
-  .open-source-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: var(--weight-medium);
-    transition: color var(--duration-ui) var(--ease-aqqua);
-  }
-
-  .open-source-link:hover {
-    color: var(--text-primary);
-  }
-
-  .open-source-link:active {
-    transform: translateY(var(--press-nudge));
-  }
-
-  .sec-cta {
-    padding: calc(var(--gutter-y-section) * 1.3) 0;
-  }
-
-  .cta-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-    align-items: center;
-    gap: clamp(40px, 6vw, 88px);
-  }
-
-  .cta-lede .eyebrow {
-    display: block;
-    margin-bottom: 14px;
-  }
-
-  .cta-title {
-    font-family: var(--font-display);
-    font-size: clamp(30px, 3.6vw, 46px);
-    line-height: 1.04;
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-display);
-    text-wrap: balance;
-  }
-
-  .cta-sub {
-    max-width: 44ch;
-    margin-top: var(--space-4);
-    color: var(--text-secondary);
-    font-size: var(--text-16);
-    line-height: var(--leading-16);
-    text-wrap: pretty;
-  }
-
-  .cta-release {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    margin-top: var(--space-8);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-hairline);
-    font-family: var(--font-code);
-    font-size: 11.5px;
-    letter-spacing: 0.04em;
-    color: var(--aq-white-55);
-  }
-
-  .cta-release a {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--text-secondary);
-    transition: color var(--duration-ui) var(--ease-aqqua);
-  }
-
-  .cta-release a:hover {
-    color: var(--text-primary);
-  }
-
-  .cta-builds {
-    display: grid;
-    gap: 1px;
-    border: 1px solid var(--border-hairline);
-    border-radius: var(--radius-md);
-    background: var(--border-hairline);
-    overflow: hidden;
-  }
-
-  .build {
-    display: grid;
-    grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
-    align-items: center;
-    gap: var(--space-4);
-    padding: 16px clamp(16px, 1.8vw, 22px);
-    background: #1c1c1c;
-    color: var(--text-strong);
-    transition:
-      background-color var(--duration-fast) var(--ease-aqqua),
-      color var(--duration-fast) var(--ease-aqqua);
-  }
-
-  .build:hover {
-    background: #232323;
-    color: var(--text-primary);
-  }
-
-  .build:active {
-    transform: translateY(var(--press-nudge));
-  }
-
-  .build-mark {
-    display: grid;
-    place-items: center;
-    color: var(--aq-white-55);
-  }
-
-  .build:hover .build-mark {
-    color: var(--text-primary);
-  }
-
-  .build-label {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .build-os {
-    font-size: 15px;
-    font-weight: var(--weight-semibold);
-  }
-
-  .build-arch {
-    color: var(--text-secondary);
-    font-size: 13px;
-  }
-
-  .build-here {
-    visibility: hidden;
-    padding: 3px 8px;
-    border-radius: var(--radius-chip);
-    background: var(--aq-white-08);
-    color: var(--text-strong);
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  :global([data-platform="mac"]) .build[data-os="mac"][data-detect] .build-here,
-  :global([data-platform="win"]) .build[data-os="win"][data-detect] .build-here,
-  :global([data-platform="linux"]) .build[data-os="linux"][data-detect] .build-here {
-    visibility: visible;
-  }
-
-  .build-fmt {
-    min-width: 68px;
-    font-family: var(--font-code);
-    font-size: 11.5px;
-    text-align: right;
-    color: var(--aq-white-45);
-  }
-
-  .build-go {
-    color: var(--aq-white-45);
-    transition: color var(--duration-fast) var(--ease-aqqua);
-  }
-
-  .build:hover .build-go {
-    color: var(--text-primary);
-  }
-
-
+  /* ── 1 · Hero ──────────────────────────────────────────────────────── */
   .hero {
     position: relative;
     width: 100%;
     height: 100svh;
     max-height: 1100px;
-    min-height: 480px;
+    min-height: 620px;
     overflow: hidden;
     padding: 0;
-    border-top: 0;
     background: var(--surface-media);
-    --hero-top-inset: calc(var(--gutter-y-nav) * 2 + 88px + clamp(16px, 8vh, 96px));
-    --hero-inset-right: clamp(var(--gutter-x-content), 11vw, 180px);
+    --hero-top-inset: calc(var(--gutter-y-nav) * 2 + 76px + clamp(12px, 5vh, 64px));
+    --hero-inset-right: clamp(var(--gutter-x-content), 9vw, 150px);
   }
 
   .hero-media {
@@ -1024,17 +730,17 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
     inset: 0;
     background: linear-gradient(
       to bottom,
-      rgba(8, 22, 31, 0.62) 0%,
-      rgba(8, 22, 31, 0.44) 32%,
-      rgba(8, 22, 31, 0.16) 62%,
-      rgba(8, 22, 31, 0.06) 100%
+      rgba(24, 23, 22, 0.62) 0%,
+      rgba(24, 23, 22, 0.44) 32%,
+      rgba(24, 23, 22, 0.16) 62%,
+      rgba(24, 23, 22, 0.06) 100%
     );
   }
 
   .hero-scrim-edge {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to left, rgba(8, 22, 31, 0.34) 0%, rgba(8, 22, 31, 0) 58%);
+    background: linear-gradient(to left, rgba(24, 23, 22, 0.42) 0%, rgba(24, 23, 22, 0) 58%);
   }
 
   .hero-content {
@@ -1054,128 +760,888 @@ const heroWide = HERO_WIDTHS.map((w) => heroFile(`hero-${w}.jpg`))
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: var(--space-6);
+    gap: var(--space-5);
     text-align: right;
-    animation: aq-rise var(--duration-reveal) var(--ease-aqqua) 60ms both;
+  }
+
+  /* One orchestrated entrance: eyebrow, title, sub, buttons, proof. */
+  .hero-block > * {
+    animation: aq-rise var(--duration-reveal) var(--ease-aqqua) both;
+  }
+
+  .hero-block > :nth-child(1) {
+    animation-delay: 60ms;
+  }
+  .hero-block > :nth-child(2) {
+    animation-delay: 140ms;
+  }
+  .hero-block > :nth-child(3) {
+    animation-delay: 260ms;
+  }
+  .hero-block > :nth-child(4) {
+    animation-delay: 380ms;
+  }
+  .hero-block > :nth-child(5) {
+    animation-delay: 500ms;
   }
 
   .hero-eyebrow {
     align-self: flex-end;
     max-width: 100%;
-    margin-bottom: -12px;
-    padding-right: var(--space-2);
+    margin-bottom: -10px;
+    padding-right: var(--space-1);
     font-family: var(--font-ui);
     font-size: var(--eyebrow-fluid);
     line-height: var(--leading-12);
     font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-eyebrow);
     text-transform: uppercase;
-    color: var(--text-eyebrow);
+    color: var(--aq-white-74);
   }
 
+  /* The wash clips the background to the glyphs, so no text-shadow here — it
+     would paint through the transparent fill. The scrim carries legibility. */
   .hero-title {
-    font-size: var(--display-fluid);
+    font-size: var(--display-hero);
     max-width: min(var(--measure-display), 100%);
   }
 
-  .hero-meta {
+  /* Tucks under the title, ahead of the buttons — provenance, not a CTA. */
+  .hero-fork {
+    margin-top: calc(-1 * var(--space-2));
+    color: var(--aq-white-74);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    font-weight: var(--weight-medium);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-color: var(--aq-white-40);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .hero-fork:hover {
+    color: var(--text-primary);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-1);
+  }
+
+  .hero-ghost {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(24, 23, 22, 0.24);
+    backdrop-filter: blur(6px);
+  }
+
+  .hero-proof {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px 16px;
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+    color: var(--aq-white-74);
+  }
+
+  .hero-proof li {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hero-proof li + li::before {
+    content: "";
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--aq-accent);
+  }
+
+  /* ── 2 · Provider band ─────────────────────────────────────────────── */
+  .band {
+    padding: clamp(32px, 5vh, 48px) 0 0;
+    overflow: hidden;
+  }
+
+  .band-claim {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(16px, 4vw, 64px);
+    padding-bottom: clamp(24px, 4vh, 32px);
+  }
+
+  /* The tagline reveal: sized so each authored line holds a single line. */
+  .band-line {
+    font-size: clamp(30px, 3.2vw, 36px);
+    max-width: 680px;
+  }
+
+  .band-note {
+    max-width: 52ch;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  /* ── 4 · Flows ─────────────────────────────────────────────────────── */
+  .sec-flows {
+    padding: clamp(80px, 14vh, 96px) 0;
+    overflow: hidden;
+  }
+
+  .flows-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: clamp(40px, 5vw, 80px);
+  }
+
+  .flows-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-5);
+    max-width: 52ch;
+  }
+
+  .flows-title {
+    font-size: var(--display-section);
+  }
+
+  .flows-lede {
+    max-width: 44ch;
+  }
+
+  .steps {
+    list-style: none;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    margin-top: var(--space-2);
+    padding-left: 0;
+  }
+
+  .step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  /* The connector runs between markers, not past the last one. */
+  .step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 15px;
+    top: 26px;
+    bottom: calc(-1 * var(--space-6) - 4px);
+    width: 1px;
+    background: var(--border-faint);
+  }
+
+  .step-num {
+    display: flex;
+    width: 31px;
+    height: 31px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--aq-accent-32);
+    border-radius: 50%;
+    background: var(--aq-accent-08);
+    color: var(--aq-accent);
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: center;
+  }
+
+  .step-copy h3 {
+    font-size: var(--text-16);
+    line-height: 1.4;
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text-primary);
+  }
+
+  .step-copy p {
+    margin-top: 4px;
+    max-width: 46ch;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  .steps-foot {
+    max-width: 46ch;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-faint);
+    color: var(--aq-white-45);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+    text-wrap: pretty;
+  }
+
+  .flows-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-4) var(--space-3);
-    margin-top: -8px;
+    gap: var(--space-6);
+    margin-top: var(--space-2);
   }
 
-  .hero-meta-copy {
+  .flows-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    font-weight: var(--weight-medium);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .flows-link:hover {
+    color: var(--text-primary);
+  }
+
+  /* ── 3 · Orchestration ─────────────────────────────────────────────── */
+  .sec-agents {
+    padding: clamp(80px, 13vh, 96px) 0;
+    overflow: hidden;
+  }
+
+  .agents-head {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: var(--space-2);
-    flex: 0 1 auto;
-    padding-right: clamp(0px, 1.4vw, 16px);
+    align-items: center;
+    gap: var(--space-4);
+    text-align: center;
   }
 
-  .hero-oss {
+  .agents-title {
+    font-size: var(--display-section);
+    max-width: 21ch;
+  }
+
+  .agents-lede {
+    max-width: 56ch;
+  }
+
+  /*
+   * The clip is a 2200px capture, where the stills elsewhere are 2560px. Shown
+   * at full container width its UI renders roughly twice the size of the same
+   * chrome in the flows plate, which reads as a zoomed-in crop. Holding it to
+   * ~980px puts the two at a comparable scale.
+   */
+  .agents-stage {
+    max-width: 980px;
+    margin: clamp(32px, 5vh, 48px) auto 0;
+  }
+
+  .agents-stage :global(.agents-media) {
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lift);
+  }
+
+  .agents-notes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(16px, 3vw, 40px);
+    margin-top: clamp(32px, 5vh, 48px);
+  }
+
+  .note {
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-16);
-    line-height: var(--leading-16);
-    font-weight: var(--weight-medium);
+    gap: var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .note-idx {
+    flex: none;
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+    letter-spacing: 0.1em;
+    color: var(--aq-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .note p {
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  .note :global(code) {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
     color: var(--text-strong);
   }
 
-  .hero-oss :global(svg) {
-    flex: none;
+  /* ── 5 · Bento ─────────────────────────────────────────────────────── */
+  .sec-features {
+    padding: clamp(80px, 13vh, 96px) 0;
   }
 
-  .hero-fork {
+  .split-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    margin-bottom: clamp(32px, 5vh, 48px);
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--border-hairline);
+  }
+
+  .split-title {
+    font-size: clamp(24px, 3.6vw, 48px);
+    max-width: 18ch;
+    text-align: right;
+  }
+
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: start;
+    gap: clamp(12px, 1.4vw, 16px);
+  }
+
+  /* ── 6 · Ledger ────────────────────────────────────────────────────── */
+  .sec-workspace {
+    padding: clamp(80px, 13vh, 96px) 0;
+  }
+
+  .ledger-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.35fr);
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+
+  .ledger-aside {
+    position: sticky;
+    top: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .ledger-title {
+    font-size: clamp(30px, 3.4vw, 36px);
+  }
+
+  .ledger-sub {
+    max-width: 34ch;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  .ledger {
+    list-style: none;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1.5fr);
+    align-items: baseline;
+    gap: var(--space-4);
+    padding: clamp(16px, 2.2vw, 24px) 0;
+    border-bottom: 1px solid var(--border-hairline);
+    transition: background-color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .ledger-idx {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.1em;
+    color: var(--aq-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ledger-row h3 {
+    font-size: var(--text-16);
+    line-height: 1.35;
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    text-wrap: balance;
+  }
+
+  .ledger-row p {
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  /* ── 7 · Open source ───────────────────────────────────────────────── */
+  .sec-open {
+    padding: clamp(80px, 13vh, 96px) 0;
+  }
+
+  .open-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    max-width: 760px;
+    margin-bottom: clamp(32px, 5vh, 48px);
+  }
+
+  .open-title {
+    font-size: var(--display-section);
+    /* The break is authored; balancing would fight it. */
+    text-wrap: initial;
+  }
+
+  .open-lede {
+    max-width: 52ch;
+  }
+
+  .open-ledger {
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .open-row {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 5fr) minmax(0, 7fr);
+    align-items: start;
+    gap: var(--space-6);
+    padding: clamp(16px, 2.8vw, 32px) 0;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+
+  .open-row-num {
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    line-height: 1.9;
+    letter-spacing: 0.14em;
+    color: var(--aq-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .open-row h3 {
+    font-family: var(--font-display);
+    font-size: clamp(20px, 2.2vw, 24px);
+    line-height: 1.15;
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-display);
+    text-wrap: balance;
+  }
+
+  .open-row p {
+    max-width: 52ch;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  .open-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    margin-top: var(--space-8);
+  }
+
+  .open-license {
+    color: var(--text-secondary);
     font-size: var(--text-12);
     line-height: var(--leading-12);
-    font-weight: var(--weight-regular);
-    color: var(--text-secondary);
   }
 
-  .hero-fork a {
-    color: rgba(255, 255, 255, 0.9);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-thickness: 1px;
-    text-decoration-color: var(--aq-white-40);
+  .open-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    flex-wrap: wrap;
   }
 
-  .hero-cta {
-    flex: none;
+  .open-source-link {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    height: 48px;
-    padding: 12px 24px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
+    gap: 4px;
+    color: var(--text-secondary);
+    font-size: var(--text-12);
+    font-weight: var(--weight-medium);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .open-source-link:hover {
     color: var(--text-primary);
-    font-family: var(--font-ui);
+  }
+
+  /* ── 8 · FAQ ───────────────────────────────────────────────────────── */
+  .sec-faq {
+    padding: clamp(80px, 13vh, 96px) 0;
+  }
+
+  .faq-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.4fr);
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+
+  .faq-aside {
+    position: sticky;
+    top: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .faq-title {
+    font-size: clamp(30px, 3.6vw, 48px);
+  }
+
+  .faq-sub {
+    max-width: 30ch;
+    color: var(--text-secondary);
+    font-size: var(--text-14);
+    line-height: var(--leading-14);
+    text-wrap: pretty;
+  }
+
+  /* ── 9 · Close ─────────────────────────────────────────────────────── */
+  .sec-close {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(80px, 15vh, 96px) 0;
+    background: var(--aq-deep);
+  }
+
+  .close-media {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 78%;
+  }
+
+  .close-scrim {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to right, rgba(20, 19, 18, 0.94) 10%, rgba(20, 19, 18, 0.5) 62%, rgba(20, 19, 18, 0.72) 100%),
+      linear-gradient(to bottom, rgba(20, 19, 18, 0.62), rgba(20, 19, 18, 0.46));
+  }
+
+  .close-inner {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+    align-items: center;
+    gap: clamp(32px, 6vw, 80px);
+  }
+
+  .close-lede {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
+  .close-title {
+    font-size: clamp(36px, 6.4vw, 72px);
+  }
+
+  .close-sub {
+    max-width: 40ch;
+    color: var(--aq-white-88);
     font-size: var(--text-16);
     line-height: var(--leading-16);
-    font-weight: var(--weight-semibold);
-    transition: var(--transition-ui);
+    text-wrap: pretty;
   }
 
-  .hero-cta:hover {
-    background-color: var(--surface-hover);
-    border-color: var(--border-strong);
+  .close-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+
+  .close-release {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-hairline);
+    width: min(100%, 420px);
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.04em;
+    color: var(--aq-white-55);
+  }
+
+  .close-release a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-secondary);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .close-release a:hover {
     color: var(--text-primary);
   }
 
-  .hero-cta:active {
-    opacity: 0.9;
+  .close-builds {
+    display: grid;
+    gap: 1px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-lg);
+    background: var(--border-hairline);
+    overflow: hidden;
+    backdrop-filter: blur(8px);
   }
 
-  @media (max-width: 479px) {
-    .hero-cta {
-      width: 100%;
+  .build {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding: 16px clamp(16px, 1.8vw, 24px);
+    background: rgba(31, 30, 29, 0.82);
+    color: var(--text-strong);
+    transition:
+      background-color var(--duration-fast) var(--ease-aqqua),
+      color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .build:hover {
+    background: rgba(43, 42, 40, 0.92);
+    color: var(--text-primary);
+  }
+
+  .build:active {
+    transform: translateY(var(--press-nudge));
+  }
+
+  .build-mark {
+    display: grid;
+    place-items: center;
+    color: var(--aq-white-55);
+  }
+
+  .build:hover .build-mark {
+    color: var(--aq-accent);
+  }
+
+  .build-label {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .build-os {
+    font-size: var(--text-14);
+    font-weight: var(--weight-semibold);
+  }
+
+  .build-arch {
+    color: var(--text-secondary);
+    font-size: var(--text-12);
+  }
+
+  .build-here {
+    visibility: hidden;
+    padding: 2px 8px;
+    border-radius: var(--radius-chip);
+    background: var(--aq-accent-16);
+    color: var(--aq-accent);
+    font-size: var(--text-12);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  :global([data-platform="mac"]) .build[data-os="mac"][data-detect] .build-here,
+  :global([data-platform="win"]) .build[data-os="win"][data-detect] .build-here,
+  :global([data-platform="linux"]) .build[data-os="linux"][data-detect] .build-here {
+    visibility: visible;
+  }
+
+  .build-fmt {
+    min-width: 64px;
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    text-align: right;
+    color: var(--aq-white-45);
+  }
+
+  .build-go {
+    color: var(--aq-white-45);
+    transition: color var(--duration-fast) var(--ease-aqqua);
+  }
+
+  .build:hover .build-go {
+    color: var(--aq-accent);
+  }
+
+  /* ── Responsive ────────────────────────────────────────────────────── */
+  @media (max-width: 1080px) {
+    .flows-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .flows-copy {
+      max-width: 62ch;
+    }
+
+    .ledger-aside,
+    .faq-aside {
+      position: static;
+    }
+
+    .ledger-grid,
+    .faq-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ledger-row {
+      grid-template-columns: 40px minmax(0, 1fr);
+    }
+
+    .ledger-row p {
+      grid-column: 2;
+    }
+
+    .close-inner {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 
-  @media (max-width: 960px) {
-    .open-row { grid-template-columns: 1fr; gap: var(--space-3); }
-    .open-row-num { line-height: 1.4; }
-    .workspace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .cta-grid { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 860px) {
+    .band-claim {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .band-line {
+      max-width: 20ch;
+    }
+
+    .agents-notes {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-5);
+    }
+
+    .split-head {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .split-title {
+      text-align: left;
+      max-width: 100%;
+    }
+
+    .open-row {
+      grid-template-columns: 1fr;
+      gap: var(--space-3);
+    }
+
+    .open-row-num {
+      line-height: 1.4;
+    }
   }
 
-  @media (max-width: 820px) {
-    .product-actions > :global(.btn) { width: 100%; }
+  /*
+   * Small screens get their own hero composition. The wide layout anchors the
+   * type to the top-right over open sky; at phone widths that puts the CTA on
+   * the surfer and leaves the bottom half empty. Here the block is bottom-left
+   * anchored and the scrim is flipped so the type always sits on darkness.
+   */
+  @media (max-width: 700px) {
+    .hero {
+      height: min(94svh, 780px);
+      min-height: 600px;
+    }
+
+    .hero-media img {
+      object-position: 40% 42%;
+    }
+
+    .hero-scrim {
+      background: var(--scrim-bottom-strong);
+    }
+
+    .hero-scrim-edge {
+      background: var(--scrim-top);
+    }
+
+    .hero-content {
+      top: auto;
+      bottom: 0;
+      justify-content: flex-start;
+      padding: 0 var(--gutter-x) clamp(24px, 6vh, 48px);
+    }
+
+    .hero-block {
+      width: 100%;
+      align-items: flex-start;
+      text-align: left;
+      gap: var(--space-4);
+    }
+
+    .hero-eyebrow {
+      align-self: flex-start;
+      margin-bottom: 0;
+      padding-right: 0;
+      font-size: var(--text-12);
+      letter-spacing: 0.14em;
+      color: var(--aq-white-70);
+      text-wrap: balance;
+    }
+
+    .hero-actions,
+    .hero-proof {
+      width: 100%;
+      justify-content: flex-start;
+    }
   }
 
   @media (max-width: 620px) {
-    .panel { padding: 16px; }
-    .thread { padding: 10px 12px; }
-    .build { grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--space-3); }
-    .build-fmt { display: none; }
-    .build-here { display: none; }
-    .provider-row { gap: var(--space-3) var(--space-6); }
-    .workspace-grid { grid-template-columns: minmax(0, 1fr); }
+    .build {
+      grid-template-columns: 20px minmax(0, 1fr) auto;
+      gap: var(--space-3);
+    }
+
+    .build-fmt,
+    .build-here {
+      display: none;
+    }
+  }
+
+  @media (max-width: 479px) {
+    .hero-actions > :global(.btn) {
+      width: 100%;
+    }
   }
 </style>

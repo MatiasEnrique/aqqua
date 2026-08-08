@@ -12,11 +12,11 @@ interface Props {
 const { id, labelId, href, variant = "primary", class: className } = Astro.props;
 ---
 
-<a id={id} href={href} class:list={["btn", `btn-${variant}`, "btn-lg", className]}>
+<a id={id} href={href} data-download class:list={["btn", `btn-${variant}`, "btn-lg", className]}>
   <span class="dl-icon dl-icon--apple"><PlatformGlyph platform="mac" /></span>
   <span class="dl-icon dl-icon--windows"><PlatformGlyph platform="win" /></span>
   <span class="dl-icon dl-icon--linux"><PlatformGlyph platform="linux" /></span>
-  <span id={labelId}>Download for macOS</span>
+  <span id={labelId} data-download-label>Download for macOS</span>
 </a>
 
 <style>

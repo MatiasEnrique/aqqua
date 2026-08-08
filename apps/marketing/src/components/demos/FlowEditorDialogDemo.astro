@@ -1,0 +1,639 @@
+---
+/**
+ * Static create-state port of apps/web/src/components/board/BoardEditorDialog.tsx.
+ * It deliberately keeps the product's DOM hierarchy and labels without loading
+ * React or suggesting that the marketing-page controls are interactive.
+ */
+const COLLAPSED_STEPS = [
+  {
+    index: 2,
+    name: "Implement",
+    prompt: "Implement the plan from ${artifact:Plan}",
+    model: "claude-fable-5",
+    dot: "violet",
+    continuation: "auto-continue",
+    continuationTone: "success",
+  },
+  {
+    index: 3,
+    name: "Review",
+    prompt: "Review the implementation for ${card_title}",
+    model: "gpt-5.6-sol",
+    dot: "blue",
+    continuation: "waits",
+    continuationTone: "warning",
+  },
+] as const;
+---
+
+<figure class="flow-dialog-demo">
+  <div class="flow-dialog" role="img" aria-label="Create flow dialog in aqqua">
+    <section class="flow-editor">
+      <div class="editor-head">
+        <div class="breadcrumb">
+          <span class="project-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            <span>Northstar API Demo</span>
+          </span>
+          <svg class="breadcrumb-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="m9 18 6-6-6-6"></path>
+          </svg>
+          <span class="dialog-title">New flow</span>
+        </div>
+        <span class="shortcut">esc to close</span>
+      </div>
+
+      <div class="flow-heading">
+        <span class="flow-name">Aqqua coding flow</span>
+        <p>Describe the pipeline. Each step runs in its own thread, in order.</p>
+      </div>
+
+      <div class="step-list">
+        <div class="step-list-head">
+          <span>Steps</span>
+          <span class="shortcut">⌥↑↓ reorder</span>
+        </div>
+
+        <div class="step-expanded">
+          <span class="step-number is-active">1</span>
+          <div class="step-content">
+            <div class="step-row-head">
+              <span class="step-name">Plan</span>
+              <div class="step-controls">
+                <span class="control-chip model-chip">
+                  <svg class="provider-icon" viewBox="0 0 256 260" aria-hidden="true">
+                    <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z"></path>
+                  </svg>
+                  <span>gpt-5.6-sol</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                </span>
+                <span class="control-chip reasoning-chip">
+                  <span class="chip-dot is-amber"></span>
+                  <span>High</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                </span>
+                <span class="control-chip continuation-chip">
+                  <span class="chip-dot is-success"></span>
+                  <span>auto-continue</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                </span>
+                <span class="trash" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v5M14 11v5"></path>
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div class="prompt-editor">
+              <span>Plan </span><span class="prompt-token">{"${card_title}"}</span><span>. Account for </span><span class="prompt-token">{"${request}"}</span><span> and write a concrete implementation plan.</span>
+            </div>
+
+            <div class="insert-hints">
+              <span class="insert-token">{"${"}</span>
+              <span>insert a card field or an artifact from an earlier step</span>
+              <span class="hint-divider" aria-hidden="true"></span>
+              <span class="insert-token">$</span>
+              <span>insert an agent skill</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        {
+          COLLAPSED_STEPS.map((step) => (
+            <>
+              <div class="step-divider" aria-hidden="true"></div>
+              <div class="step-collapsed">
+                <span class="step-number">{step.index}</span>
+                <span class="collapsed-copy">
+                  <span class="step-name">{step.name}</span>
+                  <span class="prompt-preview">{step.prompt}</span>
+                </span>
+                <span class="collapsed-controls">
+                  <span class="summary-chip">
+                    <span class:list={["chip-dot", `is-${step.dot}`]}></span>
+                    <span>{step.model}</span>
+                  </span>
+                  <span class="summary-chip">
+                    <span class:list={["chip-dot", `is-${step.continuationTone}`]}></span>
+                    <span>{step.continuation}</span>
+                  </span>
+                </span>
+              </div>
+            </>
+          ))
+        }
+
+        <div class="add-step">
+          <span class="add-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg>
+          </span>
+          <span>Add step</span>
+          <span class="shortcut">⌘⏎</span>
+        </div>
+      </div>
+
+      <div class="editor-footer">
+        <span class="field-count">1 card field</span>
+        <div class="create-actions">
+          <span class="shortcut">⌘⇧⏎ to create</span>
+          <span class="create-button">Create flow</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <figcaption>
+    <span class="caption-dot" aria-hidden="true"></span>
+    Three steps · two providers · one repeatable handoff
+  </figcaption>
+</figure>
+
+<style>
+  .flow-dialog-demo {
+    margin: 0 calc(-1 * var(--gutter-x)) 0 0;
+  }
+
+  .flow-dialog {
+    --fd-bg: oklch(0.988 0.006 85);
+    --fd-paper: oklch(0.997 0.003 85);
+    --fd-fg: oklch(0.28 0.002 72);
+    --fd-muted: oklch(0.97 0.006 85);
+    --fd-muted-fg: oklch(0.508 0.004 78);
+    --fd-border: oklch(0.87 0.006 83);
+    --fd-primary: oklch(0.35 0.038 258);
+    --fd-success: oklch(0.66 0.14 155);
+    --fd-warning: oklch(0.76 0.15 75);
+
+    position: relative;
+    width: 100%;
+    max-width: 768px;
+    margin-left: auto;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--fd-fg) 10%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--fd-bg) 96%, var(--fd-paper));
+    box-shadow: 0 24px 64px -24px rgb(0 0 0 / 65%);
+    color: var(--fd-fg);
+    font-family: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+
+  .flow-editor {
+    display: flex;
+    min-height: 620px;
+    flex-direction: column;
+  }
+
+  .editor-head,
+  .breadcrumb,
+  .project-chip,
+  .step-row-head,
+  .step-controls,
+  .control-chip,
+  .summary-chip,
+  .collapsed-controls,
+  .insert-hints,
+  .add-step,
+  .editor-footer,
+  .create-actions {
+    display: flex;
+    align-items: center;
+  }
+
+  .editor-head {
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px 4px;
+  }
+
+  .breadcrumb {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .project-chip {
+    min-width: 0;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--fd-muted);
+    color: color-mix(in srgb, var(--fd-fg) 80%, transparent);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+
+  .project-chip svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: var(--fd-muted-fg);
+  }
+
+  .project-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .breadcrumb-arrow {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: color-mix(in srgb, var(--fd-muted-fg) 60%, transparent);
+  }
+
+  .dialog-title {
+    flex: none;
+    color: var(--fd-muted-fg);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .shortcut {
+    flex: none;
+    color: color-mix(in srgb, var(--fd-muted-fg) 70%, transparent);
+    font-size: 10px;
+  }
+
+  .flow-heading {
+    padding: 8px 16px 12px;
+  }
+
+  .flow-name {
+    display: block;
+    color: var(--fd-fg);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  .flow-heading p {
+    margin: 4px 0 0;
+    color: var(--fd-muted-fg);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .step-list {
+    min-height: 0;
+    flex: 1;
+    padding: 0 6px 8px;
+  }
+
+  .step-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px 8px;
+    color: var(--fd-muted-fg);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .step-expanded {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--fd-muted) 50%, transparent);
+  }
+
+  .step-number {
+    display: flex;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+    padding: 0;
+    border: 1px solid var(--fd-border);
+    border-radius: 50%;
+    color: var(--fd-muted-fg);
+    font-size: 9px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: center;
+  }
+
+  .step-number.is-active {
+    border-color: var(--fd-primary);
+    background: var(--fd-primary);
+    color: white;
+    font-weight: 600;
+  }
+
+  .step-content {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .step-row-head {
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .step-name {
+    min-width: 0;
+    color: color-mix(in srgb, var(--fd-fg) 90%, transparent);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 18px;
+  }
+
+  .step-controls,
+  .collapsed-controls {
+    flex: none;
+    gap: 6px;
+  }
+
+  .control-chip,
+  .summary-chip {
+    height: 22px;
+    gap: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--fd-border);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--fd-bg) 40%, transparent);
+    color: color-mix(in srgb, var(--fd-fg) 85%, transparent);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .provider-icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: #000;
+    fill: currentColor;
+  }
+
+  .control-chip svg:not(.provider-icon),
+  .insert-hints svg {
+    width: 12px;
+    height: 12px;
+    color: var(--fd-muted-fg);
+  }
+
+  .chip-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--fd-muted-fg);
+  }
+
+  .chip-dot.is-blue { background: #3b82f6; }
+  .chip-dot.is-violet { background: #8b5cf6; }
+  .chip-dot.is-amber { background: #f59e0b; }
+  .chip-dot.is-success { background: var(--fd-success); }
+  .chip-dot.is-warning { background: var(--fd-warning); }
+
+  .trash {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    place-items: center;
+    color: var(--fd-muted-fg);
+  }
+
+  .trash svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .prompt-editor {
+    min-height: 56px;
+    color: color-mix(in srgb, var(--fd-fg) 90%, transparent);
+    font-family: "IBM Plex Mono", "SF Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .prompt-token {
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--fd-primary) 12%, transparent);
+    color: var(--fd-primary);
+  }
+
+  .insert-hints {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 2px;
+    color: var(--fd-muted-fg);
+    font-size: 11px;
+  }
+
+  .insert-token {
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--fd-muted);
+    font-family: "IBM Plex Mono", "SF Mono", monospace;
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .hint-divider {
+    width: 1px;
+    height: 12px;
+    margin: 0 2px;
+    background: var(--fd-border);
+  }
+
+  .step-divider {
+    height: 1px;
+    margin: 0 10px;
+    background: color-mix(in srgb, var(--fd-border) 60%, transparent);
+  }
+
+  .step-collapsed {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .collapsed-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .prompt-preview {
+    overflow: hidden;
+    color: var(--fd-muted-fg);
+    font-family: "IBM Plex Mono", "SF Mono", monospace;
+    font-size: 11px;
+    line-height: 17px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .summary-chip {
+    color: var(--fd-muted-fg);
+  }
+
+  .add-step {
+    gap: 10px;
+    padding: 12px 10px;
+    color: var(--fd-muted-fg);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .add-mark {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    border: 1px dashed var(--fd-border);
+    border-radius: 50%;
+  }
+
+  .add-mark svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .editor-footer {
+    min-height: 48px;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--fd-border);
+    background: color-mix(in srgb, var(--fd-muted) 40%, transparent);
+  }
+
+  .field-count {
+    display: flex;
+    height: 26px;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid var(--fd-border);
+    border-radius: 6px;
+    color: var(--fd-muted-fg);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .create-actions {
+    gap: 10px;
+  }
+
+  .create-button {
+    display: flex;
+    height: 28px;
+    align-items: center;
+    padding: 0 10px;
+    border: 1px solid var(--fd-primary);
+    border-radius: 8px;
+    background: var(--fd-primary);
+    box-shadow: inset 0 1px rgb(255 255 255 / 16%), 0 1px 2px color-mix(in srgb, var(--fd-primary) 24%, transparent);
+    color: white;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  figcaption {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: var(--space-5);
+    color: var(--aq-white-45);
+    font-family: var(--font-code);
+    font-size: var(--text-12);
+    letter-spacing: 0.02em;
+  }
+
+  .caption-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--aq-accent);
+    box-shadow: 0 0 0 4px var(--aq-accent-08);
+  }
+
+  @media (max-width: 1080px) {
+    .flow-dialog-demo {
+      margin-right: 0;
+    }
+
+    .flow-dialog {
+      margin-left: 0;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .flow-editor {
+      min-height: 560px;
+    }
+
+    .editor-head > .shortcut,
+    .step-list-head .shortcut,
+    .create-actions .shortcut,
+    .reasoning-chip,
+    .hint-divider,
+    .hint-divider ~ * {
+      display: none;
+    }
+
+    .project-chip span {
+      max-width: 132px;
+    }
+
+    .continuation-chip span:not(.chip-dot),
+    .collapsed-controls .summary-chip:last-child {
+      display: none;
+    }
+
+    .step-collapsed {
+      align-items: center;
+    }
+
+    .collapsed-controls .summary-chip {
+      max-width: 118px;
+    }
+  }
+
+  @media (max-width: 440px) {
+    .flow-dialog-demo {
+      margin-inline: calc(-1 * var(--gutter-x));
+    }
+
+    .flow-dialog {
+      border-right: 0;
+      border-left: 0;
+      border-radius: 0;
+    }
+
+    .model-chip span,
+    .collapsed-controls {
+      display: none;
+    }
+
+    figcaption {
+      padding-inline: var(--gutter-x);
+    }
+  }
+</style>

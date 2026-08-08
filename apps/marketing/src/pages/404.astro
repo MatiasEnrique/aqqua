@@ -1,0 +1,64 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="aqqua — Page not found" description="That page drifted out with the tide. Head back to the aqqua homepage.">
+  <section class="lost tone-deep grain">
+    <div class="container lost-inner">
+      <p class="lost-code" aria-hidden="true">404</p>
+      <h1 class="display lost-title">This page drifted<br />out with the tide.</h1>
+      <p class="lost-sub">
+        The address may have moved when the site changed shape, or it never
+        existed. Everything worth reading is still one level up.
+      </p>
+      <div class="lost-actions">
+        <a class="btn btn-primary btn-lg" href="/">Back to the homepage</a>
+        <a class="btn btn-outline btn-lg" href="/download">Download aqqua</a>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .lost {
+    display: flex;
+    align-items: center;
+    min-height: calc(100svh - 240px);
+    padding: clamp(80px, 13vh, 96px) 0;
+  }
+
+  .lost-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
+  .lost-code {
+    font-family: var(--font-code);
+    font-size: var(--text-14);
+    letter-spacing: 0.1em;
+    color: var(--aq-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lost-title {
+    font-size: var(--display-section);
+    max-width: 680px;
+  }
+
+  .lost-sub {
+    max-width: 44ch;
+    color: var(--text-secondary);
+    font-size: var(--text-16);
+    line-height: var(--leading-16);
+    text-wrap: pretty;
+  }
+
+  .lost-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+</style>

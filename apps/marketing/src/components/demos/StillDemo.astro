@@ -1,0 +1,38 @@
+---
+/**
+ * A captured still in the same shell as VideoDemo, so a frame and a clip read
+ * as siblings on the page. Lazy and decorative; no play gate is needed.
+ */
+interface Props {
+  /** Image source, e.g. "/demos/queue.webp". */
+  src: string;
+  /** Intrinsic pixel width of the capture. */
+  width: number;
+  /** Intrinsic pixel height of the capture. */
+  height: number;
+  /** Describes the still; the demo is decorative, so this is authoring intent. */
+  alt: string;
+  /** Optional higher-priority source (e.g. AVIF) offered before `src`. */
+  avif?: string;
+  class?: string;
+}
+
+const { src, width, height, alt, avif, class: className } = Astro.props;
+---
+
+<div class:list={["dm", "dm-media", className]} aria-hidden="true">
+  <div class="dm-media-frame">
+    <picture>
+      {avif && <source srcset={avif} type="image/avif" />}
+      <img
+        class="dm-media-el"
+        src={src}
+        width={width}
+        height={height}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+      />
+    </picture>
+  </div>
+</div>

@@ -1,0 +1,145 @@
+---
+/**
+ * The branch commit graph, with a selection walking it and the diff following.
+ *
+ * Lane geometry mirrors what gitHistoryGraph.ts produces: a main lane, a side
+ * lane that forks and merges back, and tags kept as labels on visible commits.
+ */
+const COMMITS = [
+  { y: 14, lane: 0, subject: "feat: queue steering", merge: false, tag: "v0.4.1" },
+  { y: 42, lane: 0, subject: "Merge pull request #482", merge: true, tag: null },
+  { y: 70, lane: 1, subject: "fix: settle on merge", merge: false, tag: null },
+  { y: 98, lane: 1, subject: "test: change request checks", merge: false, tag: null },
+  { y: 126, lane: 0, subject: "refactor: git status stream", merge: false, tag: null },
+] as const;
+
+const LANE_X = [14, 34] as const;
+---
+
+<div class="dm graph" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">History</span>
+    <span class="dm-spacer"></span>
+    <span class="dm-chip">Include origin</span>
+  </div>
+
+  <div class="graph-body">
+    <svg class="lanes" viewBox="0 0 48 148" width="48" height="148" aria-hidden="true">
+      <path d="M14 14 V126" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" fill="none"></path>
+      <path d="M14 42 C 14 56, 34 56, 34 70 V98 C 34 112, 14 112, 14 126" stroke="rgba(125,211,252,0.5)" stroke-width="1.5" fill="none"></path>
+      {
+        COMMITS.map((commit, index) => (
+          <circle
+            class="node"
+            style={`--i:${index}`}
+            cx={LANE_X[commit.lane]}
+            cy={commit.y}
+            r={commit.merge ? 4.5 : 3.5}
+            fill={commit.lane === 1 ? "#7dd3fc" : "#ffffff"}
+          />
+        ))
+      }
+    </svg>
+
+    <div class="rows">
+      {
+        COMMITS.map((commit, index) => (
+          <div class="crow" style={`--i:${index}`}>
+            <span class="dm-title crow-subject">{commit.subject}</span>
+            {commit.tag && <span class="dm-chip">{commit.tag}</span>}
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="diff">
+    <span class="dm-legend">Diff</span>
+    <span class="hunk hunk--del"><span>-</span>await refetchStatus()</span>
+    <span class="hunk hunk--add"><span>+</span>await Promise.all([refetchStatus(), refetchChecks()])</span>
+  </div>
+</div>
+
+<style>
+  .graph-body {
+    display: flex;
+    gap: 4px;
+    padding: 12px 12px 0;
+  }
+
+  .lanes {
+    flex: none;
+  }
+
+  .rows {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .crow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    animation: graph-select 10s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 2s);
+  }
+
+  .crow-subject {
+    font-size: 12px;
+  }
+
+  .node {
+    animation: graph-node 10s steps(1, end) infinite;
+    animation-delay: calc(var(--i) * 2s);
+  }
+
+  .diff {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 12px;
+    padding: 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .hunk {
+    display: flex;
+    gap: 8px;
+    overflow: hidden;
+    font-family: var(--font-code);
+    font-size: 11px;
+    line-height: 17px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .hunk > span {
+    flex: none;
+    width: 8px;
+  }
+
+  .hunk--del {
+    color: #fca5a5;
+  }
+
+  .hunk--add {
+    color: #86efac;
+  }
+
+  @keyframes graph-select {
+    0%, 19% { background: rgba(255, 255, 255, 0.08); }
+    20%, 100% { background: transparent; }
+  }
+
+  @keyframes graph-node {
+    0%, 19% { stroke: rgba(255, 255, 255, 0.85); stroke-width: 3; }
+    20%, 100% { stroke: transparent; stroke-width: 0; }
+  }
+</style>

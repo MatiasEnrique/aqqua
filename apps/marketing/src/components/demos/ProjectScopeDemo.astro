@@ -1,0 +1,169 @@
+---
+/**
+ * The sidebar project scope control narrowing the worktree registry.
+ *
+ * Deselecting a project fades its group out and leaves the gap behind — which is
+ * what a filtered list actually looks like, and keeps the demo layout-stable.
+ */
+const GROUPS = [
+  { project: "aqqua", branches: ["feat/auth-refactor", "fix/pr-checks"] },
+  { project: "marketing", branches: ["feat/og-cards"] },
+  { project: "infra", branches: ["chore/bump-runners"] },
+] as const;
+---
+
+<div class="dm scope" data-demo>
+  <div class="dm-bar">
+    <span class="dm-legend">Projects</span>
+    <span class="dm-spacer"></span>
+    <span class="count dm-chip dm-chip--solid">
+      <span class="count-all">3 selected</span>
+      <span class="count-some">2 selected</span>
+    </span>
+  </div>
+
+  <div class="menu">
+    {
+      GROUPS.map((group, index) => (
+        <span class={`opt o${index}`}>
+          <span class="box">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>
+          </span>
+          {group.project}
+        </span>
+      ))
+    }
+  </div>
+
+  <div class="list">
+    {
+      GROUPS.map((group, index) => (
+        <div class={`group g${index}`}>
+          <span class="dm-legend">{group.project}</span>
+          {group.branches.map((branch) => (
+            <span class="wt-row">
+              <span class="dm-dot dm-dot--idle" />
+              <span class="dm-branch">{branch}</span>
+            </span>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .count {
+    display: grid;
+  }
+
+  .count > span {
+    grid-area: 1 / 1;
+    justify-self: end;
+    white-space: nowrap;
+  }
+
+  /*
+   * Base state is "all three selected", matching the checkboxes and the full
+   * list below. Only one of the two stacked counts may be visible without
+   * animation, or they print on top of each other under reduced motion.
+   */
+  .count-all { animation: scope-fade-out 8s steps(1, end) infinite; }
+
+  .count-some {
+    opacity: 0;
+    animation: scope-fade-in 8s steps(1, end) infinite;
+  }
+
+  .menu {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 14px 4px;
+  }
+
+  .opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px 5px 7px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-sm);
+    font-size: 11.5px;
+    line-height: 16px;
+    color: var(--text-strong);
+    white-space: nowrap;
+  }
+
+  .box {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: var(--aq-white);
+    color: var(--aq-ink);
+  }
+
+  /* Only the third option toggles; the first two stay checked throughout. */
+  .o2 .box {
+    animation: scope-box 8s steps(1, end) infinite;
+  }
+
+  .o2 .box svg {
+    animation: scope-fade-out 8s steps(1, end) infinite;
+  }
+
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 14px;
+  }
+
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .g2 {
+    animation: scope-group 8s var(--ease-aqqua) infinite;
+  }
+
+  .wt-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-sm);
+    background: var(--aq-white-04);
+  }
+
+  @keyframes scope-box {
+    0%, 32% { background: var(--aq-white); border-color: rgba(255, 255, 255, 0.35); }
+    33%, 82% { background: transparent; border-color: rgba(255, 255, 255, 0.3); }
+    83%, 100% { background: var(--aq-white); border-color: rgba(255, 255, 255, 0.35); }
+  }
+
+  @keyframes scope-group {
+    0%, 32% { opacity: 1; }
+    42%, 80% { opacity: 0; }
+    90%, 100% { opacity: 1; }
+  }
+
+  @keyframes scope-fade-out {
+    0%, 32% { opacity: 1; }
+    33%, 82% { opacity: 0; }
+    83%, 100% { opacity: 1; }
+  }
+
+  @keyframes scope-fade-in {
+    0%, 32% { opacity: 0; }
+    33%, 82% { opacity: 1; }
+    83%, 100% { opacity: 0; }
+  }
+</style>
