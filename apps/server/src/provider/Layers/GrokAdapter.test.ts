@@ -188,6 +188,49 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
     }),
   );
 
+  it.effect("keeps the advertised Grok model when a stale selection reaches the first turn", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-stale-model-first-turn");
+      const tempDir = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-acp-stale-model-")),
+      );
+      const requestLogPath = NodePath.join(tempDir, "requests.ndjson");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          AQQUA_ACP_ADVERTISE_ONLY_GROK_45: "1",
+          AQQUA_ACP_REQUEST_LOG_PATH: requestLogPath,
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const staleSelection = {
+        instanceId: ProviderInstanceId.make("grok"),
+        model: "grok-build",
+        options: [{ id: "reasoningEffort", value: "high" }],
+      } as const;
+
+      const session = yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: staleSelection,
+      });
+      assert.equal(session.model, "grok-4.5");
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "use the live model",
+        attachments: [],
+        modelSelection: staleSelection,
+      });
+
+      const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+      assert.isFalse(requests.some((entry) => entry.method === "session/set_model"));
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-stop-session-close");

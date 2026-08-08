@@ -132,6 +132,7 @@ interface GrokSessionContext {
    * continues it, and only the last remaining prompt settles the turn. */
   promptsInFlight: number;
   currentModelId: string | undefined;
+  readonly availableModelIds: ReadonlyArray<string> | undefined;
   /**
    * Last reasoning effort requested of this session via set_model meta (or
    * seeded from session setup). Not CLI-confirmed — the CLI may silently
@@ -833,6 +834,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             lastAcpEventAtMillis: 0,
             promptsInFlight: 0,
             currentModelId: boundModelId,
+            availableModelIds: startAvailableModelIds,
             lastRequestedReasoningEffort: boundSelection.lastRequestedReasoningEffort,
             stopped: false,
           };
@@ -1014,6 +1016,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 runtime: ctx.acp,
                 currentModelId: ctx.currentModelId,
                 requestedModelId: requestedTurnModelId,
+                ...(ctx.availableModelIds !== undefined
+                  ? { availableModelIds: ctx.availableModelIds }
+                  : {}),
                 requestedReasoningEffort: grokReasoningEffortRequestFromSelection({
                   selectionPresent: turnModelSelection !== undefined,
                   rawOption: getModelSelectionStringOptionValue(
