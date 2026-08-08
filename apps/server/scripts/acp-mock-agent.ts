@@ -42,6 +42,7 @@ const emitOverlappingXAiPromptCompleteOutOfOrder =
 const failPrompt = process.env.AQQUA_ACP_FAIL_PROMPT === "1";
 const failSetConfigOption = process.env.AQQUA_ACP_FAIL_SET_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.AQQUA_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
+const advertiseOnlyGrok45 = process.env.AQQUA_ACP_ADVERTISE_ONLY_GROK_45 === "1";
 const promptResponseText = process.env.AQQUA_ACP_PROMPT_RESPONSE_TEXT;
 const promptDelayMs = Number(process.env.AQQUA_ACP_PROMPT_DELAY_MS ?? "0");
 const permissionOptionIds = {
@@ -282,15 +283,27 @@ function modeState(): AcpSchema.SessionModeState {
   };
 }
 
-const grokAcpModels: ReadonlyArray<AcpSchema.ModelInfo> = [
-  { modelId: "grok-build", name: "Grok Build" },
-  { modelId: "grok-mock-alt", name: "Grok Mock Alt" },
-];
+const grokAcpModels: ReadonlyArray<AcpSchema.ModelInfo> = advertiseOnlyGrok45
+  ? [
+      {
+        modelId: "grok-4.5",
+        name: "Grok 4.5",
+        _meta: {
+          supportsReasoningEffort: true,
+          reasoningEffort: "high",
+          reasoningEfforts: [{ id: "high", value: "high", label: "High", default: true }],
+        },
+      },
+    ]
+  : [
+      { modelId: "grok-build", name: "Grok Build" },
+      { modelId: "grok-mock-alt", name: "Grok Mock Alt" },
+    ];
 
 function modelState(): AcpSchema.SessionModelState {
   const modelId = grokAcpModels.some((model) => model.modelId === currentModelId)
     ? currentModelId
-    : "grok-build";
+    : grokAcpModels[0]!.modelId;
   return {
     currentModelId: modelId,
     availableModels: grokAcpModels,

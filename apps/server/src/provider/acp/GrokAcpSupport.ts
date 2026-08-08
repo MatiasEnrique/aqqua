@@ -233,7 +233,7 @@ export function applyGrokAcpModelSelection<E>(input: {
    * CLI's current model: the CLI rejects unknown ids with a fatal
    * "Invalid params" (e.g. a stored default like "grok-build" that a newer CLI
    * no longer serves), and a stale slug must not prevent the session from
-   * starting. Omit to force the switch attempt (explicit user selection paths).
+   * starting or sending a later turn. When omitted, requested ids are attempted.
    */
   readonly availableModelIds?: ReadonlyArray<string>;
   /**

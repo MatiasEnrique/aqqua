@@ -92,16 +92,16 @@ const isPartialProviderSnapshot = (provider: ServerProvider): boolean => {
 };
 
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
-  if (provider.driver !== ProviderDriverKind.make("opencode")) {
+  if (
+    provider.driver !== ProviderDriverKind.make("opencode") &&
+    provider.driver !== ProviderDriverKind.make("grok")
+  ) {
     return true;
   }
 
-  // OpenCode's initial snapshot is deliberately non-authoritative while its
-  // first probe is still running. A probe error from an installed CLI/server
-  // is likewise partial: it could not establish the current inventory.
-  // Conversely, disabled and missing-CLI snapshots are authoritative removals,
-  // as are successful ready/warning inventories (including an empty one after
-  // logout or plugin removal).
+  // OpenCode and Grok bootstrap with fallback inventories while their first
+  // live probe is pending. A probe error is likewise partial. Successful live
+  // inventories are authoritative, so models they omit must disappear.
   return isPartialProviderSnapshot(provider);
 };
 

@@ -963,6 +963,50 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         assert.deepStrictEqual(merged.models[0]?.capabilities?.optionDescriptors ?? [], []);
       });
 
+      it("drops the stale built-in Grok model after authoritative ACP discovery", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("grok"),
+          driver: ProviderDriverKind.make("grok"),
+          status: "warning",
+          enabled: true,
+          installed: true,
+          auth: { status: "unknown" },
+          checkedAt: "2026-08-07T00:00:00.000Z",
+          version: null,
+          message: "Checking Grok CLI availability...",
+          models: [
+            {
+              slug: "grok-build",
+              name: "Grok Build",
+              isCustom: false,
+              capabilities: createModelCapabilities({ optionDescriptors: [] }),
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const discoveredProvider = {
+          ...previousProvider,
+          status: "ready",
+          checkedAt: "2026-08-07T00:01:00.000Z",
+          version: "1.0.0",
+          message: undefined,
+          models: [
+            {
+              slug: "grok-4.5",
+              name: "Grok 4.5",
+              isCustom: false,
+              capabilities: createModelCapabilities({ optionDescriptors: [] }),
+            },
+          ],
+        } as const satisfies ServerProvider;
+
+        assert.deepStrictEqual(
+          mergeProviderSnapshot(previousProvider, discoveredProvider).models,
+          discoveredProvider.models,
+        );
+      });
+
       it.effect("does not run provider probes during layer construction", () =>
         Effect.gen(function* () {
           const codexDriver = ProviderDriverKind.make("codex");
