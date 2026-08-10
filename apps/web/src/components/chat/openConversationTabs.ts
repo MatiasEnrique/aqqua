@@ -2,6 +2,7 @@ import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environme
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import type {
   EnvironmentId,
+  OrchestrationCard,
   ProjectId,
   ProviderSubagentBinding,
   ScopedThreadRef,
@@ -68,6 +69,74 @@ export function openNewSubAgentConversationTabs(input: {
     if (!openKeys.has(parentKey) || openKeys.has(key)) continue;
     next.push(key);
     openKeys.add(key);
+  }
+  return next;
+}
+
+type FlowConversationCard = Pick<OrchestrationCard, "archivedAt" | "stepThreads">;
+
+/**
+ * Restores the whole conversation family for a Flow that already has one open
+ * tab: every persisted step root plus every aqqua-managed descendant.
+ *
+ * Flow steps are commonly created while the user is on the Flow surface, where
+ * the conversation tab strip is disabled. The transition-only sub-agent opener
+ * above therefore never observes them. Rebuilding from the card's durable
+ * `stepThreads` also covers cold starts and returning to Threads later.
+ * Provider-native children remain subordinate activity of their owning session
+ * and deliberately stay out of the independently controllable tab set.
+ */
+export function syncOpenFlowConversationTabs(input: {
+  readonly openKeys: readonly string[];
+  readonly cardsByEnvironment: ReadonlyMap<EnvironmentId, ReadonlyArray<FlowConversationCard>>;
+  readonly threads: readonly EnvironmentThreadShell[];
+}): string[] {
+  let next = [...input.openKeys];
+  const threadByKey = new Map(
+    input.threads.map(
+      (thread) =>
+        [conversationTabKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
+    ),
+  );
+  const managedChildrenByParentKey = new Map<string, string[]>();
+  for (const thread of input.threads) {
+    if (thread.providerSubagent != null || thread.parentThreadId == null) continue;
+    const parentKey = conversationTabKey(
+      scopeThreadRef(thread.environmentId, thread.parentThreadId),
+    );
+    const childKey = conversationTabKey(scopeThreadRef(thread.environmentId, thread.id));
+    const children = managedChildrenByParentKey.get(parentKey);
+    if (children === undefined) managedChildrenByParentKey.set(parentKey, [childKey]);
+    else children.push(childKey);
+  }
+
+  for (const [environmentId, cards] of input.cardsByEnvironment) {
+    for (const card of cards) {
+      if (card.archivedAt !== null) continue;
+      const orderedKeys: string[] = [];
+      const visited = new Set<string>();
+      const appendLineage = (key: string) => {
+        if (visited.has(key) || !threadByKey.has(key)) return;
+        visited.add(key);
+        orderedKeys.push(key);
+        for (const childKey of managedChildrenByParentKey.get(key) ?? []) {
+          appendLineage(childKey);
+        }
+      };
+      for (const entry of card.stepThreads) {
+        appendLineage(conversationTabKey(scopeThreadRef(environmentId, entry.threadId)));
+      }
+      if (orderedKeys.length === 0) continue;
+
+      const flowKeys = new Set(orderedKeys);
+      const insertionIndex = next.findIndex((key) => flowKeys.has(key));
+      if (insertionIndex === -1) continue;
+      next = [
+        ...next.slice(0, insertionIndex).filter((key) => !flowKeys.has(key)),
+        ...orderedKeys,
+        ...next.slice(insertionIndex).filter((key) => !flowKeys.has(key)),
+      ];
+    }
   }
   return next;
 }

@@ -118,6 +118,10 @@ placeholder title.
 Pressing **Start** releases the card: it gets its own worktree and branch, and
 step 1 begins in a fresh top-level conversation you can open from the sidebar
 like any other. Each step runs in a fresh conversation to keep context clean.
+When you return to Threads, opening any conversation from a running card restores
+all of that card's started step conversations in step order. Aqqua-managed
+sub-agents remain grouped under the step that spawned them; provider-native
+children remain in that conversation's **Native agent activity** view.
 
 Each step resolves its agent as it starts. If the step names an instance this
 environment does not have, an instance that cannot run an agent right now, a

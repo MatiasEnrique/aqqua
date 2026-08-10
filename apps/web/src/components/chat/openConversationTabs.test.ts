@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import { EnvironmentId, ThreadId } from "@aqqua/contracts";
 
 import {
   buildConversationTabs,
@@ -11,6 +12,7 @@ import {
   resolveConversationTabRouteKey,
   resolveWorktreeFocusTarget,
   retainKnownConversationTabs,
+  syncOpenFlowConversationTabs,
 } from "./openConversationTabs";
 
 const thread = (
@@ -28,6 +30,14 @@ const thread = (
   }) as unknown as EnvironmentThreadShell;
 
 const key = (id: string) => conversationTabKey({ environmentId: "env", threadId: id } as never);
+const flowCard = (...threadIds: string[]) => ({
+  archivedAt: null,
+  stepThreads: threadIds.map((threadId, stepIndex) => ({
+    stepIndex,
+    threadId: ThreadId.make(threadId),
+    spawnedAt: `2026-01-01T00:00:0${stepIndex}.000Z`,
+  })),
+});
 const draft = (draftId: string, threadId: string, overrides: Record<string, unknown> = {}) =>
   ({
     draftId,
@@ -135,6 +145,63 @@ describe("openNewSubAgentConversationTabs", () => {
         threads: [parent, child],
       }),
     ).toEqual([conversationTabKey({ environmentId: "other-env", threadId: "parent" } as never)]);
+  });
+});
+
+describe("syncOpenFlowConversationTabs", () => {
+  it("restores every step root and managed sub-agent for an already-open flow", () => {
+    const implement = thread("implement");
+    const managedChild = thread("managed-child", { parentThreadId: "implement" } as never);
+    const nativeChild = thread("native-child", {
+      parentThreadId: "implement",
+      providerSubagent: {
+        ownerThreadId: "implement",
+        provider: "claudeAgent",
+        childId: "native-1",
+      },
+    } as never);
+
+    expect(
+      syncOpenFlowConversationTabs({
+        openKeys: [key("unrelated"), key("implement")],
+        cardsByEnvironment: new Map([
+          [
+            EnvironmentId.make("env"),
+            [flowCard("issue", "plan", "implement", "review", "fix", "ship")],
+          ],
+        ]),
+        threads: [
+          thread("unrelated"),
+          thread("issue"),
+          thread("plan"),
+          implement,
+          managedChild,
+          nativeChild,
+          thread("review"),
+          thread("fix"),
+          thread("ship"),
+        ],
+      }),
+    ).toEqual([
+      key("unrelated"),
+      key("issue"),
+      key("plan"),
+      key("implement"),
+      key("managed-child"),
+      key("review"),
+      key("fix"),
+      key("ship"),
+    ]);
+  });
+
+  it("does not open flow history until one of its conversations is open", () => {
+    expect(
+      syncOpenFlowConversationTabs({
+        openKeys: [key("unrelated")],
+        cardsByEnvironment: new Map([[EnvironmentId.make("env"), [flowCard("issue", "plan")]]]),
+        threads: [thread("unrelated"), thread("issue"), thread("plan")],
+      }),
+    ).toEqual([key("unrelated")]);
   });
 });
 

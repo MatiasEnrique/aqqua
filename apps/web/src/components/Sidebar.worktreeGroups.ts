@@ -351,6 +351,7 @@ export function buildSidebarWorktreeGroups(input: {
   });
 
   const addThread = (thread: EnvironmentThreadShell, bucket: "active" | "snoozed" | "settled") => {
+    if (bucket === "settled" && thread.providerSubagent != null) return;
     const project = input.projectsByKey.get(`${thread.environmentId}:${thread.projectId}`);
     if (!project) return;
     const workspaceRoot = thread.worktreePath ?? project.workspaceRoot;
@@ -460,15 +461,19 @@ export function buildSidebarWorktreeGroups(input: {
 
   return [...groups.entries()]
     .map(([key, group]): SidebarWorktreeGroup => {
+      // Native children remain in active/snoozed so a routed native transcript
+      // can still resolve its worktree. They share their owner's session,
+      // though, so they are not independent conversations for counts or status.
+      const unsettled = [...group.active, ...group.snoozed].filter(
+        (thread) => thread.providerSubagent == null,
+      );
       const stateCounts = createEmptySidebarConversationStateCounts();
       stateCounts.stale = group.drafts.length;
       stateCounts.settled = group.settledCount;
-      for (const thread of [...group.active, ...group.snoozed]) {
+      for (const thread of unsettled) {
         stateCounts[resolveSidebarConversationSummaryState(thread)] += 1;
       }
-      const unsettledConversationCount =
-        group.drafts.length + group.active.length + group.snoozed.length;
-      const unsettled = [...group.active, ...group.snoozed];
+      const unsettledConversationCount = group.drafts.length + unsettled.length;
       const conversations = unsettled.map((thread) => ({
         ...thread,
         lastVisitedAt: input.lastVisitedAtByThreadKey?.get(`${thread.environmentId}:${thread.id}`),

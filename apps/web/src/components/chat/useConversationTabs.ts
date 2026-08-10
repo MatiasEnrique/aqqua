@@ -8,6 +8,7 @@ import {
 } from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
 import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
+import { useEnvironmentsCards } from "../../state/boards";
 import { selectSidebarDraftRows } from "../Sidebar.logic";
 import { buildProjectRootByProjectKey } from "../Sidebar.worktreeGroups";
 import {
@@ -18,6 +19,7 @@ import {
   openNewSubAgentConversationTabs,
   resolveConversationTabRouteKey,
   retainKnownConversationTabs,
+  syncOpenFlowConversationTabs,
 } from "./openConversationTabs";
 
 /**
@@ -39,6 +41,11 @@ export function useConversationTabs(input: {
   const setOpenKeys = useUiStateStore((store) => store.setOpenConversationTabKeys);
   const threads = useThreadShells();
   const projects = useProjects();
+  const environmentIds = useMemo(
+    () => [...new Set(projects.map((project) => project.environmentId))],
+    [projects],
+  );
+  const cardsByEnvironment = useEnvironmentsCards(environmentIds);
   // Every environment has to have reported before a missing key means anything.
   // Pruning mid-bootstrap would wipe the restored strip on every cold start.
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
@@ -88,6 +95,19 @@ export function useConversationTabs(input: {
     });
     if (next.length !== current.length) setOpenKeys(next);
   }, [bootstrapped, enabled, setOpenKeys, threads]);
+
+  useEffect(() => {
+    if (!enabled || !bootstrapped) return;
+    const current = useUiStateStore.getState().openConversationTabKeys;
+    const next = syncOpenFlowConversationTabs({
+      openKeys: current,
+      cardsByEnvironment,
+      threads,
+    });
+    if (next.length !== current.length || next.some((key, index) => key !== current[index])) {
+      setOpenKeys(next);
+    }
+  }, [bootstrapped, cardsByEnvironment, enabled, openKeys, setOpenKeys, threads]);
 
   // Keys outlive their conversation when a thread is deleted or a draft
   // discarded. Rendering already skips them; this keeps the persisted list from
