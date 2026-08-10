@@ -56,6 +56,65 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("shows provider-native subagent start and progress while the child is working", () => {
+    const turnId = TurnId.make("claude-subagent:child-1");
+    const thread = makeThread({
+      id: ThreadId.make("native-child"),
+      projectId: ProjectId.make("project-1"),
+      title: "Explore the repository",
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("owner"),
+        provider: "claudeAgent" as never,
+        childId: "child-1",
+        parentChildId: null,
+      },
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      activities: [
+        makeActivity({
+          id: EventId.make("task-start"),
+          kind: "task.started",
+          summary: "Explore task started",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId,
+          payload: { description: "Explore the repository" },
+        }),
+        makeActivity({
+          id: EventId.make("task-progress"),
+          kind: "task.progress",
+          summary: "Working",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { description: "Searching for API endpoints" },
+        }),
+      ],
+    });
+
+    const feed = buildThreadFeed(thread);
+    const presented = deriveThreadFeedPresentation(
+      feed,
+      thread.latestTurn,
+      new Set(),
+      new Set(),
+      thread.latestTurn?.startedAt ?? null,
+    );
+
+    expect(presented).toEqual([
+      expect.objectContaining({
+        type: "activity-group",
+        activities: [expect.objectContaining({ summary: "Searching for API endpoints" })],
+      }),
+      expect.objectContaining({ type: "work-toggle", hiddenCount: 1 }),
+      expect.objectContaining({ type: "working" }),
+    ]);
+  });
+
   it("keeps historic work entries attributed to their turns", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),

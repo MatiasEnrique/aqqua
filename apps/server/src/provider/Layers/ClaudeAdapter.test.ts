@@ -4189,6 +4189,80 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("emits each forwarded assistant snapshot for a native child", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) =>
+          event.type === "task.completed" &&
+          event.providerSubagent?.childId === "task-snapshot-text",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-snapshot-text",
+        tool_use_id: "toolu-snapshot-text",
+        description: "Write a report",
+        session_id: "sdk-session-snapshot-text",
+        uuid: "task-started-snapshot-text",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-snapshot-text",
+        uuid: "assistant-snapshot-first",
+        parent_tool_use_id: "toolu-snapshot-text",
+        message: {
+          id: "assistant-message-snapshot-first",
+          content: [{ type: "text", text: "Starting the report." }],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-snapshot-text",
+        uuid: "assistant-snapshot-final",
+        parent_tool_use_id: "toolu-snapshot-text",
+        message: {
+          id: "assistant-message-snapshot-final",
+          content: [{ type: "text", text: "The complete child report." }],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-snapshot-text",
+        status: "completed",
+        output_file: "/tmp/snapshot-text",
+        summary: "Done",
+        usage: { total_tokens: 12, tool_uses: 0, duration_ms: 40 },
+        session_id: "sdk-session-snapshot-text",
+        uuid: "task-notification-snapshot-text",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const childText = runtimeEvents
+        .filter(
+          (event) =>
+            event.type === "content.delta" &&
+            event.providerSubagent?.childId === "task-snapshot-text",
+        )
+        .map((event) => (event.type === "content.delta" ? event.payload.delta : ""));
+
+      assert.deepEqual(childText, ["Starting the report.", "The complete child report."]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("keeps provisional child identity when task_started supplies a durable id", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

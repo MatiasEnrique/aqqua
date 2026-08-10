@@ -2341,8 +2341,12 @@ function ChatViewContent(props: ChatViewProps) {
     () =>
       deriveWorkLogEntries(
         threadActivities.filter((activity) => activity.kind !== "session.resumed"),
+        {
+          includeTaskStarted: isProviderSubagentThread,
+          showTaskProgress: isProviderSubagentThread,
+        },
       ),
-    [threadActivities],
+    [isProviderSubagentThread, threadActivities],
   );
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),

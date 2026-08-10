@@ -203,6 +203,7 @@ interface ClaudeTurnState {
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
+  readonly capturedAssistantSnapshotIds: Set<string>;
   readonly capturedProposedPlanKeys: Set<string>;
   nextSyntheticAssistantBlockIndex: number;
 }
@@ -328,6 +329,7 @@ function emptyClaudeTurnState(turnId: TurnId, startedAt: string): ClaudeTurnStat
     items: [],
     assistantTextBlocks: new Map(),
     assistantTextBlockOrder: [],
+    capturedAssistantSnapshotIds: new Set(),
     capturedProposedPlanKeys: new Set(),
     nextSyntheticAssistantBlockIndex: -1,
   };
@@ -1896,6 +1898,34 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
+    if (context.activeProviderSubagent) {
+      const snapshotId =
+        message.type === "assistant" && typeof message.message?.id === "string"
+          ? message.message.id
+          : message.uuid;
+      if (snapshotId && turnState.capturedAssistantSnapshotIds.has(snapshotId)) {
+        return;
+      }
+      if (snapshotId) {
+        turnState.capturedAssistantSnapshotIds.add(snapshotId);
+      }
+
+      // Claude's nested agents forward complete assistant snapshots with a
+      // parent_tool_use_id, while their inner stream events are owner-scoped.
+      // Treat each forwarded snapshot as its own child message instead of
+      // matching it to a completed block from an earlier child response.
+      for (const text of snapshotTextBlocks) {
+        const entry = yield* createSyntheticAssistantTextBlock(context, text);
+        if (entry) {
+          yield* completeAssistantTextBlock(context, entry.block, {
+            rawMethod: "claude/assistant",
+            rawPayload: message,
+          });
+        }
+      }
+      return;
+    }
+
     const orderedBlocks = turnState.assistantTextBlockOrder.map((block) => ({
       blockIndex: block.blockIndex,
       block,
@@ -2815,6 +2845,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
+        capturedAssistantSnapshotIds: new Set(),
         capturedProposedPlanKeys: new Set(),
         nextSyntheticAssistantBlockIndex: -1,
       };
@@ -4306,6 +4337,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
+        capturedAssistantSnapshotIds: new Set(),
         capturedProposedPlanKeys: new Set(),
         nextSyntheticAssistantBlockIndex: -1,
       };

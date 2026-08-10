@@ -740,6 +740,30 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress", "task-complete"]);
   });
 
+  it("shows task.started when rendering a provider-native child transcript", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "task-start",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          kind: "task.started",
+          summary: "Explore task started",
+          tone: "info",
+          payload: { description: "Explore the repository" },
+        }),
+      ],
+      { includeTaskStarted: true },
+    );
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        id: "task-start",
+        label: "Explore the repository",
+        sourceActivityKind: "task.started",
+      }),
+    ]);
+  });
+
   it("uses payload summary as label for task entries when available", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

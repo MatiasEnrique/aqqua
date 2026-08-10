@@ -196,6 +196,48 @@ describe("computeMessageDurationStart", () => {
   });
 });
 
+describe("deriveMessagesTimelineRows work activity", () => {
+  it("keeps provider-native subagent progress visible while the child is working", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "task-progress-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:01Z",
+          entry: {
+            id: "task-progress",
+            createdAt: "2026-01-01T00:00:01Z",
+            turnId: "claude-subagent:child-1" as never,
+            label: "Searching for API endpoints",
+            tone: "thinking",
+            sourceActivityKind: "task.progress",
+            showWhenNeutral: true,
+          },
+        },
+      ],
+      latestTurn: {
+        turnId: "claude-subagent:child-1" as never,
+        state: "running",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+      },
+      runningTurnId: "claude-subagent:child-1" as never,
+      isWorking: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        kind: "work",
+        groupedEntries: [expect.objectContaining({ label: "Searching for API endpoints" })],
+      }),
+      expect.objectContaining({ kind: "working" }),
+    ]);
+  });
+});
+
 describe("normalizeCompactToolLabel", () => {
   it("removes trailing completion wording from command labels", () => {
     expect(normalizeCompactToolLabel("Ran command complete")).toBe("Ran command");
