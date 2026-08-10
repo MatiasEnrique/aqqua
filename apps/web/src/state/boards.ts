@@ -93,6 +93,13 @@ export function useEnvironmentCards(
   );
 }
 
+/** Every card grouped by environment for cross-environment conversation views. */
+export function useEnvironmentsCards(
+  environmentIds: ReadonlyArray<EnvironmentId>,
+): ReadonlyMap<EnvironmentId, ReadonlyArray<OrchestrationCard>> {
+  return useAtomValue(environmentBoards.environmentsCardsAtom(environmentIds));
+}
+
 export function useProjectCardSections(ref: ScopedProjectRef | null): BoardCardSections {
   return useAtomValue(
     ref === null ? EMPTY_SECTIONS_ATOM : environmentBoards.projectCardSectionsAtom(ref),

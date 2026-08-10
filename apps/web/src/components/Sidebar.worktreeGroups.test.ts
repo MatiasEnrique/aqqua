@@ -779,6 +779,64 @@ describe("filterHiddenSidebarWorktreeGroups", () => {
 });
 
 describe("session error aggregates", () => {
+  it("does not let provider-native activity fail an otherwise successful worktree", () => {
+    const owner = thread(
+      "implement",
+      "local",
+      "/repo-wt",
+      "feature",
+      "2026-01-04T00:00:00.000Z",
+      null,
+      "ready",
+    );
+    const managedChild = thread(
+      "managed-child",
+      "local",
+      "/repo-wt",
+      "feature",
+      "2026-01-04T00:00:01.000Z",
+      "implement",
+      "ready",
+    );
+    const nativeFailure = {
+      ...thread(
+        "native-failure",
+        "local",
+        "/repo-wt",
+        "feature",
+        "2026-01-04T00:00:02.000Z",
+        "implement",
+        "error",
+      ),
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("implement"),
+        provider: "claudeAgent",
+        childId: "native-1",
+      },
+    } as EnvironmentThreadShell;
+
+    const group = buildSidebarWorktreeGroups({
+      active: [owner, managedChild, nativeFailure],
+      snoozed: [],
+      drafts: [],
+      projectsByKey: new Map([
+        ["local:project", { workspaceRoot: "/repo", environmentLabel: "Local" }],
+      ]),
+    })[0];
+
+    expect(group?.active.map((entry) => entry.id)).toEqual([
+      ThreadId.make("implement"),
+      ThreadId.make("managed-child"),
+      ThreadId.make("native-failure"),
+    ]);
+    expect(group?.unsettled.map((entry) => entry.id)).toEqual([
+      ThreadId.make("implement"),
+      ThreadId.make("managed-child"),
+    ]);
+    expect(group?.conversationCount).toBe(2);
+    expect(group?.summaryState).toBe("done");
+  });
+
   it("counts a session-error thread as stale even when the latest turn completed", () => {
     const groups = buildSidebarWorktreeGroups({
       active: [
