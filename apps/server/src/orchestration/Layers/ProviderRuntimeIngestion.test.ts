@@ -33,6 +33,7 @@ import * as Stream from "effect/Stream";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
+import { providerSubagentChildThreadId } from "@aqqua/shared/providerSubagents";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import {
@@ -3858,5 +3859,275 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime still processed");
+  });
+
+  it("materializes a provider-native child on the first targeted event and routes to it", async () => {
+    const harness = await createHarness();
+    const ownerThreadId = asThreadId("thread-1");
+    const provider = ProviderDriverKind.make("codex");
+    const childThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-explore-1",
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-native-child-first"),
+      provider,
+      createdAt: now,
+      threadId: ownerThreadId,
+      providerSubagent: {
+        childId: "native-explore-1",
+        title: "Explore codebase",
+      },
+      itemId: asItemId("item-native-1"),
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        title: "ls",
+        detail: "done",
+      },
+    });
+
+    const child = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-explore-1" &&
+        entry.activities.some((activity) => activity.kind === "tool.completed"),
+      3000,
+      childThreadId,
+    );
+
+    expect(child.id).toBe(childThreadId);
+    expect(child.parentThreadId).toBe(ownerThreadId);
+    expect(child.providerSubagent).toEqual({
+      ownerThreadId,
+      provider,
+      childId: "native-explore-1",
+      parentChildId: null,
+    });
+    expect(child.title).toBe("Explore codebase");
+
+    const snapshot = await harness.readModel();
+    const children = snapshot.threads.filter(
+      (entry) => entry.providerSubagent?.childId === "native-explore-1",
+    );
+    expect(children).toHaveLength(1);
+  });
+
+  it("does not recreate a provider-native child when the same target is replayed", async () => {
+    const harness = await createHarness();
+    const ownerThreadId = asThreadId("thread-1");
+    const provider = ProviderDriverKind.make("codex");
+    const childThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-replay-1",
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    const emitTargeted = (eventId: string) =>
+      harness.emit({
+        type: "runtime.warning",
+        eventId: asEventId(eventId),
+        provider,
+        createdAt: now,
+        threadId: ownerThreadId,
+        providerSubagent: { childId: "native-replay-1", title: "Replay" },
+        payload: { message: eventId },
+      });
+
+    emitTargeted("evt-native-replay-1");
+    await waitForThread(
+      harness.readModel,
+      (entry) => entry.providerSubagent?.childId === "native-replay-1",
+      3000,
+      childThreadId,
+    );
+
+    emitTargeted("evt-native-replay-2");
+    await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-replay-1" &&
+        entry.activities.filter((activity) => activity.kind === "runtime.warning").length >= 2,
+      3000,
+      childThreadId,
+    );
+
+    const snapshot = await harness.readModel();
+    expect(
+      snapshot.threads.filter((entry) => entry.providerSubagent?.childId === "native-replay-1"),
+    ).toHaveLength(1);
+  });
+
+  it("maps a nested provider parent child id to the deterministic aqqua parent id", async () => {
+    const harness = await createHarness();
+    const ownerThreadId = asThreadId("thread-1");
+    const provider = ProviderDriverKind.make("codex");
+    const parentChildThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-parent",
+    });
+    const nestedChildThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-nested",
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-native-nested"),
+      provider,
+      createdAt: now,
+      threadId: ownerThreadId,
+      providerSubagent: {
+        childId: "native-nested",
+        parentChildId: "native-parent",
+        title: "Nested",
+      },
+      payload: { message: "nested work" },
+    });
+
+    const nested = await waitForThread(
+      harness.readModel,
+      (entry) => entry.providerSubagent?.childId === "native-nested",
+      3000,
+      nestedChildThreadId,
+    );
+
+    expect(nested.parentThreadId).toBe(parentChildThreadId);
+    expect(nested.providerSubagent?.parentChildId).toBe("native-parent");
+  });
+
+  it("archives a newly discovered native child when its owner is already archived", async () => {
+    const harness = await createHarness();
+    const ownerThreadId = asThreadId("thread-1");
+    const provider = ProviderDriverKind.make("codex");
+    const childThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-under-archived",
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("cmd-archive-owner"),
+        threadId: ownerThreadId,
+      }),
+    );
+
+    harness.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-discover-under-archived"),
+      provider,
+      createdAt: now,
+      threadId: ownerThreadId,
+      providerSubagent: {
+        childId: "native-under-archived",
+        title: "Under archived owner",
+      },
+      payload: { message: "first sighting" },
+    });
+
+    const child = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-under-archived" && entry.archivedAt !== null,
+      3000,
+      childThreadId,
+    );
+
+    expect(child.archivedAt).not.toBeNull();
+    expect(child.providerSubagent?.ownerThreadId).toBe(ownerThreadId);
+  });
+
+  it("does not rearchive an explicitly unarchived native child on later targeted events", async () => {
+    const harness = await createHarness();
+    const ownerThreadId = asThreadId("thread-1");
+    const provider = ProviderDriverKind.make("codex");
+    const childThreadId = providerSubagentChildThreadId({
+      ownerThreadId,
+      provider,
+      childId: "native-unarchive-stable",
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("cmd-archive-owner-for-unarchive"),
+        threadId: ownerThreadId,
+      }),
+    );
+
+    harness.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-discover-then-unarchive"),
+      provider,
+      createdAt: now,
+      threadId: ownerThreadId,
+      providerSubagent: {
+        childId: "native-unarchive-stable",
+        title: "Stay unarchived",
+      },
+      payload: { message: "discover" },
+    });
+
+    await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-unarchive-stable" && entry.archivedAt !== null,
+      3000,
+      childThreadId,
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.unarchive",
+        commandId: CommandId.make("cmd-unarchive-native-child"),
+        threadId: childThreadId,
+      }),
+    );
+
+    const unarchived = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-unarchive-stable" && entry.archivedAt === null,
+      3000,
+      childThreadId,
+    );
+    expect(unarchived.archivedAt).toBeNull();
+
+    harness.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-after-explicit-unarchive"),
+      provider,
+      createdAt: now,
+      threadId: ownerThreadId,
+      providerSubagent: {
+        childId: "native-unarchive-stable",
+        title: "Stay unarchived",
+      },
+      payload: { message: "later event" },
+    });
+
+    const afterLaterEvent = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.providerSubagent?.childId === "native-unarchive-stable" &&
+        entry.archivedAt === null &&
+        entry.activities.filter((activity) => activity.kind === "runtime.warning").length >= 2,
+      3000,
+      childThreadId,
+    );
+
+    expect(afterLaterEvent.archivedAt).toBeNull();
   });
 });

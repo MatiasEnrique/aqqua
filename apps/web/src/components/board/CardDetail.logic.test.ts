@@ -5,6 +5,7 @@ import {
   BoardStepId,
   CardId,
   CardOperationId,
+  ProviderDriverKind,
   ProjectId,
   ThreadId,
   type BoardStep,
@@ -26,7 +27,9 @@ import {
   formatCardSelection,
   parseCardSelection,
   resolveCardSelection,
+  resolveFlowTabSelection,
   resolveCardThreadPresence,
+  selectCardDetailThreads,
   selectionThreadId,
   type CardTreeThread,
 } from "./CardDetail.logic";
@@ -140,7 +143,7 @@ describe("resolveCardSelection", () => {
       card: card(),
       board: board(),
       requested: { kind: "step", stepIndex: 7 },
-      subAgentThreadIds: noSubAgents,
+      detailThreadIds: noSubAgents,
     });
     expect(resolved).toEqual({ kind: "step", stepIndex: 1 });
   });
@@ -150,7 +153,7 @@ describe("resolveCardSelection", () => {
       card: card(),
       board: board(),
       requested: { kind: "step", stepIndex: 2 },
-      subAgentThreadIds: noSubAgents,
+      detailThreadIds: noSubAgents,
     });
     expect(resolved).toEqual({ kind: "step", stepIndex: 1 });
   });
@@ -160,7 +163,7 @@ describe("resolveCardSelection", () => {
       card: card(),
       board: board(),
       requested: { kind: "subagent", stepIndex: 0, threadId: ThreadId.make("ghost") },
-      subAgentThreadIds: noSubAgents,
+      detailThreadIds: noSubAgents,
     });
     expect(resolved).toEqual({ kind: "step", stepIndex: 0 });
   });
@@ -175,7 +178,7 @@ describe("resolveCardSelection", () => {
       card: card(),
       board: board(),
       requested,
-      subAgentThreadIds: new Set(["sub-1"]),
+      detailThreadIds: new Set(["sub-1"]),
     });
     expect(resolved).toEqual(requested);
   });
@@ -249,6 +252,105 @@ describe("buildCardTree", () => {
     expect(rows[1]?.leaves.map((leaf) => leaf.kind)).toEqual(["subagent"]);
     // A step that has not run has no thread and no artifact on disk yet.
     expect(rows[2]?.leaves).toHaveLength(0);
+  });
+
+  it("keeps provider-native children out of Flow step details", () => {
+    const nativeThreads = [
+      ...threads,
+      thread({
+        id: "native-of-step",
+        title: "Native plan helper",
+        parentThreadId: ThreadId.make("thread-implement"),
+        providerSubagent: {
+          ownerThreadId: ThreadId.make("thread-implement"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          childId: "native-of-step",
+        },
+      }),
+      thread({
+        id: "native-of-managed-agent",
+        title: "Native implementation helper",
+        parentThreadId: ThreadId.make("sub-1"),
+        providerSubagent: {
+          ownerThreadId: ThreadId.make("sub-1"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          childId: "native-of-managed-agent",
+        },
+      }),
+    ];
+
+    const implementLeaves = tree({ threads: nativeThreads }).steps[1]?.leaves;
+    expect(implementLeaves?.filter((leaf) => leaf.kind === "subagent")).toEqual([
+      expect.objectContaining({ threadId: "sub-1", title: "correctness sweep" }),
+    ]);
+  });
+
+  it("keeps native transcripts reachable while highlighting their Flow owner", () => {
+    const nativeThreads = [
+      ...threads,
+      thread({
+        id: "native-of-step",
+        title: "Native step helper",
+        parentThreadId: ThreadId.make("thread-implement"),
+        providerSubagent: {
+          ownerThreadId: ThreadId.make("thread-implement"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          childId: "native-of-step",
+        },
+      }),
+      thread({
+        id: "native-of-managed-agent",
+        title: "Native managed helper",
+        parentThreadId: ThreadId.make("sub-1"),
+        providerSubagent: {
+          ownerThreadId: ThreadId.make("sub-1"),
+          provider: ProviderDriverKind.make("claudeAgent"),
+          childId: "native-of-managed-agent",
+        },
+      }),
+    ];
+
+    const detailThreadIds = new Set(
+      selectCardDetailThreads(nativeThreads, ThreadId.make("thread-implement")).map(
+        (item) => item.id as string,
+      ),
+    );
+    expect([...detailThreadIds]).toEqual(["sub-1", "native-of-step", "native-of-managed-agent"]);
+    expect(
+      resolveCardSelection({
+        card: card(),
+        board: board(),
+        requested: {
+          kind: "subagent",
+          stepIndex: 1,
+          threadId: ThreadId.make("native-of-managed-agent"),
+        },
+        detailThreadIds,
+      }),
+    ).toEqual({ kind: "subagent", stepIndex: 1, threadId: "native-of-managed-agent" });
+
+    expect(
+      resolveFlowTabSelection({
+        selection: {
+          kind: "subagent",
+          stepIndex: 1,
+          threadId: ThreadId.make("native-of-step"),
+        },
+        stepThreadId: ThreadId.make("thread-implement"),
+        threads: nativeThreads,
+      }),
+    ).toEqual({ kind: "step", stepIndex: 1 });
+    expect(
+      resolveFlowTabSelection({
+        selection: {
+          kind: "subagent",
+          stepIndex: 1,
+          threadId: ThreadId.make("native-of-managed-agent"),
+        },
+        stepThreadId: ThreadId.make("thread-implement"),
+        threads: nativeThreads,
+      }),
+    ).toEqual({ kind: "subagent", stepIndex: 1, threadId: "sub-1" });
   });
 
   it("shows an artifact's size once its step is done and never exposes a draft row", () => {

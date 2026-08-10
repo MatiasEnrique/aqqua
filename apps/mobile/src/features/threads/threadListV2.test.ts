@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -14,6 +15,10 @@ import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
+  isProviderSubagentThread,
+  providerSubagentOwnerTitle,
+  resolveProviderSubagentOwnerTitles,
+  resolveProviderSubagentPresentation,
   resolveThreadListV2Enabled,
   resolveThreadListV2Status,
   sortThreadsForListV2,
@@ -65,6 +70,229 @@ describe("resolveThreadListV2Enabled", () => {
     expect(resolveThreadListV2Enabled({ preference: undefined, preferencesLoaded: false })).toBe(
       true,
     );
+  });
+});
+
+describe("resolveProviderSubagentPresentation", () => {
+  const ownerThreadId = ThreadId.make("owner-thread");
+  const owner = makeThread({ id: ownerThreadId, title: "Ship the migration" });
+  const nativeChild = makeThread({
+    id: ThreadId.make("native-child"),
+    title: "Subagent c1",
+    parentThreadId: ownerThreadId,
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
+
+  it("returns nothing for an ordinary thread", () => {
+    expect(
+      resolveProviderSubagentPresentation({
+        thread: makeThread({ id: ThreadId.make("t"), title: "t" }),
+      }),
+    ).toBeNull();
+  });
+
+  it("returns nothing for an aqqua-managed sub-agent, which owns its session", () => {
+    expect(
+      resolveProviderSubagentPresentation({
+        thread: makeThread({
+          id: ThreadId.make("managed"),
+          title: "managed",
+          parentThreadId: ownerThreadId,
+        }),
+      }),
+    ).toBeNull();
+  });
+
+  it("names the harness and the owner conversation it runs inside", () => {
+    expect(
+      resolveProviderSubagentPresentation({
+        thread: nativeChild,
+        ownerTitle: "Ship the migration",
+      }),
+    ).toEqual({
+      provider: "codex",
+      label: "Codex subagent",
+      ownerTitle: "Ship the migration",
+      subtitle: "Codex subagent · Ship the migration",
+    });
+  });
+
+  it("falls back to the bare provider identity when the owner is not on hand", () => {
+    expect(resolveProviderSubagentPresentation({ thread: nativeChild })).toMatchObject({
+      ownerTitle: null,
+      subtitle: "Codex subagent",
+    });
+  });
+
+  it("names a Claude child and humanizes an unknown driver", () => {
+    expect(
+      resolveProviderSubagentPresentation({
+        thread: makeThread({
+          id: ThreadId.make("claude-child"),
+          title: "c",
+          providerSubagent: {
+            ownerThreadId,
+            provider: ProviderDriverKind.make("claude"),
+            childId: "c1",
+          },
+        }),
+      })?.label,
+    ).toBe("Claude subagent");
+
+    expect(
+      resolveProviderSubagentPresentation({
+        thread: makeThread({
+          id: ThreadId.make("other-child"),
+          title: "c",
+          providerSubagent: {
+            ownerThreadId,
+            provider: ProviderDriverKind.make("some-driver"),
+            childId: "c1",
+          },
+        }),
+      })?.label,
+    ).toBe("Some Driver subagent");
+  });
+
+  it("gates composer submission on the binding, not on having a parent", () => {
+    // `submitDraft` and `onSubmitQueuedMessages` return early on this; an
+    // aqqua-managed sub-agent stays fully sendable.
+    expect(isProviderSubagentThread(nativeChild)).toBe(true);
+    expect(isProviderSubagentThread(owner)).toBe(false);
+    expect(
+      isProviderSubagentThread(
+        makeThread({
+          id: ThreadId.make("managed"),
+          title: "managed",
+          parentThreadId: ownerThreadId,
+        }),
+      ),
+    ).toBe(false);
+    expect(isProviderSubagentThread(null)).toBe(false);
+  });
+
+  it("keeps native children in the flat list alongside ordinary threads", () => {
+    const layout = buildThreadListV2Items({
+      threads: [owner, nativeChild],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual([
+      ThreadId.make("native-child"),
+      ownerThreadId,
+    ]);
+  });
+});
+
+describe("resolveProviderSubagentOwnerTitles", () => {
+  const ownerThreadId = ThreadId.make("owner-thread");
+  const owner = makeThread({ id: ownerThreadId, title: "Ship the migration" });
+  const nativeChild = makeThread({
+    id: ThreadId.make("native-child"),
+    title: "Subagent c1",
+    parentThreadId: ownerThreadId,
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
+
+  it("allocates nothing when the list holds no native child", () => {
+    const titles = resolveProviderSubagentOwnerTitles([
+      owner,
+      makeThread({
+        id: ThreadId.make("managed"),
+        title: "m",
+        parentThreadId: ownerThreadId,
+      }),
+    ]);
+
+    expect(titles.size).toBe(0);
+  });
+
+  it("resolves the owner title once for the whole list", () => {
+    const titles = resolveProviderSubagentOwnerTitles([owner, nativeChild]);
+
+    expect(providerSubagentOwnerTitle({ thread: nativeChild, ownerTitleByKey: titles })).toBe(
+      "Ship the migration",
+    );
+    expect(providerSubagentOwnerTitle({ thread: owner, ownerTitleByKey: titles })).toBeNull();
+    // Only the owners actually referenced are kept, not every thread's title.
+    expect(titles.size).toBe(1);
+  });
+
+  it("never borrows a same-id owner from another environment", () => {
+    const otherEnvironmentOwner = makeThread({
+      id: ownerThreadId,
+      title: "Unrelated conversation",
+    });
+    const scoped = {
+      ...otherEnvironmentOwner,
+      environmentId: EnvironmentId.make("environment-2"),
+    };
+
+    const titles = resolveProviderSubagentOwnerTitles([scoped, nativeChild]);
+
+    expect(providerSubagentOwnerTitle({ thread: nativeChild, ownerTitleByKey: titles })).toBeNull();
+  });
+});
+
+describe("buildThreadListV2Items — provider-native owner context", () => {
+  const ownerThreadId = ThreadId.make("owner-thread");
+  const owner = makeThread({ id: ownerThreadId, title: "Ship the migration" });
+  const nativeChild = makeThread({
+    id: ThreadId.make("native-child"),
+    title: "Subagent c1",
+    parentThreadId: ownerThreadId,
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
+
+  it("hands every row its owner context so no row has to look one up", () => {
+    const layout = buildThreadListV2Items({
+      threads: [owner, nativeChild],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => [item.thread.id, item.providerSubagentOwnerTitle])).toEqual([
+      [ThreadId.make("native-child"), "Ship the migration"],
+      [ownerThreadId, null],
+    ]);
+  });
+
+  it("still names the owner when the search filtered the owner's own row away", () => {
+    const layout = buildThreadListV2Items({
+      threads: [owner, nativeChild],
+      environmentId: null,
+      searchQuery: "subagent",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual([ThreadId.make("native-child")]);
+    expect(layout.items[0]?.providerSubagentOwnerTitle).toBe("Ship the migration");
+  });
+
+  it("leaves ordinary rows untouched", () => {
+    const layout = buildThreadListV2Items({
+      threads: [owner, makeThread({ id: ThreadId.make("plain"), title: "Plain" })],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.every((item) => item.providerSubagentOwnerTitle === null)).toBe(true);
   });
 });
 

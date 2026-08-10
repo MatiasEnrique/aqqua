@@ -11,7 +11,12 @@ import {
   selectCardSteps,
   selectSubAgentThreads,
 } from "@aqqua/client-runtime/state/boards";
-import type { OrchestrationBoard, OrchestrationCard, ThreadId } from "@aqqua/contracts";
+import type {
+  OrchestrationBoard,
+  OrchestrationCard,
+  ProviderSubagentBinding,
+  ThreadId,
+} from "@aqqua/contracts";
 
 import { formatElapsed } from "./BoardRunTable.logic";
 
@@ -86,7 +91,7 @@ export function resolveCardSelection(input: {
   readonly card: OrchestrationCard;
   readonly board: OrchestrationBoard;
   readonly requested: CardSelection | null;
-  readonly subAgentThreadIds: ReadonlySet<string>;
+  readonly detailThreadIds: ReadonlySet<string>;
 }): CardSelection {
   const { card, board, requested } = input;
   const steps = selectCardSteps(card, board);
@@ -94,7 +99,7 @@ export function resolveCardSelection(input: {
   if (requested === null || requestedStep === undefined || requestedStep.state === "pending") {
     return defaultCardSelection(card, board);
   }
-  if (requested.kind === "subagent" && !input.subAgentThreadIds.has(requested.threadId)) {
+  if (requested.kind === "subagent" && !input.detailThreadIds.has(requested.threadId)) {
     return { kind: "step", stepIndex: requested.stepIndex };
   }
   return requested;
@@ -229,10 +234,74 @@ export interface CardTreeThread {
   readonly id: ThreadId;
   readonly title: string;
   readonly parentThreadId?: ThreadId | null;
+  readonly providerSubagent?: ProviderSubagentBinding | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly isWorking: boolean;
   readonly needsInput: boolean;
+}
+
+function selectAqquaManagedStepSubagents(
+  threads: ReadonlyArray<CardTreeThread>,
+  stepThreadId: ThreadId | null,
+): ReadonlyArray<CardTreeThread> {
+  return selectSubAgentThreads(threads, stepThreadId).filter(
+    (thread) => thread.providerSubagent == null,
+  );
+}
+
+/**
+ * Transcripts reachable from one Flow step. Aqqua-managed agents remain step
+ * details; provider-native children are reached through their owner's native
+ * activity surface, including when that owner is the step thread itself.
+ */
+export function selectCardDetailThreads(
+  threads: ReadonlyArray<CardTreeThread>,
+  stepThreadId: ThreadId | null,
+): ReadonlyArray<CardTreeThread> {
+  if (stepThreadId === null) return [];
+  const managed = selectAqquaManagedStepSubagents(threads, stepThreadId);
+  const nativeOwnerIds = new Set<string>([
+    stepThreadId as string,
+    ...managed.map((thread) => thread.id as string),
+  ]);
+  const native = threads.filter((thread) => {
+    const binding = thread.providerSubagent ?? null;
+    return binding !== null && nativeOwnerIds.has(binding.ownerThreadId as string);
+  });
+  return [...managed, ...native];
+}
+
+/**
+ * Native activity changes the inspected transcript, not the Flow hierarchy.
+ * Keep its owning step or Aqqua-managed agent highlighted in the step tabs.
+ */
+export function resolveFlowTabSelection(input: {
+  readonly selection: CardSelection;
+  readonly stepThreadId: ThreadId | null;
+  readonly threads: ReadonlyArray<CardTreeThread>;
+}): CardSelection {
+  const selection = input.selection;
+  if (selection.kind !== "subagent") return selection;
+  const selected = input.threads.find((thread) => thread.id === selection.threadId);
+  const binding = selected?.providerSubagent ?? null;
+  if (binding === null || input.stepThreadId === null) return selection;
+  if (binding.ownerThreadId === input.stepThreadId) {
+    return { kind: "step", stepIndex: selection.stepIndex };
+  }
+  const managedOwner = input.threads.find(
+    (thread) =>
+      thread.id === binding.ownerThreadId &&
+      thread.providerSubagent == null &&
+      (thread.parentThreadId ?? null) === input.stepThreadId,
+  );
+  return managedOwner === undefined
+    ? { kind: "step", stepIndex: selection.stepIndex }
+    : {
+        kind: "subagent",
+        stepIndex: selection.stepIndex,
+        threadId: managedOwner.id,
+      };
 }
 
 export interface CardTreeArtifactStat {
@@ -365,7 +434,7 @@ export function buildCardTree(input: {
     const isCurrent = step.stepIndex === current;
     const leaves: CardTreeLeaf[] = [];
 
-    for (const subAgent of selectSubAgentThreads(threads, step.threadId)) {
+    for (const subAgent of selectAqquaManagedStepSubagents(threads, step.threadId)) {
       leaves.push({
         kind: "subagent",
         stepIndex: step.stepIndex,

@@ -19,6 +19,13 @@ import {
 
 const makeDeletedEvent = (
   threadId: ThreadId,
+  options?: {
+    readonly providerSubagent?: {
+      readonly ownerThreadId: ThreadId;
+      readonly provider: string;
+      readonly childId: string;
+    };
+  },
 ): Extract<OrchestrationEvent, { type: "thread.deleted" }> => ({
   eventId: EventId.make(`event-deleted-${threadId}`),
   sequence: 1,
@@ -33,6 +40,15 @@ const makeDeletedEvent = (
   payload: {
     threadId,
     deletedAt: "2026-01-01T00:00:00.000Z",
+    ...(options?.providerSubagent
+      ? {
+          providerSubagent: {
+            ownerThreadId: options.providerSubagent.ownerThreadId,
+            provider: options.providerSubagent.provider as never,
+            childId: options.providerSubagent.childId,
+          },
+        }
+      : {}),
   },
 });
 
@@ -232,6 +248,30 @@ describe("ThreadDeletionReactorLive", () => {
 
         expect(harness.stopSessionCalls).toEqual([]);
         expect(harness.closeCalls).toEqual([]);
+      }),
+    ),
+  );
+
+  it.effect("does not stop the owner provider session when deleting a native child", () =>
+    withThreadDeletionHarness({}, (harness) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread-native-child-deleted");
+        const ownerThreadId = ThreadId.make("thread-owner");
+
+        yield* harness.publish(
+          makeDeletedEvent(threadId, {
+            providerSubagent: {
+              ownerThreadId,
+              provider: "codex",
+              childId: "native-1",
+            },
+          }),
+        );
+        yield* harness.awaitTerminalClosed;
+        yield* harness.drain;
+
+        expect(harness.stopSessionCalls).toEqual([]);
+        expect(harness.closeCalls).toEqual([{ threadId, deleteHistory: true }]);
       }),
     ),
   );

@@ -22,6 +22,7 @@ import {
   RuntimeMode,
 } from "./orchestration.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import { ProviderSubagentTarget } from "./providerSubagents.ts";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -127,5 +128,11 @@ export const ProviderEvent = Schema.Struct({
   requestKind: Schema.optional(ProviderRequestKind),
   textDelta: Schema.optional(Schema.String),
   payload: Schema.optional(Schema.Unknown),
+  /**
+   * Optional native harness subagent target. Present when the provider event
+   * belongs to a child of the owner session. Adapters preserve this onto
+   * `ProviderRuntimeEvent.providerSubagent`; ingestion materialises the child.
+   */
+  providerSubagent: Schema.optional(ProviderSubagentTarget),
 });
 export type ProviderEvent = typeof ProviderEvent.Type;

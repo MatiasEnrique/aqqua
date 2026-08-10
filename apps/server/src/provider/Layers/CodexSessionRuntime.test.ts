@@ -23,15 +23,20 @@ import {
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
+  codexNativeChildTitle,
   hasConfiguredMcpServer,
   interruptCodexTurn,
   isRecoverableThreadResumeError,
   openCodexThread,
+  rememberCodexNativeChild,
+  rememberCodexNativeChildrenFromNotification,
+  resolveCodexProviderSubagentTarget,
   shouldSteerCodexTurn,
   steerCodexTurn,
   steerCodexTurnOrStart,
   turnStartSessionUpdates,
   updateTurnStartSession,
+  type CodexNativeChildMeta,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
 
@@ -827,4 +832,186 @@ describe("openCodexThread", () => {
       NodeAssert.equal(error.errorMessage, "timed out waiting for server");
     }),
   );
+});
+
+describe("Codex native provider-subagent targeting", () => {
+  it("prefers name, then nickname, then role for child titles", () => {
+    NodeAssert.equal(
+      codexNativeChildTitle({
+        name: "Explorer",
+        agentNickname: "nick",
+        agentRole: "worker",
+      }),
+      "Explorer",
+    );
+    NodeAssert.equal(
+      codexNativeChildTitle({
+        name: "  ",
+        agentNickname: "nick",
+        agentRole: "worker",
+      }),
+      "nick",
+    );
+    NodeAssert.equal(
+      codexNativeChildTitle({
+        agentRole: "researcher",
+      }),
+      "researcher",
+    );
+    NodeAssert.equal(codexNativeChildTitle({}), undefined);
+  });
+
+  it("leaves root provider-thread events untargeted", () => {
+    const children = new Map<string, CodexNativeChildMeta>();
+    const target = resolveCodexProviderSubagentTarget({
+      providerThreadId: "root-thread",
+      rootProviderThreadId: "root-thread",
+      nativeChildren: children,
+    });
+    NodeAssert.equal(target, undefined);
+  });
+
+  it("targets child thread/started with lineage and title", () => {
+    const children = new Map<string, CodexNativeChildMeta>();
+    rememberCodexNativeChildrenFromNotification(
+      children,
+      {
+        method: "thread/started",
+        params: {
+          thread: {
+            id: "child-thread-1",
+            parentThreadId: "root-thread",
+            name: "Explore codebase",
+            agentNickname: "scout",
+            agentRole: "worker",
+          },
+        },
+      } as never,
+      "root-thread",
+    );
+
+    const target = resolveCodexProviderSubagentTarget({
+      providerThreadId: "child-thread-1",
+      rootProviderThreadId: "root-thread",
+      nativeChildren: children,
+    });
+    NodeAssert.deepStrictEqual(target, {
+      childId: "child-thread-1",
+      title: "Explore codebase",
+    });
+  });
+
+  it("sets parentChildId only when the native parent is itself a child", () => {
+    const children = new Map<string, CodexNativeChildMeta>();
+    rememberCodexNativeChildrenFromNotification(
+      children,
+      {
+        method: "thread/started",
+        params: {
+          thread: {
+            id: "nested-child",
+            parentThreadId: "parent-child",
+            name: "Nested",
+          },
+        },
+      } as never,
+      "root-thread",
+    );
+
+    const target = resolveCodexProviderSubagentTarget({
+      providerThreadId: "nested-child",
+      rootProviderThreadId: "root-thread",
+      nativeChildren: children,
+    });
+    NodeAssert.deepStrictEqual(target, {
+      childId: "nested-child",
+      parentChildId: "parent-child",
+      title: "Nested",
+    });
+  });
+
+  it("establishes child identity from collabAgentToolCall receivers before thread/started", () => {
+    const children = new Map<string, CodexNativeChildMeta>();
+    rememberCodexNativeChildrenFromNotification(
+      children,
+      {
+        method: "item/started",
+        params: {
+          threadId: "root-thread",
+          turnId: "parent-turn",
+          item: {
+            type: "collabAgentToolCall",
+            id: "collab-1",
+            tool: "spawnAgent",
+            status: "inProgress",
+            senderThreadId: "root-thread",
+            receiverThreadIds: ["receiver-1", "receiver-2"],
+            agentsStates: {},
+          },
+        },
+      } as never,
+      "root-thread",
+    );
+
+    // Parent collab row stays root-scoped.
+    NodeAssert.equal(
+      resolveCodexProviderSubagentTarget({
+        providerThreadId: "root-thread",
+        rootProviderThreadId: "root-thread",
+        nativeChildren: children,
+      }),
+      undefined,
+    );
+
+    NodeAssert.deepStrictEqual(
+      resolveCodexProviderSubagentTarget({
+        providerThreadId: "receiver-1",
+        rootProviderThreadId: "root-thread",
+        nativeChildren: children,
+      }),
+      { childId: "receiver-1" },
+    );
+
+    // Later thread/started enriches title without changing child id.
+    rememberCodexNativeChildrenFromNotification(
+      children,
+      {
+        method: "thread/started",
+        params: {
+          thread: {
+            id: "receiver-1",
+            parentThreadId: "root-thread",
+            agentNickname: "helper",
+          },
+        },
+      } as never,
+      "root-thread",
+    );
+    NodeAssert.deepStrictEqual(
+      resolveCodexProviderSubagentTarget({
+        providerThreadId: "receiver-1",
+        rootProviderThreadId: "root-thread",
+        nativeChildren: children,
+      }),
+      { childId: "receiver-1", title: "helper" },
+    );
+  });
+
+  it("preserves child identity and title for approval routing", () => {
+    const children = new Map<string, CodexNativeChildMeta>();
+    rememberCodexNativeChild(children, {
+      childId: "child-thread-1",
+      title: "Worker",
+    });
+
+    const target = resolveCodexProviderSubagentTarget({
+      providerThreadId: "child-thread-1",
+      rootProviderThreadId: "root-thread",
+      nativeChildren: children,
+    });
+    NodeAssert.deepStrictEqual(target, {
+      childId: "child-thread-1",
+      title: "Worker",
+    });
+  });
 });

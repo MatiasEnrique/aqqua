@@ -615,6 +615,7 @@ export function HomeScreen(props: HomeScreenProps) {
           projectTitle={v2ProjectTitleByProjectKey.get(
             scopedProjectKey(thread.environmentId, thread.projectId),
           )}
+          providerSubagentOwnerTitle={item.item.providerSubagentOwnerTitle}
           providerDriver={
             serverConfigs
               .get(thread.environmentId)

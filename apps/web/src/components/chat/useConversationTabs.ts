@@ -16,6 +16,7 @@ import {
   conversationTabKey,
   openConversationTab,
   openNewSubAgentConversationTabs,
+  resolveConversationTabRouteKey,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
 
@@ -62,13 +63,17 @@ export function useConversationTabs(input: {
   );
 
   const { routeThreadKey, enabled } = input;
+  const tabRouteKey = useMemo(
+    () => resolveConversationTabRouteKey({ routeThreadKey, threads }),
+    [routeThreadKey, threads],
+  );
 
   useEffect(() => {
-    if (!enabled || routeThreadKey === null) return;
+    if (!enabled || tabRouteKey === null) return;
     setOpenKeys(
-      openConversationTab(useUiStateStore.getState().openConversationTabKeys, routeThreadKey),
+      openConversationTab(useUiStateStore.getState().openConversationTabKeys, tabRouteKey),
     );
-  }, [enabled, routeThreadKey, setOpenKeys]);
+  }, [enabled, setOpenKeys, tabRouteKey]);
 
   useEffect(() => {
     if (!bootstrapped) return;
@@ -90,14 +95,16 @@ export function useConversationTabs(input: {
   // loading — pruning it would close the tab the user is looking at.
   const knownKeys = useMemo(() => {
     const keys = new Set(
-      threads.map((thread) => conversationTabKey(scopeThreadRef(thread.environmentId, thread.id))),
+      threads
+        .filter((thread) => thread.providerSubagent == null)
+        .map((thread) => conversationTabKey(scopeThreadRef(thread.environmentId, thread.id))),
     );
     for (const draft of drafts) {
       keys.add(conversationTabKey(scopeThreadRef(draft.environmentId, draft.threadId)));
     }
-    if (routeThreadKey !== null) keys.add(routeThreadKey);
+    if (tabRouteKey !== null) keys.add(tabRouteKey);
     return keys;
-  }, [drafts, routeThreadKey, threads]);
+  }, [drafts, tabRouteKey, threads]);
 
   useEffect(() => {
     if (!enabled || !bootstrapped) return;
@@ -122,20 +129,12 @@ export function useConversationTabs(input: {
             openKeys,
             threads,
             drafts,
-            activeKey: routeThreadKey,
+            activeKey: tabRouteKey,
             worktreeKey: activeWorktreeKey,
             projectRootByProjectKey,
           })
         : [],
-    [
-      activeWorktreeKey,
-      drafts,
-      enabled,
-      openKeys,
-      projectRootByProjectKey,
-      routeThreadKey,
-      threads,
-    ],
+    [activeWorktreeKey, drafts, enabled, openKeys, projectRootByProjectKey, tabRouteKey, threads],
   );
 
   return { tabs };

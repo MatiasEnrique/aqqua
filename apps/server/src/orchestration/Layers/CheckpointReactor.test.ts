@@ -1330,4 +1330,94 @@ describe("CheckpointReactor", () => {
       expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
     }),
   );
+
+  it.effect("ignores provider-native child runtime events for baselines and command cwd", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ seedFilesystemCheckpoints: false }),
+      );
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const baselineRef = checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0);
+      const barrierThreadId = ThreadId.make("thread-barrier");
+      const barrierRef = checkpointRefForThreadTurn(barrierThreadId, 0);
+      yield* harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-barrier-create"),
+        threadId: barrierThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Barrier",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: harness.cwd,
+        createdAt,
+      });
+
+      harness.provider.emit({
+        type: "turn.started",
+        eventId: EventId.make("evt-turn-started-native-child"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-native"),
+        providerSubagent: { childId: "native-1", title: "Child" },
+      });
+
+      harness.provider.emit({
+        type: "item.completed",
+        eventId: EventId.make("evt-item-native-child"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-native"),
+        itemId: "item-native",
+        providerSubagent: { childId: "native-1" },
+        payload: {
+          itemType: "command_execution",
+          status: "completed",
+          cwd: "/tmp/should-not-record",
+        },
+      } as ProviderRuntimeEvent);
+
+      harness.provider.emit({
+        type: "turn.completed",
+        eventId: EventId.make("evt-turn-completed-native-child"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-native"),
+        providerSubagent: { childId: "native-1" },
+        payload: { state: "completed" },
+      });
+
+      // This root event is an ordered barrier on the same provider stream. Once
+      // its baseline exists, every child event above has reached the reactor.
+      harness.provider.emit({
+        type: "turn.started",
+        eventId: EventId.make("evt-turn-started-barrier"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: barrierThreadId,
+        turnId: asTurnId("turn-barrier"),
+        payload: {},
+      });
+
+      yield* Effect.promise(() => waitForGitRefExists(harness.cwd, barrierRef));
+      yield* Effect.promise(() => harness.drain());
+
+      expect(gitRefExists(harness.cwd, baselineRef)).toBe(false);
+      const thread = yield* Effect.promise(() =>
+        harness
+          .readModel()
+          .then((snapshot) =>
+            snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1")),
+          ),
+      );
+      expect(thread?.checkpoints ?? []).toEqual([]);
+    }),
+  );
 });

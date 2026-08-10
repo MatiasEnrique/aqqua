@@ -587,9 +587,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
       NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
+      if (firstEvent._tag !== "Some") {
         return;
       }
+      NodeAssert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") return;
       NodeAssert.equal(firstEvent.value.payload.itemType, "command_execution");
       NodeAssert.equal(firstEvent.value.payload.cwd, "/tmp/project/.worktrees/feature");
     }),
@@ -1274,6 +1276,254 @@ scopedFailureLayer("CodexAdapterLive scoped startup failure", (it) => {
         asThreadId("thread-fail"),
       ]);
       NodeAssert.equal(yield* adapter.hasSession(asThreadId("thread-fail")), false);
+    }),
+  );
+});
+
+lifecycleLayer("CodexAdapterLive provider-subagent targeting", (it) => {
+  it.effect("keeps root events untargeted", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-root-turn"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "turn/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-root"),
+        payload: {
+          threadId: "provider-root",
+          turn: { id: "turn-root", status: "inProgress", items: [], error: null },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "turn.started");
+      NodeAssert.equal(firstEvent.value.providerSubagent, undefined);
+      NodeAssert.equal(firstEvent.value.turnId, "turn-root");
+    }),
+  );
+
+  it.effect("preserves providerSubagent and actual child turn ids on child events", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-child-msg"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("child-turn-9"),
+        itemId: asItemId("msg_child"),
+        providerSubagent: {
+          childId: "native-child-1",
+          parentChildId: "native-parent-1",
+          title: "Explore",
+        },
+        payload: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "native-child-1",
+          turnId: "child-turn-9",
+          item: {
+            type: "agentMessage",
+            id: "msg_child",
+            text: "child says hi",
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.turnId, "child-turn-9");
+      NodeAssert.deepStrictEqual(firstEvent.value.providerSubagent, {
+        childId: "native-child-1",
+        parentChildId: "native-parent-1",
+        title: "Explore",
+      });
+    }),
+  );
+
+  it.effect("keeps parent collabAgentToolCall root-scoped when untargeted", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-collab-root"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/started",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("parent-turn"),
+        itemId: asItemId("collab_1"),
+        payload: {
+          startedAtMs: 1_778_000_000_000,
+          threadId: "provider-root",
+          turnId: "parent-turn",
+          item: {
+            type: "collabAgentToolCall",
+            id: "collab_1",
+            tool: "spawnAgent",
+            status: "inProgress",
+            senderThreadId: "provider-root",
+            receiverThreadIds: ["native-child-1"],
+            agentsStates: {},
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.providerSubagent, undefined);
+      NodeAssert.equal(firstEvent.value.turnId, "parent-turn");
+    }),
+  );
+
+  it.effect("targets child approval and user-input requests", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.take(adapter.streamEvents, 2).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* runtime.emit({
+        id: asEventId("evt-child-approval"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/commandExecution/requestApproval",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("child-turn-appr"),
+        itemId: asItemId("cmd_child"),
+        requestId: ApprovalRequestId.make("req-child-1"),
+        requestKind: "command",
+        providerSubagent: {
+          childId: "native-child-1",
+          title: "Worker",
+        },
+        payload: {
+          itemId: "cmd_child",
+          threadId: "native-child-1",
+          turnId: "child-turn-appr",
+          startedAtMs: 1,
+          command: "ls",
+        },
+      } satisfies ProviderEvent);
+
+      yield* runtime.emit({
+        id: asEventId("evt-child-user-input"),
+        kind: "request",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        method: "item/tool/requestUserInput",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("child-turn-ui"),
+        itemId: asItemId("ui_child"),
+        requestId: ApprovalRequestId.make("req-child-ui"),
+        providerSubagent: {
+          childId: "native-child-1",
+          title: "Worker",
+        },
+        payload: {
+          itemId: "ui_child",
+          threadId: "native-child-1",
+          turnId: "child-turn-ui",
+          questions: [
+            {
+              id: "continue",
+              header: "Continue",
+              question: "Continue?",
+              options: [{ label: "Yes", description: "yes" }],
+            },
+          ],
+        },
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.equal(events.length, 2);
+      NodeAssert.equal(events[0]?.type, "request.opened");
+      NodeAssert.deepStrictEqual(events[0]?.providerSubagent, {
+        childId: "native-child-1",
+        title: "Worker",
+      });
+      NodeAssert.equal(events[0]?.turnId, "child-turn-appr");
+      NodeAssert.equal(events[1]?.type, "user-input.requested");
+      NodeAssert.deepStrictEqual(events[1]?.providerSubagent, {
+        childId: "native-child-1",
+        title: "Worker",
+      });
+      NodeAssert.equal(events[1]?.turnId, "child-turn-ui");
+    }),
+  );
+
+  it.effect("maps child thread/started with providerSubagent target", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-child-thread-started"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "thread/started",
+        threadId: asThreadId("thread-1"),
+        providerSubagent: {
+          childId: "native-child-1",
+          title: "Scout",
+        },
+        payload: {
+          thread: {
+            id: "native-child-1",
+            parentThreadId: "provider-root",
+            name: "Scout",
+            agentNickname: "scout",
+            agentRole: "worker",
+            cliVersion: "1",
+            createdAt: 0,
+            cwd: "/tmp",
+            ephemeral: false,
+            modelProvider: "openai",
+            preview: "",
+            sessionId: "s",
+            source: "appServer",
+            status: { type: "idle" },
+            turns: [],
+            updatedAt: 0,
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "thread.started");
+      if (firstEvent.value.type !== "thread.started") return;
+      NodeAssert.deepStrictEqual(firstEvent.value.providerSubagent, {
+        childId: "native-child-1",
+        title: "Scout",
+      });
+      NodeAssert.equal(firstEvent.value.payload.providerThreadId, "native-child-1");
     }),
   );
 });

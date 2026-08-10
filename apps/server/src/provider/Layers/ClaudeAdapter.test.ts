@@ -24,6 +24,7 @@ import {
 import { createModelSelection } from "@aqqua/shared/model";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -3956,6 +3957,574 @@ describe("ClaudeAdapterLive", () => {
         nativeThreadIds.every((threadId) => threadId === String(THREAD_ID)),
         true,
       );
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("enables forwardSubagentText on Claude query options", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.forwardSubagentText, true);
+      assert.equal(createInput?.options.includePartialMessages, true);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("task_started creates targeted thread/turn/task lifecycle", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const taskStarted = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "task-explore-1"
+          ) {
+            yield* Deferred.succeed(taskStarted, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-explore-1",
+        tool_use_id: "toolu-parent-task",
+        description: "Explore the repo",
+        subagent_type: "Explore",
+        session_id: "sdk-session-task",
+        uuid: "task-started-1",
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(taskStarted);
+
+      const targeted = runtimeEvents.filter(
+        (event) => event.providerSubagent?.childId === "task-explore-1",
+      );
+      const types = targeted.map((event) => event.type);
+      assert.deepEqual(types, ["thread.started", "turn.started", "task.started"]);
+      assert.equal(new Set(targeted.map((event) => event.eventId)).size, targeted.length);
+      for (const event of targeted) {
+        assert.equal(event.threadId, THREAD_ID);
+        assert.equal(event.turnId, "claude-subagent:task-explore-1");
+        assert.equal(event.providerSubagent?.title, "Explore the repo");
+      }
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("task progress and completion stay on the same child and complete its turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const turnCompletedSignal = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "turn.completed" &&
+            event.providerSubagent?.childId === "task-progress-1"
+          ) {
+            yield* Deferred.succeed(turnCompletedSignal, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-progress-1",
+        tool_use_id: "toolu-progress-parent",
+        description: "Review code",
+        session_id: "sdk-session-task-progress",
+        uuid: "task-started-progress",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-progress-1",
+        description: "Review code",
+        summary: "Checked edge cases",
+        usage: { total_tokens: 10, tool_uses: 1, duration_ms: 20 },
+        session_id: "sdk-session-task-progress",
+        uuid: "task-progress-1",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-progress-1",
+        status: "completed",
+        output_file: "/tmp/out",
+        summary: "Done",
+        usage: { total_tokens: 12, tool_uses: 2, duration_ms: 40 },
+        session_id: "sdk-session-task-progress",
+        uuid: "task-notification-1",
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(turnCompletedSignal);
+
+      const childEvents = runtimeEvents.filter(
+        (event) => event.providerSubagent?.childId === "task-progress-1",
+      );
+      assert.ok(childEvents.some((event) => event.type === "task.progress"));
+      assert.ok(childEvents.some((event) => event.type === "task.completed"));
+      const turnCompleted = childEvents.find((event) => event.type === "turn.completed");
+      assert.equal(turnCompleted?.type, "turn.completed");
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "completed");
+        assert.equal(turnCompleted.turnId, "claude-subagent:task-progress-1");
+      }
+      assert.ok(childEvents.every((event) => event.turnId === "claude-subagent:task-progress-1"));
+      assert.equal(new Set(childEvents.map((event) => event.eventId)).size, childEvents.length);
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("routes forwarded text with parent_tool_use_id to the child", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const childDelta = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent?.childId === "task-text-1" &&
+            event.payload.delta === "child says hello"
+          ) {
+            yield* Deferred.succeed(childDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-text-1",
+        tool_use_id: "toolu-text-parent",
+        description: "Write notes",
+        session_id: "sdk-session-text",
+        uuid: "task-started-text",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-text",
+        uuid: "stream-child-text",
+        parent_tool_use_id: "toolu-text-parent",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "child says hello" },
+        },
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(childDelta);
+
+      const deltas = runtimeEvents.filter(
+        (event) =>
+          event.type === "content.delta" && event.providerSubagent?.childId === "task-text-1",
+      );
+      assert.ok(deltas.length >= 1);
+      const delta = deltas[0];
+      assert.equal(delta?.type, "content.delta");
+      if (delta?.type === "content.delta") {
+        assert.equal(delta.payload.delta, "child says hello");
+        assert.equal(delta.turnId, "claude-subagent:task-text-1");
+      }
+
+      const rootDeltas = runtimeEvents.filter(
+        (event) => event.type === "content.delta" && event.providerSubagent == null,
+      );
+      assert.equal(rootDeltas.length, 0);
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("keeps provisional child identity when task_started supplies a durable id", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const taskStarted = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "toolu-provisional-parent"
+          ) {
+            yield* Deferred.succeed(taskStarted, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-provisional",
+        uuid: "stream-provisional-text",
+        parent_tool_use_id: "toolu-provisional-parent",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "before task started" },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-durable-id",
+        tool_use_id: "toolu-provisional-parent",
+        description: "Provisional worker",
+        session_id: "sdk-session-provisional",
+        uuid: "task-started-provisional",
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(taskStarted);
+
+      const childEvents = runtimeEvents.filter(
+        (event) => event.providerSubagent?.childId === "toolu-provisional-parent",
+      );
+      assert.ok(childEvents.some((event) => event.type === "content.delta"));
+      assert.ok(childEvents.some((event) => event.type === "task.started"));
+      assert.ok(
+        childEvents.every((event) => event.turnId === "claude-subagent:toolu-provisional-parent"),
+      );
+      assert.equal(
+        runtimeEvents.some((event) => event.providerSubagent?.childId === "task-durable-id"),
+        false,
+      );
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not mix transcript state across two interleaved Claude children", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const finalChildDelta = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent?.childId === "task-a" &&
+            event.payload.delta === "-more-a"
+          ) {
+            yield* Deferred.succeed(finalChildDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-a",
+        tool_use_id: "toolu-a",
+        description: "Child A",
+        session_id: "sdk-session-interleave",
+        uuid: "task-a-start",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-b",
+        tool_use_id: "toolu-b",
+        description: "Child B",
+        session_id: "sdk-session-interleave",
+        uuid: "task-b-start",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-interleave",
+        uuid: "delta-a1",
+        parent_tool_use_id: "toolu-a",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "from-a" },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-interleave",
+        uuid: "delta-b1",
+        parent_tool_use_id: "toolu-b",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "from-b" },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-interleave",
+        uuid: "delta-a2",
+        parent_tool_use_id: "toolu-a",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "-more-a" },
+        },
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(finalChildDelta);
+
+      const textFor = (childId: string) =>
+        runtimeEvents
+          .filter(
+            (event) =>
+              event.type === "content.delta" && event.providerSubagent?.childId === childId,
+          )
+          .map((event) => (event.type === "content.delta" ? event.payload.delta : ""))
+          .join("");
+
+      assert.equal(textFor("task-a"), "from-a-more-a");
+      assert.equal(textFor("task-b"), "from-b");
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("targets Claude child approval and AskUserQuestion events via agentID", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const childStarted = yield* Deferred.make<void>();
+      const requestOpened =
+        yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "request.opened" }>>();
+      const userInputRequested =
+        yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "user-input.requested" }>>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "task-approve-1"
+          ) {
+            yield* Deferred.succeed(childStarted, undefined).pipe(Effect.ignore);
+          } else if (event.type === "request.opened") {
+            yield* Deferred.succeed(requestOpened, event).pipe(Effect.ignore);
+          } else if (event.type === "user-input.requested") {
+            yield* Deferred.succeed(userInputRequested, event).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-approve-1",
+        tool_use_id: "toolu-approve-parent",
+        description: "Child worker",
+        session_id: "sdk-session-child-approve",
+        uuid: "task-approve-start",
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(childStarted);
+
+      const createInput = harness.getLastCreateQueryInput();
+      const canUseTool = createInput?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        throw new Error("Expected Claude canUseTool callback");
+      }
+
+      const approvalPromise = canUseTool(
+        "Bash",
+        { command: "pwd" },
+        {
+          signal: new AbortController().signal,
+          toolUseID: "tool-use-child-bash",
+          agentID: "task-approve-1",
+        },
+      );
+
+      const opened = yield* Deferred.await(requestOpened);
+      assert.equal(opened.providerSubagent?.childId, "task-approve-1");
+      assert.equal(opened.turnId, "claude-subagent:task-approve-1");
+      const requestId = opened.requestId;
+      assert.ok(requestId);
+
+      yield* adapter.respondToRequest(
+        session.threadId,
+        ApprovalRequestId.make(requestId),
+        "accept",
+      );
+      yield* Effect.promise(() => approvalPromise);
+
+      const askPromise = canUseTool(
+        "AskUserQuestion",
+        {
+          questions: [
+            {
+              question: "Ship it?",
+              header: "Ship",
+              options: [{ label: "Yes", description: "yes" }],
+              multiSelect: false,
+            },
+          ],
+        },
+        {
+          signal: new AbortController().signal,
+          toolUseID: "tool-use-child-ask",
+          agentID: "task-approve-1",
+        },
+      );
+
+      const asked = yield* Deferred.await(userInputRequested);
+      assert.equal(asked.providerSubagent?.childId, "task-approve-1");
+      assert.equal(asked.turnId, "claude-subagent:task-approve-1");
+      const askRequestId = asked.requestId;
+      assert.ok(askRequestId);
+
+      yield* adapter.respondToUserInput(session.threadId, ApprovalRequestId.make(askRequestId), {
+        "Ship it?": "Yes",
+      });
+      yield* Effect.promise(() => askPromise);
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("keeps ordinary root Claude transcript behavior untargeted", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const rootDelta = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent == null &&
+            event.payload.delta === "root reply"
+          ) {
+            yield* Deferred.succeed(rootDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello root",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-root",
+        uuid: "stream-root-text",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "root reply" },
+        },
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(rootDelta);
+
+      const rootDeltas = runtimeEvents.filter(
+        (event) => event.type === "content.delta" && event.providerSubagent == null,
+      );
+      assert.ok(rootDeltas.length >= 1);
+      if (rootDeltas[0]?.type === "content.delta") {
+        assert.equal(rootDeltas[0].payload.delta, "root reply");
+      }
+      assert.ok(
+        runtimeEvents
+          .filter((event) => event.type === "content.delta")
+          .every((event) => event.providerSubagent == null),
+      );
+
+      runtimeEventsFiber.interruptUnsafe();
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

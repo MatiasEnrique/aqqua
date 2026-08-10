@@ -2626,4 +2626,155 @@ describe("ProviderCommandReactor", () => {
         expect(thread?.session?.activeTurnId).toBeNull();
       }),
   );
+
+  it("routes approval and user-input responses on a native child to the owner session", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const ownerThreadId = ThreadId.make("thread-1");
+    const childThreadId = ThreadId.make("thread-native-child");
+    const provider = ProviderDriverKind.make("codex");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-create-native-child"),
+        threadId: childThreadId,
+        projectId: ProjectId.make("project-1"),
+        parentThreadId: ownerThreadId,
+        providerSubagent: {
+          ownerThreadId,
+          provider,
+          childId: "native-1",
+        },
+        title: "Native child",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-owner-for-native-approval"),
+        threadId: ownerThreadId,
+        session: {
+          threadId: ownerThreadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.make("cmd-approval-respond-native-child"),
+        threadId: childThreadId,
+        requestId: asApprovalRequestId("approval-native-1"),
+        decision: "accept",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.respondToRequest.mock.calls.length === 1);
+    expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
+      threadId: ownerThreadId,
+      requestId: "approval-native-1",
+      decision: "accept",
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.user-input.respond",
+        commandId: CommandId.make("cmd-user-input-respond-native-child"),
+        threadId: childThreadId,
+        requestId: asApprovalRequestId("user-input-native-1"),
+        answers: { choice: "a" },
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.respondToUserInput.mock.calls.length === 1);
+    expect(harness.respondToUserInput.mock.calls[0]?.[0]).toEqual({
+      threadId: ownerThreadId,
+      requestId: "user-input-native-1",
+      answers: { choice: "a" },
+    });
+  });
+
+  it("rejects direct control commands on a provider-native child while allowing archive", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const ownerThreadId = ThreadId.make("thread-1");
+    const childThreadId = ThreadId.make("thread-native-control");
+    const provider = ProviderDriverKind.make("codex");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-create-native-control"),
+        threadId: childThreadId,
+        projectId: ProjectId.make("project-1"),
+        parentThreadId: ownerThreadId,
+        providerSubagent: {
+          ownerThreadId,
+          provider,
+          childId: "native-control",
+        },
+        title: "Native control",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-native"),
+          threadId: childThreadId,
+          message: {
+            messageId: MessageId.make("msg-native"),
+            role: "user",
+            text: "hello",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now,
+        }),
+      ),
+    ).rejects.toThrow(/provider-native subagent/);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("cmd-archive-native"),
+        threadId: childThreadId,
+      }),
+    );
+
+    const readModel = await harness.readModel();
+    const child = readModel.threads.find((entry) => entry.id === childThreadId);
+    expect(child?.archivedAt).not.toBeNull();
+  });
 });

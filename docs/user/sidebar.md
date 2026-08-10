@@ -35,5 +35,29 @@ opens a bounded popover, so a large delegation tree does not expand the tab stri
 When one of those sub-agents is open, the count control marks which family owns the conversation
 being read.
 
+### Two kinds of sub-agent
+
+The two kinds deliberately use different navigation because they have different ownership.
+
+- **aqqua-managed sub-agents** are spawned by aqqua (`aqqua agent`, or a flow step). Each one runs
+  its own provider session, so it behaves like any other conversation: you can write to it, change
+  its model, switch runtime and interaction modes, interrupt it, and revert its checkpoints.
+- **Provider-native subagents** are spawned by the provider's own harness inside the parent's real
+  session. They do not enter the conversation tab family. The owner conversation instead shows a
+  compact **Native agent activity** surface below its tabs; use it to inspect a child's transcript
+  while the owner tab remains selected. Opening a child shows a direct back-to-parent action and a
+  short explanation where the composer would be. Send follow-ups from the owner conversation.
+
+A native subagent is not inert. Approval requests and multiple-choice questions raised inside it
+stay answerable on its own conversation, and it archives, snoozes, settles, deletes, and renames
+like any other thread. What it does not offer is anything that would claim ownership of a session
+it does not have: sending, queueing, steering, interrupting, model or provider selection, branch or
+worktree changes, runtime and interaction modes, and checkpoint revert.
+
+Codex and Claude are the providers that report native subagents today. Only work observed after
+the feature is running appears — existing harness children are not imported retroactively.
+Mobile keeps its flat list rather than nesting: a native subagent row names its provider, and in
+the archive it also names the conversation that owns it.
+
 Settled and snoozed conversations remain reachable through the header tabs and command palette.
 New activity wakes or un-settles a conversation according to its lifecycle rules.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type OrchestrationSession,
   type OrchestrationSessionStatus,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -91,6 +92,52 @@ describe("selectOrphanedSessions", () => {
     });
 
     expect(orphaned.map((entry) => entry.threadId)).toEqual(["thread-2"]);
+  });
+
+  it("claims a provider-native child while its owner binding is claimed", () => {
+    const ownerId = "thread-owner";
+    const childId = "thread-child";
+    const orphaned = selectOrphanedSessions({
+      threads: [
+        running(ownerId, "turn-owner"),
+        {
+          id: ThreadId.make(childId),
+          session: session({ threadId: childId, status: "running", activeTurnId: "turn-child" }),
+          providerSubagent: {
+            ownerThreadId: ThreadId.make(ownerId),
+            provider: ProviderDriverKind.make("codex"),
+            childId: "native-1",
+          },
+        },
+      ],
+      claimedThreadIds: new Set([ownerId]),
+      stoppedAt,
+    });
+
+    expect(orphaned).toEqual([]);
+  });
+
+  it("stops a running provider-native child when its owner is no longer claimed", () => {
+    const ownerId = "thread-owner";
+    const childId = "thread-child";
+    const orphaned = selectOrphanedSessions({
+      threads: [
+        {
+          id: ThreadId.make(childId),
+          session: session({ threadId: childId, status: "running", activeTurnId: "turn-child" }),
+          providerSubagent: {
+            ownerThreadId: ThreadId.make(ownerId),
+            provider: ProviderDriverKind.make("codex"),
+            childId: "native-1",
+          },
+        },
+      ],
+      claimedThreadIds: nothingClaimed,
+      stoppedAt,
+    });
+
+    expect(orphaned.map((entry) => entry.threadId)).toEqual([childId]);
+    expect(orphaned[0]?.session.status).toBe("stopped");
   });
 
   it("leaves settled sessions alone so a clean boot issues no commands", () => {

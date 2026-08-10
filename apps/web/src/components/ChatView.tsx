@@ -173,6 +173,7 @@ import { getProviderModelCapabilities, resolveSelectableProvider } from "../prov
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { ConversationTabs } from "./chat/ConversationTabs";
+import { NativeSubagentActivity } from "./chat/NativeSubagentActivity";
 import { useConversationTabs } from "./chat/useConversationTabs";
 import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -296,6 +297,10 @@ import {
   deriveLockedProvider,
   getThreadErrorIdentity,
   IMAGE_ONLY_BOOTSTRAP_PROMPT,
+  buildProviderSubagentComposerNotice,
+  type ProviderSubagentPresentation,
+  resolveComposerSubmitDisposition,
+  resolveProviderSubagentPresentation,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
   resolveThreadErrorCandidate,
@@ -504,6 +509,30 @@ const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
 /**
+ * What stands in for the composer on a provider-native child.
+ *
+ * A disabled composer would be a worse answer than no composer: the controls
+ * would still read as this thread's, and the user would be left to work out why
+ * none of them respond. The child is a transcript of work happening inside the
+ * parent's session, so it says that, in the composer's own surface, and offers
+ * nothing to press.
+ */
+function ProviderSubagentComposerPanel(props: {
+  readonly presentation: ProviderSubagentPresentation;
+}) {
+  const notice = buildProviderSubagentComposerNotice(props.presentation);
+  return (
+    <div
+      data-chat-composer-provider-subagent="read-only"
+      className="rounded-[var(--chat-composer-inner-radius,9px)] border border-border/55 bg-muted/25 px-4 py-3.5 sm:px-5"
+    >
+      <p className="font-medium text-foreground text-sm">{notice.title}</p>
+      <p className="mt-1 text-muted-foreground text-xs leading-relaxed">{notice.description}</p>
+    </div>
+  );
+}
+
+/**
  * Slots that let another surface reuse the chat view whole rather than clone
  * it. Flows card detail is the only caller: it hangs the card
  * steps in the tab strip, swaps the timeline for an artifact document, and
@@ -512,6 +541,8 @@ const SCRIPT_TERMINAL_ROWS = 30;
 export interface ChatViewSurfaceSlots {
   /** Replaces the conversation tab strip for an embedded surface such as Flows. */
   surfaceTabs?: ReactNode;
+  /** Keeps native transcript navigation inside an embedding surface's route. */
+  onNativeSubagentThreadSelect?: ((threadRef: ScopedThreadRef) => void) | undefined;
   /** Replaces the timeline and receives the floating composer's measured inset. */
   timelineOverride?: (contentInsetEndAdjustment: number) => ReactNode;
   /** Extra banners stacked above the composer (card status, sub-agent hint). */
@@ -1199,6 +1230,7 @@ function ChatViewContent(props: ChatViewProps) {
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
     surfaceTabs,
+    onNativeSubagentThreadSelect,
     timelineOverride,
     composerBanners,
     renderComposerIdlePrimaryAction,
@@ -1601,6 +1633,15 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  /**
+   * Present only while a provider-native child is open. Read from the durable
+   * binding rather than `parentThreadId`, which an aqqua-managed sub-agent also
+   * carries; that one owns its session and must keep its ordinary composer.
+   * The UI gating below is defence in depth — the server already rejects these
+   * commands — so the child never shows a control that cannot work.
+   */
+  const providerSubagent = resolveProviderSubagentPresentation(activeThread);
+  const isProviderSubagentThread = providerSubagent !== null;
   const localThreadErrorEntry = isServerThread
     ? (localServerErrorsByThreadKey[routeThreadKey] ?? null)
     : draftId
@@ -1680,6 +1721,40 @@ function ChatViewContent(props: ChatViewProps) {
     [activeProjectRef],
   );
   const projectThreadShells = useThreadShellsForProjectRefs(activeProjectRefs);
+  const archivedNativeSubagentOwnerRef = useMemo(() => {
+    const binding = activeThread?.providerSubagent ?? null;
+    if (!isServerThread || !activeThread || binding === null) return null;
+    const ownerIsLive = projectThreadShells.some(
+      (thread) =>
+        thread.environmentId === activeThread.environmentId && thread.id === binding.ownerThreadId,
+    );
+    return ownerIsLive ? null : scopeThreadRef(activeThread.environmentId, binding.ownerThreadId);
+  }, [activeThread, isServerThread, projectThreadShells]);
+  const archivedNativeSubagentOwner = useThread(archivedNativeSubagentOwnerRef);
+  const nativeSubagentActivity = useMemo(() => {
+    if (!isServerThread || !activeThread) return null;
+    const activeBinding = activeThread.providerSubagent ?? null;
+    const ownerThreadId = activeBinding?.ownerThreadId ?? activeThread.id;
+    const children = projectThreadShells.filter(
+      (thread) =>
+        thread.environmentId === activeThread.environmentId &&
+        thread.providerSubagent?.ownerThreadId === ownerThreadId &&
+        (thread.archivedAt === null || thread.id === activeThread.id),
+    );
+    if (children.length === 0) return null;
+    const owner = projectThreadShells.find(
+      (thread) =>
+        thread.environmentId === activeThread.environmentId && thread.id === ownerThreadId,
+    );
+    return {
+      ownerTitle:
+        owner?.title ||
+        archivedNativeSubagentOwner?.title ||
+        (activeBinding === null ? activeThread.title : "Parent conversation"),
+      children,
+      activeChildId: activeBinding === null ? null : activeThread.id,
+    };
+  }, [activeThread, archivedNativeSubagentOwner?.title, isServerThread, projectThreadShells]);
   const activeProject = useProject(activeProjectRef);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const providerSessionCwds = useMemo(() => {
@@ -4981,7 +5056,7 @@ function ChatViewContent(props: ChatViewProps) {
   const onRevertToTurnCount = useCallback(
     async (turnCount: number) => {
       const localApi = readLocalApi();
-      if (!localApi || !activeThread || isRevertingCheckpoint) return;
+      if (!localApi || !activeThread || isProviderSubagentThread || isRevertingCheckpoint) return;
 
       if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
         setThreadError(
@@ -5029,6 +5104,7 @@ function ChatViewContent(props: ChatViewProps) {
       activeEnvironmentUnavailableLabel,
       environmentId,
       isConnecting,
+      isProviderSubagentThread,
       isRevertingCheckpoint,
       isSendBusy,
       phase,
@@ -5048,10 +5124,19 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (activePendingProgress) {
+    // Resolved before anything reads the composer, so a keyboard shortcut or a
+    // stale composer ref cannot enqueue a message on a thread that has no
+    // session of its own — while a native child's pending question stays
+    // answerable through the same handler.
+    const submitDisposition = resolveComposerSubmitDisposition({
+      thread: activeThread,
+      hasPendingUserInputProgress: activePendingProgress !== null,
+    });
+    if (submitDisposition === "advance-pending-user-input") {
       onAdvanceActivePendingUserInput();
       return;
     }
+    if (submitDisposition === "blocked") return;
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) return;
     const {
@@ -5531,7 +5616,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   const onSubmitQueuedMessages = useCallback(
     async (messageIds: ReadonlyArray<MessageId>) => {
-      if (!activeThread || messageIds.length === 0) return;
+      if (!activeThread || isProviderSubagentThread || messageIds.length === 0) return;
       const result = await submitThreadMessages({
         environmentId,
         input: {
@@ -5547,11 +5632,11 @@ function ChatViewContent(props: ChatViewProps) {
         );
       }
     },
-    [activeThread, environmentId, setThreadError, submitThreadMessages],
+    [activeThread, environmentId, isProviderSubagentThread, setThreadError, submitThreadMessages],
   );
 
   const onInterrupt = async () => {
-    if (!activeThread) return;
+    if (!activeThread || isProviderSubagentThread) return;
     const result = await interruptThreadTurn({
       environmentId,
       input: buildThreadTurnInterruptInput(activeThread),
@@ -6488,7 +6573,6 @@ function ChatViewContent(props: ChatViewProps) {
               newThreadLabel={newConversationTabLabel}
             />
           ) : null)}
-
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => {
@@ -6519,6 +6603,14 @@ function ChatViewContent(props: ChatViewProps) {
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
               />
             </div>
+            {nativeSubagentActivity !== null ? (
+              <NativeSubagentActivity
+                ownerTitle={nativeSubagentActivity.ownerTitle}
+                agents={nativeSubagentActivity.children}
+                activeChildId={nativeSubagentActivity.activeChildId}
+                onSelectThread={onNativeSubagentThreadSelect ?? navigateToThreadRef}
+              />
+            ) : null}
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
               {timelineOverride?.(composerOverlayHeight) ?? (
@@ -6640,91 +6732,124 @@ function ChatViewContent(props: ChatViewProps) {
                     <div className="chat-composer-glass-shell relative mx-auto w-full max-w-3xl">
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[var(--chat-composer-radius,10px)]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
-                          <ChatComposer
-                            composerRef={composerRef}
-                            composerDraftTarget={composerDraftTarget}
-                            renderIdlePrimaryAction={renderComposerIdlePrimaryAction}
-                            environmentId={environmentId}
-                            routeKind={routeKind}
-                            routeThreadRef={routeThreadRef}
-                            draftId={draftId}
-                            activeThreadId={activeThreadId}
-                            activeThreadEnvironmentId={activeThread?.environmentId}
-                            activeThread={activeThread}
-                            isServerThread={isServerThread}
-                            isLocalDraftThread={isLocalDraftThread}
-                            forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
-                            projectSelectionRequired={isLocalDraftThread && activeProject === null}
-                            phase={phase}
-                            isConnecting={isConnecting}
-                            isSendBusy={isSendBusy}
-                            sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
-                            isPreparingWorktree={isPreparingWorktree}
-                            messageQueueSupported={messageQueueSupported}
-                            messageQueueSteeringSupported={messageQueueSteeringSupported}
-                            environmentUnavailable={activeEnvironmentUnavailableState}
-                            activePendingApproval={activePendingApproval}
-                            pendingApprovals={pendingApprovals}
-                            pendingUserInputs={pendingUserInputs}
-                            activePendingProgress={activePendingProgress}
-                            activePendingResolvedAnswers={activePendingResolvedAnswers}
-                            activePendingIsResponding={activePendingIsResponding}
-                            activePendingDraftAnswers={activePendingDraftAnswers}
-                            activePendingQuestionIndex={activePendingQuestionIndex}
-                            respondingRequestIds={respondingRequestIds}
-                            showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-                            activeProposedPlan={activeProposedPlan}
-                            activePlan={activePlan as { turnId?: TurnId } | null}
-                            sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
-                            planSidebarLabel={planSidebarLabel}
-                            planSidebarOpen={planSidebarOpen}
-                            runtimeMode={runtimeMode}
-                            interactionMode={interactionMode}
-                            lockedProvider={lockedProvider}
-                            providerStatuses={providerStatuses as ServerProvider[]}
-                            activeProjectDefaultModelSelection={
-                              activeProject?.defaultModelSelection
-                            }
-                            activeThreadModelSelection={activeThread?.modelSelection}
-                            activeThreadActivities={activeThread?.activities}
-                            resolvedTheme={resolvedTheme}
-                            settings={settings}
-                            keybindings={keybindings}
-                            terminalOpen={Boolean(terminalUiState.terminalOpen)}
-                            gitCwd={gitCwd}
-                            projectWorkspaceRoot={activeProject?.workspaceRoot ?? null}
-                            providerSessionCwds={providerSessionCwds}
-                            promptRef={promptRef}
-                            composerImagesRef={composerImagesRef}
-                            composerTerminalContextsRef={composerTerminalContextsRef}
-                            composerElementContextsRef={composerElementContextsRef}
-                            onSend={onSend}
-                            onDequeueQueuedMessage={onDequeueQueuedMessage}
-                            onSubmitQueuedMessages={onSubmitQueuedMessages}
-                            onInterrupt={onInterrupt}
-                            onImplementPlanInNewThread={onImplementPlanInNewThread}
-                            onRespondToApproval={onRespondToApproval}
-                            onSelectActivePendingUserInputOption={
-                              onSelectActivePendingUserInputOption
-                            }
-                            onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
-                            onPreviousActivePendingUserInputQuestion={
-                              onPreviousActivePendingUserInputQuestion
-                            }
-                            onChangeActivePendingUserInputCustomAnswer={
-                              onChangeActivePendingUserInputCustomAnswer
-                            }
-                            onProviderModelSelect={onProviderModelSelect}
-                            getModelDisabledReason={getModelDisabledReason}
-                            toggleInteractionMode={toggleInteractionMode}
-                            handleRuntimeModeChange={handleRuntimeModeChange}
-                            handleInteractionModeChange={handleInteractionModeChange}
-                            togglePlanSidebar={togglePlanSidebar}
-                            focusComposer={focusComposer}
-                            scheduleComposerFocus={scheduleComposerFocus}
-                            setThreadError={setThreadError}
-                            onExpandImage={onExpandTimelineImage}
-                          />
+                          {providerSubagent !== null &&
+                          activePendingApproval === null &&
+                          pendingUserInputs.length === 0 ? (
+                            <ProviderSubagentComposerPanel presentation={providerSubagent} />
+                          ) : (
+                            /* A native child keeps the composer only while it
+                               holds something to answer, and then only as the
+                               card plus its own actions: the footer controls
+                               below it all claim ownership the child does not
+                               have (model, provider, runtime and interaction
+                               modes), so they are hidden rather than left to
+                               fail on use. */
+                            <div
+                              {...(providerSubagent === null
+                                ? {}
+                                : {
+                                    "data-chat-composer-provider-subagent": "true",
+                                    className:
+                                      "[&_[data-chat-composer-footer-controls=true]]:hidden",
+                                  })}
+                            >
+                              <ChatComposer
+                                composerRef={composerRef}
+                                composerDraftTarget={composerDraftTarget}
+                                renderIdlePrimaryAction={renderComposerIdlePrimaryAction}
+                                environmentId={environmentId}
+                                routeKind={routeKind}
+                                routeThreadRef={routeThreadRef}
+                                draftId={draftId}
+                                activeThreadId={activeThreadId}
+                                activeThreadEnvironmentId={activeThread?.environmentId}
+                                activeThread={activeThread}
+                                isServerThread={isServerThread}
+                                isLocalDraftThread={isLocalDraftThread}
+                                forceExpandedOnMobile={
+                                  forceExpandedMobileComposer && isDraftHeroState
+                                }
+                                projectSelectionRequired={
+                                  isLocalDraftThread && activeProject === null
+                                }
+                                phase={phase}
+                                isConnecting={isConnecting}
+                                isSendBusy={isSendBusy}
+                                sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
+                                isPreparingWorktree={isPreparingWorktree}
+                                messageQueueSupported={
+                                  isProviderSubagentThread ? false : messageQueueSupported
+                                }
+                                messageQueueSteeringSupported={
+                                  isProviderSubagentThread ? false : messageQueueSteeringSupported
+                                }
+                                environmentUnavailable={activeEnvironmentUnavailableState}
+                                activePendingApproval={activePendingApproval}
+                                pendingApprovals={pendingApprovals}
+                                pendingUserInputs={pendingUserInputs}
+                                activePendingProgress={activePendingProgress}
+                                activePendingResolvedAnswers={activePendingResolvedAnswers}
+                                activePendingIsResponding={activePendingIsResponding}
+                                activePendingDraftAnswers={activePendingDraftAnswers}
+                                activePendingQuestionIndex={activePendingQuestionIndex}
+                                respondingRequestIds={respondingRequestIds}
+                                showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                                activeProposedPlan={activeProposedPlan}
+                                activePlan={activePlan as { turnId?: TurnId } | null}
+                                sidebarProposedPlan={
+                                  sidebarProposedPlan as { turnId?: TurnId } | null
+                                }
+                                planSidebarLabel={planSidebarLabel}
+                                planSidebarOpen={planSidebarOpen}
+                                runtimeMode={runtimeMode}
+                                interactionMode={interactionMode}
+                                lockedProvider={lockedProvider}
+                                providerStatuses={providerStatuses as ServerProvider[]}
+                                activeProjectDefaultModelSelection={
+                                  activeProject?.defaultModelSelection
+                                }
+                                activeThreadModelSelection={activeThread?.modelSelection}
+                                activeThreadActivities={activeThread?.activities}
+                                resolvedTheme={resolvedTheme}
+                                settings={settings}
+                                keybindings={keybindings}
+                                terminalOpen={Boolean(terminalUiState.terminalOpen)}
+                                gitCwd={gitCwd}
+                                projectWorkspaceRoot={activeProject?.workspaceRoot ?? null}
+                                providerSessionCwds={providerSessionCwds}
+                                promptRef={promptRef}
+                                composerImagesRef={composerImagesRef}
+                                composerTerminalContextsRef={composerTerminalContextsRef}
+                                composerElementContextsRef={composerElementContextsRef}
+                                onSend={onSend}
+                                onDequeueQueuedMessage={onDequeueQueuedMessage}
+                                onSubmitQueuedMessages={onSubmitQueuedMessages}
+                                onInterrupt={onInterrupt}
+                                onImplementPlanInNewThread={onImplementPlanInNewThread}
+                                onRespondToApproval={onRespondToApproval}
+                                onSelectActivePendingUserInputOption={
+                                  onSelectActivePendingUserInputOption
+                                }
+                                onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                                onPreviousActivePendingUserInputQuestion={
+                                  onPreviousActivePendingUserInputQuestion
+                                }
+                                onChangeActivePendingUserInputCustomAnswer={
+                                  onChangeActivePendingUserInputCustomAnswer
+                                }
+                                onProviderModelSelect={onProviderModelSelect}
+                                getModelDisabledReason={getModelDisabledReason}
+                                toggleInteractionMode={toggleInteractionMode}
+                                handleRuntimeModeChange={handleRuntimeModeChange}
+                                handleInteractionModeChange={handleInteractionModeChange}
+                                togglePlanSidebar={togglePlanSidebar}
+                                focusComposer={focusComposer}
+                                scheduleComposerFocus={scheduleComposerFocus}
+                                setThreadError={setThreadError}
+                                onExpandImage={onExpandTimelineImage}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -2,14 +2,17 @@ import {
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
+  PROVIDER_DISPLAY_NAMES,
   type ModelSelection,
   type ProviderDriverKind,
+  type ProviderSubagentBinding,
   type ServerProvider,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
 } from "@aqqua/contracts";
+import { formatProviderDriverKindLabel } from "../providerModels";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
@@ -105,6 +108,89 @@ export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
     activities: [],
     checkpoints: [],
     deletedAt: null,
+  };
+}
+
+/**
+ * A provider harness (Codex, Claude) can spawn its own nested agents inside the
+ * owner's real session. aqqua materialises each of those as an ordinary durable
+ * child thread so it can be read, projected, and archived like anything else —
+ * but the owner thread stays the only session authority.
+ *
+ * `parentThreadId` cannot carry that distinction: an aqqua-managed `aqqua agent`
+ * sub-agent has one too, and it owns its own session. Every read site therefore
+ * keys off the durable `providerSubagent` binding instead of parenthood.
+ */
+export type ProviderSubagentThreadLike = {
+  readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
+};
+
+export interface ProviderSubagentPresentation {
+  readonly ownerThreadId: ThreadId;
+  readonly provider: ProviderDriverKind;
+  /** Compact identity shown beside the child, e.g. "Codex subagent". */
+  readonly label: string;
+}
+
+/** "Codex" / "Claude" / a humanized fallback for a driver aqqua has no name for. */
+export function providerSubagentProviderLabel(provider: ProviderDriverKind): string {
+  return PROVIDER_DISPLAY_NAMES[provider] ?? formatProviderDriverKindLabel(provider);
+}
+
+export function resolveProviderSubagentPresentation(
+  thread: ProviderSubagentThreadLike | null | undefined,
+): ProviderSubagentPresentation | null {
+  const binding = thread?.providerSubagent ?? null;
+  if (binding === null) {
+    return null;
+  }
+  return {
+    ownerThreadId: binding.ownerThreadId,
+    provider: binding.provider,
+    label: `${providerSubagentProviderLabel(binding.provider)} subagent`,
+  };
+}
+
+export function isProviderSubagentThread(
+  thread: ProviderSubagentThreadLike | null | undefined,
+): boolean {
+  return (thread?.providerSubagent ?? null) !== null;
+}
+
+/**
+ * What a composer submit means for the active thread.
+ *
+ * One handler serves two jobs — advancing a pending user-input card and sending
+ * a message — and a native child allows exactly one of them, so the decision
+ * cannot collapse into a single "disabled" boolean. Resolving it here rather
+ * than in the handler is what lets a keyboard shortcut, a stale composer ref,
+ * and the send button all reach the same answer.
+ */
+export type ComposerSubmitDisposition = "advance-pending-user-input" | "send" | "blocked";
+
+export function resolveComposerSubmitDisposition(input: {
+  readonly thread: ProviderSubagentThreadLike | null | undefined;
+  readonly hasPendingUserInputProgress: boolean;
+}): ComposerSubmitDisposition {
+  if (input.hasPendingUserInputProgress) {
+    return "advance-pending-user-input";
+  }
+  return isProviderSubagentThread(input.thread) ? "blocked" : "send";
+}
+
+/**
+ * The read-only composer copy for a selected native child. Stated as an
+ * explanation rather than a disabled control: nothing the user could do here
+ * would reach the provider, because the turn belongs to the owner session.
+ */
+export function buildProviderSubagentComposerNotice(presentation: ProviderSubagentPresentation): {
+  readonly title: string;
+  readonly description: string;
+} {
+  const providerLabel = providerSubagentProviderLabel(presentation.provider);
+  return {
+    title: `Run by the ${providerLabel} session`,
+    description: `${providerLabel} spawned this subagent inside its own session, so it has no composer of its own. Send follow-ups from the parent conversation; approvals and questions raised here stay answerable.`,
   };
 }
 

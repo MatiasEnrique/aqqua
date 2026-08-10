@@ -21,6 +21,7 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
+import { ProviderSubagentBinding } from "./providerSubagents.ts";
 import {
   BoardCreateCommand,
   BoardCreatedPayload,
@@ -453,6 +454,13 @@ export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   parentThreadId: ParentThreadId,
+  /**
+   * Present when this thread is a materialised provider-native subagent.
+   * Optional for wire compatibility with pre-native-subagent peers; read sites
+   * normalize with `?? null`. Distinct from `parentThreadId`, which AgentControl
+   * treats as an aqqua-managed delegation edge.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -520,6 +528,11 @@ export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   parentThreadId: ParentThreadId,
+  /**
+   * Present when this thread is a materialised provider-native subagent.
+   * Optional for wire compatibility; read sites normalize with `?? null`.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -699,6 +712,11 @@ const ThreadCreateCommand = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   parentThreadId: ParentThreadId,
+  /**
+   * When set, marks the new thread as a provider-native subagent display child.
+   * Optional so ordinary creates and older clients remain wire-compatible.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1272,6 +1290,11 @@ export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   parentThreadId: ParentThreadId,
+  /**
+   * Provider-native binding when this create materialised a harness subagent.
+   * Optional for wire compatibility with older events.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1287,6 +1310,12 @@ export const ThreadCreatedPayload = Schema.Struct({
 export const ThreadDeletedPayload = Schema.Struct({
   threadId: ThreadId,
   deletedAt: IsoDateTime,
+  /**
+   * Snapshot of the provider-native binding at delete time so post-projection
+   * cleanup (ThreadDeletionReactor) can skip stopping the owner's provider
+   * session after the projection row is gone. Optional for older events.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
 });
 
 export const ThreadArchivedPayload = Schema.Struct({

@@ -14,6 +14,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import { ProviderSubagentTarget } from "./providerSubagents.ts";
 import { AccountRateLimitsSnapshot } from "./usage.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
@@ -253,7 +254,18 @@ const ProviderRuntimeEventBase = Schema.Struct({
   // for the routing-key-vs-driver-id distinction. Once every emitter
   // populates it (post-slice-4), routing flips to instance-id-only.
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /**
+   * Owner aqqua thread that holds the real provider session. When
+   * `providerSubagent` is set, ingestion materialises/routes to a child
+   * thread derived from that target; this field stays the owner id on the
+   * wire.
+   */
   threadId: ThreadId,
+  /**
+   * Optional native harness subagent target. Absent on ordinary root events
+   * and on payloads from older emitters (wire-compatible decode).
+   */
+  providerSubagent: Schema.optional(ProviderSubagentTarget),
   createdAt: IsoDateTime,
   turnId: Schema.optional(TurnId),
   itemId: Schema.optional(RuntimeItemId),
