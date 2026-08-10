@@ -75,6 +75,7 @@ interface WorkLogEntry {
   requestKind?: PendingApproval["requestKind"];
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   toolData?: unknown;
+  showWhenNeutral?: boolean;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -237,16 +238,20 @@ function resolvePendingUserInputAnswer(
 
 function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  options?: {
+    readonly includeTaskStarted?: boolean;
+    readonly showTaskProgress?: boolean;
+  },
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
-    if (activity.kind === "task.started") continue;
+    if (activity.kind === "task.started" && options?.includeTaskStarted !== true) continue;
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
-    entries.push(toDerivedWorkLogEntry(activity));
+    entries.push(toDerivedWorkLogEntry(activity, options));
   }
   return collapseDerivedWorkLogEntries(entries);
 }
@@ -263,7 +268,10 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
   return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
 }
 
-function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+function toDerivedWorkLogEntry(
+  activity: OrchestrationThreadActivity,
+  options?: { readonly showTaskProgress?: boolean },
+): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
@@ -271,7 +279,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const commandPreview = extractToolCommand(payload);
   const changedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
-  const isTaskActivity = activity.kind === "task.progress" || activity.kind === "task.completed";
+  const isTaskActivity =
+    activity.kind === "task.started" ||
+    activity.kind === "task.progress" ||
+    activity.kind === "task.completed";
   const taskSummary =
     isTaskActivity && typeof payload?.summary === "string" && payload.summary.length > 0
       ? payload.summary
@@ -283,7 +294,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     payload.detail.length > 0
       ? payload.detail
       : null;
-  const taskLabel = taskSummary || taskDetailAsLabel;
+  const taskDescription =
+    isTaskActivity &&
+    !taskSummary &&
+    !taskDetailAsLabel &&
+    typeof payload?.description === "string" &&
+    payload.description.length > 0
+      ? payload.description
+      : null;
+  const taskLabel = taskSummary || taskDetailAsLabel || taskDescription;
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
@@ -297,6 +316,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           : activity.tone,
     activityKind: activity.kind,
   };
+  if (activity.kind === "task.progress" && options?.showTaskProgress === true) {
+    entry.showWhenNeutral = true;
+  }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   if (
@@ -496,7 +518,10 @@ function workEntryIndicatesToolSuccess(entry: WorkLogEntry): boolean {
   );
 }
 
-function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
+function workEntryStatus(entry: DerivedWorkLogEntry): ThreadFeedActivity["status"] {
+  if (entry.showWhenNeutral) {
+    return null;
+  }
   if (!workLogEntryIsToolLike(entry)) {
     return null;
   }
@@ -1356,6 +1381,10 @@ export function buildThreadFeed(
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
   const workLogEntries = deriveWorkLogEntries(
     thread.activities.filter((activity) => activity.kind !== "session.resumed"),
+    {
+      includeTaskStarted: thread.providerSubagent != null,
+      showTaskProgress: thread.providerSubagent != null,
+    },
   );
   const entries = Arr.sortWith(
     [
