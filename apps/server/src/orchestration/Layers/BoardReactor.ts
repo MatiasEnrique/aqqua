@@ -28,6 +28,7 @@ import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapter
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import {
+  collectThreadLineage,
   findCardForCurrentStepThread,
   hasOpenBlockingRequest,
   isProviderTurnLive,
@@ -45,11 +46,7 @@ import {
   BoardReactorHandlerDefectInjection,
   isBoardReactorEvent,
 } from "./BoardReactorEvent.ts";
-import {
-  cardOperationMatches,
-  collectThreadLineage,
-  currentStepRootThreadId,
-} from "./BoardReactorState.ts";
+import { cardOperationMatches, currentStepRootThreadId } from "./BoardReactorState.ts";
 import {
   makeBoardMissingCurrentRootRecoveryEvents,
   makeBoardReconciliationEvents,
@@ -68,12 +65,11 @@ export {
   resolveStepEntryThreadId,
 } from "../boardCardHelpers.ts";
 export { BoardReactorHandlerDefectInjection } from "./BoardReactorEvent.ts";
+export { collectThreadLineage, type ThreadLineageMember } from "../boardCardHelpers.ts";
 export {
   boardCardBranchName,
   boardStepThreadTitle,
   cardOperationOwnsThreadForHandlerFailure,
-  collectThreadLineage,
-  type ThreadLineageMember,
 } from "./BoardReactorState.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);

@@ -1,5 +1,5 @@
 import { FileTextIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { StatusIndicator } from "../StatusIndicator";
@@ -38,6 +38,7 @@ export function FlowStepTabs(props: {
   readonly model: CardTreeModel;
   readonly selection: CardSelection;
   readonly onSelect: (selection: CardSelection) => void;
+  readonly actions?: ReactNode;
 }) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const activeStepIndex = props.selection.stepIndex;
@@ -83,6 +84,7 @@ export function FlowStepTabs(props: {
           </li>
         </ol>
       </ScrollArea>
+      {props.actions}
     </nav>
   );
 }

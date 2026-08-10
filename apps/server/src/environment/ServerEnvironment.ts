@@ -146,6 +146,7 @@ export const make = Effect.gen(function* () {
       threadMessageQueueSteering: true,
       workspaceTerminalSessions: true,
       boardCardReset: true,
+      boardCardForceAdvance: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
     },
   };

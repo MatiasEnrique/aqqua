@@ -2,12 +2,15 @@ import {
   type CardOperation,
   type CardOperationId,
   type OrchestrationCard,
-  type OrchestrationSession,
   ThreadId,
 } from "@aqqua/contracts";
 import { sanitizeBranchFragment } from "@aqqua/shared/git";
 
-import { resolveStepEntryThreadId } from "../boardCardHelpers.ts";
+import {
+  collectThreadLineage,
+  resolveStepEntryThreadId,
+  type ThreadLineageMember,
+} from "../boardCardHelpers.ts";
 
 /**
  * Branch for a released card: `board/<slugified-title>-<short-id>`.
@@ -32,50 +35,6 @@ export function boardStepThreadTitle(input: {
   readonly stepName: string;
 }): string {
   return `${input.cardTitle} · ${input.stepIndex + 1} ${input.stepName}`;
-}
-
-export type ThreadLineageMember = {
-  readonly id: ThreadId;
-  readonly parentThreadId: ThreadId | null;
-  readonly session: OrchestrationSession | null;
-  readonly archivedAt: string | null;
-};
-
-/**
- * Roots plus all descendants over a combined live+archived thread shell.
- * Used so Continue/Retry/Reset interrupt every live agent on the card worktree.
- */
-export function collectThreadLineage(
-  roots: ReadonlyArray<ThreadId | string>,
-  threads: ReadonlyArray<ThreadLineageMember>,
-): ReadonlyArray<ThreadLineageMember> {
-  const byId = new Map(threads.map((thread) => [String(thread.id), thread] as const));
-  const collected = new Map<string, ThreadLineageMember>();
-  const queue = roots.map(String);
-  while (queue.length > 0) {
-    const id = queue.pop();
-    if (id === undefined) break;
-    if (collected.has(id)) {
-      continue;
-    }
-    const existing = byId.get(id);
-    if (existing !== undefined) {
-      collected.set(id, existing);
-    } else {
-      collected.set(id, {
-        id: ThreadId.make(id),
-        parentThreadId: null,
-        session: null,
-        archivedAt: null,
-      });
-    }
-    for (const thread of threads) {
-      if (thread.parentThreadId != null && String(thread.parentThreadId) === id) {
-        queue.push(String(thread.id));
-      }
-    }
-  }
-  return [...collected.values()];
 }
 
 /**

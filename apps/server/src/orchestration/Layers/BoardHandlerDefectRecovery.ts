@@ -4,13 +4,11 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import type { ThreadLineageMember } from "../boardCardHelpers.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { eventCardId, eventOperationId, eventThreadId } from "./BoardReactorEvent.ts";
-import {
-  cardOperationOwnsThreadForHandlerFailure,
-  type ThreadLineageMember,
-} from "./BoardReactorState.ts";
+import { cardOperationOwnsThreadForHandlerFailure } from "./BoardReactorState.ts";
 import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
 
 export const makeBoardHandlerDefectRecovery = Effect.gen(function* () {

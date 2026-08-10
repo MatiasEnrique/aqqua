@@ -11,10 +11,12 @@ import {
   type OrchestrationBoard,
   type OrchestrationCard,
   type OrchestrationReadModel,
+  type OrchestrationSession,
   type OrchestrationThread,
   ProviderInstanceId,
   ProjectId,
   ThreadId,
+  TurnId,
 } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 
@@ -134,6 +136,51 @@ function makeReadModel(input: {
     boards: input.boards ?? [],
     cards: input.cards ?? [],
     updatedAt: NOW,
+  };
+}
+
+function makeThread(input: {
+  readonly id: string;
+  readonly parentThreadId?: string | null;
+  readonly status: OrchestrationSession["status"];
+}): OrchestrationThread {
+  const threadId = ThreadId.make(input.id);
+  return {
+    id: threadId,
+    projectId: ProjectId.make("project-1"),
+    parentThreadId:
+      input.parentThreadId === undefined || input.parentThreadId === null
+        ? null
+        : ThreadId.make(input.parentThreadId),
+    title: input.id,
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: "board/card-1",
+    worktreePath: "/tmp/wt/card-1",
+    latestTurn: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    deletedAt: null,
+    messages: [],
+    proposedPlans: [],
+    activities: [],
+    checkpoints: [],
+    session: {
+      threadId,
+      status: input.status,
+      providerName: "codex",
+      runtimeMode: "full-access",
+      activeTurnId:
+        input.status === "starting" || input.status === "running"
+          ? TurnId.make(`turn-${input.id}`)
+          : null,
+      lastError: null,
+      updatedAt: NOW,
+    },
   };
 }
 
@@ -851,6 +898,100 @@ it.layer(NodeServices.layer)("board/card decider", (it) => {
         }),
       }).pipe(Effect.flip);
       expect(archiveTodo._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+
+  it.effect("card.force-advance interrupts only live members of the advancing step lineage", () =>
+    Effect.gen(function* () {
+      const rootId = ThreadId.make("thread-current");
+      const advancing = makeCard({
+        position: { kind: "step", stepIndex: 0 },
+        status: "running",
+        operation: {
+          kind: "advancing",
+          operationId: CardOperationId.make("op-advance"),
+          requestedAt: NOW,
+          threadId: ThreadId.make("thread-next"),
+          toStepIndex: 1,
+        },
+        releasedAt: NOW,
+        snapshot: { name: "Delivery", steps: STEPS },
+        stepThreads: [{ stepIndex: 0, threadId: rootId, spawnedAt: NOW }],
+      });
+      const decided = yield* decideOrchestrationCommand({
+        command: {
+          type: "card.force-advance",
+          commandId: CommandId.make("cmd-force-advance"),
+          cardId: CardId.make("card-1"),
+        },
+        readModel: makeReadModel({
+          boards: [makeBoard()],
+          cards: [advancing],
+          threads: [
+            makeThread({ id: rootId, status: "running" }),
+            makeThread({ id: "thread-live-child", parentThreadId: rootId, status: "running" }),
+            makeThread({ id: "thread-ready-child", parentThreadId: rootId, status: "ready" }),
+            makeThread({ id: "thread-unrelated", status: "running" }),
+          ],
+        }),
+      });
+
+      const events = asEvents(decided);
+      expect(events).toHaveLength(2);
+      const sessionEvents = events.filter((event) => event.type === "thread.session-set");
+      expect(sessionEvents.map((event) => event.payload.threadId).sort()).toEqual([
+        "thread-current",
+        "thread-live-child",
+      ]);
+      for (const event of sessionEvents) {
+        expect(event.payload.session.status).toBe("interrupted");
+        expect(event.payload.session.activeTurnId).toBeNull();
+        expect(event.payload.session.lastError).toBe(
+          "Manually marked finished to force card advancement.",
+        );
+      }
+    }),
+  );
+
+  it.effect("card.force-advance rejects cards that are stable or have no live lineage member", () =>
+    Effect.gen(function* () {
+      const command = {
+        type: "card.force-advance" as const,
+        commandId: CommandId.make("cmd-force-advance"),
+        cardId: CardId.make("card-1"),
+      };
+      const stable = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel({ boards: [makeBoard()], cards: [makeCard()] }),
+      }).pipe(Effect.flip);
+
+      const rootId = ThreadId.make("thread-current");
+      const noLiveMember = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel({
+          boards: [makeBoard()],
+          cards: [
+            makeCard({
+              position: { kind: "step", stepIndex: 0 },
+              status: "running",
+              operation: {
+                kind: "advancing",
+                operationId: CardOperationId.make("op-advance"),
+                requestedAt: NOW,
+                threadId: ThreadId.make("thread-next"),
+                toStepIndex: 1,
+              },
+              releasedAt: NOW,
+              snapshot: { name: "Delivery", steps: STEPS },
+              stepThreads: [{ stepIndex: 0, threadId: rootId, spawnedAt: NOW }],
+            }),
+          ],
+          threads: [makeThread({ id: rootId, status: "ready" })],
+        }),
+      }).pipe(Effect.flip);
+
+      expect(stable._tag).toBe("OrchestrationCommandInvariantError");
+      expect(noLiveMember._tag).toBe("OrchestrationCommandInvariantError");
     }),
   );
 

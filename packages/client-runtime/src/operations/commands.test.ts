@@ -25,6 +25,7 @@ import type * as RpcSession from "../rpc/session.ts";
 import {
   archiveThread,
   createProject,
+  forceAdvanceCard,
   resetCard,
   settleThread,
   stopThreadSession,
@@ -188,6 +189,26 @@ describe("environment commands", () => {
         {
           type: "card.reset",
           commandId: "reset-command",
+          cardId: "card-1",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dispatches the explicit card.force-advance recovery command", () =>
+    Effect.gen(function* () {
+      const dispatched: ClientOrchestrationCommand[] = [];
+      const supervisor = yield* makeSupervisor(dispatched);
+
+      yield* forceAdvanceCard({
+        commandId: CommandId.make("force-advance-command"),
+        cardId: CardId.make("card-1"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(dispatched).toEqual([
+        {
+          type: "card.force-advance",
+          commandId: "force-advance-command",
           cardId: "card-1",
         },
       ]);

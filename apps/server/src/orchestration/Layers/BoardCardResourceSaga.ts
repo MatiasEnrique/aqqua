@@ -25,6 +25,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { buildBoardCardTitleMessage } from "../../textGeneration/TextGenerationPrompts.ts";
+import { collectThreadLineage } from "../boardCardHelpers.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -33,7 +34,7 @@ import {
   selectTopLevelThreadsForBatchAction,
 } from "../Services/WorktreeDeletion.ts";
 import { WorktreePathCoordination } from "../Services/WorktreePathCoordination.ts";
-import { cardOperationMatches, collectThreadLineage } from "./BoardReactorState.ts";
+import { cardOperationMatches } from "./BoardReactorState.ts";
 import type { BoardReactorEvent } from "./BoardStepEntrySaga.ts";
 
 export const makeBoardCardResourceSaga = Effect.gen(function* () {

@@ -12,7 +12,7 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import type { CardId, EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
-import { InfoIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
+import { InfoIcon, RotateCcwIcon, SkipForwardIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { boardArtifacts, boardEnvironment, useBoard, useCard } from "../../state/boards";
 import {
@@ -72,7 +72,7 @@ export interface CardDetailViewProps {
   readonly onSelectionChange: (next: string) => void;
 }
 
-type PendingConfirmation = "retry" | "reset" | "delete" | null;
+type PendingConfirmation = "retry" | "reset" | "delete" | "force-advance" | null;
 
 /** The card command a composer action sends, and the operation it starts. */
 type CardCommandKind = "continue" | "retry" | "reset" | "delete";
@@ -148,6 +148,7 @@ export function CardDetailView({
   const allThreadShells = useThreadShells();
 
   const continueCard = useAtomCommand(boardEnvironment.continueCard);
+  const forceAdvanceCard = useAtomCommand(boardEnvironment.forceAdvanceCard);
   const retryCard = useAtomCommand(boardEnvironment.retryCard);
   const resetCard = useAtomCommand(boardEnvironment.resetCard);
   const deleteCard = useAtomCommand(boardEnvironment.deleteCard);
@@ -157,6 +158,7 @@ export function CardDetailView({
   // submitted twice while the command is on the wire.
   const [pendingOperation, setPendingOperation] = useState<PendingCardOperation | null>(null);
   const [cleanupRetryPending, setCleanupRetryPending] = useState(false);
+  const [forceAdvancePending, setForceAdvancePending] = useState(false);
 
   const threads = useMemo<ReadonlyArray<CardTreeThread>>(
     () =>
@@ -318,6 +320,9 @@ export function CardDetailView({
     };
   }, [card, serverConfig?.environment.capabilities.boardCardReset]);
   const isLastStep = currentStepIndex !== null && currentStepIndex === steps.length - 1;
+  const canForceAdvance =
+    card?.operation?.kind === "advancing" &&
+    serverConfig?.environment.capabilities.boardCardForceAdvance === true;
 
   const runCardCommand = useCallback(
     (kind: CardCommandKind) => {
@@ -374,6 +379,23 @@ export function CardDetailView({
       );
     });
   }, [card, cardId, deleteCard, environmentId, resetCard]);
+
+  const forceAdvance = useCallback(() => {
+    if (!canForceAdvance || forceAdvancePending) return;
+    setForceAdvancePending(true);
+    void forceAdvanceCard({ environmentId, input: { cardId } }).then((result) => {
+      setForceAdvancePending(false);
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not force advance card",
+          description: error instanceof Error ? error.message : "The recovery command failed.",
+        }),
+      );
+    });
+  }, [canForceAdvance, cardId, environmentId, forceAdvanceCard, forceAdvancePending]);
 
   // The guard is a bridge, never a state: it lasts exactly until the card comes
   // back changed, carries its own operation, or leaves the board.
@@ -497,7 +519,28 @@ export function CardDetailView({
     );
   }
 
-  const surfaceTabs = <FlowStepTabs model={tree} selection={flowTabSelection} onSelect={select} />;
+  const surfaceTabs = (
+    <FlowStepTabs
+      model={tree}
+      selection={flowTabSelection}
+      onSelect={select}
+      actions={
+        canForceAdvance ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            className="ml-2 h-8 shrink-0"
+            disabled={forceAdvancePending}
+            onClick={() => setPendingConfirmation("force-advance")}
+          >
+            <SkipForwardIcon />
+            {forceAdvancePending ? "Forcing…" : "Force advance"}
+          </Button>
+        ) : null
+      }
+    />
+  );
 
   const confirmation =
     pendingConfirmation === null ? null : (
@@ -512,16 +555,20 @@ export function CardDetailView({
             <AlertDialogTitle>
               {pendingConfirmation === "retry"
                 ? "Retry this step?"
-                : pendingConfirmation === "delete"
-                  ? `Delete '${card.title}'?`
-                  : `Reset '${card.title}'?`}
+                : pendingConfirmation === "force-advance"
+                  ? `Force advance '${card.title}'?`
+                  : pendingConfirmation === "delete"
+                    ? `Delete '${card.title}'?`
+                    : `Reset '${card.title}'?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingConfirmation === "retry"
                 ? "The step's thread is discarded and a fresh one runs the same prompt again. The worktree keeps whatever the previous attempt changed."
-                : pendingConfirmation === "delete"
-                  ? "This removes the card from the flow along with its conversations, worktree, and artifacts. It cannot be undone."
-                  : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest flow configuration and keeps the existing worktree changes."}
+                : pendingConfirmation === "force-advance"
+                  ? "This marks every still-running conversation in the current step as interrupted in aqqua and starts the next step. The underlying provider process may continue running and may still modify the shared worktree. Use this only when the process is hung."
+                  : pendingConfirmation === "delete"
+                    ? "This removes the card from the flow along with its conversations, worktree, and artifacts. It cannot be undone."
+                    : "This stops the current run, archives its step conversations, clears its artifacts, and returns the card to To-Do. Starting it again uses the latest flow configuration and keeps the existing worktree changes."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -532,14 +579,20 @@ export function CardDetailView({
                 const kind = pendingConfirmation;
                 setPendingConfirmation(null);
                 if (kind === null) return;
-                runCardCommand(kind);
+                if (kind === "force-advance") {
+                  forceAdvance();
+                } else {
+                  runCardCommand(kind);
+                }
               }}
             >
               {pendingConfirmation === "retry"
                 ? "Retry step"
-                : pendingConfirmation === "delete"
-                  ? "Delete card"
-                  : "Reset card"}
+                : pendingConfirmation === "force-advance"
+                  ? "Force advance"
+                  : pendingConfirmation === "delete"
+                    ? "Delete card"
+                    : "Reset card"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
