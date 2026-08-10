@@ -2,6 +2,7 @@ import {
   type CardCleanupStage,
   type CardOperation,
   CardOperationId,
+  CommandId,
   EventId,
   isContinuableCardStatus,
   type OrchestrationCard,
@@ -22,7 +23,12 @@ import type * as PlatformError from "effect/PlatformError";
  * requestId. Shared with the board reactor so status transitions match
  * settle/snooze gates. (Projector-capped activity stream; see boardCardHelpers.)
  */
-import { boardOperationThreadId, hasOpenBlockingRequest } from "./boardCardHelpers.ts";
+import {
+  boardOperationThreadId,
+  collectThreadLineage,
+  hasOpenBlockingRequest,
+  isProviderTurnLive,
+} from "./boardCardHelpers.ts";
 import {
   isProviderSubagentRejectedCommandType,
   isProviderSubagentRejectedMetaUpdate,
@@ -2142,6 +2148,56 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId,
         },
       };
+    }
+
+    case "card.force-advance": {
+      const card = yield* requireCard({
+        readModel,
+        command,
+        cardId: command.cardId,
+      });
+      if (card.operation?.kind !== "advancing" || card.position.kind !== "step") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' must have an advancing operation to force advancement.`,
+        });
+      }
+
+      const stepIndex = card.position.stepIndex;
+      const rootId = [...card.stepThreads]
+        .toReversed()
+        .find((entry) => entry.stepIndex === stepIndex)?.threadId;
+      const liveMembers =
+        rootId === undefined
+          ? []
+          : collectThreadLineage([rootId], readModel.threads).filter((thread) =>
+              isProviderTurnLive(thread.session),
+            );
+      if (liveMembers.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Card '${command.cardId}' has no live current-step sessions to mark finished.`,
+        });
+      }
+
+      const interruptedAt = yield* nowIso;
+      return yield* decideCommandSequence({
+        readModel,
+        commands: liveMembers.map((thread) => ({
+          type: "thread.session.set" as const,
+          commandId: CommandId.make(`${command.commandId}:force-finish:${thread.id}`),
+          threadId: thread.id,
+          session: {
+            ...thread.session!,
+            status: "interrupted" as const,
+            activeTurnId: null,
+            lastError: "Manually marked finished to force card advancement.",
+            updatedAt: interruptedAt,
+          },
+          promoteQueuedMessage: false,
+          createdAt: interruptedAt,
+        })),
+      });
     }
 
     case "card.retry": {

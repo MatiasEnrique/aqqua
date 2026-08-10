@@ -62,6 +62,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       older servers, so clients hide Reset instead of falling back to the
       legacy cancel-only command. */
   boardCardReset: Schema.optionalKey(Schema.Boolean),
+  /** Server can mark a hung advancing step's live lineage interrupted so the
+      board reactor can resume. Older servers omit this capability. */
+  boardCardForceAdvance: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */

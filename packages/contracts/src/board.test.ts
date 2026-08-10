@@ -462,6 +462,11 @@ it.effect("decodes client board and card commands", () =>
       commandId: "cmd-reset-1",
       cardId: "card-1",
     });
+    const forceAdvance = yield* decodeClientOrchestrationCommand({
+      type: "card.force-advance",
+      commandId: "cmd-force-advance-1",
+      cardId: "card-1",
+    });
     const cancelLegacy = yield* decodeClientOrchestrationCommand({
       type: "card.cancel",
       commandId: "cmd-cancel-1",
@@ -472,6 +477,7 @@ it.effect("decodes client board and card commands", () =>
     assert.strictEqual(unsettle.type, "card.unsettle");
     assert.strictEqual(deleteCard.type, "card.delete");
     assert.strictEqual(reset.type, "card.reset");
+    assert.strictEqual(forceAdvance.type, "card.force-advance");
     assert.strictEqual(cancelLegacy.type, "card.cancel");
   }),
 );

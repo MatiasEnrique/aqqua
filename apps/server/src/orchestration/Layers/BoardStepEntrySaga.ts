@@ -36,6 +36,7 @@ import {
   boardOperationMessageId,
   decideBoardStepTurnStart,
   resolveStepEntryThreadId,
+  type ThreadLineageMember,
 } from "../boardCardHelpers.ts";
 import { assembleBoardStepPrompt } from "../boardPrompt.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -44,7 +45,6 @@ import {
   boardCardBranchName,
   boardStepThreadTitle,
   cardOperationMatches,
-  type ThreadLineageMember,
 } from "./BoardReactorState.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);

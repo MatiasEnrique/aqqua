@@ -57,6 +57,7 @@ export type DeleteBoardInput = CommandInput<"board.delete">;
 export type CreateCardInput = CommandInput<"card.create">;
 export type ReleaseCardInput = CommandInput<"card.release">;
 export type ContinueCardInput = CommandInput<"card.continue">;
+export type ForceAdvanceCardInput = CommandInput<"card.force-advance">;
 export type RetryCardInput = CommandInput<"card.retry">;
 export type ResetCardInput = CommandInput<"card.reset">;
 export type SettleCardInput = CommandInput<"card.settle">;
@@ -407,6 +408,16 @@ export const continueCard: (input: ContinueCardInput) => CommandEffect = Effect.
   return yield* dispatch({
     ...input,
     type: "card.continue",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const forceAdvanceCard: (input: ForceAdvanceCardInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.forceAdvanceCard",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "card.force-advance",
     commandId: yield* commandId(input),
   });
 });

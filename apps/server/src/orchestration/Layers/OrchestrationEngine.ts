@@ -88,6 +88,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "card.retry":
     case "card.cancel":
     case "card.reset":
+    case "card.force-advance":
     case "card.settle":
     case "card.unsettle":
     case "card.archive":

@@ -185,9 +185,10 @@ reset the card, or mark the step done.
 Start, Continue, Retry, Reset, Archive, and Delete are **operations**: the server records
 that it has taken the request, then does the work. While one is in flight the
 card's badge says what is happening — Starting, Advancing, Retrying, Resetting,
-or Deleting — and the card's own actions are unavailable, in the sidebar and in
-the card's composer alike. The buttons close on click and reopen when the
-operation lands, so one click is one operation.
+or Deleting — and the card's ordinary actions are unavailable, in the sidebar
+and in the card's composer alike. The buttons close on click and reopen when the
+operation lands, so one click is one operation. An advancing card also keeps a
+guarded **Force advance** recovery action available.
 
 If an operation fails, the card comes back with the reason printed under its
 row and in the composer, and the action is available again.
@@ -225,6 +226,12 @@ Every path stays inside the model:
 - **Reset card** stops the current run, archives its step conversations, clears
   its artifacts, and returns the card to To-Do. Starting it again captures the
   latest flow configuration while keeping the card's worktree changes.
+- **Force advance** is the last resort for a card left in Advancing by a hung
+  sub-agent or process. From the card-level action beside its flow steps,
+  confirm the warning to mark every still-running conversation in the current step as
+  interrupted and let the next step start. This only repairs aqqua's recorded
+  state: an unresponsive provider process may continue running and modifying
+  the shared worktree until it exits.
 
 ## Done, Archive, and Delete
 

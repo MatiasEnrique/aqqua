@@ -8,6 +8,47 @@ import {
   ThreadId,
 } from "@aqqua/contracts";
 
+export type ThreadLineageMember = {
+  readonly id: ThreadId;
+  readonly parentThreadId?: ThreadId | null | undefined;
+  readonly session: OrchestrationSession | null;
+  readonly archivedAt: string | null;
+};
+
+/** Roots plus every descendant over a combined live and archived thread shell. */
+export function collectThreadLineage(
+  roots: ReadonlyArray<ThreadId | string>,
+  threads: ReadonlyArray<ThreadLineageMember>,
+): ReadonlyArray<ThreadLineageMember> {
+  const childrenByParent = new Map<string, ThreadLineageMember[]>();
+  const byId = new Map(threads.map((thread) => [String(thread.id), thread] as const));
+  for (const thread of threads) {
+    if (thread.parentThreadId == null) continue;
+    const parentId = String(thread.parentThreadId);
+    const children = childrenByParent.get(parentId) ?? [];
+    children.push(thread);
+    childrenByParent.set(parentId, children);
+  }
+
+  const collected = new Map<string, ThreadLineageMember>();
+  const pending = roots.map(String);
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || collected.has(id)) continue;
+    collected.set(
+      id,
+      byId.get(id) ?? {
+        id: ThreadId.make(id),
+        parentThreadId: null,
+        session: null,
+        archivedAt: null,
+      },
+    );
+    for (const child of childrenByParent.get(id) ?? []) pending.push(String(child.id));
+  }
+  return [...collected.values()];
+}
+
 /**
  * Stable step-thread id claimed with a starting/advancing/retrying operation.
  * Derived from the operation id (itself the claiming command id) so a reactor

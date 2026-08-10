@@ -1439,6 +1439,80 @@ describe("BoardReactor", () => {
     ),
   );
 
+  it.effect("force advance releases a card blocked by a hung provider-native child", () =>
+    withBoardReactorHarness({}, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+
+        let model = yield* harness.readModel;
+        let card = model.cards.find((entry) => entry.id === harness.cardId)!;
+        const step0ThreadId = card.stepThreads[0]!.threadId;
+        const childId = ThreadId.make("thread-hung-native-child");
+        yield* harness.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-create-hung-native-child"),
+          threadId: childId,
+          projectId: harness.projectId,
+          parentThreadId: step0ThreadId,
+          providerSubagent: {
+            ownerThreadId: step0ThreadId,
+            provider: ProviderDriverKind.make("codex"),
+            childId: "hung-native-child",
+          },
+          title: "hung native child",
+          modelSelection: {
+            instanceId: codexInstanceId,
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          branch: card.branch,
+          worktreePath: card.worktreePath,
+          createdAt: NOW,
+        });
+        yield* harness.sessionSet(step0ThreadId, "running", TurnId.make("turn-hung-root"));
+        yield* harness.sessionSet(childId, "running", TurnId.make("turn-hung-native-child"));
+        yield* harness.drain;
+
+        yield* harness.dispatch({
+          type: "card.step.report",
+          commandId: CommandId.make("mcp:board-complete:hung-native-child"),
+          cardId: harness.cardId,
+          stepIndex: 0,
+          threadId: step0ThreadId,
+          outcome: "success",
+        });
+        yield* harness.drain;
+
+        card = (yield* harness.readModel).cards.find((entry) => entry.id === harness.cardId)!;
+        expect(card.operation?.kind).toBe("advancing");
+        expect(card.position).toEqual({ kind: "step", stepIndex: 0 });
+
+        yield* harness.dispatch({
+          type: "card.force-advance",
+          commandId: CommandId.make("cmd-force-advance-hung-native-child"),
+          cardId: harness.cardId,
+        });
+        yield* harness.drain;
+
+        model = yield* harness.readModel;
+        card = model.cards.find((entry) => entry.id === harness.cardId)!;
+        const root = model.threads.find((entry) => entry.id === step0ThreadId)!;
+        const child = model.threads.find((entry) => entry.id === childId)!;
+        expect(root.session?.status).toBe("interrupted");
+        expect(root.session?.activeTurnId).toBeNull();
+        expect(child.session?.status).toBe("interrupted");
+        expect(child.session?.activeTurnId).toBeNull();
+        expect(child.session?.lastError).toBe(
+          "Manually marked finished to force card advancement.",
+        );
+        expect(card.operation).toBeNull();
+        expect(card.position).toEqual({ kind: "step", stepIndex: 1 });
+        expect(card.status).toBe("running");
+      }),
+    ),
+  );
+
   it.effect("success on last step reaches Done with null status", () =>
     withBoardReactorHarness({}, (harness) =>
       Effect.gen(function* () {

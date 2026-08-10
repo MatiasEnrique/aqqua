@@ -622,6 +622,14 @@ export const CardContinueCommand = Schema.Struct({
 });
 export type CardContinueCommand = typeof CardContinueCommand.Type;
 
+/** User override for an advancing card whose current-step lineage never settles. */
+export const CardForceAdvanceCommand = Schema.Struct({
+  type: Schema.Literal("card.force-advance"),
+  commandId: CommandId,
+  cardId: CardId,
+});
+export type CardForceAdvanceCommand = typeof CardForceAdvanceCommand.Type;
+
 export const CardRetryCommand = Schema.Struct({
   type: Schema.Literal("card.retry"),
   commandId: CommandId,

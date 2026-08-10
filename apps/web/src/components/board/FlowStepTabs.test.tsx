@@ -120,6 +120,23 @@ describe("FlowStepTabs", () => {
     );
   });
 
+  it("keeps card-level recovery actions visible while a sub-agent is selected", () => {
+    const markup = renderToStaticMarkup(
+      <FlowStepTabs
+        model={model}
+        selection={{
+          kind: "subagent",
+          stepIndex: 1,
+          threadId: ThreadId.make("thread-implement-code"),
+        }}
+        onSelect={() => {}}
+        actions={<button type="button">Force advance</button>}
+      />,
+    );
+
+    expect(markup).toContain("Force advance");
+  });
+
   it("keeps step details out of the tab strip behind a compact picker", () => {
     const markup = renderToStaticMarkup(
       <FlowStepTabs model={model} selection={{ kind: "step", stepIndex: 0 }} onSelect={() => {}} />,
