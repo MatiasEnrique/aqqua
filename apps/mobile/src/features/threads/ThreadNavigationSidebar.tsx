@@ -701,7 +701,8 @@ function ThreadNavigationSidebarPane(
           previous.key === item.key &&
           previous.item.thread === item.item.thread &&
           previous.item.variant === item.item.variant &&
-          previous.item.showSettledDivider === item.item.showSettledDivider
+          previous.item.showSettledDivider === item.item.showSettledDivider &&
+          previous.item.providerSubagentOwnerTitle === item.item.providerSubagentOwnerTitle
         );
       }
       if (previous.type === "v2-show-more" && item.type === "v2-show-more") {

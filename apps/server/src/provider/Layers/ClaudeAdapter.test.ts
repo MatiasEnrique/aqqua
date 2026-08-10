@@ -24,6 +24,7 @@ import {
 import { createModelSelection } from "@aqqua/shared/model";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -3986,8 +3987,17 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const taskStarted = yield* Deferred.make<void>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "task-explore-1"
+          ) {
+            yield* Deferred.succeed(taskStarted, undefined).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       yield* adapter.startSession({
@@ -4007,15 +4017,14 @@ describe("ClaudeAdapterLive", () => {
         uuid: "task-started-1",
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(taskStarted);
 
       const targeted = runtimeEvents.filter(
         (event) => event.providerSubagent?.childId === "task-explore-1",
       );
       const types = targeted.map((event) => event.type);
       assert.deepEqual(types, ["thread.started", "turn.started", "task.started"]);
+      assert.equal(new Set(targeted.map((event) => event.eventId)).size, targeted.length);
       for (const event of targeted) {
         assert.equal(event.threadId, THREAD_ID);
         assert.equal(event.turnId, "claude-subagent:task-explore-1");
@@ -4034,8 +4043,17 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const turnCompletedSignal = yield* Deferred.make<void>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "turn.completed" &&
+            event.providerSubagent?.childId === "task-progress-1"
+          ) {
+            yield* Deferred.succeed(turnCompletedSignal, undefined).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       yield* adapter.startSession({
@@ -4075,10 +4093,7 @@ describe("ClaudeAdapterLive", () => {
         uuid: "task-notification-1",
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(turnCompletedSignal);
 
       const childEvents = runtimeEvents.filter(
         (event) => event.providerSubagent?.childId === "task-progress-1",
@@ -4092,6 +4107,7 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(turnCompleted.turnId, "claude-subagent:task-progress-1");
       }
       assert.ok(childEvents.every((event) => event.turnId === "claude-subagent:task-progress-1"));
+      assert.equal(new Set(childEvents.map((event) => event.eventId)).size, childEvents.length);
 
       runtimeEventsFiber.interruptUnsafe();
     }).pipe(
@@ -4105,8 +4121,18 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const childDelta = yield* Deferred.make<void>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent?.childId === "task-text-1" &&
+            event.payload.delta === "child says hello"
+          ) {
+            yield* Deferred.succeed(childDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       yield* adapter.startSession({
@@ -4137,9 +4163,7 @@ describe("ClaudeAdapterLive", () => {
         },
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(childDelta);
 
       const deltas = runtimeEvents.filter(
         (event) =>
@@ -4165,13 +4189,90 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("keeps provisional child identity when task_started supplies a durable id", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const taskStarted = yield* Deferred.make<void>();
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "toolu-provisional-parent"
+          ) {
+            yield* Deferred.succeed(taskStarted, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-provisional",
+        uuid: "stream-provisional-text",
+        parent_tool_use_id: "toolu-provisional-parent",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "before task started" },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-durable-id",
+        tool_use_id: "toolu-provisional-parent",
+        description: "Provisional worker",
+        session_id: "sdk-session-provisional",
+        uuid: "task-started-provisional",
+      } as unknown as SDKMessage);
+
+      yield* Deferred.await(taskStarted);
+
+      const childEvents = runtimeEvents.filter(
+        (event) => event.providerSubagent?.childId === "toolu-provisional-parent",
+      );
+      assert.ok(childEvents.some((event) => event.type === "content.delta"));
+      assert.ok(childEvents.some((event) => event.type === "task.started"));
+      assert.ok(
+        childEvents.every((event) => event.turnId === "claude-subagent:toolu-provisional-parent"),
+      );
+      assert.equal(
+        runtimeEvents.some((event) => event.providerSubagent?.childId === "task-durable-id"),
+        false,
+      );
+
+      runtimeEventsFiber.interruptUnsafe();
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("does not mix transcript state across two interleaved Claude children", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const finalChildDelta = yield* Deferred.make<void>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent?.childId === "task-a" &&
+            event.payload.delta === "-more-a"
+          ) {
+            yield* Deferred.succeed(finalChildDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       yield* adapter.startSession({
@@ -4233,10 +4334,7 @@ describe("ClaudeAdapterLive", () => {
         },
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(finalChildDelta);
 
       const textFor = (childId: string) =>
         runtimeEvents
@@ -4262,8 +4360,25 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const childStarted = yield* Deferred.make<void>();
+      const requestOpened =
+        yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "request.opened" }>>();
+      const userInputRequested =
+        yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "user-input.requested" }>>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "task.started" &&
+            event.providerSubagent?.childId === "task-approve-1"
+          ) {
+            yield* Deferred.succeed(childStarted, undefined).pipe(Effect.ignore);
+          } else if (event.type === "request.opened") {
+            yield* Deferred.succeed(requestOpened, event).pipe(Effect.ignore);
+          } else if (event.type === "user-input.requested") {
+            yield* Deferred.succeed(userInputRequested, event).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       const session = yield* adapter.startSession({
@@ -4282,14 +4397,13 @@ describe("ClaudeAdapterLive", () => {
         uuid: "task-approve-start",
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(childStarted);
 
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
       assert.equal(typeof canUseTool, "function");
       if (!canUseTool) {
-        return;
+        throw new Error("Expected Claude canUseTool callback");
       }
 
       const approvalPromise = canUseTool(
@@ -4302,14 +4416,7 @@ describe("ClaudeAdapterLive", () => {
         },
       );
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-
-      const opened = runtimeEvents.find((event) => event.type === "request.opened");
-      assert.equal(opened?.type, "request.opened");
-      if (opened?.type !== "request.opened") {
-        return;
-      }
+      const opened = yield* Deferred.await(requestOpened);
       assert.equal(opened.providerSubagent?.childId, "task-approve-1");
       assert.equal(opened.turnId, "claude-subagent:task-approve-1");
       const requestId = opened.requestId;
@@ -4341,14 +4448,7 @@ describe("ClaudeAdapterLive", () => {
         },
       );
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-
-      const asked = runtimeEvents.find((event) => event.type === "user-input.requested");
-      assert.equal(asked?.type, "user-input.requested");
-      if (asked?.type !== "user-input.requested") {
-        return;
-      }
+      const asked = yield* Deferred.await(userInputRequested);
       assert.equal(asked.providerSubagent?.childId, "task-approve-1");
       assert.equal(asked.turnId, "claude-subagent:task-approve-1");
       const askRequestId = asked.requestId;
@@ -4371,8 +4471,18 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const rootDelta = yield* Deferred.make<void>();
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => runtimeEvents.push(event)),
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (
+            event.type === "content.delta" &&
+            event.providerSubagent == null &&
+            event.payload.delta === "root reply"
+          ) {
+            yield* Deferred.succeed(rootDelta, undefined).pipe(Effect.ignore);
+          }
+        }),
       ).pipe(Effect.forkChild);
 
       const session = yield* adapter.startSession({
@@ -4399,9 +4509,7 @@ describe("ClaudeAdapterLive", () => {
         },
       } as unknown as SDKMessage);
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(rootDelta);
 
       const rootDeltas = runtimeEvents.filter(
         (event) => event.type === "content.delta" && event.providerSubagent == null,

@@ -691,6 +691,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       yield* rejectCyclicThreadParent({ readModel, command });
+      if (command.providerSubagent != null) {
+        const owner = yield* requireThread({
+          readModel,
+          command,
+          threadId: command.providerSubagent.ownerThreadId,
+        });
+        if (owner.projectId !== command.projectId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Provider-native owner thread '${owner.id}' belongs to a different project than child '${command.threadId}'.`,
+          });
+        }
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",

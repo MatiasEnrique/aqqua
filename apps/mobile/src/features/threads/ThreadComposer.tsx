@@ -111,6 +111,7 @@ export interface ThreadComposerProps {
    */
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
+  readonly providerSubagentOwnerTitle?: string | null;
   readonly serverConfig: AqquaServerConfig | null;
   readonly queuedMessages: ReadonlyArray<ThreadQueuedMessagePresentation>;
   readonly activeThreadBusy: boolean;
@@ -333,7 +334,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   // control quietly fails.
   const providerSubagent = resolveProviderSubagentPresentation({
     thread: props.selectedThread,
+    ownerTitle: props.providerSubagentOwnerTitle,
   });
+  const isProviderSubagent = providerSubagent !== null;
+  useEffect(() => {
+    if (!isProviderSubagent) return;
+    setIsFocused(false);
+    onExpandedChange?.(false);
+  }, [isProviderSubagent, onExpandedChange]);
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
@@ -827,8 +835,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               {providerSubagent.label}
             </Text>
             <Text className="mt-1 text-xs text-foreground-muted">
-              This subagent runs inside its parent conversation's session. Reply there; approvals
-              and questions raised here stay answerable above.
+              {providerSubagent.ownerTitle === null
+                ? "This subagent runs inside its owner conversation's session. Reply there; approvals and questions raised here stay answerable above."
+                : `This subagent runs inside the session of "${providerSubagent.ownerTitle}". Reply in that owner conversation; approvals and questions raised here stay answerable above.`}
             </Text>
           </ComposerSurface>
         ) : (

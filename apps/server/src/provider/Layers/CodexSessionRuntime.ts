@@ -701,8 +701,6 @@ export function rememberCodexNativeChild(
 /**
  * Learn native child identities from notifications. Collab tool calls establish
  * receiver identity early; thread/started supplies title and parent lineage.
- * Returns true when the notification itself is a parent-scoped collab tool row
- * (must stay on the owner transcript).
  */
 export function rememberCodexNativeChildrenFromNotification(
   nativeChildren: Map<string, CodexNativeChildMeta>,
@@ -1109,13 +1107,19 @@ export const makeCodexSessionRuntime = (
         const route = readRouteFields(notification);
         const session = yield* Ref.get(sessionRef);
         const rootProviderThreadId = currentProviderThreadId(session);
-        const nativeChildren = yield* Ref.get(nativeChildrenRef);
-
-        rememberCodexNativeChildrenFromNotification(
-          nativeChildren,
-          notification,
-          rootProviderThreadId,
-        );
+        const updatesNativeChildren =
+          notification.method === "thread/started" ||
+          notification.method === "thread/name/updated" ||
+          ((notification.method === "item/started" || notification.method === "item/completed") &&
+            (notification.params.item.type === "collabAgentToolCall" ||
+              notification.params.item.type === "subAgentActivity"));
+        const nativeChildren = updatesNativeChildren
+          ? yield* Ref.updateAndGet(nativeChildrenRef, (current) => {
+              const next = new Map(current);
+              rememberCodexNativeChildrenFromNotification(next, notification, rootProviderThreadId);
+              return next;
+            })
+          : yield* Ref.get(nativeChildrenRef);
 
         // collabAgentToolCall / parent-scoped items keep the notification's
         // own provider thread id (root). Child conversation notifications get
@@ -1153,7 +1157,6 @@ export const makeCodexSessionRuntime = (
           }
         }
 
-        yield* Ref.set(nativeChildrenRef, nativeChildren);
         yield* emitEvent({
           kind: "notification",
           threadId: options.threadId,
@@ -1239,17 +1242,20 @@ export const makeCodexSessionRuntime = (
       Effect.gen(function* () {
         const session = yield* Ref.get(sessionRef);
         const rootProviderThreadId = currentProviderThreadId(session);
-        const nativeChildren = yield* Ref.get(nativeChildrenRef);
-        // Approvals may arrive for a child before thread/started; ensure identity.
-        if (
-          providerThreadId &&
-          rootProviderThreadId &&
-          providerThreadId !== rootProviderThreadId &&
-          !nativeChildren.has(providerThreadId)
-        ) {
-          rememberCodexNativeChild(nativeChildren, { childId: providerThreadId });
-          yield* Ref.set(nativeChildrenRef, nativeChildren);
-        }
+        const nativeChildren = yield* Ref.modify(nativeChildrenRef, (current) => {
+          // Approvals may arrive for a child before thread/started; ensure identity.
+          if (
+            providerThreadId &&
+            rootProviderThreadId &&
+            providerThreadId !== rootProviderThreadId &&
+            !current.has(providerThreadId)
+          ) {
+            const next = new Map(current);
+            rememberCodexNativeChild(next, { childId: providerThreadId });
+            return [next, next] as const;
+          }
+          return [current, current] as const;
+        });
         return resolveCodexProviderSubagentTarget({
           providerThreadId,
           rootProviderThreadId,

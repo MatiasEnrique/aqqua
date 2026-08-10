@@ -113,13 +113,18 @@ describe("RuntimeEventCoalescer", () => {
         yield* coalescer.offer(itemUpdatedForChild(2, "child-b"));
         yield* coalescer.drain;
 
-        const childIds = emitted
+        const eventIds = emitted
           .filter((event) => event.type === "item.updated")
-          .map((event) => event.providerSubagent?.childId);
-        expect(childIds).toContain("child-a");
-        expect(childIds).toContain("child-b");
-        expect(childIds.filter((id) => id === "child-a").length).toBeGreaterThanOrEqual(1);
-        expect(childIds.filter((id) => id === "child-b").length).toBeGreaterThanOrEqual(1);
+          .map((event) => event.eventId);
+        expect(new Set(eventIds)).toEqual(
+          new Set([
+            EventId.make("item-updated-child-a-1"),
+            EventId.make("item-updated-child-b-1"),
+            EventId.make("item-updated-child-a-2"),
+            EventId.make("item-updated-child-b-2"),
+          ]),
+        );
+        expect(eventIds).toHaveLength(4);
       }),
     ),
   );

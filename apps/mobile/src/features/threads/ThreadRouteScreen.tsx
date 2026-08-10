@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@aqqua/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@aqqua/shared/projectScripts";
+import { scopeThreadRef } from "@aqqua/client-runtime/environment";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
@@ -36,6 +37,7 @@ import {
 import { useKnownTerminalSessions } from "../../state/use-terminal-session";
 import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
+import { useThreadShell } from "../../state/entities";
 import { GitActionProgressOverlay } from "./GitActionProgressOverlay";
 import {
   buildTerminalMenuSessions,
@@ -214,6 +216,15 @@ function ThreadRouteContent(
   const { onReconnectEnvironment } = useRemoteConnections();
   const { selectedThread, selectedThreadProject, selectedEnvironmentConnection } =
     useThreadSelection();
+  const providerSubagentOwnerThreadId = selectedThread?.providerSubagent?.ownerThreadId ?? null;
+  const providerSubagentOwnerRef = useMemo(
+    () =>
+      selectedThread && providerSubagentOwnerThreadId
+        ? scopeThreadRef(selectedThread.environmentId, providerSubagentOwnerThreadId)
+        : null,
+    [providerSubagentOwnerThreadId, selectedThread?.environmentId],
+  );
+  const providerSubagentOwner = useThreadShell(providerSubagentOwnerRef);
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const resumedSessionActivity =
@@ -799,6 +810,7 @@ function ThreadRouteContent(
           connectionStateLabel={routeConnectionState}
           threadSyncStatus={selectedThreadDetailState.status}
           activeThreadBusy={composer.activeThreadBusy}
+          providerSubagentOwnerTitle={providerSubagentOwner?.title ?? null}
           environmentId={selectedThread.environmentId}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}

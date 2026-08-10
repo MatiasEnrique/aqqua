@@ -15,6 +15,10 @@ export interface NativeSubagentActivityItem {
   readonly state: ReturnType<typeof resolveSidebarConversationAggregateState>;
 }
 
+type NativeSubagentThreadShell = EnvironmentThreadShell & {
+  readonly providerSubagent: NonNullable<EnvironmentThreadShell["providerSubagent"]>;
+};
+
 /**
  * Stable, spawn-order presentation for native children sharing one owner
  * session. The list is computed once per shell snapshot, not per rendered row.
@@ -22,7 +26,8 @@ export interface NativeSubagentActivityItem {
 export function buildNativeSubagentActivityItems(
   threads: readonly EnvironmentThreadShell[],
 ): NativeSubagentActivityItem[] {
-  return [...threads]
+  return threads
+    .filter((thread): thread is NativeSubagentThreadShell => thread.providerSubagent != null)
     .sort((left, right) => {
       const byCreatedAt = Date.parse(left.createdAt) - Date.parse(right.createdAt);
       return Number.isFinite(byCreatedAt) && byCreatedAt !== 0
@@ -32,7 +37,7 @@ export function buildNativeSubagentActivityItems(
     .map((thread) => ({
       thread,
       threadRef: scopeThreadRef(thread.environmentId, thread.id),
-      providerLabel: providerSubagentProviderLabel(thread.providerSubagent!.provider),
+      providerLabel: providerSubagentProviderLabel(thread.providerSubagent.provider),
       state: resolveSidebarConversationAggregateState(thread),
     }));
 }

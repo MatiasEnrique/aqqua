@@ -8,8 +8,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   expandClaimedThreadIdsWithProviderSubagents,
+  isProviderSubagentBinding,
   isProviderSubagentRejectedCommandType,
   isProviderSubagentRejectedMetaUpdate,
+  providerSubagentBinding,
   providerSubagentChildThreadId,
   providerSubagentCoalesceIdentity,
   providerSubagentCreateCommandId,
@@ -75,6 +77,32 @@ describe("providerSubagents shared helpers", () => {
   it("coalesce identity is empty for root events and the native id otherwise", () => {
     expect(providerSubagentCoalesceIdentity(undefined)).toBe("");
     expect(providerSubagentCoalesceIdentity({ childId: "child-a" })).toBe("child-a");
+  });
+
+  it("builds bindings while preserving the contract's explicit null parent", () => {
+    expect(
+      providerSubagentBinding({ ownerThreadId: ownerA, provider, childId: "native-1" }),
+    ).toEqual({ ownerThreadId: ownerA, provider, childId: "native-1" });
+    expect(
+      providerSubagentBinding({
+        ownerThreadId: ownerA,
+        provider,
+        childId: "native-1",
+        parentChildId: null,
+      }),
+    ).toEqual({ ownerThreadId: ownerA, provider, childId: "native-1", parentChildId: null });
+  });
+
+  it("recognizes present provider-subagent bindings", () => {
+    const binding = providerSubagentBinding({
+      ownerThreadId: ownerA,
+      provider,
+      childId: "native-1",
+    });
+
+    expect(isProviderSubagentBinding(binding)).toBe(true);
+    expect(isProviderSubagentBinding(null)).toBe(false);
+    expect(isProviderSubagentBinding(undefined)).toBe(false);
   });
 
   it("rejects direct control command types but not presentation or approval", () => {

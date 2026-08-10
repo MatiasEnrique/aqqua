@@ -997,7 +997,7 @@ describe("Codex native provider-subagent targeting", () => {
     );
   });
 
-  it("preserves child identity for approvals and retains actual child turn ids", () => {
+  it("preserves child identity and title for approval routing", () => {
     const children = new Map<string, CodexNativeChildMeta>();
     rememberCodexNativeChild(children, {
       childId: "child-thread-1",
@@ -1013,9 +1013,5 @@ describe("Codex native provider-subagent targeting", () => {
       childId: "child-thread-1",
       title: "Worker",
     });
-
-    // Child turn ids are not rewritten to the parent turn — only the target is attached.
-    const childTurnId = TurnId.make("child-turn-42");
-    NodeAssert.equal(childTurnId, "child-turn-42");
   });
 });

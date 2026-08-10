@@ -198,13 +198,16 @@ export function useThreadComposerState() {
 
   const submitDraft = useCallback(
     async (deliveryMode: "queue" | "steer") => {
-      if (!selectedThreadShell || isProviderSubagentThread(selectedThreadShell)) {
+      if (!selectedThreadShell) {
+        return null;
+      }
+      const thread = selectedThreadDetail ?? selectedThreadShell;
+      if (isProviderSubagentThread(thread)) {
         return null;
       }
 
       const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
       const draft = getComposerDraftSnapshot(threadKey);
-      const thread = selectedThreadDetail ?? selectedThreadShell;
       const text = draft.text.trim();
       const attachments = draft.attachments;
       if (text.length === 0 && attachments.length === 0) {
@@ -308,15 +311,14 @@ export function useThreadComposerState() {
 
   const onSubmitQueuedMessages = useCallback(
     async (messageIds: ReadonlyArray<MessageId>) => {
-      if (
-        !selectedThreadShell ||
-        isProviderSubagentThread(selectedThreadShell) ||
-        messageIds.length === 0
-      ) {
+      if (!selectedThreadShell) {
+        return;
+      }
+      const thread = selectedThreadDetail ?? selectedThreadShell;
+      if (isProviderSubagentThread(thread) || messageIds.length === 0) {
         return;
       }
       const selectedMessageIds = new Set(messageIds);
-      const thread = selectedThreadDetail ?? selectedThreadShell;
       const serverMessageIds = new Set(
         (selectedThreadDetail?.queuedMessages ?? []).map((message) => message.messageId),
       );

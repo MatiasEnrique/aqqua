@@ -587,9 +587,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
       NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
+      if (firstEvent._tag !== "Some") {
         return;
       }
+      NodeAssert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") return;
       NodeAssert.equal(firstEvent.value.payload.itemType, "command_execution");
       NodeAssert.equal(firstEvent.value.payload.cwd, "/tmp/project/.worktrees/feature");
     }),
@@ -1512,9 +1514,11 @@ lifecycleLayer("CodexAdapterLive provider-subagent targeting", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
       NodeAssert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "thread.started") {
+      if (firstEvent._tag !== "Some") {
         return;
       }
+      NodeAssert.equal(firstEvent.value.type, "thread.started");
+      if (firstEvent.value.type !== "thread.started") return;
       NodeAssert.deepStrictEqual(firstEvent.value.providerSubagent, {
         childId: "native-child-1",
         title: "Scout",

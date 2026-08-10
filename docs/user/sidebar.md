@@ -51,8 +51,8 @@ The two kinds deliberately use different navigation because they have different 
 A native subagent is not inert. Approval requests and multiple-choice questions raised inside it
 stay answerable on its own conversation, and it archives, snoozes, settles, deletes, and renames
 like any other thread. What it does not offer is anything that would claim ownership of a session
-it does not have: sending, queueing, steering, interrupting, model or provider selection, runtime
-and interaction modes, and checkpoint revert.
+it does not have: sending, queueing, steering, interrupting, model or provider selection, branch or
+worktree changes, runtime and interaction modes, and checkpoint revert.
 
 Codex and Claude are the providers that report native subagents today. Only work observed after
 the feature is running appears — existing harness children are not imported retroactively.

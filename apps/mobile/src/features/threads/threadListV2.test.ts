@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -79,8 +80,12 @@ describe("resolveProviderSubagentPresentation", () => {
     id: ThreadId.make("native-child"),
     title: "Subagent c1",
     parentThreadId: ownerThreadId,
-    providerSubagent: { ownerThreadId, provider: "codex", childId: "c1" },
-  } as never);
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
 
   it("returns nothing for an ordinary thread", () => {
     expect(
@@ -97,7 +102,7 @@ describe("resolveProviderSubagentPresentation", () => {
           id: ThreadId.make("managed"),
           title: "managed",
           parentThreadId: ownerThreadId,
-        } as never),
+        }),
       }),
     ).toBeNull();
   });
@@ -129,8 +134,12 @@ describe("resolveProviderSubagentPresentation", () => {
         thread: makeThread({
           id: ThreadId.make("claude-child"),
           title: "c",
-          providerSubagent: { ownerThreadId, provider: "claude", childId: "c1" },
-        } as never),
+          providerSubagent: {
+            ownerThreadId,
+            provider: ProviderDriverKind.make("claude"),
+            childId: "c1",
+          },
+        }),
       })?.label,
     ).toBe("Claude subagent");
 
@@ -139,8 +148,12 @@ describe("resolveProviderSubagentPresentation", () => {
         thread: makeThread({
           id: ThreadId.make("other-child"),
           title: "c",
-          providerSubagent: { ownerThreadId, provider: "some-driver", childId: "c1" },
-        } as never),
+          providerSubagent: {
+            ownerThreadId,
+            provider: ProviderDriverKind.make("some-driver"),
+            childId: "c1",
+          },
+        }),
       })?.label,
     ).toBe("Some Driver subagent");
   });
@@ -156,7 +169,7 @@ describe("resolveProviderSubagentPresentation", () => {
           id: ThreadId.make("managed"),
           title: "managed",
           parentThreadId: ownerThreadId,
-        } as never),
+        }),
       ),
     ).toBe(false);
     expect(isProviderSubagentThread(null)).toBe(false);
@@ -184,8 +197,12 @@ describe("resolveProviderSubagentOwnerTitles", () => {
     id: ThreadId.make("native-child"),
     title: "Subagent c1",
     parentThreadId: ownerThreadId,
-    providerSubagent: { ownerThreadId, provider: "codex", childId: "c1" },
-  } as never);
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
 
   it("allocates nothing when the list holds no native child", () => {
     const titles = resolveProviderSubagentOwnerTitles([
@@ -194,7 +211,7 @@ describe("resolveProviderSubagentOwnerTitles", () => {
         id: ThreadId.make("managed"),
         title: "m",
         parentThreadId: ownerThreadId,
-      } as never),
+      }),
     ]);
 
     expect(titles.size).toBe(0);
@@ -234,8 +251,12 @@ describe("buildThreadListV2Items — provider-native owner context", () => {
     id: ThreadId.make("native-child"),
     title: "Subagent c1",
     parentThreadId: ownerThreadId,
-    providerSubagent: { ownerThreadId, provider: "codex", childId: "c1" },
-  } as never);
+    providerSubagent: {
+      ownerThreadId,
+      provider: ProviderDriverKind.make("codex"),
+      childId: "c1",
+    },
+  });
 
   it("hands every row its owner context so no row has to look one up", () => {
     const layout = buildThreadListV2Items({

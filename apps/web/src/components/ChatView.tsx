@@ -1721,6 +1721,16 @@ function ChatViewContent(props: ChatViewProps) {
     [activeProjectRef],
   );
   const projectThreadShells = useThreadShellsForProjectRefs(activeProjectRefs);
+  const archivedNativeSubagentOwnerRef = useMemo(() => {
+    const binding = activeThread?.providerSubagent ?? null;
+    if (!isServerThread || !activeThread || binding === null) return null;
+    const ownerIsLive = projectThreadShells.some(
+      (thread) =>
+        thread.environmentId === activeThread.environmentId && thread.id === binding.ownerThreadId,
+    );
+    return ownerIsLive ? null : scopeThreadRef(activeThread.environmentId, binding.ownerThreadId);
+  }, [activeThread, isServerThread, projectThreadShells]);
+  const archivedNativeSubagentOwner = useThread(archivedNativeSubagentOwnerRef);
   const nativeSubagentActivity = useMemo(() => {
     if (!isServerThread || !activeThread) return null;
     const activeBinding = activeThread.providerSubagent ?? null;
@@ -1738,11 +1748,13 @@ function ChatViewContent(props: ChatViewProps) {
     );
     return {
       ownerTitle:
-        owner?.title || (activeBinding === null ? activeThread.title : "Parent conversation"),
+        owner?.title ||
+        archivedNativeSubagentOwner?.title ||
+        (activeBinding === null ? activeThread.title : "Parent conversation"),
       children,
       activeChildId: activeBinding === null ? null : activeThread.id,
     };
-  }, [activeThread, isServerThread, projectThreadShells]);
+  }, [activeThread, archivedNativeSubagentOwner?.title, isServerThread, projectThreadShells]);
   const activeProject = useProject(activeProjectRef);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const providerSessionCwds = useMemo(() => {

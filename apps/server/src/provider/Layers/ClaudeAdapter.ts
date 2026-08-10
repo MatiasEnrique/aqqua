@@ -58,6 +58,7 @@ import {
   resolvePromptInjectedEffort,
 } from "@aqqua/shared/model";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -98,6 +99,13 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJ
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
+
+const ActiveClaudeProviderSubagent = Context.Reference<ProviderSubagentTarget | undefined>(
+  "aqqua/provider/ClaudeAdapter/ActiveProviderSubagent",
+  {
+    defaultValue: () => undefined,
+  },
+);
 
 const CLAUDE_RATE_LIMIT_WINDOW = {
   five_hour: { kind: "five-hour", windowMinutes: 300 },
@@ -1529,20 +1537,15 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const nextEventId = Effect.map(randomUUIDv4, (id) => EventId.make(id));
   const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
-  /**
-   * Active emission target is set while a child-scoped SDK message is being
-   * processed so existing emitters attach providerSubagent without a full
-   * pipeline rewrite. Explicit event.providerSubagent wins when present.
-   */
-  let activeEmissionProviderSubagent: ProviderSubagentTarget | undefined;
-
-  const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> => {
-    const providerSubagent = event.providerSubagent ?? activeEmissionProviderSubagent;
-    return Queue.offer(runtimeEventQueue, {
-      ...event,
-      ...(providerSubagent ? { providerSubagent } : {}),
-    }).pipe(Effect.asVoid);
-  };
+  const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const activeProviderSubagent = yield* ActiveClaudeProviderSubagent;
+      const providerSubagent = event.providerSubagent ?? activeProviderSubagent;
+      yield* Queue.offer(runtimeEventQueue, {
+        ...event,
+        ...(providerSubagent ? { providerSubagent } : {}),
+      });
+    });
 
   const ensureNativeSubagent = (
     context: ClaudeSessionContext,
@@ -1564,18 +1567,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? context.providerSubagents.get(provisionalId)
           : context.providerSubagents.get(input.toolUseId);
       if (provisional) {
-        context.providerSubagents.delete(provisional.childId);
-        const adoptedTitle = input.title ?? provisional.title;
-        const adoptedToolUseId = input.toolUseId ?? provisional.toolUseId;
-        state = {
-          childId: input.childId,
-          ...(adoptedTitle ? { title: adoptedTitle } : {}),
-          turnId: provisional.turnId,
-          turnState: provisional.turnState,
-          inFlightTools: provisional.inFlightTools,
-          ...(adoptedToolUseId ? { toolUseId: adoptedToolUseId } : {}),
-          completed: provisional.completed,
-        };
+        // Keep the provisional identity stable. The durable task id becomes an
+        // alias to the same state so events emitted before and after
+        // task_started remain on one child thread and turn.
+        state = provisional;
       }
     }
     if (!state) {
@@ -1658,15 +1653,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const previousTurnState = context.turnState;
     const previousInFlightTools = context.inFlightTools;
     const previousActive = context.activeProviderSubagent;
-    const previousEmission = activeEmissionProviderSubagent;
     const target = providerSubagentTargetFromState(subagent);
 
     context.turnState = subagent.turnState;
     context.inFlightTools = subagent.inFlightTools;
     context.activeProviderSubagent = target;
-    activeEmissionProviderSubagent = target;
 
     return effect.pipe(
+      Effect.provideService(ActiveClaudeProviderSubagent, target),
       Effect.ensuring(
         Effect.sync(() => {
           // Persist any reassignment of turnState back onto the child.
@@ -1676,7 +1670,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           context.turnState = previousTurnState;
           context.inFlightTools = previousInFlightTools;
           context.activeProviderSubagent = previousActive;
-          activeEmissionProviderSubagent = previousEmission;
         }),
       ),
     );
@@ -3073,6 +3066,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         yield* offerRuntimeEvent({
           ...base,
+          ...(yield* makeEventStamp()),
           type: "thread.started",
           turnId: subagent.turnId,
           providerSubagent: target,
@@ -3082,6 +3076,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
         yield* offerRuntimeEvent({
           ...base,
+          ...(yield* makeEventStamp()),
           type: "turn.started",
           turnId: subagent.turnId,
           providerSubagent: target,
@@ -3093,6 +3088,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
         yield* offerRuntimeEvent({
           ...base,
+          ...(yield* makeEventStamp()),
           type: "task.started",
           turnId: subagent.turnId,
           providerSubagent: target,
@@ -3186,6 +3182,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             );
             yield* offerRuntimeEvent({
               ...base,
+              ...(yield* makeEventStamp()),
               type: "task.completed",
               turnId: notificationSubagent.turnId,
               providerSubagent: notificationTarget,
@@ -3198,6 +3195,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             });
             yield* offerRuntimeEvent({
               ...base,
+              ...(yield* makeEventStamp()),
               type: "turn.completed",
               turnId: notificationSubagent.turnId,
               providerSubagent: notificationTarget,

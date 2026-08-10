@@ -56,6 +56,15 @@ describe("buildNativeSubagentActivityItems", () => {
       ["later", "Claude"],
     ]);
   });
+
+  it("ignores ordinary threads instead of asserting a native binding", () => {
+    const ordinary = child("owner", "2026-01-01T00:00:00.000Z", {
+      parentThreadId: null,
+      providerSubagent: null,
+    });
+
+    expect(buildNativeSubagentActivityItems([ordinary])).toEqual([]);
+  });
 });
 
 describe("NativeSubagentActivity", () => {
