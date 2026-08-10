@@ -68,7 +68,11 @@ const make = Effect.gen(function* () {
     event: ThreadDeletedEvent,
   ) {
     const { threadId } = event.payload;
-    yield* stopProviderSession(threadId);
+    // Provider-native children share the owner's session. Stopping that session
+    // when only the child is deleted would tear down the owner's harness.
+    if (event.payload.providerSubagent == null) {
+      yield* stopProviderSession(threadId);
+    }
     yield* closeThreadTerminals(threadId);
   });
 

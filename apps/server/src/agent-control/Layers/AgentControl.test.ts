@@ -926,6 +926,72 @@ agentControlLayer("AgentControl", (it) => {
     }),
   );
 
+  it.effect("excludes provider-native children from list, ownership, and concurrency", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const engine = yield* OrchestrationEngineService;
+      const { parentThreadId, projectId, worktreePath } = yield* makeOrchestrator();
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const nativeChildId = ThreadId.make(unique("thread-native-child"));
+
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(unique("cmd-native-child")),
+        threadId: nativeChildId,
+        projectId,
+        parentThreadId,
+        providerSubagent: {
+          ownerThreadId: parentThreadId,
+          provider: ProviderDriverKind.make("codex"),
+          childId: "native-1",
+        },
+        title: "Native harness child",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath,
+        createdAt,
+      });
+
+      const listed = yield* agents.list({ parentThreadId });
+      assert.equal(
+        listed.some((entry) => entry.threadId === nativeChildId),
+        false,
+      );
+
+      const ownership = yield* Effect.exit(
+        agents.send({
+          parentThreadId,
+          childThreadId: nativeChildId,
+          message: "should not own native children",
+        }),
+      );
+      assert.equal(ownership._tag, "Failure");
+
+      // Provider-native children must not consume the live concurrency budget.
+      for (let index = 0; index < MAX_LIVE_SUB_AGENTS_PER_PARENT; index += 1) {
+        const handle = yield* agents.spawnProfile({
+          parentThreadId,
+          profile: implementer,
+          task: `Managed ${index}`,
+        });
+        yield* startTurn(handle.threadId, TurnId.make(unique("turn")));
+      }
+      const overLimit = yield* Effect.exit(
+        agents.spawnProfile({
+          parentThreadId,
+          profile: implementer,
+          task: "one past the limit",
+        }),
+      );
+      assert.equal(overLimit._tag, "Failure");
+    }),
+  );
+
   it.effect("interrupts a sub-agent through the ordinary turn-interrupt path", () =>
     Effect.gen(function* () {
       const agents = yield* AgentControl;

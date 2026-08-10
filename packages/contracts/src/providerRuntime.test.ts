@@ -200,4 +200,44 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
+
+  it("decodes ordinary root events without providerSubagent (wire compatibility)", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "item.completed",
+      eventId: "event-root-compat",
+      provider: "codex",
+      createdAt: "2026-02-28T00:00:00.000Z",
+      threadId: "thread-1",
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+      },
+    });
+    expect(parsed.providerSubagent).toBeUndefined();
+  });
+
+  it("round-trips a providerSubagent target on runtime events", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "item.updated",
+      eventId: "event-subagent-target",
+      provider: "codex",
+      createdAt: "2026-02-28T00:00:00.000Z",
+      threadId: "thread-owner",
+      providerSubagent: {
+        childId: "native-child-1",
+        parentChildId: "native-parent",
+        title: "Explore",
+      },
+      itemId: "item-1",
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+      },
+    });
+    expect(parsed.providerSubagent).toEqual({
+      childId: "native-child-1",
+      parentChildId: "native-parent",
+      title: "Explore",
+    });
+  });
 });

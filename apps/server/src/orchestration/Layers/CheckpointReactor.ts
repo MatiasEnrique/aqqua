@@ -791,6 +791,12 @@ const make = Effect.gen(function* () {
   const processRuntimeEvent = Effect.fn("processRuntimeEvent")(function* (
     event: ProviderRuntimeEvent,
   ) {
+    // Native subagent events ride the owner provider stream but belong to a
+    // display-only child. The owner remains source-control authority.
+    if (event.providerSubagent != null) {
+      return;
+    }
+
     if (
       event.type === "item.started" ||
       event.type === "item.updated" ||

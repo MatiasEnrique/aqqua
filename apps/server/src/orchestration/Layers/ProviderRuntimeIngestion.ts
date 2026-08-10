@@ -17,6 +17,12 @@ import {
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
 } from "@aqqua/contracts";
+import { makeDrainableWorker } from "@aqqua/shared/DrainableWorker";
+import {
+  providerSubagentBinding,
+  providerSubagentChildThreadId,
+  providerSubagentCreateCommandId,
+} from "@aqqua/shared/providerSubagents";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -26,11 +32,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import { makeDrainableWorker } from "@aqqua/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
-import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
+import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -691,6 +698,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const projectionThreadRepository = yield* ProjectionThreadRepository;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
@@ -1293,6 +1301,141 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /**
+   * When a runtime event targets a native harness subagent, ensure the durable
+   * child thread exists (once), then rewrite `threadId` to that child so the
+   * rest of ingestion reuses ordinary projection. The owner session remains on
+   * `event.threadId` on the wire until this remap.
+   *
+   * Returns `null` when the event must be dropped (no owner, or a previously
+   * deleted child that must not be recreated).
+   *
+   * `newlyMaterialized` is true only on the discovery create transition, so
+   * owner-archived cascade can run once without rearchiving after an explicit
+   * user unarchive.
+   */
+  const materializeProviderSubagentTarget = Effect.fn("materializeProviderSubagentTarget")(
+    function* (event: ProviderRuntimeEvent) {
+      const target = event.providerSubagent;
+      if (target === undefined) {
+        return { event, newlyMaterialized: false } as const;
+      }
+
+      const ownerThreadId = event.threadId;
+      const ownerRow = yield* projectionThreadRepository.getById({ threadId: ownerThreadId });
+      if (Option.isNone(ownerRow) || ownerRow.value.deletedAt !== null) {
+        // Preserve ordinary drop behavior when the owner is missing.
+        return null;
+      }
+      const owner = ownerRow.value;
+
+      const childThreadId = providerSubagentChildThreadId({
+        ownerThreadId,
+        provider: event.provider,
+        childId: target.childId,
+      });
+      const existingChild = yield* projectionThreadRepository.getById({ threadId: childThreadId });
+      if (Option.isSome(existingChild) && existingChild.value.deletedAt !== null) {
+        // A deleted child must not be recreated by later events with the same native id.
+        return null;
+      }
+
+      let newlyMaterialized = false;
+      if (Option.isNone(existingChild)) {
+        newlyMaterialized = true;
+        const parentThreadId =
+          target.parentChildId !== undefined
+            ? providerSubagentChildThreadId({
+                ownerThreadId,
+                provider: event.provider,
+                childId: target.parentChildId,
+              })
+            : ownerThreadId;
+        const binding = providerSubagentBinding({
+          ownerThreadId,
+          provider: event.provider,
+          childId: target.childId,
+          parentChildId: target.parentChildId ?? null,
+        });
+        const title =
+          target.title?.trim() ||
+          (target.childId.length > 0 ? `Subagent ${target.childId}` : "Subagent");
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.create",
+          commandId: providerSubagentCreateCommandId({
+            ownerThreadId,
+            provider: event.provider,
+            childId: target.childId,
+          }),
+          threadId: childThreadId,
+          projectId: owner.projectId,
+          parentThreadId,
+          providerSubagent: binding,
+          title,
+          modelSelection: owner.modelSelection,
+          runtimeMode: owner.runtimeMode,
+          interactionMode: owner.interactionMode,
+          branch: owner.branch,
+          worktreePath: owner.worktreePath,
+          createdAt: event.createdAt,
+        });
+      }
+
+      return {
+        event: {
+          ...event,
+          threadId: childThreadId,
+        } satisfies ProviderRuntimeEvent,
+        newlyMaterialized,
+      } as const;
+    },
+  );
+
+  /**
+   * After the first event for a newly discovered native child has projected,
+   * archive that child when its owner was already archived so lineage stays
+   * visible without an active orphan. Must not run for later events on an
+   * already-existing child — explicit unarchive is a durable reverse state.
+   */
+  const archiveNewlyMaterializedProviderSubagentIfOwnerArchived = Effect.fn(
+    "archiveNewlyMaterializedProviderSubagentIfOwnerArchived",
+  )(function* (event: ProviderRuntimeEvent) {
+    const target = event.providerSubagent;
+    if (target === undefined) {
+      return;
+    }
+
+    const childRow = yield* projectionThreadRepository.getById({ threadId: event.threadId });
+    if (
+      Option.isNone(childRow) ||
+      childRow.value.deletedAt !== null ||
+      childRow.value.archivedAt !== null
+    ) {
+      return;
+    }
+    const bindingOwnerId = childRow.value.providerSubagent?.ownerThreadId;
+    if (bindingOwnerId === undefined) {
+      return;
+    }
+    const ownerRow = yield* projectionThreadRepository.getById({ threadId: bindingOwnerId });
+    if (Option.isNone(ownerRow) || ownerRow.value.archivedAt === null) {
+      return;
+    }
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.archive",
+      commandId: CommandId.make(
+        `psa_archive_${providerSubagentCreateCommandId({
+          ownerThreadId: bindingOwnerId,
+          provider: event.provider,
+          childId: target.childId,
+        })}`,
+      ),
+      threadId: event.threadId,
+    });
+  });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       if (event.type === "account.rate-limits.updated") {
@@ -1307,6 +1450,13 @@ const make = Effect.gen(function* () {
         }
         return;
       }
+
+      const materializeResult = yield* materializeProviderSubagentTarget(event);
+      if (materializeResult === null) {
+        return;
+      }
+      event = materializeResult.event;
+      const newlyMaterializedProviderSubagent = materializeResult.newlyMaterialized;
 
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
@@ -1732,7 +1882,8 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (event.type === "turn.diff.updated") {
+      // Native children do not own checkpoints/diffs; the owner remains authority.
+      if (event.type === "turn.diff.updated" && event.providerSubagent == null) {
         const turnId = toTurnId(event.turnId);
         const checkpointContext = turnId
           ? yield* projectionSnapshotQuery
@@ -1798,6 +1949,12 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+
+      // Owner-archived cascade is discovery-only: never rearchive an existing
+      // child the user has explicitly unarchived.
+      if (newlyMaterializedProviderSubagent) {
+        yield* archiveNewlyMaterializedProviderSubagentIfOwnerArchived(event);
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
@@ -1862,6 +2019,9 @@ export const makeProviderRuntimeIngestionLayer = (options: ProviderRuntimeIngest
       : make.pipe(
           Effect.provideService(RuntimeEventCoalescingEnabled, options.coalesceTransientEvents),
         ),
-  ).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+  ).pipe(
+    Layer.provide(ProjectionTurnRepositoryLive),
+    Layer.provide(ProjectionThreadRepositoryLive),
+  );
 
 export const ProviderRuntimeIngestionLive = makeProviderRuntimeIngestionLayer();

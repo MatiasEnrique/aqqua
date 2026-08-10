@@ -195,6 +195,7 @@ const make = Effect.gen(function* () {
     if (
       !child ||
       child.deletedAt !== null ||
+      child.providerSubagent != null ||
       (child.parentThreadId ?? null) !== input.parentThreadId
     ) {
       return yield* new AgentNotOwnedError({
@@ -232,7 +233,13 @@ const make = Effect.gen(function* () {
   const listSubAgentShells = (operation: string, parentThreadId: ThreadId) =>
     projection.getShellSnapshot().pipe(
       Effect.map((snapshot) =>
-        snapshot.threads.filter((thread) => (thread.parentThreadId ?? null) === parentThreadId),
+        snapshot.threads.filter(
+          (thread) =>
+            (thread.parentThreadId ?? null) === parentThreadId &&
+            // Provider-native harness children are display threads, not
+            // aqqua-managed AgentControl sub-agents.
+            thread.providerSubagent == null,
+        ),
       ),
       Effect.catchCause(dispatchFailure(operation)),
     );

@@ -780,6 +780,7 @@ function ThreadNavigationSidebarPane(
               showSettledDivider={item.item.showSettledDivider}
               project={projectByKey.get(scopeKey) ?? null}
               projectTitle={projectTitleByProjectKey.get(scopeKey)}
+              providerSubagentOwnerTitle={item.item.providerSubagentOwnerTitle}
               providerDriver={
                 serverConfigs
                   .get(thread.environmentId)

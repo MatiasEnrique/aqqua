@@ -24,6 +24,11 @@ import type * as PlatformError from "effect/PlatformError";
  */
 import { boardOperationThreadId, hasOpenBlockingRequest } from "./boardCardHelpers.ts";
 import {
+  isProviderSubagentRejectedCommandType,
+  isProviderSubagentRejectedMetaUpdate,
+} from "@aqqua/shared/providerSubagents";
+import {
+  findThreadById,
   listActiveDescendantDeletionRoots,
   listThreadsByParentThreadId,
   listThreadsByProjectId,
@@ -502,6 +507,36 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   return plannedEvents;
 });
 
+function rejectProviderSubagentDirectControl(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!("threadId" in input.command) || typeof input.command.threadId !== "string") {
+    return Effect.void;
+  }
+  const thread = findThreadById(input.readModel, input.command.threadId);
+  if (thread?.providerSubagent == null) {
+    return Effect.void;
+  }
+  if (isProviderSubagentRejectedCommandType(input.command.type)) {
+    return Effect.fail(
+      new OrchestrationCommandInvariantError({
+        commandType: input.command.type,
+        detail: `Thread '${input.command.threadId}' is a provider-native subagent and does not accept '${input.command.type}'. Respond to approvals or user input on this thread, or control the owner thread '${thread.providerSubagent.ownerThreadId}'.`,
+      }),
+    );
+  }
+  if (isProviderSubagentRejectedMetaUpdate(input.command)) {
+    return Effect.fail(
+      new OrchestrationCommandInvariantError({
+        commandType: input.command.type,
+        detail: `Thread '${input.command.threadId}' is a provider-native subagent; model, branch, and worktree changes must target the owner thread '${thread.providerSubagent.ownerThreadId}'.`,
+      }),
+    );
+  }
+  return Effect.void;
+}
+
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   archiveLineage = new Set<ThreadId>(),
   command,
@@ -515,6 +550,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
   Crypto.Crypto
 > {
+  yield* rejectProviderSubagentDirectControl({ readModel, command });
+
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -666,6 +703,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           projectId: command.projectId,
           parentThreadId: command.parentThreadId ?? null,
+          ...(command.providerSubagent != null
+            ? { providerSubagent: command.providerSubagent }
+            : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -679,7 +719,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const deletingThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -730,6 +770,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           deletedAt: occurredAt,
+          ...(deletingThread.providerSubagent != null
+            ? { providerSubagent: deletingThread.providerSubagent }
+            : {}),
         },
       };
     }

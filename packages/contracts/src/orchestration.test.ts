@@ -24,7 +24,8 @@ import {
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
 } from "./orchestration.ts";
-import { ProviderInstanceId } from "./providerInstance.ts";
+import { ThreadId } from "./baseSchemas.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeFullThreadDiffInput = Schema.decodeUnknownEffect(OrchestrationGetFullThreadDiffInput);
@@ -1069,5 +1070,127 @@ it.effect("ModelSelection rejects malformed instance ids", () =>
       }),
     );
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("decodes thread snapshots without providerSubagent (wire compatibility)", () =>
+  Effect.gen(function* () {
+    const common = {
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Thread",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+    };
+    const thread = yield* decodeOrchestrationThread({
+      ...common,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    });
+    const shell = yield* decodeOrchestrationThreadShell({
+      ...common,
+      latestUserMessageAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    });
+    assert.strictEqual(thread.providerSubagent ?? null, null);
+    assert.strictEqual(shell.providerSubagent ?? null, null);
+  }),
+);
+
+it.effect("round-trips providerSubagent bindings on thread detail, shell, and create", () =>
+  Effect.gen(function* () {
+    const binding = {
+      ownerThreadId: ThreadId.make("thread-owner"),
+      provider: ProviderDriverKind.make("codex"),
+      childId: "native-1",
+      parentChildId: null,
+    };
+    const common = {
+      id: "thread-child",
+      projectId: "project-1",
+      parentThreadId: "thread-owner",
+      providerSubagent: binding,
+      title: "Native child",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+    };
+    const thread = yield* decodeOrchestrationThread({
+      ...common,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    });
+    const shell = yield* decodeOrchestrationThreadShell({
+      ...common,
+      latestUserMessageAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    });
+    assert.deepStrictEqual(thread.providerSubagent, binding);
+    assert.deepStrictEqual(shell.providerSubagent, binding);
+
+    const created = yield* decodeThreadCreatedPayload({
+      threadId: "thread-child",
+      projectId: "project-1",
+      parentThreadId: "thread-owner",
+      providerSubagent: binding,
+      title: "Native child",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(created.providerSubagent, binding);
+
+    const createCommand = yield* decodeOrchestrationCommand({
+      type: "thread.create",
+      commandId: "cmd-create-native",
+      threadId: "thread-child",
+      projectId: "project-1",
+      parentThreadId: "thread-owner",
+      providerSubagent: binding,
+      title: "Native child",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(createCommand.type, "thread.create");
+    if (createCommand.type === "thread.create") {
+      assert.deepStrictEqual(createCommand.providerSubagent, binding);
+    }
   }),
 );

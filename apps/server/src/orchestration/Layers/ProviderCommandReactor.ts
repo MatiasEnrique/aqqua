@@ -948,7 +948,14 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const hasSession = thread.session && thread.session.status !== "stopped";
+    // Provider-native children do not own a session; route to the owner while
+    // recording any failure activity on the child thread.
+    const providerThreadId = thread.providerSubagent?.ownerThreadId ?? event.payload.threadId;
+    const sessionThread =
+      providerThreadId === event.payload.threadId
+        ? thread
+        : ((yield* resolveThread(providerThreadId)) ?? thread);
+    const hasSession = sessionThread.session && sessionThread.session.status !== "stopped";
     if (!hasSession) {
       return yield* appendProviderFailureActivity({
         threadId: event.payload.threadId,
@@ -963,7 +970,7 @@ const make = Effect.gen(function* () {
 
     yield* providerService
       .respondToRequest({
-        threadId: event.payload.threadId,
+        threadId: providerThreadId,
         requestId: event.payload.requestId,
         decision: event.payload.decision,
       })
@@ -992,7 +999,12 @@ const make = Effect.gen(function* () {
       if (!thread) {
         return;
       }
-      const hasSession = thread.session && thread.session.status !== "stopped";
+      const providerThreadId = thread.providerSubagent?.ownerThreadId ?? event.payload.threadId;
+      const sessionThread =
+        providerThreadId === event.payload.threadId
+          ? thread
+          : ((yield* resolveThread(providerThreadId)) ?? thread);
+      const hasSession = sessionThread.session && sessionThread.session.status !== "stopped";
       if (!hasSession) {
         return yield* appendProviderFailureActivity({
           threadId: event.payload.threadId,
@@ -1007,7 +1019,7 @@ const make = Effect.gen(function* () {
 
       yield* providerService
         .respondToUserInput({
-          threadId: event.payload.threadId,
+          threadId: providerThreadId,
           requestId: event.payload.requestId,
           answers: event.payload.answers,
         })

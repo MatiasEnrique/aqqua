@@ -81,6 +81,7 @@ import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerComm
 import { ComposerMessageQueue } from "./ComposerMessageQueue";
 import { ComposerCollapsedActions, ComposerToolbarActions } from "./ComposerPrimaryActions";
 import { resolveComposerPrimaryActions } from "./composerQueuePresentation";
+import { resolveProviderSubagentPresentation } from "./threadListV2";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -327,6 +328,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     messageQueueSupported: props.serverConfig?.environment.capabilities.threadMessageQueue === true,
     hasSendableContent: canSend,
   });
+  // A provider-native child has no session of its own, so it gets an
+  // explanation in place of a composer rather than a composer whose every
+  // control quietly fails.
+  const providerSubagent = resolveProviderSubagentPresentation({
+    thread: props.selectedThread,
+  });
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
@@ -541,6 +548,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
+    // Defence in depth beside the read-only surface below: a hardware keyboard
+    // return, or a stale handle held by the editor, must not reach a thread
+    // whose session belongs to its owner.
+    if (providerSubagent !== null) return;
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
@@ -558,6 +569,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [
     onSendMessage,
     primaryActions.deliveryMode,
+    providerSubagent,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
@@ -797,110 +809,134 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           />
         ) : null}
 
-        <ComposerSurface
-          isDarkMode={isDarkMode}
-          style={
-            isExpanded
-              ? {
-                  borderRadius: 20,
-                  overflow: "hidden" as const,
-                  paddingHorizontal: 14,
-                  paddingVertical: 12,
-                }
-              : {
-                  borderRadius: 999,
-                  overflow: "hidden" as const,
-                  flexDirection: "row" as const,
-                  alignItems: "center" as const,
-                  paddingLeft: 18,
-                  paddingRight: 5,
-                  paddingVertical: 5,
-                }
-          }
-        >
-          {/* Attachment strip — inside the card, above the text input */}
-          {isExpanded ? (
-            <Animated.View
-              className={props.draftAttachments.length > 0 ? "pb-2.5" : undefined}
-              entering={FadeIn.duration(160)}
-              exiting={FadeOut.duration(120)}
+        {providerSubagent !== null ? (
+          <ComposerSurface
+            isDarkMode={isDarkMode}
+            style={{
+              borderRadius: 20,
+              overflow: "hidden" as const,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+            }}
+          >
+            <Text
+              accessibilityRole="text"
+              className="text-sm font-aqqua-medium text-foreground"
+              numberOfLines={2}
             >
-              <ComposerAttachmentStrip
-                attachments={props.draftAttachments}
-                onRemove={props.onRemoveDraftImage}
-                onPressImage={onPressImage}
+              {providerSubagent.label}
+            </Text>
+            <Text className="mt-1 text-xs text-foreground-muted">
+              This subagent runs inside its parent conversation's session. Reply there; approvals
+              and questions raised here stay answerable above.
+            </Text>
+          </ComposerSurface>
+        ) : (
+          <ComposerSurface
+            isDarkMode={isDarkMode}
+            style={
+              isExpanded
+                ? {
+                    borderRadius: 20,
+                    overflow: "hidden" as const,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                  }
+                : {
+                    borderRadius: 999,
+                    overflow: "hidden" as const,
+                    flexDirection: "row" as const,
+                    alignItems: "center" as const,
+                    paddingLeft: 18,
+                    paddingRight: 5,
+                    paddingVertical: 5,
+                  }
+            }
+          >
+            {/* Attachment strip — inside the card, above the text input */}
+            {isExpanded ? (
+              <Animated.View
+                className={props.draftAttachments.length > 0 ? "pb-2.5" : undefined}
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+              >
+                <ComposerAttachmentStrip
+                  attachments={props.draftAttachments}
+                  onRemove={props.onRemoveDraftImage}
+                  onPressImage={onPressImage}
+                />
+              </Animated.View>
+            ) : null}
+
+            <View className={isExpanded ? undefined : "min-w-0 flex-1"}>
+              <ComposerEditor
+                ref={inputRef}
+                multiline
+                value={props.draftMessage}
+                skills={workspaceSkills.skills}
+                selection={composerSelection}
+                onChangeText={props.onChangeDraftMessage}
+                onSelectionChange={handleSelectionChange}
+                onPasteImages={(uris) => void props.onNativePasteImages(uris)}
+                placeholder={props.placeholder}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
+                onSubmit={handleSend}
+                scrollEnabled={isExpanded}
+                // Android: collapsed single line centers natively (gravity) in
+                // a pill-height box matching the send button; iOS keeps insets.
+                singleLineCentered={!isExpanded}
+                contentInsetVertical={isExpanded || Platform.OS === "android" ? 0 : 6}
+                style={
+                  isExpanded
+                    ? {
+                        minHeight: 80,
+                        maxHeight: 160,
+                        paddingHorizontal: 4,
+                        paddingVertical: 4,
+                      }
+                    : {
+                        height: 36,
+                      }
+                }
+                textStyle={{
+                  ...bodyText,
+                  color: foregroundColor,
+                }}
               />
-            </Animated.View>
-          ) : null}
-
-          <View className={isExpanded ? undefined : "min-w-0 flex-1"}>
-            <ComposerEditor
-              ref={inputRef}
-              multiline
-              value={props.draftMessage}
-              skills={workspaceSkills.skills}
-              selection={composerSelection}
-              onChangeText={props.onChangeDraftMessage}
-              onSelectionChange={handleSelectionChange}
-              onPasteImages={(uris) => void props.onNativePasteImages(uris)}
-              placeholder={props.placeholder}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-              onSubmit={handleSend}
-              scrollEnabled={isExpanded}
-              // Android: collapsed single line centers natively (gravity) in
-              // a pill-height box matching the send button; iOS keeps insets.
-              singleLineCentered={!isExpanded}
-              contentInsetVertical={isExpanded || Platform.OS === "android" ? 0 : 6}
-              style={
-                isExpanded
-                  ? {
-                      minHeight: 80,
-                      maxHeight: 160,
-                      paddingHorizontal: 4,
-                      paddingVertical: 4,
-                    }
-                  : {
-                      height: 36,
-                    }
-              }
-              textStyle={{
-                ...bodyText,
-                color: foregroundColor,
-              }}
-            />
-          </View>
-          {!isExpanded && props.draftAttachments.length > 0 ? (
-            <View className="flex-row gap-1 pl-1">
-              {props.draftAttachments.slice(0, 3).map((image) => (
-                <Pressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
-                  <Image
-                    source={{ uri: image.previewUri }}
-                    className="size-[30px] rounded-lg bg-subtle"
-                    resizeMode="cover"
-                  />
-                </Pressable>
-              ))}
-              {props.draftAttachments.length > 3 ? (
-                <View className="size-[30px] items-center justify-center rounded-lg bg-subtle-strong">
-                  <Text className="text-foreground-muted text-2xs font-aqqua-bold">
-                    +{props.draftAttachments.length - 3}
-                  </Text>
-                </View>
-              ) : null}
             </View>
-          ) : null}
-          {!isExpanded ? (
-            <ComposerCollapsedActions
-              showStop={primaryActions.showStop}
-              sendDisabled={primaryActions.sendDisabled}
-              onSend={handleSend}
-              onStop={props.onStopThread}
-            />
-          ) : null}
-        </ComposerSurface>
+            {!isExpanded && props.draftAttachments.length > 0 ? (
+              <View className="flex-row gap-1 pl-1">
+                {props.draftAttachments.slice(0, 3).map((image) => (
+                  <Pressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
+                    <Image
+                      source={{ uri: image.previewUri }}
+                      className="size-[30px] rounded-lg bg-subtle"
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+                {props.draftAttachments.length > 3 ? (
+                  <View className="size-[30px] items-center justify-center rounded-lg bg-subtle-strong">
+                    <Text className="text-foreground-muted text-2xs font-aqqua-bold">
+                      +{props.draftAttachments.length - 3}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            {!isExpanded ? (
+              <ComposerCollapsedActions
+                showStop={primaryActions.showStop}
+                sendDisabled={primaryActions.sendDisabled}
+                onSend={handleSend}
+                onStop={props.onStopThread}
+              />
+            ) : null}
+          </ComposerSurface>
+        )}
 
-        {isExpanded ? (
+        {providerSubagent === null && isExpanded ? (
           // Toolbar row — matches draft page layout (expanded only)
           <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}>
             <ComposerToolbarRow paddingBottom={8} paddingHorizontal={0} paddingTop={8}>
@@ -956,7 +992,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ) : null}
 
         <ComposerMessageQueue
-          messages={props.queuedMessages}
+          messages={providerSubagent === null ? props.queuedMessages : []}
           onDequeue={handleDequeueQueuedMessage}
           onSubmit={handleSubmitQueuedMessages}
           submitSupported={

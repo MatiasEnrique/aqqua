@@ -115,6 +115,10 @@
       "types": "./src/productFeatures.ts",
       "import": "./src/productFeatures.ts"
     },
+    "./providerSubagents": {
+      "types": "./src/providerSubagents.ts",
+      "import": "./src/providerSubagents.ts"
+    },
     "./relaySigning": {
       "types": "./src/relaySigning.ts",
       "import": "./src/relaySigning.ts"

@@ -13,6 +13,7 @@ import {
   PositiveInt,
   ProjectId,
   ProviderInteractionMode,
+  ProviderSubagentBinding,
   RuntimeMode,
   ThreadId,
   TurnId,
@@ -29,6 +30,12 @@ export const ProjectionThread = Schema.Struct({
   projectId: ProjectId,
   /** Orchestrator that spawned this thread as a sub-agent; null for user threads. */
   parentThreadId: Schema.NullOr(ThreadId),
+  /**
+   * Provider-native subagent binding when this projection row is a harness
+   * child. Optional so existing projection constructors stay compatible;
+   * DB rows decode as `null` when the column is empty.
+   */
+  providerSubagent: Schema.optional(Schema.NullOr(ProviderSubagentBinding)),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

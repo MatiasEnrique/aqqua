@@ -1,6 +1,12 @@
 import { scopedThreadKey, scopeThreadRef } from "@aqqua/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ProviderSubagentBinding,
+  ScopedThreadRef,
+  ThreadId,
+} from "@aqqua/contracts";
 import {
   resolveSidebarConversationAggregateState,
   type SidebarConversationAggregateState,
@@ -35,6 +41,10 @@ export function openConversationTab(keys: readonly string[], key: string): strin
  * entry point. Looking at the transition, rather than every current child,
  * prevents restored or newly loaded history from unexpectedly filling the
  * strip.
+ *
+ * Provider-native children are deliberately excluded. They share their owner's
+ * provider session and are opened from the owner's native-agent activity
+ * surface, not promoted into the independently controllable conversation tabs.
  */
 export function openNewSubAgentConversationTabs(input: {
   readonly openKeys: readonly string[];
@@ -49,6 +59,7 @@ export function openNewSubAgentConversationTabs(input: {
   const next = [...input.openKeys];
   const openKeys = new Set(next);
   for (const thread of input.threads) {
+    if (thread.providerSubagent != null) continue;
     const parentThreadId = thread.parentThreadId ?? null;
     if (parentThreadId === null) continue;
     const key = conversationTabKey(scopeThreadRef(thread.environmentId, thread.id));
@@ -213,6 +224,12 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
     // both sources describe the same key, and the thread is the truthful one.
     const thread = threadByKey.get(key);
     if (thread !== undefined) {
+      // Native harness children are subordinate views of their owner's real
+      // provider session. They never become top-level conversation tabs, even
+      // if an older persisted open-key list still contains their key.
+      if (thread.providerSubagent != null) {
+        return [];
+      }
       if (
         !belongsToWorktree(
           resolveSidebarConversationWorktreeKey({
@@ -299,6 +316,7 @@ interface WorktreeFocusCandidate {
     readonly environmentId: EnvironmentId;
     readonly id: ThreadId;
     readonly parentThreadId?: ThreadId | null | undefined;
+    readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
     readonly updatedAt: string;
   }[];
 }
@@ -318,8 +336,11 @@ export function resolveWorktreeFocusTarget(input: {
   const byRecency = [...input.worktree.active].sort(
     (left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt),
   );
-  const topLevel = byRecency.filter((candidate) => candidate.parentThreadId == null);
-  const focusableThreads = topLevel.length > 0 ? topLevel : byRecency;
+  const independentlyNavigable = byRecency.filter(
+    (candidate) => candidate.providerSubagent == null,
+  );
+  const topLevel = independentlyNavigable.filter((candidate) => candidate.parentThreadId == null);
+  const focusableThreads = topLevel.length > 0 ? topLevel : independentlyNavigable;
   const isOpen = (ref: { environmentId: EnvironmentId; threadId: ThreadId }) =>
     input.openKeys.has(conversationTabKey(scopeThreadRef(ref.environmentId, ref.threadId)));
 
@@ -344,6 +365,27 @@ export function resolveWorktreeFocusTarget(input: {
   }
   const draft = input.worktree.drafts[0];
   return draft === undefined ? { _tag: "none" } : { _tag: "draft", draftId: draft.draftId };
+}
+
+/**
+ * Which independently controllable conversation owns the routed transcript.
+ * Native children keep their owner's tab active; ordinary threads and drafts
+ * retain their own key.
+ */
+export function resolveConversationTabRouteKey(input: {
+  readonly routeThreadKey: string | null;
+  readonly threads: readonly EnvironmentThreadShell[];
+}): string | null {
+  if (input.routeThreadKey === null) return null;
+  const routedThread = input.threads.find(
+    (thread) =>
+      conversationTabKey(scopeThreadRef(thread.environmentId, thread.id)) === input.routeThreadKey,
+  );
+  const ownerThreadId = routedThread?.providerSubagent?.ownerThreadId;
+  if (routedThread === undefined || ownerThreadId === undefined) {
+    return input.routeThreadKey;
+  }
+  return conversationTabKey(scopeThreadRef(routedThread.environmentId, ownerThreadId));
 }
 
 function parseTimestamp(value: string): number {

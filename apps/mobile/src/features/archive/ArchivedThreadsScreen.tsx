@@ -27,6 +27,11 @@ import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
+import {
+  providerSubagentOwnerTitle,
+  resolveProviderSubagentOwnerTitles,
+  resolveProviderSubagentPresentation,
+} from "../threads/threadListV2";
 import type { ArchivedThreadGroup, ArchivedThreadSortOrder } from "./archivedThreadList";
 
 export interface ArchivedThreadsHeaderEnvironment {
@@ -48,6 +53,9 @@ type ArchivedThreadListItem =
       readonly isFirst: boolean;
       readonly isLast: boolean;
       readonly thread: EnvironmentThreadShell;
+      /** "Codex subagent · Owner title" for a provider-native child, else null.
+          Resolved while the group is on hand so the row needs no lookup. */
+      readonly providerSubagentSubtitle: string | null;
     };
 
 function ArchivedThreadsHeader(props: {
@@ -387,6 +395,7 @@ function ArchivedThreadRow(props: {
     typeof ThreadSwipeable
   >["simultaneousWithExternalGesture"];
   readonly onUnarchive: () => void;
+  readonly providerSubagentSubtitle: string | null;
   readonly thread: EnvironmentThreadShell;
 }) {
   const { width: windowWidth } = useWindowDimensions();
@@ -446,6 +455,11 @@ function ArchivedThreadRow(props: {
                 {timestamp}
               </Text>
             </View>
+            {props.providerSubagentSubtitle !== null ? (
+              <Text className="min-w-0 text-2xs text-foreground-tertiary" numberOfLines={1}>
+                {props.providerSubagentSubtitle}
+              </Text>
+            ) : null}
             {subtitle.length > 0 ? (
               <View className="flex-row items-center gap-1.5">
                 <SymbolView
@@ -513,6 +527,9 @@ export function ArchivedThreadsScreen(props: {
     const items: ArchivedThreadListItem[] = [];
     for (const group of props.groups) {
       const environmentLabel = environmentLabelsById.get(group.project.environmentId) ?? null;
+      // One pass per group, not a search per row: a project archiving a wide
+      // delegation fan-out would otherwise cost a scan for every child.
+      const ownerTitleByKey = resolveProviderSubagentOwnerTitles(group.threads);
       items.push({
         kind: "project",
         key: `${group.key}:project`,
@@ -528,6 +545,11 @@ export function ArchivedThreadsScreen(props: {
           isFirst: index === 0,
           isLast: index === group.threads.length - 1,
           thread,
+          providerSubagentSubtitle:
+            resolveProviderSubagentPresentation({
+              thread,
+              ownerTitle: providerSubagentOwnerTitle({ thread, ownerTitleByKey }),
+            })?.subtitle ?? null,
         });
       });
     }
@@ -565,6 +587,7 @@ export function ArchivedThreadsScreen(props: {
           onSwipeableClose={handleSwipeableClose}
           onSwipeableWillOpen={handleSwipeableWillOpen}
           onUnarchive={() => onUnarchiveThread(item.thread)}
+          providerSubagentSubtitle={item.providerSubagentSubtitle}
           simultaneousSwipeGesture={archiveScrollGesture}
           thread={item.thread}
         />

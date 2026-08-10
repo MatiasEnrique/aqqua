@@ -8,6 +8,7 @@ import {
   groupConversationTabFamilies,
   openConversationTab,
   openNewSubAgentConversationTabs,
+  resolveConversationTabRouteKey,
   resolveWorktreeFocusTarget,
   retainKnownConversationTabs,
 } from "./openConversationTabs";
@@ -89,6 +90,38 @@ describe("openNewSubAgentConversationTabs", () => {
         threads: [parent, child],
       }),
     ).toEqual([key("parent")]);
+  });
+
+  it("keeps a newly observed provider-native child out of conversation tabs", () => {
+    const owner = thread("owner");
+    const nativeChild = thread("native-child", {
+      parentThreadId: "owner",
+      providerSubagent: { ownerThreadId: "owner", provider: "codex", childId: "c1" },
+    } as never);
+
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [key("owner")],
+        previousThreads: [owner],
+        threads: [owner, nativeChild],
+      }),
+    ).toEqual([key("owner")]);
+  });
+
+  it("leaves a provider-native child closed when its owner tab is not open", () => {
+    const owner = thread("owner");
+    const nativeChild = thread("native-child", {
+      parentThreadId: "owner",
+      providerSubagent: { ownerThreadId: "owner", provider: "codex", childId: "c1" },
+    } as never);
+
+    expect(
+      openNewSubAgentConversationTabs({
+        openKeys: [key("elsewhere")],
+        previousThreads: [owner],
+        threads: [owner, nativeChild],
+      }),
+    ).toEqual([key("elsewhere")]);
   });
 
   it("does not attach a child to a same-id parent from another environment", () => {
@@ -263,6 +296,139 @@ describe("buildConversationTabs — sub-agent families", () => {
     });
 
     expect(tabs[0]).toMatchObject({ _tag: "thread", parentKey: null });
+  });
+});
+
+describe("buildConversationTabs — provider-native subagents", () => {
+  const nativeChild = thread("native-child", {
+    parentThreadId: "owner",
+    providerSubagent: {
+      ownerThreadId: "owner",
+      provider: "codex",
+      childId: "c1",
+    },
+  } as never);
+
+  it("keeps native children out while preserving aqqua-managed child tabs", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("owner"), key("managed-child"), key("native-child")],
+      threads: [
+        thread("owner"),
+        thread("managed-child", { parentThreadId: "owner" } as never),
+        nativeChild,
+      ],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("owner"), key("managed-child")]);
+  });
+
+  it("ignores a stale persisted native-child open key", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("owner"), key("unrelated"), key("native-child")],
+      threads: [thread("owner"), thread("unrelated"), nativeChild],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("owner"), key("unrelated")]);
+  });
+
+  it("keeps nested native descendants out of the tab strip too", () => {
+    const grandchild = thread("native-grandchild", {
+      parentThreadId: "native-child",
+      providerSubagent: {
+        ownerThreadId: "owner",
+        provider: "codex",
+        childId: "c2",
+        parentChildId: "c1",
+      },
+    } as never);
+
+    const tabs = buildConversationTabs({
+      openKeys: [key("owner"), key("native-child"), key("native-grandchild")],
+      threads: [thread("owner"), nativeChild, grandchild],
+      drafts: [],
+      activeKey: null,
+      ...unscoped,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("owner")]);
+  });
+
+  it("does not promote third-level native children of an aqqua-managed agent to parents", () => {
+    const claudeAgent = thread("claude-agent", { parentThreadId: "codex-owner" } as never);
+    const claudeNativeChild = thread("claude-native-child", {
+      parentThreadId: "claude-agent",
+      providerSubagent: {
+        ownerThreadId: "claude-agent",
+        provider: "claude",
+        childId: "task-1",
+      },
+    } as never);
+
+    const tabs = buildConversationTabs({
+      openKeys: [key("codex-owner"), key("claude-agent"), key("claude-native-child")],
+      threads: [thread("codex-owner"), claudeAgent, claudeNativeChild],
+      drafts: [],
+      activeKey: key("claude-agent"),
+      ...unscoped,
+    });
+    const families = groupConversationTabFamilies(tabs);
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("codex-owner"), key("claude-agent")]);
+    expect(families).toHaveLength(1);
+    expect(families[0]?.parent.key).toBe(key("codex-owner"));
+    expect(families[0]?.children.map((tab) => tab.key)).toEqual([key("claude-agent")]);
+  });
+});
+
+describe("resolveConversationTabRouteKey", () => {
+  it("keeps the owner tab active while a native child transcript is routed", () => {
+    expect(
+      resolveConversationTabRouteKey({
+        routeThreadKey: key("native-child"),
+        threads: [
+          thread("owner"),
+          thread("native-child", {
+            parentThreadId: "owner",
+            providerSubagent: { ownerThreadId: "owner", provider: "codex", childId: "c1" },
+          } as never),
+        ],
+      }),
+    ).toBe(key("owner"));
+  });
+
+  it("activates the aqqua-managed Claude owner for its third-level native child", () => {
+    expect(
+      resolveConversationTabRouteKey({
+        routeThreadKey: key("claude-native-child"),
+        threads: [
+          thread("codex-owner"),
+          thread("claude-agent", { parentThreadId: "codex-owner" } as never),
+          thread("claude-native-child", {
+            parentThreadId: "claude-agent",
+            providerSubagent: {
+              ownerThreadId: "claude-agent",
+              provider: "claude",
+              childId: "task-1",
+            },
+          } as never),
+        ],
+      }),
+    ).toBe(key("claude-agent"));
+  });
+
+  it("leaves ordinary and aqqua-managed child routes unchanged", () => {
+    expect(
+      resolveConversationTabRouteKey({
+        routeThreadKey: key("managed-child"),
+        threads: [thread("managed-child", { parentThreadId: "owner" } as never)],
+      }),
+    ).toBe(key("managed-child"));
   });
 });
 
@@ -462,6 +628,27 @@ describe("resolveWorktreeFocusTarget", () => {
         openKeys: new Set(),
       }),
     ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "sub-thread" } });
+  });
+
+  it("does not promote an orphaned native child into a parent conversation", () => {
+    const nativeChild = {
+      environmentId: "env",
+      id: "native-child",
+      parentThreadId: "missing-owner",
+      providerSubagent: {
+        ownerThreadId: "missing-owner",
+        provider: "codex",
+        childId: "native-1",
+      },
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    };
+
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [], active: [nativeChild] as never },
+        openKeys: new Set([key("native-child")]),
+      }),
+    ).toEqual({ _tag: "none" });
   });
 
   it("focuses an already-open conversation over a more recent closed one", () => {

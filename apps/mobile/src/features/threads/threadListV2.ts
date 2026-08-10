@@ -1,6 +1,12 @@
 import { effectiveSettled, effectiveSnoozed } from "@aqqua/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
+import { PROVIDER_DISPLAY_NAMES } from "@aqqua/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderSubagentBinding,
+} from "@aqqua/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -58,6 +64,137 @@ export function resolveThreadListV2Status(
   return "ready";
 }
 
+/**
+ * Provider-native subagents on mobile.
+ *
+ * Mobile stays a flat list — nesting a second navigation tree into a phone
+ * screen buys nothing — so a native child needs to say for itself what it is
+ * and whose session it belongs to. That context is what a nested list would
+ * otherwise have carried structurally.
+ *
+ * Keyed off the durable `providerSubagent` binding, never off `parentThreadId`:
+ * an aqqua-managed sub-agent has a parent too and owns its own session.
+ */
+export interface ProviderSubagentPresentation {
+  readonly provider: ProviderDriverKind;
+  /** "Codex subagent" / "Claude subagent". */
+  readonly label: string;
+  /** The owner conversation's title, when it is among the threads on hand. */
+  readonly ownerTitle: string | null;
+  /** The row subtitle: the label, plus the owner when it is resolvable. */
+  readonly subtitle: string;
+}
+
+/**
+ * Whether this thread is a provider-native child. Composer submit paths gate on
+ * it: nothing written on such a thread could be delivered, because the server
+ * rejects turn, enqueue, and submit commands on it outright.
+ */
+export function isProviderSubagentThread(
+  thread:
+    | { readonly providerSubagent?: ProviderSubagentBinding | null | undefined }
+    | null
+    | undefined,
+): boolean {
+  return (thread?.providerSubagent ?? null) !== null;
+}
+
+function providerSubagentProviderLabel(provider: ProviderDriverKind): string {
+  return (
+    PROVIDER_DISPLAY_NAMES[provider] ??
+    provider
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+  );
+}
+
+const NO_PROVIDER_SUBAGENT_OWNER_TITLES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Owner titles for every native child in `threads`, keyed by
+ * `environmentId:ownerThreadId`.
+ *
+ * Scoped by environment because thread ids are only unique within one: a
+ * same-id thread on another machine must never lend its title. Resolved once
+ * per list build rather than per row — a row that scanned for its own owner
+ * would make the list quadratic in the size of a delegation fan-out.
+ *
+ * Two cheap passes, and the first one exits the common case early: most lists
+ * contain no native child at all and allocate nothing.
+ */
+export function resolveProviderSubagentOwnerTitles(
+  threads: ReadonlyArray<{
+    readonly environmentId: string;
+    readonly id: string;
+    readonly title: string;
+    readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
+  }>,
+): ReadonlyMap<string, string> {
+  const wantedOwnerKeys = new Set<string>();
+  for (const thread of threads) {
+    const binding = thread.providerSubagent ?? null;
+    if (binding !== null) {
+      wantedOwnerKeys.add(`${thread.environmentId}:${binding.ownerThreadId}`);
+    }
+  }
+  if (wantedOwnerKeys.size === 0) {
+    return NO_PROVIDER_SUBAGENT_OWNER_TITLES;
+  }
+  const titleByOwnerKey = new Map<string, string>();
+  for (const thread of threads) {
+    const key = `${thread.environmentId}:${thread.id}`;
+    if (wantedOwnerKeys.has(key)) {
+      titleByOwnerKey.set(key, thread.title);
+    }
+  }
+  return titleByOwnerKey;
+}
+
+/** The owner title for one native child, from a map built above. */
+export function providerSubagentOwnerTitle(input: {
+  readonly thread: {
+    readonly environmentId: string;
+    readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
+  };
+  readonly ownerTitleByKey: ReadonlyMap<string, string>;
+}): string | null {
+  const binding = input.thread.providerSubagent ?? null;
+  if (binding === null) {
+    return null;
+  }
+  return (
+    input.ownerTitleByKey.get(`${input.thread.environmentId}:${binding.ownerThreadId}`) ?? null
+  );
+}
+
+/**
+ * `ownerTitle` is passed in rather than looked up: the caller already knows it
+ * (the list model resolves every owner once), and a row that had to search for
+ * its own owner would be reaching for state it has no business subscribing to.
+ * Absent, the row degrades to the bare provider identity.
+ */
+export function resolveProviderSubagentPresentation(input: {
+  readonly thread: {
+    readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
+  };
+  readonly ownerTitle?: string | null | undefined;
+}): ProviderSubagentPresentation | null {
+  const binding = input.thread.providerSubagent ?? null;
+  if (binding === null) {
+    return null;
+  }
+  const label = `${providerSubagentProviderLabel(binding.provider)} subagent`;
+  const ownerTitle = input.ownerTitle ?? null;
+  return {
+    provider: binding.provider,
+    label,
+    ownerTitle,
+    subtitle: ownerTitle === null ? label : `${label} · ${ownerTitle}`,
+  };
+}
+
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
     poison the whole ordering, so it sinks to the epoch instead. */
 function parseTimestampMs(isoDate: string): number {
@@ -100,6 +237,13 @@ export interface ThreadListV2Item {
   /** First settled row after the card block draws the SETTLED divider. */
   readonly showSettledDivider: boolean;
   readonly isLast: boolean;
+  /**
+   * For a provider-native child, the title of the conversation whose session it
+   * runs inside — resolved here, once, from the same threads the partition
+   * already walks. Null for every ordinary thread, and for a native child whose
+   * owner is not in the list.
+   */
+  readonly providerSubagentOwnerTitle: string | null;
 }
 
 export interface ThreadListV2Layout {
@@ -261,9 +405,20 @@ export function buildThreadListV2Items(input: {
   const visibleSettled =
     orderedSettled.length > settledLimit ? orderedSettled.slice(0, settledLimit) : orderedSettled;
 
+  // Resolved from the unfiltered input, not from the rows that survived: an
+  // owner that is settled, snoozed, or filtered out by the search still names
+  // itself for the child that is on screen.
+  const ownerTitleByKey = resolveProviderSubagentOwnerTitles(input.threads);
+
   const items: ThreadListV2Item[] = [];
   for (const thread of orderedActive) {
-    items.push({ thread, variant: "card", showSettledDivider: false, isLast: false });
+    items.push({
+      thread,
+      variant: "card",
+      showSettledDivider: false,
+      isLast: false,
+      providerSubagentOwnerTitle: providerSubagentOwnerTitle({ thread, ownerTitleByKey }),
+    });
   }
   for (const [index, thread] of visibleSettled.entries()) {
     items.push({
@@ -271,6 +426,7 @@ export function buildThreadListV2Items(input: {
       variant: "slim",
       showSettledDivider: index === 0,
       isLast: false,
+      providerSubagentOwnerTitle: providerSubagentOwnerTitle({ thread, ownerTitleByKey }),
     });
   }
   const last = items.at(-1);

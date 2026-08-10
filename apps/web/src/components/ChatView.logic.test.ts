@@ -2,6 +2,7 @@ import {
   EnvironmentId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
   TurnId,
@@ -15,6 +16,10 @@ import {
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
+  buildProviderSubagentComposerNotice,
+  isProviderSubagentThread,
+  resolveComposerSubmitDisposition,
+  resolveProviderSubagentPresentation,
   buildThreadTurnInterruptInput,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
@@ -133,6 +138,148 @@ describe("buildLoadingThreadFromShell", () => {
       activities: [],
       checkpoints: [],
     });
+  });
+
+  it("keeps the provider-subagent marker on a shell-only loading thread", () => {
+    const loading = buildLoadingThreadFromShell({
+      environmentId,
+      id: threadId,
+      projectId,
+      parentThreadId: ThreadId.make("owner-thread"),
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("owner-thread"),
+        provider: "codex",
+        childId: "child-1",
+      },
+      title: "Subagent 1",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      snoozedUntil: null,
+      snoozedAt: null,
+      session: null,
+      latestUserMessageAt: now,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    } as unknown as ThreadShell);
+
+    expect(isProviderSubagentThread(loading)).toBe(true);
+    expect(resolveProviderSubagentPresentation(loading)?.label).toBe("Codex subagent");
+  });
+});
+
+describe("resolveProviderSubagentPresentation", () => {
+  it("returns nothing for an ordinary conversation", () => {
+    expect(resolveProviderSubagentPresentation(makeThread())).toBeNull();
+    expect(isProviderSubagentThread(makeThread())).toBe(false);
+  });
+
+  it("returns nothing for an aqqua-managed sub-agent, which owns its session", () => {
+    const managedChild = makeThread({
+      parentThreadId: ThreadId.make("orchestrator"),
+    } as Partial<Thread>);
+
+    expect(resolveProviderSubagentPresentation(managedChild)).toBeNull();
+    expect(isProviderSubagentThread(managedChild)).toBe(false);
+  });
+
+  it("names the harness that spawned a native child", () => {
+    const claudeChild = makeThread({
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("owner-thread"),
+        provider: "claude",
+        childId: "child-1",
+      },
+    } as unknown as Partial<Thread>);
+
+    expect(resolveProviderSubagentPresentation(claudeChild)).toEqual({
+      ownerThreadId: ThreadId.make("owner-thread"),
+      provider: "claude",
+      label: "Claude subagent",
+    });
+  });
+
+  it("humanizes a driver aqqua has no display name for", () => {
+    const child = makeThread({
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("owner-thread"),
+        provider: "some-driver",
+        childId: "child-1",
+      },
+    } as unknown as Partial<Thread>);
+
+    expect(resolveProviderSubagentPresentation(child)?.label).toBe("Some Driver subagent");
+  });
+});
+
+describe("resolveComposerSubmitDisposition", () => {
+  const nativeChild = makeThread({
+    providerSubagent: {
+      ownerThreadId: ThreadId.make("owner-thread"),
+      provider: "codex",
+      childId: "child-1",
+    },
+  } as unknown as Partial<Thread>);
+
+  it("sends on an ordinary thread", () => {
+    expect(
+      resolveComposerSubmitDisposition({
+        thread: makeThread(),
+        hasPendingUserInputProgress: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("sends on an aqqua-managed sub-agent, which is unchanged by any of this", () => {
+    expect(
+      resolveComposerSubmitDisposition({
+        thread: makeThread({ parentThreadId: ThreadId.make("orchestrator") } as Partial<Thread>),
+        hasPendingUserInputProgress: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("blocks send, queue, and steer on a provider-native child", () => {
+    expect(
+      resolveComposerSubmitDisposition({
+        thread: nativeChild,
+        hasPendingUserInputProgress: false,
+      }),
+    ).toBe("blocked");
+  });
+
+  it("still advances a pending user-input card on a provider-native child", () => {
+    expect(
+      resolveComposerSubmitDisposition({
+        thread: nativeChild,
+        hasPendingUserInputProgress: true,
+      }),
+    ).toBe("advance-pending-user-input");
+  });
+});
+
+describe("buildProviderSubagentComposerNotice", () => {
+  it("explains where control lives instead of naming a disabled control", () => {
+    const notice = buildProviderSubagentComposerNotice({
+      ownerThreadId: ThreadId.make("owner-thread"),
+      provider: ProviderDriverKind.make("codex"),
+      label: "Codex subagent",
+    });
+
+    expect(notice.title).toContain("Codex");
+    expect(notice.description).toContain("parent conversation");
+    // Approvals and questions stay answerable; the copy must not claim
+    // otherwise, because that path is still live on a native child.
+    expect(notice.description).toContain("approvals");
   });
 });
 

@@ -6,13 +6,12 @@ import {
   cardArtifactProvenance,
   cardStepThreadId,
   isCardDeleting,
-  selectSubAgentThreads,
 } from "@aqqua/client-runtime/state/boards";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
-import type { CardId, EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
+import type { CardId, EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
 import { InfoIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { boardArtifacts, boardEnvironment, useBoard, useCard } from "../../state/boards";
@@ -57,7 +56,9 @@ import {
   type PendingCardOperation,
   parseCardSelection,
   resolveCardSelection,
+  resolveFlowTabSelection,
   resolveCardThreadPresence,
+  selectCardDetailThreads,
   selectionThreadId,
 } from "./CardDetail.logic";
 import { FlowStepTabs } from "./FlowStepTabs";
@@ -165,6 +166,7 @@ export function CardDetailView({
           id: shell.id,
           title: shell.title,
           parentThreadId: shell.parentThreadId ?? null,
+          providerSubagent: shell.providerSubagent ?? null,
           createdAt: shell.createdAt,
           updatedAt: shell.updatedAt,
           isWorking: shell.session?.status === "running" || shell.session?.status === "starting",
@@ -174,18 +176,28 @@ export function CardDetailView({
   );
 
   const requested = useMemo(() => parseCardSelection(selectionParam), [selectionParam]);
-  const subAgentThreadIds = useMemo(() => {
+  const detailThreadIds = useMemo(() => {
     if (card === null || requested === null) return new Set<string>();
     const parent = cardStepThreadId(card, requested.stepIndex);
-    return new Set(selectSubAgentThreads(threads, parent).map((thread) => thread.id as string));
+    return new Set(selectCardDetailThreads(threads, parent).map((thread) => thread.id as string));
   }, [card, requested, threads]);
 
   const selection = useMemo<CardSelection>(() => {
     if (card === null || board === null) {
       return { kind: "step", stepIndex: 0 };
     }
-    return resolveCardSelection({ card, board, requested, subAgentThreadIds });
-  }, [board, card, requested, subAgentThreadIds]);
+    return resolveCardSelection({ card, board, requested, detailThreadIds });
+  }, [board, card, detailThreadIds, requested]);
+
+  const flowTabSelection = useMemo(
+    () =>
+      resolveFlowTabSelection({
+        selection,
+        stepThreadId: card === null ? null : cardStepThreadId(card, selection.stepIndex),
+        threads,
+      }),
+    [card, selection, threads],
+  );
 
   const threadId = card === null ? null : selectionThreadId(card, selection);
   const threadRef = useMemo(
@@ -278,6 +290,23 @@ export function CardDetailView({
       onSelectionChange(formatCardSelection(next));
     },
     [onSelectionChange],
+  );
+
+  const selectNativeSubagentThread = useCallback(
+    (nextThreadRef: ScopedThreadRef) => {
+      if (card === null) return;
+      const stepThreadId = cardStepThreadId(card, selection.stepIndex);
+      select(
+        nextThreadRef.threadId === stepThreadId
+          ? { kind: "step", stepIndex: selection.stepIndex }
+          : {
+              kind: "subagent",
+              stepIndex: selection.stepIndex,
+              threadId: nextThreadRef.threadId,
+            },
+      );
+    },
+    [card, select, selection.stepIndex],
   );
 
   const availability = useMemo(() => {
@@ -468,7 +497,7 @@ export function CardDetailView({
     );
   }
 
-  const surfaceTabs = <FlowStepTabs model={tree} selection={selection} onSelect={select} />;
+  const surfaceTabs = <FlowStepTabs model={tree} selection={flowTabSelection} onSelect={select} />;
 
   const confirmation =
     pendingConfirmation === null ? null : (
@@ -674,6 +703,7 @@ export function CardDetailView({
           status: threadStatus,
         })}
         surfaceTabs={surfaceTabs}
+        onNativeSubagentThreadSelect={selectNativeSubagentThread}
         composerBanners={composerBanners}
         {...(timelineOverride === undefined ? {} : { timelineOverride })}
         {...(renderComposerIdlePrimaryAction === undefined

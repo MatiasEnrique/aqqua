@@ -85,7 +85,45 @@ function runtimeError(): ProviderRuntimeEvent {
   };
 }
 
+function itemUpdatedForChild(
+  index: number,
+  childId: string,
+  itemId = "item-1",
+): ProviderRuntimeEvent {
+  return {
+    ...itemUpdated(index, itemId),
+    eventId: EventId.make(`item-updated-${childId}-${index}`),
+    providerSubagent: { childId },
+  };
+}
+
 describe("RuntimeEventCoalescer", () => {
+  it.effect("never merges transient updates for two children of one owner", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const emitted: ProviderRuntimeEvent[] = [];
+        const coalescer = yield* makeRuntimeEventCoalescer({
+          emit: (event) => Effect.sync(() => emitted.push(event)).pipe(Effect.asVoid),
+          drainDownstream: Effect.void,
+        });
+
+        yield* coalescer.offer(itemUpdatedForChild(1, "child-a"));
+        yield* coalescer.offer(itemUpdatedForChild(1, "child-b"));
+        yield* coalescer.offer(itemUpdatedForChild(2, "child-a"));
+        yield* coalescer.offer(itemUpdatedForChild(2, "child-b"));
+        yield* coalescer.drain;
+
+        const childIds = emitted
+          .filter((event) => event.type === "item.updated")
+          .map((event) => event.providerSubagent?.childId);
+        expect(childIds).toContain("child-a");
+        expect(childIds).toContain("child-b");
+        expect(childIds.filter((id) => id === "child-a").length).toBeGreaterThanOrEqual(1);
+        expect(childIds.filter((id) => id === "child-b").length).toBeGreaterThanOrEqual(1);
+      }),
+    ),
+  );
+
   it.effect("emits the leading update immediately and only the latest trailing update", () =>
     Effect.scoped(
       Effect.gen(function* () {

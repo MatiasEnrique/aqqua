@@ -1,4 +1,5 @@
 import type { ProviderRuntimeEvent } from "@aqqua/contracts";
+import { providerSubagentCoalesceIdentity } from "@aqqua/shared/providerSubagents";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -23,6 +24,8 @@ interface PendingEntry {
   readonly key: string;
   readonly threadId: string;
   readonly turnId: string | undefined;
+  /** Native child identity so two subagents of one owner never share a slot. */
+  readonly providerSubagentChildId: string;
   latest: SequencedEvent | undefined;
   timer: Fiber.Fiber<void, never> | undefined;
 }
@@ -42,18 +45,20 @@ function itemKey(event: {
   readonly threadId: string;
   readonly turnId?: string | undefined;
   readonly itemId?: string | undefined;
+  readonly providerSubagent?: ProviderRuntimeEvent["providerSubagent"];
 }): string | undefined {
   return event.itemId === undefined
     ? undefined
-    : `item\u0000${event.threadId}\u0000${event.turnId ?? ""}\u0000${event.itemId}`;
+    : `item\u0000${event.threadId}\u0000${providerSubagentCoalesceIdentity(event.providerSubagent)}\u0000${event.turnId ?? ""}\u0000${event.itemId}`;
 }
 
 function taskKey(event: {
   readonly threadId: string;
   readonly turnId?: string | undefined;
   readonly payload: { readonly taskId: string };
+  readonly providerSubagent?: ProviderRuntimeEvent["providerSubagent"];
 }): string {
-  return `task\u0000${event.threadId}\u0000${event.turnId ?? ""}\u0000${event.payload.taskId}`;
+  return `task\u0000${event.threadId}\u0000${providerSubagentCoalesceIdentity(event.providerSubagent)}\u0000${event.turnId ?? ""}\u0000${event.payload.taskId}`;
 }
 
 function transientInput(
@@ -69,7 +74,7 @@ function transientInput(
     case "thread.token-usage.updated":
       return {
         event,
-        key: `context\u0000${event.threadId}\u0000${event.turnId ?? ""}`,
+        key: `context\u0000${event.threadId}\u0000${providerSubagentCoalesceIdentity(event.providerSubagent)}\u0000${event.turnId ?? ""}`,
       };
     default:
       return undefined;
@@ -79,6 +84,7 @@ function transientInput(
 function flushPredicate(
   event: ProviderRuntimeEvent,
 ): ((entry: PendingEntry) => boolean) | undefined {
+  const childId = providerSubagentCoalesceIdentity(event.providerSubagent);
   switch (event.type) {
     case "item.completed": {
       const key = itemKey(event);
@@ -90,8 +96,13 @@ function flushPredicate(
     }
     case "turn.completed":
     case "turn.aborted":
-      return (entry) => entry.threadId === event.threadId && entry.turnId === event.turnId;
+      return (entry) =>
+        entry.threadId === event.threadId &&
+        entry.turnId === event.turnId &&
+        entry.providerSubagentChildId === childId;
     case "session.exited":
+      // Owner session exit flushes every pending entry for that owner, including
+      // native children still keyed under the owner threadId on the wire.
       return (entry) => entry.threadId === event.threadId;
     case "session.state.changed":
       return event.payload.state === "stopped" || event.payload.state === "error"
@@ -194,6 +205,7 @@ export const makeRuntimeEventCoalescer = (
               key,
               threadId: event.threadId,
               turnId: event.turnId,
+              providerSubagentChildId: providerSubagentCoalesceIdentity(event.providerSubagent),
               latest: undefined,
               timer: undefined,
             };

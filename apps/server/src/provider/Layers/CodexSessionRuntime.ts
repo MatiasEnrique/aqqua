@@ -10,6 +10,7 @@ import {
   type ProviderInteractionMode,
   type ProviderRequestKind,
   type ProviderSession,
+  type ProviderSubagentTarget,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
   RuntimeMode,
@@ -603,12 +604,146 @@ function readRouteFields(notification: CodexServerNotification): {
   }
 }
 
-function rememberCollabReceiverTurns(
-  collabReceiverTurns: Map<string, TurnId>,
-  notification: CodexServerNotification,
-  parentTurnId: TurnId | undefined,
+/**
+ * Metadata for a native Codex child conversation (collab/sub-agent thread).
+ * Keyed by the provider-native thread id, which is also used as `childId`.
+ */
+export interface CodexNativeChildMeta {
+  readonly childId: string;
+  readonly parentChildId?: string;
+  readonly title?: string;
+}
+
+/** Prefer name, then nickname, then role — no invented naming scheme. */
+export function codexNativeChildTitle(input: {
+  readonly name?: string | null | undefined;
+  readonly agentNickname?: string | null | undefined;
+  readonly agentRole?: string | null | undefined;
+}): string | undefined {
+  for (const candidate of [input.name, input.agentNickname, input.agentRole]) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a provider-subagent target for a native Codex conversation id.
+ * Root provider thread events stay untargeted; known and unknown non-root
+ * conversation ids become child targets. `parentChildId` is only set when the
+ * native parent is itself a child (not the root provider thread).
+ */
+export function resolveCodexProviderSubagentTarget(input: {
+  readonly providerThreadId: string | undefined;
+  readonly rootProviderThreadId: string | undefined;
+  readonly nativeChildren: ReadonlyMap<string, CodexNativeChildMeta>;
+}): ProviderSubagentTarget | undefined {
+  const providerThreadId = input.providerThreadId;
+  if (!providerThreadId) {
+    return undefined;
+  }
+  if (input.rootProviderThreadId && providerThreadId === input.rootProviderThreadId) {
+    return undefined;
+  }
+
+  const known = input.nativeChildren.get(providerThreadId);
+  if (known) {
+    return {
+      childId: known.childId,
+      ...(known.parentChildId ? { parentChildId: known.parentChildId } : {}),
+      ...(known.title ? { title: known.title } : {}),
+    };
+  }
+
+  // Notification for a conversation that is not the root session authority.
+  if (input.rootProviderThreadId && providerThreadId !== input.rootProviderThreadId) {
+    return { childId: providerThreadId };
+  }
+
+  return undefined;
+}
+
+function trimOptionalNativeText(value: string | null | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Register or refresh a native child identity. Receiver ids from
+ * collabAgentToolCall may arrive before thread/started; later metadata fills
+ * in title and nested parent lineage without inventing a second id system.
+ */
+export function rememberCodexNativeChild(
+  nativeChildren: Map<string, CodexNativeChildMeta>,
+  input: {
+    readonly childId: string;
+    readonly parentChildId?: string | undefined;
+    readonly title?: string | undefined;
+  },
 ): void {
-  if (!parentTurnId) {
+  const existing = nativeChildren.get(input.childId);
+  const parentChildId = input.parentChildId ?? existing?.parentChildId;
+  const title = input.title ?? existing?.title;
+  nativeChildren.set(input.childId, {
+    childId: input.childId,
+    ...(parentChildId ? { parentChildId } : {}),
+    ...(title ? { title } : {}),
+  });
+}
+
+/**
+ * Learn native child identities from notifications. Collab tool calls establish
+ * receiver identity early; thread/started supplies title and parent lineage.
+ * Returns true when the notification itself is a parent-scoped collab tool row
+ * (must stay on the owner transcript).
+ */
+export function rememberCodexNativeChildrenFromNotification(
+  nativeChildren: Map<string, CodexNativeChildMeta>,
+  notification: CodexServerNotification,
+  rootProviderThreadId: string | undefined,
+): void {
+  if (notification.method === "thread/started") {
+    const thread = notification.params.thread;
+    const childId = thread.id;
+    if (rootProviderThreadId && childId === rootProviderThreadId) {
+      return;
+    }
+    // thread/started for a non-root (or pre-root) conversation is a child.
+    if (!rootProviderThreadId || childId !== rootProviderThreadId) {
+      const parentThreadId = trimOptionalNativeText(thread.parentThreadId);
+      const parentChildId =
+        parentThreadId && (!rootProviderThreadId || parentThreadId !== rootProviderThreadId)
+          ? parentThreadId
+          : undefined;
+      rememberCodexNativeChild(nativeChildren, {
+        childId,
+        ...(parentChildId ? { parentChildId } : {}),
+        title: codexNativeChildTitle({
+          name: thread.name,
+          agentNickname: thread.agentNickname,
+          agentRole: thread.agentRole,
+        }),
+      });
+    }
+    return;
+  }
+
+  if (notification.method === "thread/name/updated") {
+    const threadId = notification.params.threadId;
+    if (rootProviderThreadId && threadId === rootProviderThreadId) {
+      return;
+    }
+    const title = trimOptionalNativeText(notification.params.threadName);
+    if (title) {
+      rememberCodexNativeChild(nativeChildren, { childId: threadId, title });
+    }
     return;
   }
 
@@ -616,32 +751,24 @@ function rememberCollabReceiverTurns(
     return;
   }
 
-  if (notification.params.item.type !== "collabAgentToolCall") {
+  const item = notification.params.item;
+  if (item.type === "collabAgentToolCall") {
+    for (const receiverThreadId of item.receiverThreadIds) {
+      rememberCodexNativeChild(nativeChildren, { childId: receiverThreadId });
+    }
+    // agentsStates keys are native child conversation ids when present.
+    for (const agentThreadId of Object.keys(item.agentsStates ?? {})) {
+      rememberCodexNativeChild(nativeChildren, { childId: agentThreadId });
+    }
     return;
   }
 
-  for (const receiverThreadId of notification.params.item.receiverThreadIds) {
-    collabReceiverTurns.set(receiverThreadId, parentTurnId);
+  if (item.type === "subAgentActivity") {
+    const agentThreadId = trimOptionalNativeText(item.agentThreadId);
+    if (agentThreadId && (!rootProviderThreadId || agentThreadId !== rootProviderThreadId)) {
+      rememberCodexNativeChild(nativeChildren, { childId: agentThreadId });
+    }
   }
-}
-
-function shouldSuppressChildConversationNotification(
-  method: CodexRpc.ServerNotificationMethod,
-): boolean {
-  return (
-    method === "thread/started" ||
-    method === "thread/status/changed" ||
-    method === "thread/archived" ||
-    method === "thread/unarchived" ||
-    method === "thread/closed" ||
-    method === "thread/compacted" ||
-    method === "thread/name/updated" ||
-    method === "thread/tokenUsage/updated" ||
-    method === "turn/started" ||
-    method === "turn/completed" ||
-    method === "turn/plan/updated" ||
-    method === "item/plan/delta"
-  );
 }
 
 function toCodexUserInputAnswer(
@@ -859,7 +986,7 @@ export const makeCodexSessionRuntime = (
     const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
     const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
     const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
-    const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
+    const nativeChildrenRef = yield* Ref.make(new Map<string, CodexNativeChildMeta>());
     const closedRef = yield* Ref.make(false);
 
     // `~` is not shell-expanded when env vars are set via
@@ -980,23 +1107,29 @@ export const makeCodexSessionRuntime = (
       Effect.gen(function* () {
         const payload = notification.params;
         const route = readRouteFields(notification);
-        const collabReceiverTurns = yield* Ref.get(collabReceiverTurnsRef);
-        const childParentTurnId = (() => {
-          const providerConversationId = readNotificationThreadId(notification);
-          return providerConversationId
-            ? collabReceiverTurns.get(providerConversationId)
-            : undefined;
-        })();
+        const session = yield* Ref.get(sessionRef);
+        const rootProviderThreadId = currentProviderThreadId(session);
+        const nativeChildren = yield* Ref.get(nativeChildrenRef);
 
-        rememberCollabReceiverTurns(collabReceiverTurns, notification, route.turnId);
-        if (childParentTurnId && shouldSuppressChildConversationNotification(notification.method)) {
-          yield* Ref.set(collabReceiverTurnsRef, collabReceiverTurns);
-          return;
-        }
+        rememberCodexNativeChildrenFromNotification(
+          nativeChildren,
+          notification,
+          rootProviderThreadId,
+        );
+
+        // collabAgentToolCall / parent-scoped items keep the notification's
+        // own provider thread id (root). Child conversation notifications get
+        // an explicit providerSubagent target; actual child turn ids are kept.
+        const providerConversationId = readNotificationThreadId(notification);
+        const providerSubagent = resolveCodexProviderSubagentTarget({
+          providerThreadId: providerConversationId,
+          rootProviderThreadId,
+          nativeChildren,
+        });
 
         let requestId: ApprovalRequestId | undefined;
         let requestKind: ProviderRequestKind | undefined;
-        let turnId = childParentTurnId ?? route.turnId;
+        let turnId = route.turnId;
         let itemId = route.itemId;
 
         if (notification.method === "serverRequest/resolved") {
@@ -1020,7 +1153,7 @@ export const makeCodexSessionRuntime = (
           }
         }
 
-        yield* Ref.set(collabReceiverTurnsRef, collabReceiverTurns);
+        yield* Ref.set(nativeChildrenRef, nativeChildren);
         yield* emitEvent({
           kind: "notification",
           threadId: options.threadId,
@@ -1033,6 +1166,7 @@ export const makeCodexSessionRuntime = (
             ? { textDelta: notification.params.delta }
             : {}),
           ...(payload !== undefined ? { payload } : {}),
+          ...(providerSubagent ? { providerSubagent } : {}),
         });
       });
 
@@ -1101,12 +1235,35 @@ export const makeCodexSessionRuntime = (
       ),
     );
 
+    const resolveRequestProviderSubagent = (providerThreadId: string | undefined) =>
+      Effect.gen(function* () {
+        const session = yield* Ref.get(sessionRef);
+        const rootProviderThreadId = currentProviderThreadId(session);
+        const nativeChildren = yield* Ref.get(nativeChildrenRef);
+        // Approvals may arrive for a child before thread/started; ensure identity.
+        if (
+          providerThreadId &&
+          rootProviderThreadId &&
+          providerThreadId !== rootProviderThreadId &&
+          !nativeChildren.has(providerThreadId)
+        ) {
+          rememberCodexNativeChild(nativeChildren, { childId: providerThreadId });
+          yield* Ref.set(nativeChildrenRef, nativeChildren);
+        }
+        return resolveCodexProviderSubagentTarget({
+          providerThreadId,
+          rootProviderThreadId,
+          nativeChildren,
+        });
+      });
+
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("command-approval-request"));
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const providerSubagent = yield* resolveRequestProviderSubagent(payload.threadId);
 
         yield* Ref.update(pendingApprovalsRef, (current) => {
           const next = new Map(current);
@@ -1140,6 +1297,7 @@ export const makeCodexSessionRuntime = (
           ...(turnId ? { turnId } : {}),
           ...(itemId ? { itemId } : {}),
           payload,
+          ...(providerSubagent ? { providerSubagent } : {}),
         });
 
         const resolved = yield* Deferred.await(decision).pipe(
@@ -1165,6 +1323,7 @@ export const makeCodexSessionRuntime = (
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const providerSubagent = yield* resolveRequestProviderSubagent(payload.threadId);
 
         yield* Ref.update(pendingApprovalsRef, (current) => {
           const next = new Map(current);
@@ -1198,6 +1357,7 @@ export const makeCodexSessionRuntime = (
           ...(turnId ? { turnId } : {}),
           ...(itemId ? { itemId } : {}),
           payload,
+          ...(providerSubagent ? { providerSubagent } : {}),
         });
 
         const resolved = yield* Deferred.await(decision).pipe(
@@ -1221,6 +1381,7 @@ export const makeCodexSessionRuntime = (
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const answers = yield* Deferred.make<ProviderUserInputAnswers>();
+        const providerSubagent = yield* resolveRequestProviderSubagent(payload.threadId);
 
         yield* Ref.update(pendingUserInputsRef, (current) => {
           const next = new Map(current);
@@ -1241,6 +1402,7 @@ export const makeCodexSessionRuntime = (
           ...(turnId ? { turnId } : {}),
           ...(itemId ? { itemId } : {}),
           payload,
+          ...(providerSubagent ? { providerSubagent } : {}),
         });
 
         const resolvedAnswers = yield* Deferred.await(answers).pipe(

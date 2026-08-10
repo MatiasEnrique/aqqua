@@ -25,7 +25,8 @@
  *
  * @module orphanedSessions
  */
-import type { OrchestrationSession, ThreadId } from "@aqqua/contracts";
+import type { OrchestrationSession, ProviderSubagentBinding, ThreadId } from "@aqqua/contracts";
+import { expandClaimedThreadIdsWithProviderSubagents } from "@aqqua/shared/providerSubagents";
 
 /** Surfaced on the thread so a turn that died with the server explains itself
     instead of just going quiet. */
@@ -44,6 +45,8 @@ const ORPHANED_SESSION_STATUSES: ReadonlySet<OrchestrationSession["status"]> = n
 export interface OrphanedSessionCandidate {
   readonly id: ThreadId;
   readonly session: OrchestrationSession | null;
+  /** Present when this shell is a materialised provider-native subagent. */
+  readonly providerSubagent?: ProviderSubagentBinding | null | undefined;
 }
 
 export interface OrphanedSession {
@@ -68,17 +71,25 @@ export interface SelectOrphanedSessionsInput {
  * provider will ever complete. Threads that are already settled, or whose
  * binding is still claimed, are left alone — so a boot with nothing stranded
  * produces no commands at all.
+ *
+ * Provider-native children inherit a claim from their owner: while the owner's
+ * binding is claimed the child is left alone; if the owner is gone after
+ * restart, a running child is stopped normally.
  */
 export function selectOrphanedSessions(
   input: SelectOrphanedSessionsInput,
 ): ReadonlyArray<OrphanedSession> {
+  const claimedThreadIds = expandClaimedThreadIdsWithProviderSubagents(
+    input.claimedThreadIds,
+    input.threads,
+  );
   const orphaned: OrphanedSession[] = [];
   for (const thread of input.threads) {
     const session = thread.session;
     if (session === null || !ORPHANED_SESSION_STATUSES.has(session.status)) {
       continue;
     }
-    if (input.claimedThreadIds.has(thread.id)) {
+    if (claimedThreadIds.has(thread.id)) {
       continue;
     }
     orphaned.push({

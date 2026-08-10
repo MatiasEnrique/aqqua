@@ -14,14 +14,28 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@aqqua/contracts";
+import { ModelSelection, ProviderSubagentBinding } from "@aqqua/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    providerSubagent: Schema.NullOr(Schema.fromJsonString(ProviderSubagentBinding)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
+
+// Accept encoded or typed rows — SqlSchema may hand either shape to execute.
+const providerSubagentJson = (
+  value:
+    | {
+        readonly ownerThreadId: string;
+        readonly provider: string;
+        readonly childId: string;
+        readonly parentChildId?: string | null | undefined;
+      }
+    | null
+    | undefined,
+) => (value != null ? JSON.stringify(value) : null);
 
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -34,6 +48,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id,
           project_id,
           parent_thread_id,
+          provider_subagent_json,
           title,
           model_selection_json,
           runtime_mode,
@@ -59,6 +74,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.projectId},
           ${row.parentThreadId},
+          ${providerSubagentJson(row.providerSubagent)},
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -84,6 +100,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         DO UPDATE SET
           project_id = excluded.project_id,
           parent_thread_id = excluded.parent_thread_id,
+          provider_subagent_json = excluded.provider_subagent_json,
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -119,6 +136,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           parent_thread_id AS "parentThreadId",
+          provider_subagent_json AS "providerSubagent",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -153,6 +171,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           parent_thread_id AS "parentThreadId",
+          provider_subagent_json AS "providerSubagent",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -188,6 +207,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           parent_thread_id AS "parentThreadId",
+          provider_subagent_json AS "providerSubagent",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",

@@ -200,11 +200,14 @@ steps receive earlier artifacts only where the template says so — `${artifact}
 for the previous step's file, `${artifact:Step name}` for any earlier one.
 Opening a card replaces the regular conversation tabs with one tab per flow
 step. Every step stays visible; future steps are muted and become interactive
-only when the card reaches them. Spawned sub-agents and completed artifacts
-stay behind the numbered control on their owning step. The control opens a
-bounded detail popover instead of expanding the tab strip, so runs
-with many sub-agents and artifacts remain compact. This keeps the chat full-width
-without creating conversations early or adding another sidebar.
+only when the card reaches them. Spawned aqqua-managed sub-agents and completed
+artifacts stay behind the numbered control on their owning step. The control
+opens a bounded detail popover instead of expanding the tab strip, so runs with
+many sub-agents and artifacts remain compact. Provider-native children use the
+same **Native agent activity** surface as regular conversations, below the Flow
+steps, while their owning step or aqqua-managed agent remains selected. This
+keeps the chat full-width without creating conversations early or adding another
+sidebar.
 Artifacts are not shown as drafts while the agent is still working. You can
 edit a finished artifact in place; edits made while a card is paused are exactly
 what the next step reads.

@@ -143,6 +143,27 @@ What one spawn or one flow step asks for: an exact `instanceId + model`, plus an
 
 A machine-local named preset of the provider target, model, runtime, runtime mode, interaction mode, and provider options used to start an agent. Superseded as the primary seam by the agent model catalog and kept as a **compatibility surface**: saved presets, flow steps persisted with `profileName`, and un-migrated `--profile` callers all still resolve through [Profiles.ts][39], and a `terminal`-runtime agent is reachable only here. Unlike an agent selection, a profile may target a _driver_ rather than an exact instance, and its model is not checked against what the instance advertises. Nothing is removed. Managed in Settings or with [`aqqua profile`][34]; see [agent-profiles.md][40].
 
+#### Provider-native subagent
+
+A nested agent the provider's own harness spawned inside an owner thread's real session. aqqua
+materializes it as an ordinary durable child thread so its work is readable, projected, and
+archivable, but it has no session of its own. Deterministically identified by
+`ownerThreadId + provider + childId` in [providerSubagents.ts][41] and marked on the thread by the
+`ProviderSubagentBinding` in [the subagent contracts][42]; [ProviderRuntimeIngestion.ts][5]
+normalizes the runtime event's optional `providerSubagent` target onto the derived child thread.
+Distinct from an aqqua-managed sub-agent, which also has a `parentThreadId` but owns its session —
+so every read site keys off the binding, never off parenthood. Codex and Claude report them today;
+ACP does not, pending a released child-session contract.
+
+#### Owner session
+
+The thread holding the real provider session that a provider-native subagent runs inside. It is the
+only session authority for the whole native family: turn start, interrupt, message enqueue/submit,
+session stop, runtime and interaction modes, checkpoint revert, and model, branch, or worktree
+changes are accepted only there, and [decider.ts][8] rejects them on the child. Presentation actions
+(rename, archive, snooze, settle, delete) and provider-originated approval and user-input responses
+remain valid on the child, the latter routing in reverse to the owner's session.
+
 #### Assistant delivery mode
 
 Controls how assistant text reaches the thread timeline. In [the contracts][1], `streaming` updates incrementally and `buffered` delivers a completed result. See [ProviderService.ts][14].
@@ -258,3 +279,5 @@ The MCP completion signal a step's agent must call (`success` or `blocked`), hos
 [38]: ../user/agent-models.md
 [39]: ../../apps/server/src/agent-control/Profiles.ts
 [40]: ../user/agent-profiles.md
+[41]: ../../packages/shared/src/providerSubagents.ts
+[42]: ../../packages/contracts/src/providerSubagents.ts

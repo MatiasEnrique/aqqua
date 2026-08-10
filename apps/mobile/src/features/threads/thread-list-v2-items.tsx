@@ -14,7 +14,11 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
-import { resolveThreadListV2Status, type ThreadListV2Status } from "./threadListV2";
+import {
+  resolveProviderSubagentPresentation,
+  resolveThreadListV2Status,
+  type ThreadListV2Status,
+} from "./threadListV2";
 
 /**
  * Thread List v2 renders one flat native list: rich edge-to-edge rows for
@@ -207,6 +211,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
   readonly providerDriver: string | null;
+  /** The owner conversation's title, for a provider-native child — carried on
+      the list item that built this row. Optional: a caller without the owner on
+      hand gets the bare provider identity rather than the row reaching for more
+      state to print it. */
+  readonly providerSubagentOwnerTitle?: string | null;
   /** Which machine hosts the thread. Null when only one environment is
       connected — repeating the same label on every row is noise. Mirrors
       the web sidebar's remote-environment cloud icon, but as text since
@@ -273,6 +282,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
   const timeLabel = threadTimeLabel(thread);
+  // Mobile stays flat, so the row itself has to say that this conversation is
+  // a provider's own subagent and whose session it runs inside. The owner title
+  // arrives resolved from the list model; the row looks nothing up.
+  const providerSubagent = resolveProviderSubagentPresentation({
+    thread,
+    ownerTitle: props.providerSubagentOwnerTitle ?? null,
+  });
 
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleSettle = useCallback(() => onSettleThread(thread), [onSettleThread, thread]);
@@ -378,6 +394,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             numberOfLines={1}
           >
             {thread.session.lastError}
+          </Text>
+        ) : providerSubagent ? (
+          /* The branch and machine are the owner's, repeated on every child of
+             the same session; whose subagent this is says more. */
+          <Text
+            className={cn(
+              "flex-1 text-xs",
+              selected ? "text-user-bubble-foreground-muted" : "text-foreground-muted",
+            )}
+            numberOfLines={1}
+          >
+            {providerSubagent.subtitle}
           </Text>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits

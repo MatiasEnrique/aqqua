@@ -1330,4 +1330,56 @@ describe("CheckpointReactor", () => {
       expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
     }),
   );
+
+  it("ignores provider-native child runtime events for baselines and command cwd", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const baselineRef = checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0);
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-turn-started-native-child"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-native"),
+      providerSubagent: { childId: "native-1", title: "Child" },
+    });
+
+    harness.provider.emit({
+      type: "item.completed",
+      eventId: EventId.make("evt-item-native-child"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-native"),
+      itemId: "item-native",
+      providerSubagent: { childId: "native-1" },
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        cwd: "/tmp/should-not-record",
+      },
+    } as ProviderRuntimeEvent);
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-completed-native-child"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-native"),
+      providerSubagent: { childId: "native-1" },
+      payload: { state: "completed" },
+    });
+
+    await harness.drain();
+    await Effect.runPromise(Effect.sleep("50 millis"));
+
+    expect(gitRefExists(harness.cwd, baselineRef)).toBe(false);
+    const thread = await harness
+      .readModel()
+      .then((snapshot) => snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1")));
+    expect(thread?.checkpoints ?? []).toEqual([]);
+  });
 });

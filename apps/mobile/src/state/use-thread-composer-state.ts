@@ -17,6 +17,7 @@ import {
 } from "@aqqua/client-runtime/state/runtime";
 import { deriveActiveWorkStartedAt } from "@aqqua/shared/orchestrationTiming";
 
+import { isProviderSubagentThread } from "../features/threads/threadListV2";
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
 import {
   convertPastedImagesToAttachments,
@@ -197,7 +198,7 @@ export function useThreadComposerState() {
 
   const submitDraft = useCallback(
     async (deliveryMode: "queue" | "steer") => {
-      if (!selectedThreadShell) {
+      if (!selectedThreadShell || isProviderSubagentThread(selectedThreadShell)) {
         return null;
       }
 
@@ -307,7 +308,11 @@ export function useThreadComposerState() {
 
   const onSubmitQueuedMessages = useCallback(
     async (messageIds: ReadonlyArray<MessageId>) => {
-      if (!selectedThreadShell || messageIds.length === 0) {
+      if (
+        !selectedThreadShell ||
+        isProviderSubagentThread(selectedThreadShell) ||
+        messageIds.length === 0
+      ) {
         return;
       }
       const selectedMessageIds = new Set(messageIds);
