@@ -703,6 +703,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             detail: `Provider-native owner thread '${owner.id}' belongs to a different project than child '${command.threadId}'.`,
           });
         }
+        if (owner.deletedAt !== null) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Provider-native owner thread '${owner.id}' has been deleted.`,
+          });
+        }
       }
       return {
         ...(yield* withEventBase({

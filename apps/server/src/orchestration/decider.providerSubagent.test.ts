@@ -70,6 +70,24 @@ const addOwner = (readModel: OrchestrationReadModel, projectId: ProjectId, seque
     },
   });
 
+const deleteOwner = (readModel: OrchestrationReadModel, sequence: number) =>
+  projectEvent(readModel, {
+    sequence,
+    eventId: EventId.make("evt-owner-deleted"),
+    aggregateKind: "thread",
+    aggregateId: OWNER_ID,
+    type: "thread.deleted",
+    occurredAt: NOW,
+    commandId: CommandId.make("cmd-owner-deleted"),
+    causationEventId: null,
+    correlationId: CommandId.make("cmd-owner-deleted"),
+    metadata: {},
+    payload: {
+      threadId: OWNER_ID,
+      deletedAt: NOW,
+    },
+  });
+
 const createNativeChild = (readModel: OrchestrationReadModel, projectId: ProjectId) =>
   decideOrchestrationCommand({
     readModel,
@@ -114,6 +132,20 @@ it.layer(NodeServices.layer)("provider-native thread.create invariants", (it) =>
       const error = yield* Effect.flip(createNativeChild(readModel, PROJECT_B));
 
       expect(error.message).toContain("belongs to a different project");
+    }),
+  );
+
+  it.effect("rejects a binding whose owner has been deleted", () =>
+    Effect.gen(function* () {
+      const withProject = yield* addProject(createEmptyReadModel(NOW), PROJECT_A, 1);
+      const withOwner = yield* addOwner(withProject, PROJECT_A, 2);
+      const readModel = yield* deleteOwner(withOwner, 3);
+
+      const error = yield* Effect.flip(createNativeChild(readModel, PROJECT_A));
+
+      expect(error.message).toContain(
+        `Provider-native owner thread '${OWNER_ID}' has been deleted`,
+      );
     }),
   );
 });
