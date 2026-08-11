@@ -18,6 +18,10 @@ export interface OrphanReleaseScheduler {
   readonly schedule: (release: () => void, delayMs: number) => () => void;
 }
 
+export interface SetAgentActiveOptions {
+  readonly releaseOrphans?: boolean;
+}
+
 interface RequesterRegistration {
   readonly sender: DesktopIpcSender;
   readonly onDestroyed: () => void;
@@ -30,7 +34,11 @@ export const ORPHANED_RENDERER_RELEASE_MS = 2 * 60 * 60 * 1_000;
 export class ElectronPowerSaveBlocker extends Context.Service<
   ElectronPowerSaveBlocker,
   {
-    readonly setAgentActive: (sender: DesktopIpcSender, active: boolean) => Effect.Effect<void>;
+    readonly setAgentActive: (
+      sender: DesktopIpcSender,
+      active: boolean,
+      options?: SetAgentActiveOptions,
+    ) => Effect.Effect<void>;
   }
 >()("@aqqua/desktop/electron/ElectronPowerSaveBlocker") {}
 
@@ -138,15 +146,19 @@ export const make = Effect.fn("desktop.electron.powerSaveBlocker.make")(function
   );
 
   return ElectronPowerSaveBlocker.of({
-    setAgentActive: (sender, active) =>
+    setAgentActive: (sender, active, options) =>
       Effect.sync(() => {
-        clearOrphanedRequesters();
+        if (options?.releaseOrphans === true) clearOrphanedRequesters();
         if (!active || sender.isDestroyed()) {
           removeRequester(sender.id);
           reconcile();
           return;
         }
-        if (!requesters.has(sender.id)) {
+        const registration = requesters.get(sender.id);
+        if (registration !== undefined) {
+          registration.cancelOrphanRelease?.();
+          registration.cancelOrphanRelease = null;
+        } else {
           const onDestroyed = () => markRequesterOrphaned(sender.id);
           const onNavigationStarted: DesktopIpcNavigationListener = (event) => {
             if (event.isSameDocument || !event.isMainFrame) return;

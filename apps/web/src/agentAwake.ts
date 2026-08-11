@@ -8,14 +8,21 @@ export function isDesktopWakeEligibleEnvironment(target: ConnectionTarget): bool
   return target._tag === "PrimaryConnectionTarget" || isDesktopLocalConnectionTarget(target);
 }
 
+export interface DesktopAgentAwakeReport {
+  readonly active: boolean;
+  readonly releaseOrphans: boolean;
+}
+
 export function resolveDesktopAgentAwakeReport(input: {
   readonly settingsHydrated: boolean;
   readonly enabled: boolean;
   readonly authoritativeActive: boolean | null;
-}): boolean | null {
+}): DesktopAgentAwakeReport | null {
   if (!input.settingsHydrated) return null;
-  if (!input.enabled) return false;
-  return input.authoritativeActive;
+  if (!input.enabled) return { active: false, releaseOrphans: true };
+  return input.authoritativeActive === null
+    ? null
+    : { active: input.authoritativeActive, releaseOrphans: false };
 }
 
 export function hasLiveActiveAgent(

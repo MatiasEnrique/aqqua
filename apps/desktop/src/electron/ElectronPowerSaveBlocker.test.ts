@@ -168,7 +168,7 @@ describe("ElectronPowerSaveBlocker", () => {
     }),
   );
 
-  it.effect("reconciles an orphaned request when a replacement renderer reports state", () =>
+  it.effect("preserves an orphaned request when another renderer reports inactive", () =>
     Effect.gen(function* () {
       const blocker = makeBlocker();
       const orphaned = makeSender(7);
@@ -182,6 +182,35 @@ describe("ElectronPowerSaveBlocker", () => {
           orphaned.destroy();
 
           yield* service.setAgentActive(replacement.sender, false);
+
+          assert.equal(orphanRelease.cancel.mock.calls.length, 0);
+          assert.equal(blocker.api.stop.mock.calls.length, 0);
+          assert.equal(blocker.started.size, 1);
+
+          orphanRelease.release();
+          assert.equal(blocker.api.stop.mock.calls.length, 1);
+          assert.equal(blocker.started.size, 0);
+        }).pipe(
+          Effect.provide(ElectronPowerSaveBlocker.layerTest(blocker.api, orphanRelease.scheduler)),
+        ),
+      );
+    }),
+  );
+
+  it.effect("releases orphaned requests when the preference is disabled", () =>
+    Effect.gen(function* () {
+      const blocker = makeBlocker();
+      const orphaned = makeSender(7);
+      const replacement = makeSender(8);
+      const orphanRelease = makeOrphanReleaseScheduler();
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const service = yield* ElectronPowerSaveBlocker.ElectronPowerSaveBlocker;
+          yield* service.setAgentActive(orphaned.sender, true);
+          orphaned.destroy();
+
+          yield* service.setAgentActive(replacement.sender, false, { releaseOrphans: true });
 
           assert.equal(orphanRelease.cancel.mock.calls.length, 1);
           assert.equal(blocker.api.stop.mock.calls.length, 1);

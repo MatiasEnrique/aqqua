@@ -2,17 +2,17 @@ import { useAtomValue } from "@effect/atom-react";
 import type { ClientSettings } from "@aqqua/contracts/settings";
 import { useEffect } from "react";
 
-import { resolveDesktopAgentAwakeReport } from "../agentAwake";
+import { type DesktopAgentAwakeReport, resolveDesktopAgentAwakeReport } from "../agentAwake";
 import { isElectron } from "../env";
 import { useClientSettings, useClientSettingsHydrated } from "../hooks/useSettings";
 import { desktopAgentAwakeReportAtom } from "../state/agentAwake";
 
 const selectKeepScreenAwake = (settings: ClientSettings) => settings.keepScreenAwakeWhileAgentsRun;
 
-function DesktopAgentAwakeReporter({ active }: { readonly active: boolean }) {
+function DesktopAgentAwakeReporter({ active, releaseOrphans }: DesktopAgentAwakeReport) {
   useEffect(() => {
-    void window.desktopBridge?.setAgentAwake(active).catch(() => {});
-  }, [active]);
+    void window.desktopBridge?.setAgentAwake(active, { releaseOrphans }).catch(() => {});
+  }, [active, releaseOrphans]);
 
   return null;
 }
@@ -24,7 +24,7 @@ function DesktopAgentAwakeActivity() {
     enabled: true,
     authoritativeActive,
   });
-  return report === null ? null : <DesktopAgentAwakeReporter active={report} />;
+  return report === null ? null : <DesktopAgentAwakeReporter {...report} />;
 }
 
 function DesktopAgentAwakeSettingsGate() {
@@ -37,7 +37,7 @@ function DesktopAgentAwakeSettingsGate() {
   });
 
   if (immediateReport !== null) {
-    return <DesktopAgentAwakeReporter active={immediateReport} />;
+    return <DesktopAgentAwakeReporter {...immediateReport} />;
   }
   return settingsHydrated ? <DesktopAgentAwakeActivity /> : null;
 }

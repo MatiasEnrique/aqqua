@@ -7,10 +7,15 @@ import * as DesktopIpc from "../DesktopIpc.ts";
 
 export const setAgentAwake = DesktopIpc.makeSenderIpcMethod({
   channel: IpcChannels.SET_AGENT_AWAKE_CHANNEL,
-  payload: Schema.Boolean,
+  payload: Schema.Struct({
+    active: Schema.Boolean,
+    releaseOrphans: Schema.Boolean,
+  }),
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.agentAwake.set")(function* (active, event) {
+  handler: Effect.fn("desktop.ipc.agentAwake.set")(function* (report, event) {
     const blocker = yield* ElectronPowerSaveBlocker.ElectronPowerSaveBlocker;
-    yield* blocker.setAgentActive(event.sender, active);
+    yield* blocker.setAgentActive(event.sender, report.active, {
+      releaseOrphans: report.releaseOrphans,
+    });
   }),
 });

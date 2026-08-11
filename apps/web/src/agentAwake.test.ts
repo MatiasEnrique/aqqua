@@ -109,7 +109,7 @@ describe("resolveDesktopAgentAwakeReport", () => {
         enabled: false,
         authoritativeActive: null,
       },
-      expected: false,
+      expected: { active: false, releaseOrphans: true },
     },
     {
       name: "preserves an existing blocker while enabled shell state restores",
@@ -127,9 +127,9 @@ describe("resolveDesktopAgentAwakeReport", () => {
         enabled: true,
         authoritativeActive: true,
       },
-      expected: true,
+      expected: { active: true, releaseOrphans: false },
     },
   ] as const)("$name", ({ input, expected }) => {
-    expect(resolveDesktopAgentAwakeReport(input)).toBe(expected);
+    expect(resolveDesktopAgentAwakeReport(input)).toEqual(expected);
   });
 });
