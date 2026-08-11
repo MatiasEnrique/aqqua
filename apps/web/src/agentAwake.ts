@@ -4,10 +4,18 @@ import type { EnvironmentId } from "@aqqua/contracts";
 
 import { isDesktopLocalConnectionTarget } from "./connection/desktopLocal";
 
-export function isWakeEligibleEnvironment(target: ConnectionTarget, desktop: boolean): boolean {
-  return (
-    !desktop || target._tag === "PrimaryConnectionTarget" || isDesktopLocalConnectionTarget(target)
-  );
+export function isDesktopWakeEligibleEnvironment(target: ConnectionTarget): boolean {
+  return target._tag === "PrimaryConnectionTarget" || isDesktopLocalConnectionTarget(target);
+}
+
+export function resolveDesktopAgentAwakeReport(input: {
+  readonly settingsHydrated: boolean;
+  readonly enabled: boolean;
+  readonly authoritativeActive: boolean | null;
+}): boolean | null {
+  if (!input.settingsHydrated) return null;
+  if (!input.enabled) return false;
+  return input.authoritativeActive;
 }
 
 export function hasLiveActiveAgent(

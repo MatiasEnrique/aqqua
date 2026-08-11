@@ -1290,33 +1290,35 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          title="Keep screen awake"
-          description="Prevent this computer and display from sleeping while an agent is starting or running. Desktop watches agents hosted on this computer; browser support requires this page to remain visible."
-          resetAction={
-            settings.keepScreenAwakeWhileAgentsRun !==
-            DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun ? (
-              <SettingResetButton
-                label="keep screen awake"
-                onClick={() =>
-                  updateSettings({
-                    keepScreenAwakeWhileAgentsRun:
-                      DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun,
-                  })
+        {isElectron ? (
+          <SettingsRow
+            title="Keep screen awake"
+            description="Prevent this computer and display from sleeping while an agent hosted by this desktop is starting or running."
+            resetAction={
+              settings.keepScreenAwakeWhileAgentsRun !==
+              DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun ? (
+                <SettingResetButton
+                  label="keep screen awake"
+                  onClick={() =>
+                    updateSettings({
+                      keepScreenAwakeWhileAgentsRun:
+                        DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.keepScreenAwakeWhileAgentsRun}
+                onCheckedChange={(checked) =>
+                  updateSettings({ keepScreenAwakeWhileAgentsRun: Boolean(checked) })
                 }
+                aria-label="Keep screen awake while agents run"
               />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.keepScreenAwakeWhileAgentsRun}
-              onCheckedChange={(checked) =>
-                updateSettings({ keepScreenAwakeWhileAgentsRun: Boolean(checked) })
-              }
-              aria-label="Keep screen awake while agents run"
-            />
-          }
-        />
+            }
+          />
+        ) : null}
 
         <SettingsRow
           title="New threads"

@@ -4,11 +4,22 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+export interface DesktopIpcNavigationEvent {
+  readonly isSameDocument: boolean;
+  readonly isMainFrame: boolean;
+}
+
+export type DesktopIpcNavigationListener = (event: DesktopIpcNavigationEvent) => void;
+
 export interface DesktopIpcSender {
   readonly id: number;
   isDestroyed(): boolean;
+  on(eventName: "did-start-navigation", listener: DesktopIpcNavigationListener): unknown;
   once(eventName: "destroyed", listener: () => void): unknown;
-  removeListener(eventName: "destroyed", listener: () => void): unknown;
+  removeListener(
+    eventName: "destroyed" | "did-start-navigation",
+    listener: (() => void) | DesktopIpcNavigationListener,
+  ): unknown;
 }
 
 export interface DesktopIpcInvokeEvent {

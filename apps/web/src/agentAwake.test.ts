@@ -3,7 +3,11 @@ import { BearerConnectionTarget, PrimaryConnectionTarget } from "@aqqua/client-r
 import { EnvironmentId } from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { hasLiveActiveAgent, isWakeEligibleEnvironment } from "./agentAwake";
+import {
+  hasLiveActiveAgent,
+  isDesktopWakeEligibleEnvironment,
+  resolveDesktopAgentAwakeReport,
+} from "./agentAwake";
 
 const localEnvironmentId = EnvironmentId.make("local");
 const remoteEnvironmentId = EnvironmentId.make("remote");
@@ -62,7 +66,7 @@ describe("hasLiveActiveAgent", () => {
   });
 });
 
-describe("isWakeEligibleEnvironment", () => {
+describe("isDesktopWakeEligibleEnvironment", () => {
   const primary = new PrimaryConnectionTarget({
     environmentId: localEnvironmentId,
     httpBaseUrl: "http://127.0.0.1:3773",
@@ -80,13 +84,52 @@ describe("isWakeEligibleEnvironment", () => {
     label: "Remote",
   });
 
-  it("counts all environments in the web client", () => {
-    expect(isWakeEligibleEnvironment(savedRemote, false)).toBe(true);
+  it("counts only host-local desktop environments", () => {
+    expect(isDesktopWakeEligibleEnvironment(primary)).toBe(true);
+    expect(isDesktopWakeEligibleEnvironment(desktopLocal)).toBe(true);
+    expect(isDesktopWakeEligibleEnvironment(savedRemote)).toBe(false);
   });
+});
 
-  it("counts only host-local environments in the desktop client", () => {
-    expect(isWakeEligibleEnvironment(primary, true)).toBe(true);
-    expect(isWakeEligibleEnvironment(desktopLocal, true)).toBe(true);
-    expect(isWakeEligibleEnvironment(savedRemote, true)).toBe(false);
+describe("resolveDesktopAgentAwakeReport", () => {
+  it.each([
+    {
+      name: "waits for client settings hydration",
+      input: {
+        settingsHydrated: false,
+        enabled: false,
+        authoritativeActive: null,
+      },
+      expected: null,
+    },
+    {
+      name: "releases an existing blocker once the hydrated setting is disabled",
+      input: {
+        settingsHydrated: true,
+        enabled: false,
+        authoritativeActive: null,
+      },
+      expected: false,
+    },
+    {
+      name: "preserves an existing blocker while enabled shell state restores",
+      input: {
+        settingsHydrated: true,
+        enabled: true,
+        authoritativeActive: null,
+      },
+      expected: null,
+    },
+    {
+      name: "reports the derived activity after state is authoritative",
+      input: {
+        settingsHydrated: true,
+        enabled: true,
+        authoritativeActive: true,
+      },
+      expected: true,
+    },
+  ] as const)("$name", ({ input, expected }) => {
+    expect(resolveDesktopAgentAwakeReport(input)).toBe(expected);
   });
 });

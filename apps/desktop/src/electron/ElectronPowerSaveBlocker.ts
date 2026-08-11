@@ -6,7 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Electron from "electron";
 
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
-import type { DesktopIpcSender } from "../ipc/DesktopIpc.ts";
+import type { DesktopIpcNavigationListener, DesktopIpcSender } from "../ipc/DesktopIpc.ts";
 
 export interface PowerSaveBlockerApi {
   readonly start: (type: "prevent-display-sleep") => number;
@@ -21,6 +21,7 @@ export interface OrphanReleaseScheduler {
 interface RequesterRegistration {
   readonly sender: DesktopIpcSender;
   readonly onDestroyed: () => void;
+  readonly onNavigationStarted: DesktopIpcNavigationListener;
   cancelOrphanRelease: (() => void) | null;
 }
 
@@ -97,12 +98,22 @@ export const make = Effect.fn("desktop.electron.powerSaveBlocker.make")(function
     if (registration === undefined) return;
     requesters.delete(senderId);
     registration.sender.removeListener("destroyed", registration.onDestroyed);
+    registration.sender.removeListener("did-start-navigation", registration.onNavigationStarted);
     registration.cancelOrphanRelease?.();
   };
 
   const releaseRequester = (senderId: number) => {
     removeRequester(senderId);
     reconcile();
+  };
+
+  const markRequesterOrphaned = (senderId: number) => {
+    const registration = requesters.get(senderId);
+    if (registration === undefined || registration.cancelOrphanRelease !== null) return;
+    registration.cancelOrphanRelease = orphanReleaseScheduler.schedule(
+      () => releaseRequester(senderId),
+      ORPHANED_RENDERER_RELEASE_MS,
+    );
   };
 
   const clearOrphanedRequesters = () => {
@@ -115,6 +126,10 @@ export const make = Effect.fn("desktop.electron.powerSaveBlocker.make")(function
     Effect.sync(() => {
       for (const registration of requesters.values()) {
         registration.sender.removeListener("destroyed", registration.onDestroyed);
+        registration.sender.removeListener(
+          "did-start-navigation",
+          registration.onNavigationStarted,
+        );
         registration.cancelOrphanRelease?.();
       }
       requesters.clear();
@@ -132,16 +147,19 @@ export const make = Effect.fn("desktop.electron.powerSaveBlocker.make")(function
           return;
         }
         if (!requesters.has(sender.id)) {
-          const onDestroyed = () => {
-            const registration = requesters.get(sender.id);
-            if (registration === undefined || registration.cancelOrphanRelease !== null) return;
-            registration.cancelOrphanRelease = orphanReleaseScheduler.schedule(
-              () => releaseRequester(sender.id),
-              ORPHANED_RENDERER_RELEASE_MS,
-            );
+          const onDestroyed = () => markRequesterOrphaned(sender.id);
+          const onNavigationStarted: DesktopIpcNavigationListener = (event) => {
+            if (event.isSameDocument || !event.isMainFrame) return;
+            markRequesterOrphaned(sender.id);
           };
-          requesters.set(sender.id, { sender, onDestroyed, cancelOrphanRelease: null });
+          requesters.set(sender.id, {
+            sender,
+            onDestroyed,
+            onNavigationStarted,
+            cancelOrphanRelease: null,
+          });
           sender.once("destroyed", onDestroyed);
+          sender.on("did-start-navigation", onNavigationStarted);
         }
         reconcile();
       }),

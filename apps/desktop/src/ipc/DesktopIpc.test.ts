@@ -35,6 +35,7 @@ describe("DesktopIpc", () => {
         sender: {
           id: 42,
           isDestroyed: () => false,
+          on: () => {},
           once: () => {},
           removeListener: () => {},
         },

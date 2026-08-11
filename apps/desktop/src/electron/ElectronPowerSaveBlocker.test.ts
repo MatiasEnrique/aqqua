@@ -2,20 +2,28 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { vi } from "vite-plus/test";
 
-import type { DesktopIpcSender } from "../ipc/DesktopIpc.ts";
+import type { DesktopIpcNavigationListener, DesktopIpcSender } from "../ipc/DesktopIpc.ts";
 import * as ElectronPowerSaveBlocker from "./ElectronPowerSaveBlocker.ts";
 
 function makeSender(id: number) {
   let destroyed = false;
   const destroyedListeners = new Set<() => void>();
+  const navigationListeners = new Set<DesktopIpcNavigationListener>();
   const sender: DesktopIpcSender = {
     id,
     isDestroyed: () => destroyed,
+    on: (_eventName, listener) => {
+      navigationListeners.add(listener);
+    },
     once: (_eventName, listener) => {
       destroyedListeners.add(listener);
     },
-    removeListener: (_eventName, listener) => {
-      destroyedListeners.delete(listener);
+    removeListener: (eventName, listener) => {
+      if (eventName === "destroyed") {
+        destroyedListeners.delete(listener as () => void);
+      } else {
+        navigationListeners.delete(listener as DesktopIpcNavigationListener);
+      }
     },
   };
   return {
@@ -23,6 +31,11 @@ function makeSender(id: number) {
     destroy: () => {
       destroyed = true;
       for (const listener of destroyedListeners) listener();
+    },
+    reload: () => {
+      for (const listener of navigationListeners) {
+        listener({ isSameDocument: false, isMainFrame: true });
+      }
     },
     listenerCount: () => destroyedListeners.size,
   };
@@ -113,6 +126,38 @@ describe("ElectronPowerSaveBlocker", () => {
             ElectronPowerSaveBlocker.ORPHANED_RENDERER_RELEASE_MS,
           );
 
+          orphanRelease.release();
+          assert.equal(blocker.api.stop.mock.calls.length, 1);
+          assert.equal(blocker.started.size, 0);
+        }).pipe(
+          Effect.provide(ElectronPowerSaveBlocker.layerTest(blocker.api, orphanRelease.scheduler)),
+        ),
+      );
+    }),
+  );
+
+  it.effect("bounds a renderer reload without dropping an active blocker", () =>
+    Effect.gen(function* () {
+      const blocker = makeBlocker();
+      const requester = makeSender(7);
+      const orphanRelease = makeOrphanReleaseScheduler();
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const service = yield* ElectronPowerSaveBlocker.ElectronPowerSaveBlocker;
+          yield* service.setAgentActive(requester.sender, true);
+          requester.reload();
+
+          assert.equal(orphanRelease.scheduler.schedule.mock.calls.length, 1);
+          assert.equal(blocker.api.stop.mock.calls.length, 0);
+          assert.equal(blocker.started.size, 1);
+
+          yield* service.setAgentActive(requester.sender, true);
+          assert.equal(orphanRelease.cancel.mock.calls.length, 1);
+          assert.equal(blocker.api.stop.mock.calls.length, 0);
+          assert.equal(blocker.started.size, 1);
+
+          requester.reload();
           orphanRelease.release();
           assert.equal(blocker.api.stop.mock.calls.length, 1);
           assert.equal(blocker.started.size, 0);
