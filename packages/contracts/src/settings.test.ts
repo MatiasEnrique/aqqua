@@ -76,6 +76,22 @@ describe("ClientSettings environment identification", () => {
   });
 });
 
+describe("ClientSettings agent wake lock", () => {
+  it("is opt-in by default", () => {
+    expect(decodeClientSettings({}).keepScreenAwakeWhileAgentsRun).toBe(false);
+  });
+
+  it("accepts the client preference in settings and patches", () => {
+    expect(
+      decodeClientSettings({ keepScreenAwakeWhileAgentsRun: true }).keepScreenAwakeWhileAgentsRun,
+    ).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ keepScreenAwakeWhileAgentsRun: true })
+        .keepScreenAwakeWhileAgentsRun,
+    ).toBe(true);
+  });
+});
+
 describe("ClientSettings sidebar", () => {
   it("defaults to a three-day auto-settle threshold", () => {
     expect(decodeClientSettings({}).sidebarAutoSettleAfterDays).toBe(3);

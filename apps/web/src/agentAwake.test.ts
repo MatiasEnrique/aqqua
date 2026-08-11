@@ -1,0 +1,92 @@
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/shell";
+import { BearerConnectionTarget, PrimaryConnectionTarget } from "@aqqua/client-runtime/connection";
+import { EnvironmentId } from "@aqqua/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import { hasLiveActiveAgent, isWakeEligibleEnvironment } from "./agentAwake";
+
+const localEnvironmentId = EnvironmentId.make("local");
+const remoteEnvironmentId = EnvironmentId.make("remote");
+
+function thread(
+  environmentId: EnvironmentId,
+  status: "idle" | "starting" | "running" | "ready" | "error",
+): EnvironmentThreadShell {
+  return {
+    environmentId,
+    session: { status },
+  } as EnvironmentThreadShell;
+}
+
+describe("hasLiveActiveAgent", () => {
+  it.each(["starting", "running"] as const)(
+    "keeps the screen awake for a connected %s session",
+    (status) => {
+      expect(
+        hasLiveActiveAgent([thread(localEnvironmentId, status)], new Set([localEnvironmentId])),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["idle", "ready", "error"] as const)(
+    "releases the screen for a connected %s session",
+    (status) => {
+      expect(
+        hasLiveActiveAgent([thread(localEnvironmentId, status)], new Set([localEnvironmentId])),
+      ).toBe(false);
+    },
+  );
+
+  it("ignores cached running state from a disconnected environment", () => {
+    expect(
+      hasLiveActiveAgent([thread(remoteEnvironmentId, "running")], new Set([localEnvironmentId])),
+    ).toBe(false);
+  });
+
+  it("ignores provider-native child status in favor of its owning thread", () => {
+    const nativeChild = {
+      ...thread(localEnvironmentId, "running"),
+      providerSubagent: {},
+    } as EnvironmentThreadShell;
+
+    expect(hasLiveActiveAgent([nativeChild], new Set([localEnvironmentId]))).toBe(false);
+  });
+
+  it("stays active until the final connected agent stops", () => {
+    expect(
+      hasLiveActiveAgent(
+        [thread(localEnvironmentId, "ready"), thread(remoteEnvironmentId, "running")],
+        new Set([localEnvironmentId, remoteEnvironmentId]),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isWakeEligibleEnvironment", () => {
+  const primary = new PrimaryConnectionTarget({
+    environmentId: localEnvironmentId,
+    httpBaseUrl: "http://127.0.0.1:3773",
+    label: "This computer",
+    wsBaseUrl: "ws://127.0.0.1:3773",
+  });
+  const desktopLocal = new BearerConnectionTarget({
+    connectionId: "local:wsl",
+    environmentId: localEnvironmentId,
+    label: "WSL",
+  });
+  const savedRemote = new BearerConnectionTarget({
+    connectionId: "saved-remote",
+    environmentId: remoteEnvironmentId,
+    label: "Remote",
+  });
+
+  it("counts all environments in the web client", () => {
+    expect(isWakeEligibleEnvironment(savedRemote, false)).toBe(true);
+  });
+
+  it("counts only host-local environments in the desktop client", () => {
+    expect(isWakeEligibleEnvironment(primary, true)).toBe(true);
+    expect(isWakeEligibleEnvironment(desktopLocal, true)).toBe(true);
+    expect(isWakeEligibleEnvironment(savedRemote, true)).toBe(false);
+  });
+});

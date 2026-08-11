@@ -19,6 +19,7 @@ const clientSettings: ClientSettings = {
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
   environmentIdentificationMode: "artwork",
+  keepScreenAwakeWhileAgentsRun: true,
   favorites: [],
   glassOpacity: 80,
   providerModelPreferences: {},
