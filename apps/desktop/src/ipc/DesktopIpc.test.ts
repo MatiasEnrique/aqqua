@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { vi } from "vite-plus/test";
 
 import * as DesktopIpc from "./DesktopIpc.ts";
@@ -28,6 +29,34 @@ function makeIpcMain(
 }
 
 describe("DesktopIpc", () => {
+  it.effect("passes the invoking renderer to typed method handlers", () =>
+    Effect.gen(function* () {
+      const event = {
+        sender: {
+          id: 42,
+          isDestroyed: () => false,
+          on: () => {},
+          once: () => {},
+          removeListener: () => {},
+        },
+      } satisfies DesktopIpc.DesktopIpcInvokeEvent;
+      let receivedEvent: DesktopIpc.DesktopIpcInvokeEvent | null = null;
+      const method = DesktopIpc.makeSenderIpcMethod({
+        channel: "desktop.test.event",
+        payload: Schema.Boolean,
+        result: Schema.Void,
+        handler: (_active, invokedBy) =>
+          Effect.sync(() => {
+            receivedEvent = invokedBy;
+          }),
+      });
+
+      yield* method.handler(true, event);
+
+      assert.strictEqual(receivedEvent, event);
+    }),
+  );
+
   it.effect("preserves invoke registration context and cause", () =>
     Effect.gen(function* () {
       const cause = new Error("invoke registration failed");

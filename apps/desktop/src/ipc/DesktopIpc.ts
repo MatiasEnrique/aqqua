@@ -4,7 +4,27 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-export interface DesktopIpcInvokeEvent {}
+export interface DesktopIpcNavigationEvent {
+  readonly isSameDocument: boolean;
+  readonly isMainFrame: boolean;
+}
+
+export type DesktopIpcNavigationListener = (event: DesktopIpcNavigationEvent) => void;
+
+export interface DesktopIpcSender {
+  readonly id: number;
+  isDestroyed(): boolean;
+  on(eventName: "did-start-navigation", listener: DesktopIpcNavigationListener): unknown;
+  once(eventName: "destroyed", listener: () => void): unknown;
+  removeListener(
+    eventName: "destroyed" | "did-start-navigation",
+    listener: (() => void) | DesktopIpcNavigationListener,
+  ): unknown;
+}
+
+export interface DesktopIpcInvokeEvent {
+  readonly sender: DesktopIpcSender;
+}
 
 export interface DesktopIpcSyncEvent {
   returnValue: unknown;
@@ -59,7 +79,7 @@ export const isDesktopIpcError = Schema.is(DesktopIpcError);
 
 export interface DesktopIpcMethod<E, R> {
   readonly channel: string;
-  readonly handler: (raw: unknown) => Effect.Effect<unknown, E, R>;
+  readonly handler: (raw: unknown, event?: DesktopIpcInvokeEvent) => Effect.Effect<unknown, E, R>;
 }
 
 export interface DesktopSyncIpcMethod<E, R> {
@@ -93,11 +113,11 @@ export const make = (ipcMain: DesktopIpcMain): DesktopIpc["Service"] =>
         Effect.try({
           try: () => {
             ipcMain.removeHandler(channel);
-            ipcMain.handle(channel, (_event, raw) =>
+            ipcMain.handle(channel, (event, raw) =>
               runPromise(
                 Effect.gen(function* () {
                   yield* Effect.annotateCurrentSpan({ channel });
-                  return yield* handler(raw);
+                  return yield* handler(raw, event);
                 }).pipe(Effect.annotateLogs({ channel }), Effect.withSpan("desktop.ipc.invoke")),
               ),
             );
@@ -224,6 +244,81 @@ export const makeIpcMethod = <
         Effect.flatMap(encode),
         Effect.withSpan("desktop.ipc.method", { attributes: { channel: method.channel } }),
       ),
+  };
+};
+
+export interface DesktopSenderIpcMethodRegistration<
+  Payload,
+  EncodedPayload,
+  Result,
+  EncodedResult,
+  E,
+  R,
+  PayloadDecodingServices = never,
+  PayloadEncodingServices = never,
+  ResultDecodingServices = never,
+  ResultEncodingServices = never,
+> extends Omit<
+  DesktopIpcMethodRegistration<
+    Payload,
+    EncodedPayload,
+    Result,
+    EncodedResult,
+    E,
+    R,
+    PayloadDecodingServices,
+    PayloadEncodingServices,
+    ResultDecodingServices,
+    ResultEncodingServices
+  >,
+  "handler"
+> {
+  readonly handler: (input: Payload, event: DesktopIpcInvokeEvent) => Effect.Effect<Result, E, R>;
+}
+
+export const makeSenderIpcMethod = <
+  Payload,
+  EncodedPayload,
+  Result,
+  EncodedResult,
+  E,
+  R,
+  PayloadDecodingServices = never,
+  PayloadEncodingServices = never,
+  ResultDecodingServices = never,
+  ResultEncodingServices = never,
+>(
+  method: DesktopSenderIpcMethodRegistration<
+    Payload,
+    EncodedPayload,
+    Result,
+    EncodedResult,
+    E,
+    R,
+    PayloadDecodingServices,
+    PayloadEncodingServices,
+    ResultDecodingServices,
+    ResultEncodingServices
+  >,
+): DesktopIpcMethod<
+  E | Schema.SchemaError,
+  R | PayloadDecodingServices | ResultEncodingServices
+> => {
+  const decode = Schema.decodeUnknownEffect(method.payload);
+  const encode = Schema.encodeUnknownEffect(method.result);
+
+  return {
+    channel: method.channel,
+    handler: (raw, event) => {
+      if (event === undefined) {
+        return Effect.die(new Error(`Sender context is required for ${method.channel}.`));
+      }
+      return decode(raw).pipe(
+        Effect.flatMap((input) => method.handler(input, event)),
+        Effect.flatMap(encode),
+        Effect.withSpan("desktop.ipc.method", { attributes: { channel: method.channel } }),
+      );
+    },
   };
 };
 

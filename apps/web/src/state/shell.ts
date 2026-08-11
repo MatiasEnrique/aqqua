@@ -8,6 +8,7 @@ import {
   createEnvironmentSnapshotAtom,
   createShellEnvironmentAtoms,
 } from "@aqqua/client-runtime/state/shell";
+import type { EnvironmentId } from "@aqqua/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -21,6 +22,24 @@ export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   shellStateValueAtom: environmentShell.stateValueAtom,
 });
+
+let previousLiveEnvironmentIds: ReadonlySet<EnvironmentId> = new Set();
+export const liveEnvironmentShellIdsAtom = Atom.make((get) => {
+  const next = new Set<EnvironmentId>();
+  for (const environmentId of get(environmentCatalog.catalogValueAtom).entries.keys()) {
+    if (get(environmentShell.stateValueAtom(environmentId)).status === "live") {
+      next.add(environmentId);
+    }
+  }
+  if (
+    next.size === previousLiveEnvironmentIds.size &&
+    [...next].every((environmentId) => previousLiveEnvironmentIds.has(environmentId))
+  ) {
+    return previousLiveEnvironmentIds;
+  }
+  previousLiveEnvironmentIds = next;
+  return previousLiveEnvironmentIds;
+}).pipe(Atom.withLabel("web-live-environment-shell-ids"));
 
 export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
   const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));

@@ -479,6 +479,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.keepScreenAwakeWhileAgentsRun !==
+      DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun
+        ? ["Keep screen awake"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -522,6 +526,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.environmentIdentificationMode,
       settings.glassOpacity,
+      settings.keepScreenAwakeWhileAgentsRun,
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
       settings.sidebarProjectGroupingMode,
@@ -552,6 +557,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+      keepScreenAwakeWhileAgentsRun: DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
@@ -1283,6 +1289,36 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        {isElectron ? (
+          <SettingsRow
+            title="Keep screen awake"
+            description="Prevent this computer and display from sleeping while an agent hosted by this desktop is starting or running."
+            resetAction={
+              settings.keepScreenAwakeWhileAgentsRun !==
+              DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun ? (
+                <SettingResetButton
+                  label="keep screen awake"
+                  onClick={() =>
+                    updateSettings({
+                      keepScreenAwakeWhileAgentsRun:
+                        DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.keepScreenAwakeWhileAgentsRun}
+                onCheckedChange={(checked) =>
+                  updateSettings({ keepScreenAwakeWhileAgentsRun: Boolean(checked) })
+                }
+                aria-label="Keep screen awake while agents run"
+              />
+            }
+          />
+        ) : null}
 
         <SettingsRow
           title="New threads"
