@@ -1,12 +1,19 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@aqqua/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+  ThreadId,
+} from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   getProviderStatusBannerKey,
   ProviderStatusBanner,
+  resolveVisibleProviderStatus,
   shouldShowProviderStatusBanner,
 } from "./ProviderStatusBanner";
+import { isProviderSubagentThread } from "../ChatView.logic";
 
 function warningProvider(): ServerProvider {
   return {
@@ -27,6 +34,32 @@ function warningProvider(): ServerProvider {
 }
 
 describe("ProviderStatusBanner", () => {
+  it("hides the owner's provider health on a native child while ordinary threads still show it", () => {
+    const status = warningProvider();
+    const nativeChild = {
+      providerSubagent: {
+        ownerThreadId: ThreadId.make("owner-thread"),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        childId: "child-1",
+      },
+    };
+
+    expect(
+      resolveVisibleProviderStatus({
+        status,
+        dismissedBannerKey: null,
+        isProviderSubagentThread: isProviderSubagentThread(nativeChild),
+      }),
+    ).toBeNull();
+    expect(
+      resolveVisibleProviderStatus({
+        status,
+        dismissedBannerKey: null,
+        isProviderSubagentThread: isProviderSubagentThread({}),
+      }),
+    ).toBe(status);
+  });
+
   it("stays hidden after its current warning is dismissed", () => {
     const status = warningProvider();
 
