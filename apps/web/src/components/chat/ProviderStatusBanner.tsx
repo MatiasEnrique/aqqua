@@ -19,6 +19,19 @@ export function shouldShowProviderStatusBanner(
   return bannerKey !== null && bannerKey !== dismissedBannerKey;
 }
 
+export function resolveVisibleProviderStatus(input: {
+  readonly status: ServerProvider | null;
+  readonly dismissedBannerKey: string | null;
+  readonly isProviderSubagentThread: boolean;
+}): ServerProvider | null {
+  if (input.isProviderSubagentThread) {
+    return null;
+  }
+  return shouldShowProviderStatusBanner(input.status, input.dismissedBannerKey)
+    ? input.status
+    : null;
+}
+
 export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   onDismiss,
   status,

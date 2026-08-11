@@ -260,7 +260,7 @@ import { resolveEffectiveEnvMode, resolveLocalCheckoutBranchMismatch } from "./B
 import {
   getProviderStatusBannerKey,
   ProviderStatusBanner,
-  shouldShowProviderStatusBanner,
+  resolveVisibleProviderStatus,
 } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { resolveThreadPr } from "./ThreadStatusIndicators";
@@ -2795,12 +2795,11 @@ function ChatViewContent(props: ChatViewProps) {
       setDismissedProviderStatusBannerKey(null);
     }
   }, [dismissedProviderStatusBannerKey, providerStatusBannerKey]);
-  const visibleProviderStatus = shouldShowProviderStatusBanner(
-    activeProviderStatus,
-    dismissedProviderStatusBannerKey,
-  )
-    ? activeProviderStatus
-    : null;
+  const visibleProviderStatus = resolveVisibleProviderStatus({
+    status: activeProviderStatus,
+    dismissedBannerKey: dismissedProviderStatusBannerKey,
+    isProviderSubagentThread,
+  });
   const hasTimelineTopBanner = Boolean(threadError) || visibleProviderStatus !== null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const activeTerminalLaunchContext =

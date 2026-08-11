@@ -47,12 +47,16 @@ The two kinds deliberately use different navigation because they have different 
   compact **Native agent activity** surface below its tabs; use it to inspect a child's transcript
   while the owner tab remains selected. Opening a child shows a direct back-to-parent action and a
   short explanation where the composer would be. Send follow-ups from the owner conversation.
+  Background shell tasks such as installs, formatters, and waits remain activity on the owner; only
+  tasks that the provider identifies as agents appear in the native-agent surface.
 
 A native subagent is not inert. Approval requests and multiple-choice questions raised inside it
 stay answerable on its own conversation, and it archives, snoozes, settles, deletes, and renames
 like any other thread. What it does not offer is anything that would claim ownership of a session
 it does not have: sending, queueing, steering, interrupting, model or provider selection, branch or
 worktree changes, runtime and interaction modes, and checkpoint revert.
+Provider-health warnings stay on the owner conversation, where another turn can be sent, rather
+than covering a native child's transcript. Errors reported by the child itself still appear there.
 
 Codex and Claude are the providers that report native subagents today. Only work observed after
 the feature is running appears — existing harness children are not imported retroactively.

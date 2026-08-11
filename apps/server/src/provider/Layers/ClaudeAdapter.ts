@@ -288,6 +288,8 @@ interface ClaudeSessionContext {
   readonly providerSubagentsByToolUseId: Map<string, string>;
   /** Permission callback agentID → child id. */
   readonly providerSubagentsByAgentId: Map<string, string>;
+  /** Task ids explicitly classified as owner-scoped background work. */
+  readonly rootScopedTaskIds: Set<string>;
   /**
    * When set, message handlers temporarily rebind turnState/inFlightTools to a
    * child and auto-target runtime events via activeProviderSubagent.
@@ -1641,6 +1643,42 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
     const childId = context.providerSubagentsByAgentId.get(agentId) ?? agentId;
     return context.providerSubagents.get(childId);
+  };
+
+  const resolveNativeSubagentForTask = (
+    context: ClaudeSessionContext,
+    taskId: string,
+    toolUseId: string | undefined,
+  ): ClaudeNativeSubagentState | undefined => {
+    if (context.rootScopedTaskIds.has(taskId)) {
+      return undefined;
+    }
+    return (
+      context.providerSubagents.get(taskId) ?? resolveNativeSubagentByToolUseId(context, toolUseId)
+    );
+  };
+
+  const isNativeSubagentTaskStart = (
+    context: ClaudeSessionContext,
+    message: Extract<SDKMessage, { type: "system"; subtype: "task_started" }>,
+  ): boolean => {
+    if (message.task_type !== undefined) {
+      return message.task_type === "local_agent";
+    }
+    if (readString(message.subagent_type)) {
+      return true;
+    }
+    const toolUseId = readString(message.tool_use_id);
+    if (!toolUseId) {
+      return false;
+    }
+    if (resolveNativeSubagentForTask(context, message.task_id, toolUseId)) {
+      return true;
+    }
+    return Array.from(context.inFlightTools.values()).some(
+      (tool) =>
+        tool.itemId === toolUseId && (tool.toolName === "Agent" || tool.toolName === "Task"),
+    );
   };
 
   /**
@@ -3087,6 +3125,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           typeof message.tool_use_id === "string" && message.tool_use_id.length > 0
             ? message.tool_use_id
             : undefined;
+        if (!isNativeSubagentTaskStart(context, message)) {
+          context.rootScopedTaskIds.add(message.task_id);
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "task.started",
+            payload: {
+              taskId: RuntimeTaskId.make(message.task_id),
+              description: message.description,
+              ...(message.task_type ? { taskType: message.task_type } : {}),
+            },
+          });
+          return;
+        }
         const subagent = ensureNativeSubagent(context, {
           childId: message.task_id,
           ...(title ? { title } : {}),
@@ -3136,16 +3187,33 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           typeof message.tool_use_id === "string" && message.tool_use_id.length > 0
             ? message.tool_use_id
             : undefined;
-        const progressTitle = claudeProviderSubagentTitle({
-          description: message.description,
-          subagentType: message.subagent_type,
-        });
-        const progressSubagent = ensureNativeSubagent(context, {
-          childId: message.task_id,
-          ...(progressTitle ? { title: progressTitle } : {}),
-          ...(progressToolUseId ? { toolUseId: progressToolUseId } : {}),
-          startedAt: stamp.createdAt,
-        });
+        const progressSubagent = resolveNativeSubagentForTask(
+          context,
+          message.task_id,
+          progressToolUseId,
+        );
+        if (!progressSubagent) {
+          yield* emitThreadTokenUsage(
+            context,
+            normalizeClaudeTaskProgressTokenUsage(message.usage, context),
+            {
+              rawMethod: "claude/system/task_progress",
+              rawPayload: message,
+            },
+          );
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "task.progress",
+            payload: {
+              taskId: RuntimeTaskId.make(message.task_id),
+              description: message.description,
+              ...(message.summary ? { summary: message.summary } : {}),
+              ...(message.usage ? { usage: message.usage } : {}),
+              ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
+            },
+          });
+          return;
+        }
         const progressTarget = providerSubagentTargetFromState(progressSubagent);
         yield* withNativeSubagentEmission(
           context,
@@ -3186,11 +3254,33 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           typeof message.tool_use_id === "string" && message.tool_use_id.length > 0
             ? message.tool_use_id
             : undefined;
-        const notificationSubagent = ensureNativeSubagent(context, {
-          childId: message.task_id,
-          ...(notificationToolUseId ? { toolUseId: notificationToolUseId } : {}),
-          startedAt: stamp.createdAt,
-        });
+        const notificationSubagent = resolveNativeSubagentForTask(
+          context,
+          message.task_id,
+          notificationToolUseId,
+        );
+        if (!notificationSubagent) {
+          yield* emitThreadTokenUsage(
+            context,
+            normalizeClaudeTaskProgressTokenUsage(message.usage, context),
+            {
+              rawMethod: "claude/system/task_notification",
+              rawPayload: message,
+            },
+          );
+          yield* offerRuntimeEvent({
+            ...base,
+            type: "task.completed",
+            payload: {
+              taskId: RuntimeTaskId.make(message.task_id),
+              status: message.status,
+              ...(message.summary ? { summary: message.summary } : {}),
+              ...(message.usage ? { usage: message.usage } : {}),
+            },
+          });
+          context.rootScopedTaskIds.delete(message.task_id);
+          return;
+        }
         const notificationTarget = providerSubagentTargetFromState(notificationSubagent);
         const turnStatus: ProviderRuntimeTurnStatus =
           message.status === "completed"
@@ -4194,6 +4284,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         providerSubagents: new Map(),
         providerSubagentsByToolUseId: new Map(),
         providerSubagentsByAgentId: new Map(),
+        rootScopedTaskIds: new Set(),
         activeProviderSubagent: undefined,
         turnState: undefined,
         lastKnownContextWindow: initialContextWindow,

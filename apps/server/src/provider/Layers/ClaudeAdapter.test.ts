@@ -3982,6 +3982,144 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect(
+    "keeps local bash task activity on the owner while local agents use child lifecycle",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const agentTurnCompleted = yield* Deferred.make<void>();
+        const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.gen(function* () {
+            runtimeEvents.push(event);
+            if (
+              event.type === "turn.completed" &&
+              event.providerSubagent?.childId === "real-agent-task"
+            ) {
+              yield* Deferred.succeed(agentTurnCompleted, undefined).pipe(Effect.ignore);
+            }
+          }),
+        ).pipe(Effect.forkChild);
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+        const ownerTurn = yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "Run the work",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "background-bash-task",
+          task_type: "local_bash",
+          tool_use_id: "toolu-background-bash",
+          description: "Install dependencies",
+          session_id: "sdk-session-task-classification",
+          uuid: "background-bash-started",
+        } as unknown as SDKMessage);
+        harness.query.emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "background-bash-task",
+          description: "Install dependencies",
+          summary: "Installing",
+          session_id: "sdk-session-task-classification",
+          uuid: "background-bash-progress",
+        } as unknown as SDKMessage);
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "background-bash-task",
+          status: "completed",
+          output_file: "/tmp/background-bash",
+          summary: "Installed",
+          session_id: "sdk-session-task-classification",
+          uuid: "background-bash-completed",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "real-agent-task",
+          task_type: "local_agent",
+          subagent_type: "Explore",
+          tool_use_id: "toolu-real-agent",
+          description: "Explore the repository",
+          session_id: "sdk-session-task-classification",
+          uuid: "real-agent-started",
+        } as unknown as SDKMessage);
+        harness.query.emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "real-agent-task",
+          description: "Explore the repository",
+          summary: "Reading sources",
+          session_id: "sdk-session-task-classification",
+          uuid: "real-agent-progress",
+        } as unknown as SDKMessage);
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "real-agent-task",
+          status: "completed",
+          output_file: "/tmp/real-agent",
+          summary: "Done",
+          session_id: "sdk-session-task-classification",
+          uuid: "real-agent-completed",
+        } as unknown as SDKMessage);
+
+        yield* Deferred.await(agentTurnCompleted);
+
+        const taskLifecycle = (taskId: string) =>
+          runtimeEvents.filter(
+            (event) =>
+              (event.type === "task.started" ||
+                event.type === "task.progress" ||
+                event.type === "task.completed") &&
+              event.payload.taskId === taskId,
+          );
+        const backgroundLifecycle = taskLifecycle("background-bash-task");
+        assert.deepEqual(
+          backgroundLifecycle.map((event) => event.type),
+          ["task.started", "task.progress", "task.completed"],
+        );
+        assert.ok(backgroundLifecycle.every((event) => event.providerSubagent === undefined));
+        assert.ok(backgroundLifecycle.every((event) => event.turnId === ownerTurn.turnId));
+
+        const agentLifecycle = taskLifecycle("real-agent-task");
+        assert.deepEqual(
+          agentLifecycle.map((event) => event.type),
+          ["task.started", "task.progress", "task.completed"],
+        );
+        assert.ok(
+          agentLifecycle.every((event) => event.providerSubagent?.childId === "real-agent-task"),
+        );
+        assert.ok(
+          runtimeEvents.some(
+            (event) =>
+              event.type === "turn.completed" &&
+              event.providerSubagent?.childId === "real-agent-task",
+          ),
+        );
+        assert.equal(
+          runtimeEvents.some((event) => event.providerSubagent?.childId === "background-bash-task"),
+          false,
+        );
+
+        runtimeEventsFiber.interruptUnsafe();
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
   it.effect("task_started creates targeted thread/turn/task lifecycle", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -4010,6 +4148,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-explore-1",
+        task_type: "local_agent",
         tool_use_id: "toolu-parent-task",
         description: "Explore the repo",
         subagent_type: "Explore",
@@ -4066,6 +4205,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-progress-1",
+        task_type: "local_agent",
         tool_use_id: "toolu-progress-parent",
         description: "Review code",
         session_id: "sdk-session-task-progress",
@@ -4145,6 +4285,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-text-1",
+        task_type: "local_agent",
         tool_use_id: "toolu-text-parent",
         description: "Write notes",
         session_id: "sdk-session-text",
@@ -4210,6 +4351,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-snapshot-text",
+        task_type: "local_agent",
         tool_use_id: "toolu-snapshot-text",
         description: "Write a report",
         session_id: "sdk-session-snapshot-text",
@@ -4359,6 +4501,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-a",
+        task_type: "local_agent",
         tool_use_id: "toolu-a",
         description: "Child A",
         session_id: "sdk-session-interleave",
@@ -4368,6 +4511,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-b",
+        task_type: "local_agent",
         tool_use_id: "toolu-b",
         description: "Child B",
         session_id: "sdk-session-interleave",
@@ -4465,6 +4609,7 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "task_started",
         task_id: "task-approve-1",
+        task_type: "local_agent",
         tool_use_id: "toolu-approve-parent",
         description: "Child worker",
         session_id: "sdk-session-child-approve",
