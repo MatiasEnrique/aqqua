@@ -4,12 +4,6 @@ aqqua is a fork of T3 code
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, aqqua can control them.
 
-## "Wait, what are you selling me?"
-
-Nothing. We built aqqua because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
-
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
-
 ## Installation
 
 > [!WARNING]
