@@ -1,6 +1,6 @@
 import type { BoardId, CardParameters, OrchestrationBoard } from "@aqqua/contracts";
 import { LayoutGridIcon, SquarePlusIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../ui/button";
 import {
@@ -52,14 +52,24 @@ export function CardCreateDialog({
   const [values, setValues] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    const isOpening = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!isOpening) return;
     setValues({});
     setSelectedBoardId(resolveCardCreateBoard(boards, initialBoardId)?.id ?? null);
     setHasAttemptedSubmit(false);
     setIsCreating(false);
   }, [boards, initialBoardId, open]);
+
+  useEffect(() => {
+    setSelectedBoardId((current) => {
+      if (current === null || boards.some((board) => board.id === current)) return current;
+      return boards[0]?.id ?? null;
+    });
+  }, [boards]);
 
   const missing = missingParameterNames(parameterNames, values);
   const canSubmit = !isCreating && missing.length === 0;

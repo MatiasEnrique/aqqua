@@ -71,6 +71,16 @@ describe("resolveCardCreateBoard", () => {
   it("falls back to the first flow when no contextual flow is selected", () => {
     expect(resolveCardCreateBoard([delivery, release], null)).toBe(delivery);
   });
+
+  it("falls back to the first flow when the selected flow no longer exists", () => {
+    expect(resolveCardCreateBoard([delivery, release], BoardId.make("board-missing"))).toBe(
+      delivery,
+    );
+  });
+
+  it("returns null when the project has no flows", () => {
+    expect(resolveCardCreateBoard([], BoardId.make("board-missing"))).toBeNull();
+  });
 });
 
 describe("missingParameterNames", () => {
