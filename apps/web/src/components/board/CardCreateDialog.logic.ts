@@ -1,5 +1,13 @@
-import type { CardParameters, OrchestrationBoard } from "@aqqua/contracts";
+import type { BoardId, CardParameters, OrchestrationBoard } from "@aqqua/contracts";
 import { collectBoardParameterNames } from "@aqqua/shared/boardTemplate";
+
+export function resolveCardCreateBoard(
+  boards: ReadonlyArray<OrchestrationBoard>,
+  selectedBoardId: BoardId | null,
+): OrchestrationBoard | null {
+  if (selectedBoardId === null) return boards[0] ?? null;
+  return boards.find((board) => board.id === selectedBoardId) ?? boards[0] ?? null;
+}
 
 /**
  * The creation form is generated, never configured: every `${placeholder}`

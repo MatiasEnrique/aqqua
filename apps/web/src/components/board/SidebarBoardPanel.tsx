@@ -40,7 +40,13 @@ import {
 import { StatusIndicator } from "../StatusIndicator";
 import { cardOperationPresentation, formatElapsed } from "./BoardRunTable.logic";
 import { CardCreateDialog } from "./CardCreateDialog";
-import { BoardSelector, FlowSlimRow, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
+import {
+  BoardSelector,
+  FlowNewCardButton,
+  FlowSlimRow,
+  InFlightCardRow,
+  SectionLabel,
+} from "./SidebarBoardRows";
 import { useSidebarProjectBoardController } from "./useSidebarProjectBoardController";
 import { useSidebarRelativeTimeTick } from "./useSidebarRelativeTimeTick";
 
@@ -308,15 +314,22 @@ function ProjectBoardSection({
           </span>
         </div>
       ) : null}
-      <BoardSelector
-        boards={boards}
-        selectedBoardIds={chosenBoardIds}
-        projectTitle={projectTitle}
-        onSelectionChange={setChosenBoardIds}
-        onNewCard={() => setCardDialogOpen(true)}
-        onEditBoard={(candidate) => setEditorTarget({ board: candidate })}
-        onNewBoard={() => setEditorTarget({ board: null })}
-      />
+      <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <BoardSelector
+            boards={boards}
+            selectedBoardIds={chosenBoardIds}
+            projectTitle={projectTitle}
+            onSelectionChange={setChosenBoardIds}
+            onNewCard={() => setCardDialogOpen(true)}
+            onEditBoard={(candidate) => setEditorTarget({ board: candidate })}
+            onNewBoard={() => setEditorTarget({ board: null })}
+          />
+        </div>
+        {boards.length === 0 ? null : (
+          <FlowNewCardButton projectTitle={projectTitle} onClick={() => setCardDialogOpen(true)} />
+        )}
+      </div>
 
       {boards.length > 0 &&
       needsYouCards.length +
@@ -768,7 +781,8 @@ function ProjectBoardSection({
       ) : null}
       <CardCreateDialog
         open={cardDialogOpen}
-        board={board}
+        boards={boards}
+        initialBoardId={board?.id ?? null}
         onOpenChange={setCardDialogOpen}
         onSubmit={handleCardSubmit}
       />

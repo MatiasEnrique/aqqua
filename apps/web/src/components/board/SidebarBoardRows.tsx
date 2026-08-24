@@ -1,5 +1,5 @@
 import type { BoardId, OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
-import { LayoutGridIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { LayoutGridIcon, PencilIcon, PlusIcon, SquarePlusIcon, Trash2Icon } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -14,7 +14,34 @@ import {
 } from "../sidebar/card";
 import { ComboboxEmpty, ComboboxItem, ComboboxList } from "../ui/combobox";
 import { SidebarScopePicker } from "../sidebar-v2/SidebarScopePicker";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cardNeedsYou } from "./BoardRunTable.logic";
+
+export function FlowNewCardButton({
+  projectTitle,
+  onClick,
+}: {
+  readonly projectTitle: string;
+  readonly onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`New card in ${projectTitle}`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:transform-none"
+            onClick={onClick}
+          />
+        }
+      >
+        <SquarePlusIcon aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="right">New card</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 /**
  * The board switcher: same control as the project selector above it. The menu
@@ -39,18 +66,9 @@ export function BoardSelector({
   readonly onNewBoard: () => void;
 }) {
   const chosenBoards = boards.filter((candidate) => selectedBoardIds.includes(candidate.id));
-  const soleVisibleBoard =
-    selectedBoardIds.length === 0
-      ? boards.length === 1
-        ? (boards[0] ?? null)
-        : null
-      : chosenBoards.length === 1
-        ? (chosenBoards[0] ?? null)
-        : null;
-
   return (
     <SidebarScopePicker
-      items={boards as OrchestrationBoard[]}
+      items={boards}
       chosenItems={chosenBoards}
       itemKey={(candidate) => candidate.id}
       itemLabel={(candidate) => candidate.name}
@@ -107,7 +125,7 @@ export function BoardSelector({
             )}
           </ComboboxList>
           <div className="grid gap-0.5 border-t border-border/60 p-1">
-            {soleVisibleBoard === null ? null : (
+            {boards.length === 0 ? null : (
               <button
                 type="button"
                 className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"

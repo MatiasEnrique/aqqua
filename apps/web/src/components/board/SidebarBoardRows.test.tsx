@@ -3,7 +3,7 @@ import type { OrchestrationCard } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { BoardSelector, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
+import { BoardSelector, FlowNewCardButton, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
 
 const boards = [
   { id: BoardId.make("flow-a"), name: "Delivery" },
@@ -59,6 +59,17 @@ describe("BoardSelector", () => {
     expect(markup).toContain('aria-label="Release"');
     expect(markup).toContain("Delivery");
     expect(markup).toContain("Release");
+  });
+});
+
+describe("FlowNewCardButton", () => {
+  it("exposes card creation beside the flow selector", () => {
+    const markup = renderToStaticMarkup(
+      <FlowNewCardButton projectTitle="aqqua" onClick={() => {}} />,
+    );
+
+    expect(markup).toContain('aria-label="New card in aqqua"');
+    expect(markup).toContain("New card");
   });
 });
 
