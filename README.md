@@ -1,6 +1,6 @@
 # aqqua
 
-aqqua is an "agent harness control surface". Its installable desktop app runs coding agents on your machine, and its mobile companion lets you control them remotely.
+aqqua is a fork of T3 code 
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, aqqua can control them.
 
