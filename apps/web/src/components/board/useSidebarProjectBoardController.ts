@@ -272,12 +272,11 @@ export function useSidebarProjectBoardController({
     return reportBoardCommandResult(result, "Could not update flow");
   };
   const handleCardSubmit = async (input: CardCreateSubmit) => {
-    if (board === null) return false;
     const result = await createCard({
       environmentId,
       input: {
         cardId: CardId.make(randomUUID()),
-        boardId: board.id,
+        boardId: input.boardId,
         title: input.title,
         parameters: input.parameters,
       },

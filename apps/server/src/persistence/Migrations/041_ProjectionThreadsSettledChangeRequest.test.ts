@@ -64,7 +64,7 @@ layer("041_ProjectionThreadsSettledChangeRequest", (it) => {
 
   it.effect("retains the recorded change request across later thread projection upserts", () =>
     Effect.gen(function* () {
-      yield* runMigrations({ toMigrationInclusive: 41 });
+      yield* runMigrations();
       const threads = yield* ProjectionThreadRepository;
       const threadId = ThreadId.make("thread-settled-by-change-request");
       const row = {

@@ -1,6 +1,6 @@
 # aqqua
 
-aqqua is a fork of T3 code 
+aqqua is a fork of T3 code
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, aqqua can control them.
 

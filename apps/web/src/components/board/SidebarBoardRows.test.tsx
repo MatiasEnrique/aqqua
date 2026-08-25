@@ -1,9 +1,10 @@
 import { BoardId } from "@aqqua/contracts";
 import type { OrchestrationCard } from "@aqqua/contracts";
+import { Children, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { BoardSelector, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
+import { BoardSelector, FlowNewCardButton, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
 
 const boards = [
   { id: BoardId.make("flow-a"), name: "Delivery" },
@@ -59,6 +60,28 @@ describe("BoardSelector", () => {
     expect(markup).toContain('aria-label="Release"');
     expect(markup).toContain("Delivery");
     expect(markup).toContain("Release");
+  });
+});
+
+describe("FlowNewCardButton", () => {
+  it("exposes card creation beside the flow selector", () => {
+    const onClick = vi.fn();
+    const element = FlowNewCardButton({ projectTitle: "aqqua", onClick }) as ReactElement<{
+      readonly children: ReactNode;
+    }>;
+    const [trigger, popup] = Children.toArray(element.props.children) as ReadonlyArray<
+      ReactElement<{ readonly render?: ReactElement; readonly children?: ReactNode }>
+    >;
+    const button = trigger?.props.render as ReactElement<{
+      readonly "aria-label": string;
+      readonly onClick: () => void;
+    }>;
+
+    button.props.onClick();
+
+    expect(button.props["aria-label"]).toBe("New card in aqqua");
+    expect(popup?.props.children).toBe("New card");
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
 

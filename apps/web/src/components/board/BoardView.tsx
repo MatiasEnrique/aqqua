@@ -101,12 +101,11 @@ export function BoardView({
   };
 
   const handleCardSubmit = async (input: CardCreateSubmit) => {
-    if (board === null) return false;
     const result = await createCard({
       environmentId,
       input: {
         cardId: CardId.make(randomUUID()),
-        boardId: board.id,
+        boardId: input.boardId,
         title: input.title,
         parameters: input.parameters,
       },
@@ -185,7 +184,8 @@ export function BoardView({
       ) : null}
       <CardCreateDialog
         open={cardDialogOpen}
-        board={board}
+        boards={boards}
+        initialBoardId={board?.id ?? null}
         onOpenChange={setCardDialogOpen}
         onSubmit={handleCardSubmit}
       />

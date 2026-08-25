@@ -7,6 +7,7 @@ import {
   boardParameterNames,
   buildPlaceholderCardTitle,
   missingParameterNames,
+  resolveCardCreateBoard,
   toCardParameters,
 } from "./CardCreateDialog.logic";
 
@@ -52,6 +53,33 @@ describe("boardParameterNames", () => {
 
   it("has no fields without a board", () => {
     expect(boardParameterNames(null)).toEqual([]);
+  });
+});
+
+describe("resolveCardCreateBoard", () => {
+  const delivery = board(["Plan ${issue_id}"]);
+  const release = {
+    ...board(["Ship ${version}"]),
+    id: BoardId.make("board-2"),
+    name: "Release",
+  };
+
+  it("uses the flow selected in the new-card dialog", () => {
+    expect(resolveCardCreateBoard([delivery, release], release.id)).toBe(release);
+  });
+
+  it("falls back to the first flow when no contextual flow is selected", () => {
+    expect(resolveCardCreateBoard([delivery, release], null)).toBe(delivery);
+  });
+
+  it("falls back to the first flow when the selected flow no longer exists", () => {
+    expect(resolveCardCreateBoard([delivery, release], BoardId.make("board-missing"))).toBe(
+      delivery,
+    );
+  });
+
+  it("returns null when the project has no flows", () => {
+    expect(resolveCardCreateBoard([], BoardId.make("board-missing"))).toBeNull();
   });
 });
 

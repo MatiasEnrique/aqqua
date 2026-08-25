@@ -1396,6 +1396,10 @@ it.live("reverts claudeAgent turns and rolls back provider conversation state", 
           commandId: "cmd-turn-start-claude-revert-2",
           messageId: "msg-user-claude-revert-2",
           text: "Second Claude edit",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("claudeAgent"),
+            model: "claude-sonnet-4-6",
+          },
         });
 
         yield* harness.waitForThread(
