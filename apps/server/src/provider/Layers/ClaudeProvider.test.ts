@@ -5,6 +5,7 @@ import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 describe("claude reasoning capability metadata", () => {
   it("marks every reasoning-capable model's native `effort` descriptor", () => {
     const reasoningModels = [
+      "claude-fable-5-1",
       "claude-fable-5",
       "claude-opus-5",
       "claude-opus-4-8",

@@ -43,13 +43,13 @@ const openAiPricing = (
 });
 
 /**
- * Standard API list prices in USD per million tokens. Sonnet 5 uses its
- * introductory price through 2026-08-31. Cache-write prices use the providers'
- * default cache duration; provider-specific long-context and regional uplifts
- * are intentionally outside this estimate. Estimates use the table at scan
- * time rather than reconstructing historical price periods.
+ * Standard API list prices in USD per million tokens. Cache-write prices use
+ * the providers' default cache duration; provider-specific long-context and
+ * regional uplifts are intentionally outside this estimate. Estimates use the
+ * table at scan time rather than reconstructing historical price periods.
  */
 export const MODEL_PRICING = {
+  "claude-fable-5-1": anthropicPricing(10, 50, 0.25),
   "claude-fable-5": anthropicPricing(10, 50),
   "claude-opus-5": anthropicPricing(5, 25),
   "claude-opus-4-8": anthropicPricing(5, 25),
@@ -93,13 +93,11 @@ export const MODEL_PRICING = {
 /**
  * Scheduled price changes keyed by the usage day (local YYYY-MM-DD). The most
  * recent entry whose `from` is on or before the usage day wins over the base
- * table. Sonnet 5's introductory rate ends 2026-08-31.
+ * table.
  */
 const DATED_MODEL_PRICING: Readonly<
   Record<string, ReadonlyArray<{ readonly from: string; readonly pricing: ModelPricing }>>
-> = {
-  "claude-sonnet-5": [{ from: "2026-09-01", pricing: anthropicPricing(3, 15) }],
-};
+> = {};
 
 function datedOverride(model: string, day: string | null): ModelPricing | null {
   if (day === null || !Object.hasOwn(DATED_MODEL_PRICING, model)) return null;

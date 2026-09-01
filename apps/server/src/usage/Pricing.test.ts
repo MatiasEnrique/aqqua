@@ -4,6 +4,7 @@ import { computeCostUsd, lookupModelPricing } from "./Pricing.ts";
 
 describe("Pricing", () => {
   it("covers current Claude and GPT-5 model families", () => {
+    expect(lookupModelPricing("claude-fable-5-1")?.source).toBe("anthropic-api");
     expect(lookupModelPricing("claude-fable-5")?.source).toBe("anthropic-api");
     expect(lookupModelPricing("claude-opus-5")?.source).toBe("anthropic-api");
     expect(lookupModelPricing("claude-opus-4-8")?.source).toBe("anthropic-api");
@@ -11,6 +12,10 @@ describe("Pricing", () => {
     expect(lookupModelPricing("claude-haiku-4-5")?.source).toBe("anthropic-api");
     expect(lookupModelPricing("gpt-5.6-sol")?.source).toBe("openai-api");
     expect(lookupModelPricing("gpt-5.4")?.source).toBe("openai-api");
+  });
+
+  it("uses Claude Fable 5.1's reduced cache-read price", () => {
+    expect(lookupModelPricing("claude-fable-5-1")?.cacheReadUsdPerMillionTokens).toBe(0.25);
   });
 
   it("prices each token category per million tokens", () => {
@@ -24,20 +29,19 @@ describe("Pricing", () => {
     ).toBeCloseTo(7.35);
   });
 
-  it("applies the scheduled Sonnet 5 price change at the usage-day boundary", () => {
+  it("keeps Sonnet 5's launch price after the former increase date", () => {
     const tokens = {
       inputTokens: 1_000_000,
       cachedInputTokens: 0,
       cacheWriteTokens: 0,
       outputTokens: 1_000_000,
     };
-    // Introductory rate ($2/$10) through August 31, standard rate ($3/$15) after.
     expect(computeCostUsd("claude-sonnet-5", tokens, "2026-08-31")).toBeCloseTo(12);
-    expect(computeCostUsd("claude-sonnet-5", tokens, "2026-09-01")).toBeCloseTo(18);
+    expect(computeCostUsd("claude-sonnet-5", tokens, "2026-09-01")).toBeCloseTo(12);
     expect(computeCostUsd("claude-sonnet-5", tokens)).toBeCloseTo(12);
     expect(
       lookupModelPricing("claude-sonnet-5-20260915", "2026-09-15")?.inputUsdPerMillionTokens,
-    ).toBe(3);
+    ).toBe(2);
   });
 
   it("returns null for unknown models", () => {
