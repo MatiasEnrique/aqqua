@@ -19,7 +19,11 @@ import {
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
-import { useProjects, useThreadShells } from "../../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../../state/server";
@@ -58,7 +62,6 @@ import type {
   SidebarWorktreesSection,
 } from "./models";
 import {
-  EMPTY_PROJECT_SCOPE_SELECTION,
   type ProjectScopeSelection,
   projectScopeSelectionFromKeys,
   projectScopeSelectionKey,
@@ -119,6 +122,7 @@ export type SidebarV2Runtime = {
  */
 export function useSidebarV2Sections(): SidebarV2Sections {
   const projects = useProjects();
+  const projectsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const worktreeOrder = useUiStateStore((store) => store.worktreeOrder);
   const reorderWorktrees = useUiStateStore((store) => store.reorderWorktrees);
@@ -308,8 +312,11 @@ export function useSidebarV2Sections(): SidebarV2Sections {
   // The selection is a set — someone working across two repositories wants both
   // registries at once, and one-at-a-time forced a round trip through a menu to
   // see either.
-  const [projectScopeSelection, setProjectScopeSelection] = useState<ProjectScopeSelection>(
-    EMPTY_PROJECT_SCOPE_SELECTION,
+  const projectScopeKeys = useUiStateStore((store) => store.projectScopeKeys);
+  const setProjectScopeKeys = useUiStateStore((store) => store.setProjectScopeKeys);
+  const projectScopeSelection = useMemo<ProjectScopeSelection>(
+    () => projectScopeSelectionFromKeys(projectScopeKeys),
+    [projectScopeKeys],
   );
   const scopedProjectGroups = useMemo(
     () => resolveSelectedProjectGroups(projectScopeSelection, projectGroups),
@@ -319,12 +326,15 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     () => resolveSoleScopedProjectGroup(scopedProjectGroups),
     [scopedProjectGroups],
   );
-  const setProjectScope = useCallback((keys: readonly string[]) => {
-    setProjectScopeSelection(projectScopeSelectionFromKeys(keys));
-  }, []);
+  const setProjectScope = useCallback(
+    (keys: readonly string[]) => {
+      setProjectScopeKeys(keys);
+    },
+    [setProjectScopeKeys],
+  );
   const clearProjectScope = useCallback(() => {
-    setProjectScopeSelection(EMPTY_PROJECT_SCOPE_SELECTION);
-  }, []);
+    setProjectScopeKeys([]);
+  }, [setProjectScopeKeys]);
   const scopedProjectKeys = useMemo(
     () =>
       scopedProjectGroups.length === 0
@@ -340,10 +350,13 @@ export function useSidebarV2Sections(): SidebarV2Sections {
   );
   // A project that disappears — deleted, or regrouped under a new key by
   // Settings → General — must not keep filtering the list from a chip that is
-  // no longer rendered.
+  // no longer rendered. Wait for bootstrap before treating absence as deletion,
+  // or a cold reload would erase the restored scope while projects are loading.
   useEffect(() => {
-    setProjectScopeSelection((current) => pruneProjectScopeSelection(current, projectGroups));
-  }, [projectGroups]);
+    if (!projectsBootstrapped) return;
+    const next = pruneProjectScopeSelection(projectScopeSelection, projectGroups);
+    if (next !== projectScopeSelection) setProjectScopeKeys([...next]);
+  }, [projectGroups, projectScopeSelection, projectsBootstrapped, setProjectScopeKeys]);
   // Scope flips drop the selection: rows selected under the old scope may be
   // hidden now, and bulk actions must never count or touch invisible rows.
   const projectScopeKey = useMemo(
