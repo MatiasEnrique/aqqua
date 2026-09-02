@@ -3,8 +3,9 @@
  *
  * Claude stores one JSONL transcript below
  * `<config dir>/projects/<slugified cwd>/<session id>.jsonl`. Discovery only
- * accepts records explicitly marked `entrypoint: "cli"`; SDK-created aqqua
- * sessions and sidechain/sub-agent records are excluded.
+ * accepts records explicitly marked `entrypoint: "cli"`; sessions from other
+ * SDK clients and sidechain/sub-agent records are excluded. aqqua marks its
+ * primary Claude sessions as CLI-resumable at the adapter boundary.
  *
  * @module provider/Drivers/ClaudeSessions
  */
@@ -158,9 +159,9 @@ function visibleMessages(
   let boundaryFound = boundaryUuid === undefined;
 
   for (const record of records) {
-    // Adopting a CLI session and then resuming it through the SDK appends
-    // `sdk-*` records to the same JSONL, so a transcript is routinely mixed.
-    // Only CLI-authored turns belong to the conversation being adopted.
+    // Older aqqua versions and other SDK clients can append `sdk-*` records to
+    // a CLI transcript. Only CLI-authored turns belong to the conversation
+    // being adopted.
     if (
       record.entrypoint !== "cli" ||
       record.isSidechain === true ||

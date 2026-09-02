@@ -18,3 +18,7 @@ If a conversation is missing, check that:
 - the CLI conversation was started in the current project or one of its aqqua worktrees;
 - the provider supports session adoption (currently Claude Code and Codex);
 - the conversation is not already owned by another aqqua thread.
+
+## Continue an aqqua Claude conversation in the TUI
+
+Start Claude Code from the same working directory and with the same Claude home used by the aqqua provider. Run `/resume` in Claude's TUI and select the aqqua conversation from the normal picker. No aqqua-specific command or session ID is required.

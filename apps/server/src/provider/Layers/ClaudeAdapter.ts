@@ -1039,6 +1039,7 @@ const CLAUDE_SETTING_SOURCES = [
   "project",
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
+const CLAUDE_TUI_RESUME_ENTRYPOINT = "cli";
 
 function buildPromptText(
   input: ProviderSendTurnInput,
@@ -4161,12 +4162,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(ultracode ? { ultracode: true } : {}),
       };
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-      const sessionEnvironment: NodeJS.ProcessEnv = mcpSession
-        ? {
-            ...claudeEnvironment,
-            ...McpProviderSession.agentSessionEnvironment(mcpSession),
-          }
-        : claudeEnvironment;
+      const sessionEnvironment: NodeJS.ProcessEnv = {
+        ...claudeEnvironment,
+        ...(mcpSession ? McpProviderSession.agentSessionEnvironment(mcpSession) : {}),
+        // The Agent SDK otherwise writes `sdk-ts`, which Claude's normal
+        // `/resume` picker hides. The CLI entrypoint keeps aqqua-created
+        // transcripts discoverable from the TUI without copying session data.
+        CLAUDE_CODE_ENTRYPOINT: CLAUDE_TUI_RESUME_ENTRYPOINT,
+      };
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
