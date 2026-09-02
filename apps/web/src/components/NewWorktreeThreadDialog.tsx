@@ -117,9 +117,13 @@ export function NewWorktreeThreadDialog({
     cwd: open && activeProject ? activeProject.workspaceRoot : null,
   });
   const refs = useMemo(() => branches.data?.refs ?? [], [branches.data]);
-  const localRefs = useMemo(() => refs.filter((ref) => ref.isRemote !== true), [refs]);
   const existingBranchNames = useMemo(() => refs.map((ref) => ref.name), [refs]);
-  const effectiveBaseBranch = baseBranch ?? resolveDefaultBaseBranch(refs);
+  const effectiveBaseBranch =
+    baseBranch ??
+    resolveDefaultBaseBranch(refs, {
+      startFromOrigin,
+      configuredOriginBranch: activeProject?.newWorktreesOriginBranch ?? "",
+    });
 
   const setupActionOptions = useMemo(
     () => buildSetupActionOptions(activeProject?.scripts ?? []),
@@ -237,7 +241,7 @@ export function NewWorktreeThreadDialog({
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="start" alignItemWithTrigger={false}>
-                {localRefs.map((ref) => (
+                {refs.map((ref) => (
                   <SelectItem key={ref.name} value={ref.name}>
                     {ref.name}
                   </SelectItem>

@@ -1,4 +1,4 @@
-import type { VcsStatusRemoteResult, VcsStatusResult } from "@aqqua/contracts";
+import type { VcsRef, VcsStatusRemoteResult, VcsStatusResult } from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,8 +7,16 @@ import {
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  resolveNewWorktreeBaseRef,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+const ref = (overrides: Partial<VcsRef> & Pick<VcsRef, "name">): VcsRef => ({
+  current: false,
+  isDefault: false,
+  worktreePath: null,
+  ...overrides,
+});
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
@@ -96,6 +104,71 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-extra`)).toBe(false);
+  });
+});
+
+describe("resolveNewWorktreeBaseRef", () => {
+  it("uses a configured origin branch instead of the repository default", () => {
+    expect(
+      resolveNewWorktreeBaseRef({
+        refs: [
+          ref({ name: "main", current: true, isDefault: true }),
+          ref({ name: "origin/develop", isRemote: true, remoteName: "origin" }),
+        ],
+        startFromOrigin: true,
+        configuredOriginBranch: "develop",
+      }),
+    ).toBe("origin/develop");
+  });
+
+  it("accepts common full origin ref forms", () => {
+    const refs = [ref({ name: "origin/release", isRemote: true, remoteName: "origin" })];
+
+    for (const configuredOriginBranch of [
+      "origin/release",
+      "refs/heads/release",
+      "refs/remotes/origin/release",
+    ]) {
+      expect(
+        resolveNewWorktreeBaseRef({
+          refs,
+          startFromOrigin: true,
+          configuredOriginBranch,
+        }),
+      ).toBe("origin/release");
+    }
+  });
+
+  it("keeps a configured origin branch explicit before refs load", () => {
+    expect(
+      resolveNewWorktreeBaseRef({
+        refs: [],
+        startFromOrigin: true,
+        configuredOriginBranch: "feature/integration",
+      }),
+    ).toBe("origin/feature/integration");
+  });
+
+  it("preserves repository-default and local fallback behavior when unconfigured", () => {
+    const refs = [
+      ref({ name: "feature/current", current: true }),
+      ref({ name: "origin/main", isRemote: true, isDefault: true, remoteName: "origin" }),
+    ];
+
+    expect(
+      resolveNewWorktreeBaseRef({
+        refs,
+        startFromOrigin: true,
+        configuredOriginBranch: "",
+      }),
+    ).toBe("origin/main");
+    expect(
+      resolveNewWorktreeBaseRef({
+        refs,
+        startFromOrigin: false,
+        configuredOriginBranch: "develop",
+      }),
+    ).toBe("feature/current");
   });
 });
 

@@ -296,6 +296,8 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional for wire compatibility with peers that predate per-project worktree defaults.
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Optional for wire compatibility with peers that predate project icons.
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
@@ -518,6 +520,8 @@ export const OrchestrationProjectShell = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional for wire compatibility with peers that predate per-project worktree defaults.
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Optional for wire compatibility with peers that predate project icons.
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
@@ -684,6 +688,7 @@ export const ProjectCreateCommand = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
 });
@@ -696,6 +701,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** `null` clears a chosen icon and restores favicon discovery. */
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
 });
@@ -1267,6 +1273,8 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  // Optional so events recorded before per-project worktree defaults still decode.
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Optional so events recorded before project icons still decode.
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
@@ -1280,6 +1288,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  newWorktreesOriginBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   updatedAt: IsoDateTime,
 });

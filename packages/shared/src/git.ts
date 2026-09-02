@@ -92,6 +92,51 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
   return branchName.slice(firstSeparatorIndex + 1);
 }
 
+/**
+ * Resolve the base ref for a new worktree.
+ *
+ * A configured origin branch is stored without tying it to the current ref
+ * snapshot. This lets a freshly added project use the preference before its
+ * first branch refresh. When the matching origin ref is already known, return
+ * its full name so the UI can show exactly what will be used.
+ */
+export function resolveNewWorktreeBaseRef(input: {
+  readonly refs: ReadonlyArray<VcsRef>;
+  readonly startFromOrigin: boolean;
+  readonly configuredOriginBranch: string;
+}): string | null {
+  const localRefs = input.refs.filter((ref) => ref.isRemote !== true);
+  if (input.startFromOrigin) {
+    const configuredOriginBranch = input.configuredOriginBranch
+      .trim()
+      .replace(/^refs\/heads\//, "")
+      .replace(/^refs\/remotes\/origin\//, "")
+      .replace(/^origin\//, "");
+    if (configuredOriginBranch.length > 0) {
+      return (
+        input.refs.find(
+          (ref) =>
+            ref.isRemote === true &&
+            ref.remoteName === "origin" &&
+            deriveLocalBranchNameFromRemoteRef(ref.name) === configuredOriginBranch,
+        )?.name ??
+        localRefs.find((ref) => ref.name === configuredOriginBranch)?.name ??
+        `origin/${configuredOriginBranch}`
+      );
+    }
+
+    const defaultRef = input.refs.find((ref) => ref.isDefault);
+    if (defaultRef) return defaultRef.name;
+  }
+
+  return (
+    localRefs.find((ref) => ref.isDefault)?.name ??
+    localRefs.find((ref) => ref.current)?.name ??
+    localRefs[0]?.name ??
+    null
+  );
+}
+
 export function buildTemporaryWorktreeBranchName(
   randomHex: (byteLength: number) => string,
 ): string {

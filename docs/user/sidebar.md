@@ -20,6 +20,9 @@ Mobile uses its separate native thread list and device-local preferences.
   worktrees remain within their project while being rearranged.
 - Right-click a project or worktree to create a conversation in that location. Project menus also
   offer **New worktree here**.
+- In a project's **Project settings**, **Worktree origin branch** sets the origin branch used by
+  that project's new worktrees when **Start from origin** is enabled. Leave it empty to follow the
+  repository's default branch. The base branch picker can still override it for one worktree.
 - Secondary worktrees have a delete button. Deleting archives their conversation history before
   removing the filesystem worktree; the project checkout itself cannot be deleted.
 - A merged pull request is shown on its worktree card with its pull request number.

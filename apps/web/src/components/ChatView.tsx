@@ -6484,6 +6484,7 @@ function ChatViewContent(props: ChatViewProps) {
         {...(routeKind === "draft" && draftId ? { draftId } : {})}
         onEnvModeChange={onEnvModeChange}
         startFromOrigin={startFromOrigin}
+        configuredOriginBranch={activeProject?.newWorktreesOriginBranch ?? ""}
         onStartFromOriginChange={onStartFromOriginChange}
         {...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {})}
         {...(canOverrideServerThreadEnvMode

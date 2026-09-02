@@ -12,6 +12,7 @@ import {
   ProjectIcon,
   ProjectId,
   ProjectScript,
+  TrimmedNonEmptyString,
 } from "@aqqua/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -26,6 +27,7 @@ export const ProjectionProject = Schema.Struct({
   workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  newWorktreesOriginBranch: Schema.NullOr(TrimmedNonEmptyString),
   icon: Schema.NullOr(ProjectIcon),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
