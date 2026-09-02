@@ -220,6 +220,7 @@ export function projectEvent(
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            newWorktreesOriginBranch: payload.newWorktreesOriginBranch ?? null,
             icon: payload.icon ?? null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -253,6 +254,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.newWorktreesOriginBranch !== undefined
+                    ? { newWorktreesOriginBranch: payload.newWorktreesOriginBranch }
+                    : {}),
                   ...(payload.icon !== undefined ? { icon: payload.icon } : {}),
                   updatedAt: payload.updatedAt,
                 }

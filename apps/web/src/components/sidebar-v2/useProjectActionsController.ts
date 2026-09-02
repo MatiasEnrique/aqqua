@@ -184,6 +184,28 @@ export function useProjectActionsController(input: {
     [updateProject],
   );
 
+  const updateProjectMemberOriginBranch = useCallback(
+    async (member: SidebarProjectGroupMember, nextBranch: string) => {
+      const newWorktreesOriginBranch = nextBranch.trim() || null;
+      if (newWorktreesOriginBranch === (member.newWorktreesOriginBranch ?? null)) return;
+      const result = await updateProject({
+        environmentId: member.environmentId,
+        input: { projectId: member.id, newWorktreesOriginBranch },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to update worktree origin branch",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [updateProject],
+  );
+
   const updateProjectGroupingPreference = useCallback(
     (member: SidebarProjectGroupMember, selection: SidebarProjectGroupingMode | "inherit") => {
       const overrideKey = deriveProjectGroupingOverrideKey(member);
@@ -211,6 +233,7 @@ export function useProjectActionsController(input: {
     handleRemoveProjectMembers,
     renameProjectMember,
     updateProjectMemberIcon,
+    updateProjectMemberOriginBranch,
     updateProjectGroupingPreference,
     handleProjectActions,
     copyProjectPath,

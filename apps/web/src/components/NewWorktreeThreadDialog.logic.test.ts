@@ -145,6 +145,18 @@ describe("resolveDefaultBaseBranch", () => {
     ).toBe("local-only");
   });
 
+  it("preselects a configured origin branch", () => {
+    expect(
+      resolveDefaultBaseBranch(
+        [
+          ref({ name: "main", isDefault: true }),
+          ref({ name: "origin/develop", isRemote: true, remoteName: "origin" }),
+        ],
+        { startFromOrigin: true, configuredOriginBranch: "develop" },
+      ),
+    ).toBe("origin/develop");
+  });
+
   it("returns null with no refs", () => {
     expect(resolveDefaultBaseBranch([])).toBe(null);
   });

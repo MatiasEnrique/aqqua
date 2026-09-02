@@ -13,6 +13,7 @@ import {
   type ModelSelection,
   type OrchestrationCard,
   type OrchestrationEvent,
+  type OrchestrationProjectShell,
   type ThreadId,
 } from "@aqqua/contracts";
 import * as Cause from "effect/Cause";
@@ -22,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import { resolveNewWorktreeBaseRef } from "@aqqua/shared/git";
 
 import { resolveAgentModelSelection } from "../../agent-control/ModelCatalog.ts";
 import { resolveAgentProfile } from "../../agent-control/Profiles.ts";
@@ -216,16 +218,27 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
   });
 
   const resolveBaseBranch = Effect.fn("BoardReactor.resolveBaseBranch")(function* (
-    projectCwd: string,
+    project: Pick<OrchestrationProjectShell, "newWorktreesOriginBranch" | "workspaceRoot">,
   ) {
-    const refs = yield* gitWorkflow.listRefs({ cwd: projectCwd });
-    const localRefs = refs.refs.filter((ref) => ref.isRemote !== true);
-    return (
-      localRefs.find((ref) => ref.isDefault)?.name ??
-      localRefs.find((ref) => ref.current)?.name ??
-      localRefs[0]?.name ??
-      "main"
-    );
+    const refs = yield* gitWorkflow.listRefs({ cwd: project.workspaceRoot });
+    const configuredOriginBranch = project.newWorktreesOriginBranch ?? "";
+    const configuredBaseRef = resolveNewWorktreeBaseRef({
+      refs: refs.refs,
+      startFromOrigin: configuredOriginBranch.length > 0,
+      configuredOriginBranch,
+    });
+    const baseRefName = configuredBaseRef ?? "main";
+    if (configuredOriginBranch.length === 0) {
+      return { refName: baseRefName, baseRefName };
+    }
+
+    yield* gitWorkflow.fetchRemote({ cwd: project.workspaceRoot, remoteName: "origin" });
+    const remoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
+      cwd: project.workspaceRoot,
+      refName: baseRefName,
+      fallbackRemoteName: "origin",
+    });
+    return { refName: remoteBase.commitSha, baseRefName: remoteBase.remoteRefName };
   });
 
   const ensureArtifactDirectory = Effect.fn("BoardReactor.ensureArtifactDirectory")(function* (
@@ -721,7 +734,6 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
               },
             }
           : yield* Effect.gen(function* () {
-              const baseBranch = yield* resolveBaseBranch(project.workspaceRoot);
               if (existingBoard?.attach) {
                 // Exact local branch already exists; add a worktree without `-b`.
                 return yield* gitWorkflow.createWorktree({
@@ -738,11 +750,12 @@ export const makeBoardStepEntrySaga = Effect.gen(function* () {
                 });
               }
               // First start: create the deterministic branch + worktree.
+              const baseBranch = yield* resolveBaseBranch(project);
               return yield* gitWorkflow.createWorktree({
                 cwd: project.workspaceRoot,
-                refName: baseBranch,
+                refName: baseBranch.refName,
                 newRefName: branch,
-                baseRefName: baseBranch,
+                baseRefName: baseBranch.baseRefName,
                 path: null,
               });
             }).pipe(

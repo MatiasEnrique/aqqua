@@ -518,6 +518,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             workspaceRoot: event.payload.workspaceRoot,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
+            newWorktreesOriginBranch: event.payload.newWorktreesOriginBranch ?? null,
             icon: event.payload.icon ?? null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -542,6 +543,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            ...(event.payload.newWorktreesOriginBranch !== undefined
+              ? { newWorktreesOriginBranch: event.payload.newWorktreesOriginBranch }
+              : {}),
             ...(event.payload.icon !== undefined ? { icon: event.payload.icon } : {}),
             updatedAt: event.payload.updatedAt,
           });

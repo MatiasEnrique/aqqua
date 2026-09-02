@@ -4,6 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@aqqua/client-runtime/state/runtime";
 import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@aqqua/contracts";
+import { resolveNewWorktreeBaseRef } from "@aqqua/shared/git";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import {
@@ -67,6 +68,7 @@ interface BranchToolbarBranchSelectorProps {
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   startFromOrigin: boolean;
+  configuredOriginBranch: string;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -86,6 +88,7 @@ export function BranchToolbarBranchSelector({
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
   startFromOrigin,
+  configuredOriginBranch,
   onStartFromOriginChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -468,15 +471,10 @@ export function BranchToolbarBranchSelector({
     });
   };
 
-  // Default the worktree base to the repo default branch (origin/HEAD), only
-  // falling back to the checked-out branch when no default is known.
-  const defaultBranchName = useMemo(
-    () => refs.find((refName) => refName.isDefault)?.name ?? null,
-    [refs],
-  );
   const worktreeBaseBranchCandidate = isInitialBranchesLoadPending
     ? null
-    : (defaultBranchName ?? currentGitBranch);
+    : (resolveNewWorktreeBaseRef({ refs, startFromOrigin, configuredOriginBranch }) ??
+      currentGitBranch);
 
   useEffect(() => {
     if (

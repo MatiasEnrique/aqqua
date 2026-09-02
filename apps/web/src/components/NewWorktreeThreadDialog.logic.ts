@@ -1,5 +1,5 @@
 import type { ProjectScript, VcsRef } from "@aqqua/contracts";
-import { sanitizeBranchFragment } from "@aqqua/shared/git";
+import { resolveNewWorktreeBaseRef, sanitizeBranchFragment } from "@aqqua/shared/git";
 import { setupProjectScript } from "@aqqua/shared/projectScripts";
 
 import { NO_WORKTREE_SETUP_SCRIPT_ID } from "~/projectScripts";
@@ -81,16 +81,20 @@ export function resolveDefaultSetupActionValue(scripts: readonly ProjectScript[]
 }
 
 /**
- * Base branch to preselect: the repository default, else whatever is checked
- * out, else the first local branch. Remote-only refs are never preselected —
- * they would need a local tracking branch first.
+ * Base branch to preselect. A configured origin branch wins while origin mode
+ * is enabled; otherwise use the repository default, current checkout, or first
+ * local branch in that order.
  */
-export function resolveDefaultBaseBranch(refs: readonly VcsRef[]): string | null {
-  const localRefs = refs.filter((ref) => ref.isRemote !== true);
-  return (
-    localRefs.find((ref) => ref.isDefault)?.name ??
-    localRefs.find((ref) => ref.current)?.name ??
-    localRefs[0]?.name ??
-    null
-  );
+export function resolveDefaultBaseBranch(
+  refs: readonly VcsRef[],
+  options: {
+    readonly startFromOrigin?: boolean;
+    readonly configuredOriginBranch?: string;
+  } = {},
+): string | null {
+  return resolveNewWorktreeBaseRef({
+    refs,
+    startFromOrigin: options.startFromOrigin ?? false,
+    configuredOriginBranch: options.configuredOriginBranch ?? "",
+  });
 }

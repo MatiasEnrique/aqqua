@@ -3423,7 +3423,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
-  it.effect("projects persist updated scripts from project.meta.update", () =>
+  it.effect("projects persist updated metadata from project.meta.update", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
@@ -3459,15 +3459,18 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5",
         },
+        newWorktreesOriginBranch: "release/next",
       });
 
       const projectRows = yield* sql<{
         readonly scriptsJson: string;
         readonly defaultModelSelection: string;
+        readonly newWorktreesOriginBranch: string | null;
       }>`
         SELECT
           scripts_json AS "scriptsJson",
-          default_model_selection_json AS "defaultModelSelection"
+          default_model_selection_json AS "defaultModelSelection",
+          new_worktrees_origin_branch AS "newWorktreesOriginBranch"
         FROM projection_projects
         WHERE project_id = 'project-scripts'
       `;
@@ -3476,6 +3479,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           scriptsJson:
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
           defaultModelSelection: '{"instanceId":"codex","model":"gpt-5"}',
+          newWorktreesOriginBranch: "release/next",
         },
       ]);
     }),

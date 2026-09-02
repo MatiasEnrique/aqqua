@@ -150,6 +150,7 @@ const STEPS: ReadonlyArray<BoardStep> = [
 
 type HarnessOptions = {
   readonly agentProfiles?: Record<string, unknown>;
+  readonly newWorktreesOriginBranch?: string;
   readonly createWorktreeFails?: boolean;
   readonly removeWorktreeFails?: boolean;
   readonly generateTitle?: string | null;
@@ -294,6 +295,16 @@ const withBoardReactorHarness = <A, E>(
           totalCount: 1 + extraRefs.length,
         }),
       );
+      const fetchRemote = vi.fn(() => Effect.void);
+      const resolveRemoteTrackingCommit = vi.fn(
+        (input: { readonly refName: string; readonly fallbackRemoteName: string }) =>
+          Effect.succeed({
+            commitSha: "configured-origin-commit",
+            remoteRefName: input.refName.startsWith(`${input.fallbackRemoteName}/`)
+              ? input.refName
+              : `${input.fallbackRemoteName}/${input.refName}`,
+          }),
+      );
 
       const removeWorktree = vi.fn(() =>
         options.removeWorktreeFails
@@ -363,8 +374,10 @@ const withBoardReactorHarness = <A, E>(
 
       const gitLayer = Layer.mock(GitWorkflowService)({
         createWorktree,
+        fetchRemote,
         listRefs,
         removeWorktree,
+        resolveRemoteTrackingCommit,
         inspectWorktreeRemoval,
       } satisfies Partial<GitWorkflowService["Service"]>);
 
@@ -439,6 +452,9 @@ const withBoardReactorHarness = <A, E>(
           projectId,
           title: "Board Project",
           workspaceRoot,
+          ...(options.newWorktreesOriginBranch !== undefined
+            ? { newWorktreesOriginBranch: options.newWorktreesOriginBranch }
+            : {}),
           defaultModelSelection: {
             instanceId: codexInstanceId,
             model: "gpt-5-codex",
@@ -891,6 +907,22 @@ describe("BoardReactor", () => {
           ).toBe(true);
         }),
       ),
+  );
+
+  it.effect("creates a card worktree from the configured origin branch", () =>
+    withBoardReactorHarness({ newWorktreesOriginBranch: "develop" }, (harness) =>
+      Effect.gen(function* () {
+        yield* harness.releaseCard;
+        yield* harness.drain;
+
+        const createArg = harness.createWorktree.mock.calls[0]?.[0];
+        expect(createArg).toMatchObject({
+          cwd: harness.workspaceRoot,
+          refName: "configured-origin-commit",
+          baseRefName: "origin/develop",
+        });
+      }),
+    ),
   );
 
   it.effect("ordinary conversation interrupt marks the current card run cancelled", () =>

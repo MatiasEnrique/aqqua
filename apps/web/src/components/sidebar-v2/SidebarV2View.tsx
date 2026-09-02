@@ -87,6 +87,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     handleRemoveProjectMembers,
     renameProjectMember,
     updateProjectMemberIcon,
+    updateProjectMemberOriginBranch,
     updateProjectGroupingPreference,
     handleProjectActions,
     copyProjectPath,
@@ -423,6 +424,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
         copyProjectPath={copyProjectPath}
         renameProjectMember={renameProjectMember}
         updateProjectMemberIcon={updateProjectMemberIcon}
+        updateProjectMemberOriginBranch={updateProjectMemberOriginBranch}
         updateProjectGroupingPreference={updateProjectGroupingPreference}
         onRemoveMembers={handleRemoveProjectMembers}
       />

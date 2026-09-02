@@ -62,6 +62,7 @@ import {
 } from "../../state/use-remote-environment-registry";
 import { EnvironmentProject } from "@aqqua/client-runtime/state/shell";
 import { type VcsRef } from "@aqqua/client-runtime/state/vcs";
+import { resolveNewWorktreeBaseRef } from "@aqqua/shared/git";
 
 type WorkspaceMode = "local" | "worktree";
 
@@ -708,16 +709,34 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (workspaceMode !== "worktree" || selectedBranchName !== null) {
       return;
     }
-    // The default may only exist as origin/<default> (isRemote), which
-    // availableBranches filters out — search the unfiltered refs for it.
+    const preferredBranchName = resolveNewWorktreeBaseRef({
+      refs: allBranchRefs,
+      startFromOrigin,
+      configuredOriginBranch: selectedProject?.newWorktreesOriginBranch ?? "",
+    });
     const preferredBranch =
-      allBranchRefs.find((branch) => branch.isDefault) ??
-      availableBranches.find((branch) => branch.current) ??
-      null;
+      allBranchRefs.find((branch) => branch.name === preferredBranchName) ??
+      (preferredBranchName === null
+        ? null
+        : {
+            name: preferredBranchName,
+            current: false,
+            isDefault: false,
+            isRemote: preferredBranchName.startsWith("origin/"),
+            ...(preferredBranchName.startsWith("origin/") ? { remoteName: "origin" } : {}),
+            worktreePath: null,
+          });
     if (preferredBranch) {
       selectBranch(preferredBranch);
     }
-  }, [allBranchRefs, availableBranches, selectBranch, selectedBranchName, workspaceMode]);
+  }, [
+    allBranchRefs,
+    selectBranch,
+    selectedBranchName,
+    selectedProject?.newWorktreesOriginBranch,
+    startFromOrigin,
+    workspaceMode,
+  ]);
 
   const setRuntimeMode = useCallback(
     (value: RuntimeMode) => {

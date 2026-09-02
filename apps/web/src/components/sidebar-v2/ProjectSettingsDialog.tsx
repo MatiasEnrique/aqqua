@@ -54,6 +54,10 @@ export function ProjectSettingsDialog(props: {
     member: SidebarProjectGroupMember,
     icon: ProjectIcon | null,
   ) => void | Promise<void>;
+  updateProjectMemberOriginBranch: (
+    member: SidebarProjectGroupMember,
+    branch: string,
+  ) => void | Promise<void>;
   updateProjectGroupingPreference: (
     member: SidebarProjectGroupMember,
     value: "inherit" | SidebarProjectGroupingMode,
@@ -75,7 +79,7 @@ export function ProjectSettingsDialog(props: {
         <DialogHeader className="gap-3 pb-1!">
           <DialogTitle className="text-balance">Project settings</DialogTitle>
           <DialogDescription className="sr-only">
-            Manage project names, grouping rules, and environments.
+            Manage project names, worktree defaults, grouping rules, and environments.
           </DialogDescription>
           <div className="grid gap-1.5 text-base text-muted-foreground">
             {target?.memberProjects.map((member) => (
@@ -187,6 +191,26 @@ export function ProjectSettingsDialog(props: {
                     onChange={(icon) => void props.updateProjectMemberIcon(member, icon)}
                   />
                 </div>
+                <label className="grid min-w-0 gap-1.5">
+                  <span className="font-medium text-foreground">Worktree origin branch</span>
+                  <Input
+                    key={`${member.physicalProjectKey}:${member.newWorktreesOriginBranch ?? ""}`}
+                    aria-label={`Worktree origin branch in ${member.environmentLabel ?? "current environment"}`}
+                    defaultValue={member.newWorktreesOriginBranch ?? ""}
+                    placeholder="Repository default"
+                    spellCheck={false}
+                    onBlur={(event) => {
+                      void props.updateProjectMemberOriginBranch(member, event.currentTarget.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    When new worktrees start from origin, they use this branch. Leave empty to use
+                    the repository default.
+                  </span>
+                </label>
                 {target && target.memberProjects.length > 1 ? (
                   <div className="flex justify-end">
                     <Button

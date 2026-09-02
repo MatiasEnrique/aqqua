@@ -109,6 +109,10 @@ export type ProjectActionsController = {
     member: SidebarProjectGroupMember,
     icon: ProjectIcon | null,
   ) => void | Promise<void>;
+  readonly updateProjectMemberOriginBranch: (
+    member: SidebarProjectGroupMember,
+    branch: string,
+  ) => void | Promise<void>;
   readonly updateProjectGroupingPreference: (
     member: SidebarProjectGroupMember,
     value: "inherit" | SidebarProjectGroupingMode,

@@ -249,6 +249,28 @@ it.effect("decodes project.meta-updated payloads with explicit default provider"
   }),
 );
 
+it.effect("decodes a per-project worktree origin branch update", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeOrchestrationCommand({
+      type: "project.meta.update",
+      commandId: "cmd-origin-branch",
+      projectId: "project-1",
+      newWorktreesOriginBranch: "  release/next  ",
+    });
+    const payload = yield* decodeProjectMetaUpdatedPayload({
+      projectId: "project-1",
+      newWorktreesOriginBranch: "  release/next  ",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    if (command.type !== "project.meta.update") {
+      return yield* Effect.die("Expected project.meta.update command.");
+    }
+    assert.strictEqual(command.newWorktreesOriginBranch, "release/next");
+    assert.strictEqual(payload.newWorktreesOriginBranch, "release/next");
+  }),
+);
+
 it.effect("rejects command fields that become empty after trim", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(
