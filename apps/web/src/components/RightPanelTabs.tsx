@@ -7,6 +7,7 @@ import {
   GitGraph,
   GitPullRequest,
   Globe2,
+  ListIcon,
   PanelRightClose,
   Plus,
   TerminalSquare,
@@ -28,7 +29,14 @@ import { RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS } from "~/rightPanelAvailabilit
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { faviconUrlForOrigin } from "~/lib/favicon";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -292,6 +300,57 @@ function SurfaceIcon({
   }
 }
 
+/** Keep every open panel tab reachable when the horizontal strip clips. */
+function RightPanelTabOverflowPicker(props: {
+  readonly surfaces: readonly RightPanelSurface[];
+  readonly activeSurfaceId: string | null;
+  readonly previewSessions: Readonly<Record<string, PreviewSessionSnapshot>>;
+  readonly terminalLabelsById: ReadonlyMap<string, string>;
+  readonly onActivate: (surface: RightPanelSurface) => void;
+}) {
+  return (
+    <div data-right-panel-tab-overflow className="hidden shrink-0 [-webkit-app-region:no-drag]">
+      <Menu>
+        <MenuTrigger
+          aria-label="Show all panel tabs"
+          title="All panel tabs"
+          className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ListIcon aria-hidden className="size-4" />
+        </MenuTrigger>
+        <MenuPopup align="end" side="bottom" sideOffset={6} className="w-64">
+          <MenuGroup>
+            <MenuGroupLabel>Panel tabs</MenuGroupLabel>
+            {props.surfaces.map((surface) => {
+              const active = surface.id === props.activeSurfaceId;
+              const title = rightPanelSurfaceTitle(
+                surface,
+                props.previewSessions,
+                props.terminalLabelsById,
+              );
+              return (
+                <MenuItem
+                  key={surface.id}
+                  data-right-panel-tab-overflow-item={surface.id}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "min-w-0 text-xs",
+                    active && "bg-foreground/[0.06] font-semibold text-foreground",
+                  )}
+                  onClick={() => props.onActivate(surface)}
+                >
+                  <SurfaceIcon surface={surface} sessions={props.previewSessions} />
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                </MenuItem>
+              );
+            })}
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
+}
+
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -381,7 +440,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "workspace-topbar gap-1 pl-2",
+          "workspace-topbar gap-1 pl-2 has-[[data-has-overflow-x]]:[&>[data-right-panel-tab-overflow]]:block",
           !ownsDesktopTitleBar && "[--workspace-topbar-height:--spacing(11)]",
           props.mode === "inline" ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "wco:pr-[calc(var(--workspace-native-controls-inset)+6rem)]",
@@ -516,6 +575,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             ) : null}
           </div>
         </ScrollArea>
+        <RightPanelTabOverflowPicker
+          surfaces={props.surfaces}
+          activeSurfaceId={props.activeSurfaceId}
+          previewSessions={props.previewSessions}
+          terminalLabelsById={props.terminalLabelsById}
+          onActivate={props.onActivate}
+        />
         <Tooltip>
           <TooltipTrigger
             render={

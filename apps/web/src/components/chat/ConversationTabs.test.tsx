@@ -1,9 +1,17 @@
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createTabFamilyPopoverMock } from "../TabFamilyPopover.test-utils";
 
 vi.mock("../TabFamilyPopover", () => createTabFamilyPopoverMock());
+vi.mock("~/components/ui/menu", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ui/menu")>();
+  return {
+    ...actual,
+    MenuPopup: (props: { readonly children?: ReactNode }) => props.children,
+  };
+});
 
 import { ConversationTabs } from "./ConversationTabs";
 import type { ConversationTab } from "./openConversationTabs";
@@ -91,6 +99,19 @@ describe("ConversationTabs", () => {
 
   it("names the plus control with the worktree it creates in", () => {
     expect(render([])).toContain('aria-label="New conversation in colors"');
+  });
+
+  it("offers a direct picker for conversations clipped by horizontal overflow", () => {
+    const markup = render([
+      tab(),
+      tab({ key: "b", title: "Ship flows beta" }),
+      tab({ key: "c", title: "Polish worktree tabs" }),
+      tab({ key: "d", title: "Review keyboard navigation" }),
+    ]);
+
+    expect(markup).toContain('aria-label="Show all open conversations"');
+    expect(markup).toContain("data-conversation-tab-overflow");
+    expect(markup).toContain("has-[[data-has-overflow-x]]");
   });
 
   it("keeps the strip out of the desktop drag region", () => {

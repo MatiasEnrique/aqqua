@@ -29,6 +29,7 @@ Mobile uses its separate native thread list and device-local preferences.
 The header tab strip contains the open conversations and drafts for the selected worktree.
 Persisted conversation tabs have an **Archive** action; archiving a parent conversation archives
 its sub-agent tree, while draft tabs cannot be archived.
+When the strip runs out of room, use the list button at its right edge to open any conversation.
 
 An orchestrator keeps its open sub-agent conversations behind one numbered control. The control
 opens a bounded popover, so a large delegation tree does not expand the tab strip.
@@ -65,3 +66,9 @@ the archive it also names the conversation that owns it.
 
 Settled and snoozed conversations remain reachable through the header tabs and command palette.
 New activity wakes or un-settles a conversation according to its lifecycle rules.
+
+## Right panel tabs
+
+On web and desktop, the right panel can keep tools such as Diff, Pull request, Files, Browser, and
+Terminal open together. When their tab strip runs out of room, use the list button beside the tabs
+to open any panel directly.

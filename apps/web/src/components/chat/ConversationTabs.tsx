@@ -1,6 +1,14 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { ArchiveIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { ArchiveIcon, ListIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { StatusIndicator } from "../StatusIndicator";
@@ -55,7 +63,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
     <nav
       aria-label="Open conversations"
       data-conversation-tabbar
-      className="flex h-[var(--workspace-tabbar-height)] shrink-0 items-center px-2 pt-[5px] pb-1"
+      className="flex h-[var(--workspace-tabbar-height)] shrink-0 items-center gap-1 px-2 pt-[5px] pb-1 has-[[data-has-overflow-x]]:[&>[data-conversation-tab-overflow]]:block"
     >
       <ScrollArea
         ref={stripRef}
@@ -95,9 +103,61 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
           </li>
         </ul>
       </ScrollArea>
+      <ConversationTabOverflowPicker
+        tabs={props.tabs}
+        onSelectThread={props.onSelectThread}
+        onSelectDraft={props.onSelectDraft}
+      />
     </nav>
   );
 });
+
+/**
+ * A stable way to reach any tab when the horizontal strip clips. The scroll
+ * area exposes `data-has-overflow-x`, so CSS can keep this out of the toolbar
+ * until the picker is useful without adding resize observers or render work.
+ */
+function ConversationTabOverflowPicker(props: {
+  readonly tabs: readonly ConversationTab[];
+  readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
+  readonly onSelectDraft: (draftId: string) => void;
+}) {
+  const selectTab = (tab: ConversationTab) =>
+    tab._tag === "thread" ? props.onSelectThread(tab.threadRef) : props.onSelectDraft(tab.draftId);
+
+  return (
+    <div data-conversation-tab-overflow className="hidden shrink-0 [-webkit-app-region:no-drag]">
+      <Menu>
+        <MenuTrigger
+          aria-label="Show all open conversations"
+          title="All open conversations"
+          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-xl text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ListIcon aria-hidden className="size-4" />
+        </MenuTrigger>
+        <MenuPopup align="end" side="bottom" sideOffset={6} className="w-72">
+          <MenuGroup>
+            <MenuGroupLabel>Open conversations</MenuGroupLabel>
+            {props.tabs.map((tab) => (
+              <MenuItem
+                key={tab.key}
+                data-conversation-tab-overflow-item={tab.key}
+                aria-current={tab.isActive ? "page" : undefined}
+                className={cn(
+                  "min-w-0 text-xs",
+                  tab.isActive && "bg-foreground/[0.06] font-semibold text-foreground",
+                )}
+                onClick={() => selectTab(tab)}
+              >
+                <ConversationTabIdentity tab={tab} />
+              </MenuItem>
+            ))}
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
+}
 
 /**
  * One family in the strip: a lone tab, or an orchestrator with a descendant
