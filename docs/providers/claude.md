@@ -17,9 +17,13 @@ The new-thread `/resume` picker reads Claude Code session files from the configu
 <CLAUDE_CONFIG_DIR or ~/.claude>/projects/<slugified-working-directory>/*.jsonl
 ```
 
-aqqua checks only the active project's workspace root and its aqqua-managed worktrees. A session is shown only when its filename is a UUID and its user or assistant records carry `entrypoint: "cli"`; SDK-created sessions (`entrypoint: "sdk-ts"`) and sidechain/subagent records (`isSidechain: true`) are excluded. The UUID check matches Claude's resume contract, which rejects other cursor ids. Unreadable directories, malformed JSONL, and records without a recognized entrypoint are skipped without breaking the picker.
+aqqua checks only the active project's workspace root and its aqqua-managed worktrees. A session is shown only when its filename is a UUID and its user or assistant records carry `entrypoint: "cli"`; sessions created by other SDK clients (`entrypoint: "sdk-ts"`) and sidechain/subagent records (`isSidechain: true`) are excluded. aqqua marks its own primary Claude sessions as CLI-resumable, while their existing thread ownership keeps them from appearing as duplicates in aqqua's new-thread picker. The UUID check matches Claude's resume contract, which rejects other cursor ids. Unreadable directories, malformed JSONL, and records without a recognized entrypoint are skipped without breaking the picker.
 
 The selected session must resume in its recorded working directory. aqqua adopts the provider session on the first turn and loads the earlier transcript only when its collapsed timeline block is expanded.
+
+## Resuming an aqqua conversation in Claude Code
+
+Start Claude Code from the same working directory and with the same Claude home used by the aqqua provider. Run `/resume` in the TUI and select the conversation normally. aqqua writes the native Claude transcript and session UUID in the format the standard picker expects; no aqqua-specific resume command or copied transcript is required.
 
 ## I Only Use One Claude Account
 

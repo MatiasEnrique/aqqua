@@ -3139,6 +3139,25 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("marks aqqua sessions as resumable from the Claude TUI", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.env?.CLAUDE_CODE_ENTRYPOINT, "cli");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect(
     "supports rollbackThread by trimming in-memory turns and preserving earlier turns",
     () => {
