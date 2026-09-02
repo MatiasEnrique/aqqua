@@ -30,6 +30,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
+  projectScopeKeys?: string[];
   worktreeOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
   /** @deprecated Ignored on read and omitted on write. */
@@ -53,6 +54,8 @@ export interface PersistedUiState {
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  /** Project filter for this window. Empty means every project. */
+  projectScopeKeys: string[];
   worktreeOrder: string[];
 }
 
@@ -86,6 +89,7 @@ export interface UiState extends UiProjectState, UiThreadState, UiEndpointState 
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  projectScopeKeys: [],
   worktreeOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -166,6 +170,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
+    projectScopeKeys: sanitizeStringArray(parsed.projectScopeKeys),
     worktreeOrder: sanitizeStringArray(parsed.worktreeOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     activeWorktreeOverrideKey:
@@ -210,10 +215,10 @@ export function readPersistedState(): UiState {
   }
 }
 
-/** The strip's own state: this window's, not the shared preference blob's. */
+/** State owned by this window rather than the shared preference blob. */
 type WindowLocalUiState = Pick<
   PersistedUiState,
-  "activeWorktreeOverrideKey" | "openConversationTabKeys"
+  "activeWorktreeOverrideKey" | "openConversationTabKeys" | "projectScopeKeys"
 >;
 
 /**
@@ -239,6 +244,7 @@ function withWindowLocalState(state: UiState): UiState {
   }
   return {
     ...state,
+    projectScopeKeys: sanitizeStringArray(parsed.projectScopeKeys),
     activeWorktreeOverrideKey:
       typeof parsed.activeWorktreeOverrideKey === "string"
         ? parsed.activeWorktreeOverrideKey
@@ -300,6 +306,7 @@ export function persistState(state: UiState): void {
     window.sessionStorage.setItem(
       WINDOW_STATE_KEY,
       JSON.stringify({
+        projectScopeKeys: state.projectScopeKeys,
         activeWorktreeOverrideKey: state.activeWorktreeOverrideKey,
         openConversationTabKeys: state.openConversationTabKeys,
       } satisfies WindowLocalUiState),
@@ -402,6 +409,17 @@ export function setOpenConversationTabKeys(state: UiState, keys: readonly string
     return state;
   }
   return { ...state, openConversationTabKeys: next };
+}
+
+export function setProjectScopeKeys(state: UiState, keys: readonly string[]): UiState {
+  const next = sanitizeStringArray(keys);
+  if (
+    next.length === state.projectScopeKeys.length &&
+    next.every((key, index) => key === state.projectScopeKeys[index])
+  ) {
+    return state;
+  }
+  return { ...state, projectScopeKeys: next };
 }
 
 export function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): UiState {
@@ -579,6 +597,7 @@ interface UiStateStore extends UiState {
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setActiveWorktreeOverrideKey: (key: string | null) => void;
   setOpenConversationTabKeys: (keys: readonly string[]) => void;
+  setProjectScopeKeys: (keys: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
@@ -603,6 +622,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setActiveWorktreeOverrideKey: (key) => set((state) => setActiveWorktreeOverrideKey(state, key)),
   setOpenConversationTabKeys: (keys) => set((state) => setOpenConversationTabKeys(state, keys)),
+  setProjectScopeKeys: (keys) => set((state) => setProjectScopeKeys(state, keys)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>

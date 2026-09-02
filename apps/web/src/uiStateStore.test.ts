@@ -18,6 +18,7 @@ import {
   setDefaultAdvertisedEndpointKey,
   setOpenConversationTabKeys,
   setProjectExpanded,
+  setProjectScopeKeys,
   setThreadChangedFilesExpanded,
   type UiState,
   WINDOW_STATE_KEY,
@@ -27,6 +28,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    projectScopeKeys: [],
     worktreeOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -260,6 +262,7 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      projectScopeKeys: [],
       worktreeOrder: ["local:/repo-b", "local:/repo-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
@@ -387,6 +390,20 @@ describe("uiStateStore persistence", () => {
     vi.unstubAllGlobals();
   });
 
+  it("restores this window's selected project scope after a reload", () => {
+    const selected = setProjectScopeKeys(makeUiState(), ["ciber", "aqqua"]);
+
+    persistState(selected);
+
+    expect(readPersistedState().projectScopeKeys).toEqual(["ciber", "aqqua"]);
+    expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toMatchObject({
+      projectScopeKeys: ["ciber", "aqqua"],
+    });
+    expect(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")).not.toHaveProperty(
+      "projectScopeKeys",
+    );
+  });
+
   it("persists raw UI preferences including thread visit markers", () => {
     const state = makeUiState({
       projectExpandedById: {
@@ -435,6 +452,7 @@ describe("uiStateStore persistence", () => {
     expect(persisted).not.toHaveProperty("activeWorktreeOverrideKey");
     expect(persisted).not.toHaveProperty("openConversationTabKeys");
     expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
+      projectScopeKeys: [],
       activeWorktreeOverrideKey: null,
       openConversationTabKeys: [],
     });
@@ -498,6 +516,7 @@ describe("uiStateStore persistence", () => {
       "collapsedConversationTabFamilyKeys",
     );
     expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toEqual({
+      projectScopeKeys: [],
       activeWorktreeOverrideKey: "local:/worktrees/window",
       openConversationTabKeys: ["environment:parent"],
     });
@@ -573,6 +592,7 @@ describe("uiStateStore persistence", () => {
     sessionStorageStub.setItem(
       WINDOW_STATE_KEY,
       JSON.stringify({
+        projectScopeKeys: ["window-project"],
         activeWorktreeOverrideKey: "local:/worktrees/window",
         openConversationTabKeys: ["environment:thread-1", "environment:thread-2"],
       }),
@@ -581,6 +601,7 @@ describe("uiStateStore persistence", () => {
     const loaded = readPersistedState();
 
     expect(loaded.activeWorktreeOverrideKey).toBe("local:/worktrees/window");
+    expect(loaded.projectScopeKeys).toEqual(["window-project"]);
     expect(loaded.openConversationTabKeys).toEqual([
       "environment:thread-1",
       "environment:thread-2",
