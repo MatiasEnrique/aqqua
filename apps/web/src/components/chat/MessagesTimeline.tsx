@@ -49,6 +49,7 @@ import {
   ChevronRightIcon,
   CircleAlertIcon,
   EyeIcon,
+  FileIcon,
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
@@ -975,7 +976,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const userImages = row.message.attachments ?? [];
+  const userAttachments = row.message.attachments ?? [];
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
@@ -991,6 +992,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     ...displayedUserMessage.elementContexts,
     ...elementContextState.contexts,
   ];
+  const userImages = userAttachments.filter((attachment) => attachment.type === "image");
+  const userFiles = userAttachments.filter((attachment) => attachment.type === "file");
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const regularImages = userImages.filter((image) => !image.name.startsWith("preview-annotation-"));
   const canRevertAgentWork = typeof row.revertTurnCount === "number";
@@ -998,6 +1001,29 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   return (
     <div className="group flex flex-col items-end gap-1">
       <div className="relative max-w-[80%] rounded-2xl bg-accent p-3">
+        {userFiles.length > 0 ? (
+          <div className="mb-2 flex max-w-[420px] flex-wrap gap-1.5">
+            {userFiles.map((file) => {
+              const content = (
+                <>
+                  <FileIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{file.name}</span>
+                </>
+              );
+              const className =
+                "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/70 bg-background/70 px-2 py-1 text-xs text-foreground/85";
+              return file.previewUrl ? (
+                <a key={file.id} href={file.previewUrl} download={file.name} className={className}>
+                  {content}
+                </a>
+              ) : (
+                <span key={file.id} className={className}>
+                  {content}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
             {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

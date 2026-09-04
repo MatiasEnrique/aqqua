@@ -167,7 +167,7 @@ describe("buildTurnStartParams", () => {
     });
   });
 
-  it("includes default collaboration mode and image attachments", () => {
+  it("includes default collaboration mode and image and file attachments", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
@@ -179,6 +179,11 @@ describe("buildTurnStartParams", () => {
           {
             type: "image",
             url: "data:image/png;base64,abc",
+          },
+          {
+            type: "mention",
+            name: "requirements.pdf",
+            path: "/tmp/requirements.pdf",
           },
         ],
       }),
@@ -199,6 +204,11 @@ describe("buildTurnStartParams", () => {
         {
           type: "image",
           url: "data:image/png;base64,abc",
+        },
+        {
+          type: "mention",
+          name: "requirements.pdf",
+          path: "/tmp/requirements.pdf",
         },
       ],
       model: "gpt-5.3-codex",

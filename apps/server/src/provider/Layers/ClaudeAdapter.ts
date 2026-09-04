@@ -1101,18 +1101,6 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
   }
 
   for (const attachment of input.attachments ?? []) {
-    if (attachment.type !== "image") {
-      continue;
-    }
-
-    if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
-      return yield* new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "turn/start",
-        detail: `Unsupported Claude image attachment type '${attachment.mimeType}'.`,
-      });
-    }
-
     const attachmentPath = resolveAttachmentPath({
       attachmentsDir: dependencies.attachmentsDir,
       attachment,
@@ -1122,6 +1110,22 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
         provider: PROVIDER,
         method: "turn/start",
         detail: `Invalid attachment id '${attachment.id}'.`,
+      });
+    }
+
+    if (attachment.type === "file") {
+      sdkContent.push({
+        type: "text",
+        text: `The user attached a file named ${attachment.name}. Read it from ${attachmentPath}.`,
+      });
+      continue;
+    }
+
+    if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "turn/start",
+        detail: `Unsupported Claude image attachment type '${attachment.mimeType}'.`,
       });
     }
 

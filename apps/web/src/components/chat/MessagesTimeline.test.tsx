@@ -376,6 +376,14 @@ describe("MessagesTimeline", () => {
             sizeBytes: 1,
             previewUrl: "data:image/png;base64,iVBORw0KGgo=",
           },
+          {
+            type: "file" as const,
+            id: "attachment-2",
+            name: "trace.log",
+            mimeType: "text/plain",
+            sizeBytes: 24,
+            previewUrl: "https://example.test/attachments/trace",
+          },
         ],
       },
     };
@@ -396,6 +404,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("data-anchor-max-size=");
     expect(markup).toContain('data-content-inset-end="144"');
     expect(markup).toContain("[overflow-anchor:none]");
+    expect(markup).toContain("trace.log");
+    expect(markup).toContain('download="trace.log"');
     expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');

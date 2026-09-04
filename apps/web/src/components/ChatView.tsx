@@ -192,7 +192,7 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
-  type ComposerImageAttachment,
+  type ComposerAttachment,
   type DraftThreadEnvMode,
   DraftId,
   useComposerDraftStore,
@@ -297,7 +297,7 @@ import {
   cloneComposerImageForRetry,
   deriveLockedProvider,
   getThreadErrorIdentity,
-  IMAGE_ONLY_BOOTSTRAP_PROMPT,
+  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
   buildProviderSubagentComposerNotice,
   type ProviderSubagentPresentation,
   resolveComposerSubmitDisposition,
@@ -1487,7 +1487,7 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setLogicalProjectDraftThreadId,
   );
   const promptRef = useRef("");
-  const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerImagesRef = useRef<ComposerAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -5348,25 +5348,33 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     const turnAttachmentsPromise = Promise.all(
-      composerImagesSnapshot.map(async (image) => ({
-        type: "image" as const,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        dataUrl: await readFileAsDataUrl(image.file),
-      })),
+      composerImagesSnapshot.map(async (attachment) => {
+        const upload = {
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          dataUrl: await readFileAsDataUrl(attachment.file),
+        };
+        return attachment.type === "image"
+          ? { type: "image" as const, ...upload }
+          : { type: "file" as const, ...upload };
+      }),
     );
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
+    const optimisticAttachments = composerImagesSnapshot.map((attachment) => {
+      const optimistic = {
+        id: attachment.id,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        previewUrl: attachment.previewUrl,
+      };
+      return attachment.type === "image"
+        ? { type: "image" as const, ...optimistic }
+        : { type: "file" as const, ...optimistic };
+    });
     const shouldQueueSubmission = phase === "running" && isServerThread && messageQueueSupported;
     if (shouldQueueSubmission) {
       setThreadError(threadIdForSend, null);
@@ -5475,17 +5483,17 @@ function ChatViewContent(props: ChatViewProps) {
     }
     composerSubmission.releaseDraft();
 
-    let firstComposerImageName: string | null = null;
+    let firstComposerAttachmentName: string | null = null;
     if (composerImagesSnapshot.length > 0) {
-      const firstComposerImage = composerImagesSnapshot[0];
-      if (firstComposerImage) {
-        firstComposerImageName = firstComposerImage.name;
+      const firstComposerAttachment = composerImagesSnapshot[0];
+      if (firstComposerAttachment) {
+        firstComposerAttachmentName = firstComposerAttachment.name;
       }
     }
     let titleSeed = trimmed;
     if (!titleSeed) {
-      if (firstComposerImageName) {
-        titleSeed = `Image: ${firstComposerImageName}`;
+      if (firstComposerAttachmentName) {
+        titleSeed = `Attachment: ${firstComposerAttachmentName}`;
       } else if (composerTerminalContextsSnapshot.length > 0) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {

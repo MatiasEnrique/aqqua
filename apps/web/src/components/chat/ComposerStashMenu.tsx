@@ -9,8 +9,8 @@ import { Button } from "../ui/button";
 
 const SNIPPET_MAX_CHARS = 90;
 
-/** Images that did not make it into the entry, whatever the reason. */
-function missingImageCount(entry: PromptStashEntry): number {
+/** Attachments that did not make it into the entry, whatever the reason. */
+function missingAttachmentCount(entry: PromptStashEntry): number {
   return entry.droppedImageNames.length + (entry.unreadableImageNames?.length ?? 0);
 }
 
@@ -19,8 +19,17 @@ function stashEntrySnippet(entry: PromptStashEntry): string {
   if (trimmed.length > 0) {
     return trimmed.length > SNIPPET_MAX_CHARS ? `${trimmed.slice(0, SNIPPET_MAX_CHARS)}…` : trimmed;
   }
-  const imageCount = entry.attachments.length + entry.droppedImageNames.length;
-  return imageCount > 0 ? `(${imageCount} image${imageCount === 1 ? "" : "s"})` : "(empty)";
+  const attachmentCount = entry.attachments.length + entry.droppedImageNames.length;
+  return attachmentCount > 0
+    ? `(${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"})`
+    : "(empty)";
+}
+
+function isPersistedImageAttachment(attachment: PromptStashEntry["attachments"][number]): boolean {
+  return (
+    attachment.type === "image" ||
+    (attachment.type === undefined && attachment.mimeType.startsWith("image/"))
+  );
 }
 
 /**
@@ -121,17 +130,20 @@ export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
                     onRestore(entry);
                   }}
                 >
-                  {entry.attachments.length > 0 ? (
+                  {entry.attachments.some(isPersistedImageAttachment) ? (
                     <span className="flex shrink-0 items-center -space-x-1.5">
-                      {entry.attachments.slice(0, 3).map((attachment) => (
-                        <img
-                          key={attachment.id}
-                          src={attachment.dataUrl}
-                          alt=""
-                          aria-hidden="true"
-                          className="size-5 rounded border border-border/70 object-cover"
-                        />
-                      ))}
+                      {entry.attachments
+                        .filter(isPersistedImageAttachment)
+                        .slice(0, 3)
+                        .map((attachment) => (
+                          <img
+                            key={attachment.id}
+                            src={attachment.dataUrl}
+                            alt=""
+                            aria-hidden="true"
+                            className="size-5 rounded border border-border/70 object-cover"
+                          />
+                        ))}
                     </span>
                   ) : (
                     <BookmarkIcon className="size-4 shrink-0 text-muted-foreground/60" />
@@ -141,13 +153,13 @@ export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
                   </span>
                   {entry.pendingImageCount ? (
                     <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                      saving {entry.pendingImageCount} image
+                      saving {entry.pendingImageCount} attachment
                       {entry.pendingImageCount === 1 ? "" : "s"}…
                     </span>
-                  ) : missingImageCount(entry) > 0 ? (
+                  ) : missingAttachmentCount(entry) > 0 ? (
                     <span className="shrink-0 text-[10px] text-amber-600">
-                      {missingImageCount(entry)} image
-                      {missingImageCount(entry) === 1 ? "" : "s"} dropped
+                      {missingAttachmentCount(entry)} attachment
+                      {missingAttachmentCount(entry) === 1 ? "" : "s"} dropped
                     </span>
                   ) : null}
                   <span className="shrink-0 text-muted-foreground/60 text-xs">

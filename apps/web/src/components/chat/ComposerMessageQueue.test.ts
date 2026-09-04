@@ -2,7 +2,10 @@ import type { OrchestrationQueuedMessage } from "@aqqua/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { queuedMessagePreview } from "./ComposerMessageQueue";
-import { IMAGE_ONLY_BOOTSTRAP_PROMPT } from "../ChatView.logic";
+import {
+  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+  LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT,
+} from "../ChatView.logic";
 
 const queuedMessage = (overrides: Partial<OrchestrationQueuedMessage> = {}) =>
   ({
@@ -21,7 +24,7 @@ describe("queuedMessagePreview", () => {
     expect(queuedMessagePreview(queuedMessage())).toBe("Run the focused tests");
   });
 
-  it("describes an image-only queued message", () => {
+  it("describes an attachment-only queued message", () => {
     expect(
       queuedMessagePreview(
         queuedMessage({
@@ -37,14 +40,14 @@ describe("queuedMessagePreview", () => {
           ],
         }),
       ),
-    ).toBe("1 image");
+    ).toBe("1 attachment");
   });
 
-  it("does not expose the internal image-only bootstrap prompt", () => {
+  it("does not expose the internal attachment-only bootstrap prompt", () => {
     expect(
       queuedMessagePreview(
         queuedMessage({
-          text: IMAGE_ONLY_BOOTSTRAP_PROMPT,
+          text: ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
           attachments: [
             {
               type: "image",
@@ -56,6 +59,48 @@ describe("queuedMessagePreview", () => {
           ],
         }),
       ),
-    ).toBe("1 image");
+    ).toBe("1 attachment");
+    expect(
+      queuedMessagePreview(
+        queuedMessage({
+          text: LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT,
+          attachments: [
+            {
+              type: "image",
+              id: "image-1",
+              name: "screen.png",
+              mimeType: "image/png",
+              sizeBytes: 42,
+            },
+          ],
+        }),
+      ),
+    ).toBe("1 attachment");
+  });
+
+  it("counts mixed queued attachments", () => {
+    expect(
+      queuedMessagePreview(
+        queuedMessage({
+          text: "",
+          attachments: [
+            {
+              type: "image",
+              id: "image-1",
+              name: "screen.png",
+              mimeType: "image/png",
+              sizeBytes: 42,
+            },
+            {
+              type: "file",
+              id: "file-1",
+              name: "trace.log",
+              mimeType: "text/plain",
+              sizeBytes: 21,
+            },
+          ],
+        }),
+      ),
+    ).toBe("2 attachments");
   });
 });

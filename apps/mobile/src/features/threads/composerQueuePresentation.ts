@@ -1,8 +1,10 @@
 /**
- * Synthetic prompt the composer substitutes when a message carries only images.
+ * Synthetic prompt the composer substitutes when a message carries only attachments.
  * It is an instruction to the provider, never something to show the user.
  */
-export const IMAGE_ONLY_BOOTSTRAP_PROMPT =
+export const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more files without additional text. Respond using the conversation context and the attached file(s).]";
+const LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 
 export function queuedMessagePreview(message: {
@@ -10,10 +12,14 @@ export function queuedMessagePreview(message: {
   readonly attachmentCount: number;
 }): string {
   const text = message.text.trim();
-  if (text.length > 0 && text !== IMAGE_ONLY_BOOTSTRAP_PROMPT) {
+  if (
+    text.length > 0 &&
+    text !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT &&
+    text !== LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT
+  ) {
     return text;
   }
-  return message.attachmentCount === 1 ? "1 image" : `${message.attachmentCount} images`;
+  return message.attachmentCount === 1 ? "1 attachment" : `${message.attachmentCount} attachments`;
 }
 
 export interface ComposerPrimaryActionState {

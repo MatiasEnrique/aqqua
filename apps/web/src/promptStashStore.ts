@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { create } from "zustand";
 
-import { PersistedComposerImageAttachment } from "./composerDraftStore";
+import { PersistedComposerAttachment } from "./composerDraftStore";
 import { createMemoryStorage, type StateStorage } from "./lib/storage";
 
 export const PROMPT_STASH_STORAGE_KEY = "aqqua:prompt-stash:v2";
@@ -28,7 +28,7 @@ export const MAX_STASH_ENTRY_ATTACHMENT_CHARS = 2_700_000;
 
 /**
  * A stashed prompt carries only what every provider can accept: text and
- * image attachments. Deliberately no provider instance or model selection —
+ * attachments. Deliberately no provider instance or model selection —
  * the point of stashing is to move a prompt into a different thread or
  * provider, so restoring must never drag the old model choice along.
  */
@@ -36,20 +36,20 @@ const StashEntrySchema = Schema.Struct({
   id: Schema.String,
   createdAt: Schema.String,
   prompt: Schema.String,
-  attachments: Schema.Array(PersistedComposerImageAttachment),
-  /** Names of images that exceeded the attachment budget and were not saved. */
+  attachments: Schema.Array(PersistedComposerAttachment),
+  /** Names of attachments that exceeded the storage budget and were not saved. */
   droppedImageNames: Schema.Array(Schema.String),
   /**
-   * Names of images that could not be decoded or re-encoded at all — a
+   * Names of attachments that could not be decoded or encoded at all — a
    * distinct failure from exceeding the size budget, so the menu can explain
    * which actually happened. Optional: entries written before this field
    * existed decode without it.
    */
   unreadableImageNames: Schema.optionalKey(Schema.Array(Schema.String)),
   /**
-   * Images still being encoded when the entry was written. The entry is
-   * persisted before its images so a crash mid-encode cannot lose the prompt;
-   * this field lets the UI show "N images still saving" until
+   * Attachments still being encoded when the entry was written. The entry is
+   * persisted before its attachments so a crash mid-encode cannot lose the prompt;
+   * this field lets the UI show "N attachments still saving" until
    * `finalizeEntryImages` lands, and flags entries orphaned by a reload.
    */
   pendingImageCount: Schema.optionalKey(Schema.Number),
@@ -70,7 +70,7 @@ const decodePersistedPromptStashState = Schema.decodeUnknownSync(PersistedPrompt
  * crash mid-encode, so the count is settled here — otherwise the entry would
  * be stuck showing "saving…" and refuse to restore forever.
  *
- * The images are genuinely gone (they were never written), so they are
+ * The attachments are genuinely gone (they were never written), so they are
  * recorded as unreadable to keep the prompt itself restorable.
  */
 function clearOrphanedPendingImages(
@@ -99,12 +99,12 @@ function clearOrphanedPendingImages(
  * admitted in order so the earliest-added images win.
  */
 export function partitionStashAttachments(
-  attachments: ReadonlyArray<PersistedComposerImageAttachment>,
+  attachments: ReadonlyArray<PersistedComposerAttachment>,
 ): {
-  kept: PersistedComposerImageAttachment[];
+  kept: PersistedComposerAttachment[];
   droppedNames: string[];
 } {
-  const kept: PersistedComposerImageAttachment[] = [];
+  const kept: PersistedComposerAttachment[] = [];
   const droppedNames: string[] = [];
   let usedChars = 0;
   for (const attachment of attachments) {
@@ -208,15 +208,15 @@ interface PromptStashStoreState {
    */
   takeEntry: (entryId: string) => { entry: PromptStashEntry | null; durable: boolean };
   /**
-   * Attaches the encoded images to an entry written earlier by `stashEntry`,
+   * Attaches the encoded files to an entry written earlier by `stashEntry`,
    * clearing its pending count. Returns attached=false when the entry is gone
    * (restored or deleted while encoding was still running) so the caller can
-   * tell the user their images did not make it.
+   * tell the user their attachments did not make it.
    */
   finalizeEntryImages: (
     entryId: string,
     images: {
-      attachments: ReadonlyArray<PersistedComposerImageAttachment>;
+      attachments: ReadonlyArray<PersistedComposerAttachment>;
       droppedImageNames: ReadonlyArray<string>;
       unreadableImageNames: ReadonlyArray<string>;
     },

@@ -4,7 +4,7 @@ import type { PreviewAnnotationPayload, ScopedThreadRef } from "@aqqua/contracts
 
 import {
   useComposerDraftStore,
-  type ComposerImageAttachment,
+  type ComposerAttachment,
   type ComposerResumeSessionSelection,
   type DraftId,
 } from "../../composerDraftStore";
@@ -21,7 +21,7 @@ import { isComposerDraftUntouched, mergeComposerDraftForRetry } from "../ChatVie
  */
 export interface ComposerDraftContent {
   readonly prompt: string;
-  readonly images: ReadonlyArray<ComposerImageAttachment>;
+  readonly images: ReadonlyArray<ComposerAttachment>;
   readonly terminalContexts: ReadonlyArray<TerminalContextDraft>;
   readonly elementContexts: ReadonlyArray<ElementContextDraft>;
   readonly previewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
@@ -31,7 +31,7 @@ export interface ComposerDraftContent {
 
 export interface ComposerSubmissionLifecycleRefs {
   readonly promptRef: RefObject<string>;
-  readonly composerImagesRef: RefObject<ComposerImageAttachment[]>;
+  readonly composerImagesRef: RefObject<ComposerAttachment[]>;
   readonly composerTerminalContextsRef: RefObject<TerminalContextDraft[]>;
   readonly composerElementContextsRef: RefObject<ElementContextDraft[]>;
   readonly resetCursorState: (state?: {
@@ -141,8 +141,8 @@ export function useComposerSubmissionLifecycle(input: {
       snapshot: ComposerDraftContent,
       options?: {
         readonly transformImages?: (
-          images: ReadonlyArray<ComposerImageAttachment>,
-        ) => ComposerImageAttachment[];
+          images: ReadonlyArray<ComposerAttachment>,
+        ) => ComposerAttachment[];
       },
     ): boolean => {
       const currentDraft = getComposerDraft(target);
