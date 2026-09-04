@@ -259,7 +259,14 @@ export function useThreadActions() {
   }, [router]);
 
   const archiveThread = useCallback(
-    async (target: ScopedThreadRef, opts: { onArchived?: () => void } = {}) => {
+    async (
+      target: ScopedThreadRef,
+      opts: {
+        onArchived?: () => void;
+        /** Replaces the default new-project-draft fallback for the routed thread. */
+        navigateAfterArchive?: () => Promise<void>;
+      } = {},
+    ) => {
       const resolved = resolveThreadTarget(target);
       if (!resolved) return AsyncResult.success(undefined);
       const { thread, threadRef } = resolved;
@@ -275,7 +282,7 @@ export function useThreadActions() {
       }
 
       const currentRouteThreadRef = getCurrentRouteThreadRef();
-      const shouldNavigateToDraft =
+      const shouldNavigateAfterArchive =
         currentRouteThreadRef?.threadId === threadRef.threadId &&
         currentRouteThreadRef.environmentId === threadRef.environmentId;
       const archiveResult = await archiveThreadMutation({
@@ -289,9 +296,11 @@ export function useThreadActions() {
       useRightPanelStore.getState().removeThread(threadRef);
       opts.onArchived?.();
 
-      if (shouldNavigateToDraft) {
+      if (shouldNavigateAfterArchive) {
         const navigationResult = await settlePromise(() =>
-          handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId)),
+          opts.navigateAfterArchive
+            ? opts.navigateAfterArchive()
+            : handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId)),
         );
         if (navigationResult._tag === "Failure") {
           return navigationResult;

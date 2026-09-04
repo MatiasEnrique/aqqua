@@ -727,6 +727,29 @@ describe("resolveWorktreeFocusTarget", () => {
     ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "older" } });
   });
 
+  it("focuses another open conversation when the routed one is closing", () => {
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: { drafts: [], active: [older, newer] as never },
+        openKeys: new Set([key("older"), key("newer")]),
+        excludedKey: key("newer"),
+      }),
+    ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "older" } });
+  });
+
+  it("focuses another open conversation when the routed draft is closing", () => {
+    expect(
+      resolveWorktreeFocusTarget({
+        worktree: {
+          drafts: [draft("closing", "closing-thread")],
+          active: [older] as never,
+        },
+        openKeys: new Set([key("closing-thread"), key("older")]),
+        excludedKey: key("closing-thread"),
+      }),
+    ).toEqual({ _tag: "thread", threadRef: { environmentId: "env", threadId: "older" } });
+  });
+
   it("falls back to the most recently active conversation when none is open", () => {
     expect(
       resolveWorktreeFocusTarget({

@@ -174,6 +174,7 @@ import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { ConversationTabs } from "./chat/ConversationTabs";
 import { NativeSubagentActivity } from "./chat/NativeSubagentActivity";
+import { resolveWorktreeFocusTarget, type WorktreeFocusTarget } from "./chat/openConversationTabs";
 import { useConversationTabs } from "./chat/useConversationTabs";
 import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -1336,11 +1337,49 @@ function ChatViewContent(props: ChatViewProps) {
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
+  const headerWorktreeGroupRef = useRef(headerWorktreeGroup);
+  headerWorktreeGroupRef.current = headerWorktreeGroup;
+  const resolveFocusAfterConversationClose = useCallback(
+    (excludedKey: string): WorktreeFocusTarget => {
+      const worktree = headerWorktreeGroupRef.current;
+      if (worktree === null) return { _tag: "none" };
+      return resolveWorktreeFocusTarget({
+        worktree,
+        openKeys: new Set(useUiStateStore.getState().openConversationTabKeys),
+        excludedKey,
+      });
+    },
+    [],
+  );
+  const navigateAfterConversationClose = useCallback(
+    (target: Exclude<WorktreeFocusTarget, { readonly _tag: "none" }>) =>
+      target._tag === "thread"
+        ? navigate({
+            to: "/$environmentId/$threadId",
+            params: {
+              environmentId: target.threadRef.environmentId,
+              threadId: target.threadRef.threadId,
+            },
+            replace: true,
+          })
+        : navigate({
+            to: "/draft/$draftId",
+            params: { draftId: target.draftId },
+            replace: true,
+          }),
+    [navigate],
+  );
   const { archiveThread } = useThreadActions();
   const archiveConversationTab = useCallback(
     (threadRef: ScopedThreadRef) => {
+      const target = resolveFocusAfterConversationClose(scopedThreadKey(threadRef));
       void (async () => {
-        const result = await archiveThread(threadRef);
+        const result = await archiveThread(
+          threadRef,
+          target._tag === "none"
+            ? undefined
+            : { navigateAfterArchive: () => navigateAfterConversationClose(target) },
+        );
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           toastManager.add(
@@ -1353,7 +1392,7 @@ function ChatViewContent(props: ChatViewProps) {
         }
       })();
     },
-    [archiveThread],
+    [archiveThread, navigateAfterConversationClose, resolveFocusAfterConversationClose],
   );
   const newConversationTabLabel = headerWorktreeGroup
     ? `New conversation in ${headerWorktreeGroup.label}`
@@ -1388,12 +1427,24 @@ function ChatViewContent(props: ChatViewProps) {
   routedDraftIdRef.current = draftId;
   const discardConversationDraftTab = useCallback(
     (nextDraftId: string) => {
+      const draft = headerWorktreeGroupRef.current?.drafts.find(
+        (candidate) => candidate.draftId === nextDraftId,
+      );
+      const target: WorktreeFocusTarget = draft
+        ? resolveFocusAfterConversationClose(
+            scopedThreadKey(scopeThreadRef(draft.environmentId, draft.threadId)),
+          )
+        : { _tag: "none" };
       useComposerDraftStore.getState().clearDraftThread(DraftId.make(nextDraftId));
       if (routedDraftIdRef.current === nextDraftId) {
-        void navigate({ to: "/" });
+        if (target._tag === "none") {
+          void navigate({ to: "/" });
+        } else {
+          void navigateAfterConversationClose(target);
+        }
       }
     },
-    [navigate],
+    [navigate, navigateAfterConversationClose, resolveFocusAfterConversationClose],
   );
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
