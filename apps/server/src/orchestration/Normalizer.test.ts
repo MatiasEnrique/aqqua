@@ -138,4 +138,52 @@ describe("canonicalizeClientCommandTimestamps", () => {
       ).toBe(true);
     }).pipe(Effect.provide(normalizerTestLayer)),
   );
+
+  it.effect("normalizes arbitrary uploaded files without treating them as images", () =>
+    Effect.gen(function* () {
+      const command: ClientOrchestrationCommand = {
+        type: "thread.turn.start",
+        commandId: CommandId.make("command-file-upload"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: MessageId.make("message-file-upload"),
+          role: "user",
+          text: "Inspect this archive",
+          attachments: [
+            {
+              type: "file",
+              name: "fixtures.zip",
+              mimeType: "application/zip",
+              sizeBytes: 4,
+              dataUrl: "data:application/zip;base64,UEsDBA==",
+            },
+          ],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: clientCreatedAt,
+      };
+
+      const result = yield* normalizeDispatchCommand(command);
+      expect(result.type).toBe("thread.turn.start");
+      if (result.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command");
+      }
+      const attachment = result.message.attachments[0];
+      expect(attachment).toMatchObject({
+        type: "file",
+        name: "fixtures.zip",
+        mimeType: "application/zip",
+        sizeBytes: 4,
+      });
+      expect(attachment).not.toHaveProperty("dataUrl");
+
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      expect(
+        yield* fileSystem.exists(path.join(config.attachmentsDir, `${attachment?.id}.bin`)),
+      ).toBe(true);
+    }).pipe(Effect.provide(normalizerTestLayer)),
+  );
 });

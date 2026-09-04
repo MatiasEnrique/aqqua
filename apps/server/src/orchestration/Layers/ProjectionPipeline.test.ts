@@ -685,7 +685,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("aqqua-base-")))(
 it.layer(
   Layer.fresh(makeProjectionPipelinePrefixedTestLayer("aqqua-projection-attachments-safe-")),
 )("OrchestrationProjectionPipeline", (it) => {
-  it.effect("preserves mixed image attachment metadata as-is", () =>
+  it.effect("preserves mixed attachment metadata as-is", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const eventStore = yield* OrchestrationEventStore;
@@ -709,10 +709,10 @@ it.layer(
           text: "Inspect this",
           attachments: [
             {
-              type: "image",
+              type: "file",
               id: "thread-attachments-safe-att-1",
               name: "untrusted.exe",
-              mimeType: "image/x-unknown",
+              mimeType: "application/x-msdownload",
               sizeBytes: 5,
             },
             {
@@ -744,10 +744,10 @@ it.layer(
       // @effect-diagnostics-next-line preferSchemaOverJson:off
       assert.deepEqual(JSON.parse(rows[0]?.attachmentsJson ?? "null"), [
         {
-          type: "image",
+          type: "file",
           id: "thread-attachments-safe-att-1",
           name: "untrusted.exe",
-          mimeType: "image/x-unknown",
+          mimeType: "application/x-msdownload",
           sizeBytes: 5,
         },
         {
@@ -1319,10 +1319,10 @@ it.layer(
           text: "Remove",
           attachments: [
             {
-              type: "image",
+              type: "file",
               id: removeAttachmentId,
-              name: "remove.png",
-              mimeType: "image/png",
+              name: "remove.zip",
+              mimeType: "application/zip",
               sizeBytes: 5,
             },
           ],
@@ -1334,7 +1334,7 @@ it.layer(
       });
 
       const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
-      const removePath = path.join(attachmentsDir, `${removeAttachmentId}.png`);
+      const removePath = path.join(attachmentsDir, `${removeAttachmentId}.bin`);
       yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
       yield* fileSystem.writeFileString(keepPath, "keep");
       yield* fileSystem.writeFileString(removePath, "remove");

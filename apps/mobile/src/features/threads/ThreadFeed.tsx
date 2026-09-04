@@ -290,6 +290,35 @@ function MessageAttachmentImage(props: {
   );
 }
 
+function MessageAttachmentFile(props: {
+  readonly environmentId: EnvironmentId;
+  readonly attachmentId: string;
+  readonly name: string;
+  readonly tintColor: ColorValue;
+}) {
+  const uri = useAssetUrl(props.environmentId, {
+    _tag: "attachment",
+    attachmentId: props.attachmentId,
+  });
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      disabled={uri === null}
+      onPress={() => {
+        if (uri !== null) void Linking.openURL(uri);
+      }}
+      className="min-h-10 flex-row items-center gap-2 rounded-xl bg-white/15 px-3 py-2"
+    >
+      <SymbolView name="doc" size={16} tintColor={props.tintColor} type="monochrome" />
+      <Text className="min-w-0 flex-1 text-sm" style={{ color: props.tintColor }} numberOfLines={1}>
+        {props.name}
+      </Text>
+      {uri === null ? <ActivityIndicator size="small" /> : null}
+    </TouchableOpacity>
+  );
+}
+
 const MARKDOWN_COLORS = {
   light: {
     body: "#111111",
@@ -1019,13 +1048,21 @@ function renderFeedEntry(
               />
             ) : null}
             {attachments.map((attachment) => {
-              return (
+              return attachment.type === "image" ? (
                 <MessageAttachmentImage
                   key={attachment.id}
                   environmentId={props.environmentId}
                   attachmentId={attachment.id}
                   className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
                   onPressImage={props.onPressImage}
+                />
+              ) : (
+                <MessageAttachmentFile
+                  key={attachment.id}
+                  environmentId={props.environmentId}
+                  attachmentId={attachment.id}
+                  name={attachment.name}
+                  tintColor="#ffffff"
                 />
               );
             })}
@@ -1080,13 +1117,21 @@ function renderFeedEntry(
           )
         ) : null}
         {attachments.map((attachment) => {
-          return (
+          return attachment.type === "image" ? (
             <MessageAttachmentImage
               key={attachment.id}
               environmentId={props.environmentId}
               attachmentId={attachment.id}
               className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
               onPressImage={props.onPressImage}
+            />
+          ) : (
+            <MessageAttachmentFile
+              key={attachment.id}
+              environmentId={props.environmentId}
+              attachmentId={attachment.id}
+              name={attachment.name}
+              tintColor={iconSubtleColor}
             />
           );
         })}

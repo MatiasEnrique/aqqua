@@ -8,6 +8,7 @@
   - [Server updates](./architecture/server-updates.md)
 - User guides
   - [Background service](./user/background-service.md)
+  - [File attachments](./user/file-attachments.md)
   - [Queueing messages](./user/message-queue.md)
   - [Git history](./user/git-history.md)
   - [Sidebar conversations and worktrees](./user/sidebar.md)

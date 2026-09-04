@@ -3,15 +3,22 @@ import { ArrowUpIcon, XIcon } from "lucide-react";
 import { memo } from "react";
 
 import { Button } from "../ui/button";
-import { IMAGE_ONLY_BOOTSTRAP_PROMPT } from "../ChatView.logic";
+import {
+  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+  LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT,
+} from "../ChatView.logic";
 
 export const queuedMessagePreview = (message: OrchestrationQueuedMessage) => {
   const text = message.text.trim();
-  if (text.length > 0 && text !== IMAGE_ONLY_BOOTSTRAP_PROMPT) {
+  if (
+    text.length > 0 &&
+    text !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT &&
+    text !== LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT
+  ) {
     return text;
   }
-  const imageCount = message.attachments.length;
-  return imageCount === 1 ? "1 image" : `${imageCount} images`;
+  const attachmentCount = message.attachments.length;
+  return attachmentCount === 1 ? "1 attachment" : `${attachmentCount} attachments`;
 };
 
 export const ComposerMessageQueue = memo(function ComposerMessageQueue(props: {

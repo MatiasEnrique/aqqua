@@ -14,7 +14,7 @@ import {
 } from "@aqqua/contracts";
 import { formatProviderDriverKindLabel } from "../providerModels";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
-import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+import { type ComposerAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
@@ -28,7 +28,9 @@ import type { DraftThreadEnvMode } from "../composerDraftStore";
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "aqqua:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
-export const IMAGE_ONLY_BOOTSTRAP_PROMPT =
+export const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more files without additional text. Respond using the conversation context and the attached file(s).]";
+export const LEGACY_IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
@@ -398,9 +400,7 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
-export function cloneComposerImageForRetry(
-  image: ComposerImageAttachment,
-): ComposerImageAttachment {
+export function cloneComposerImageForRetry(image: ComposerAttachment): ComposerAttachment {
   if (typeof URL === "undefined" || !image.previewUrl.startsWith("blob:")) {
     return image;
   }
@@ -452,7 +452,7 @@ export function mergeComposerDraftForRetry<
 >(input: {
   snapshot: {
     readonly prompt: string;
-    readonly images: ReadonlyArray<ComposerImageAttachment>;
+    readonly images: ReadonlyArray<ComposerAttachment>;
     readonly terminalContexts: ReadonlyArray<TTerminalContext>;
     readonly elementContexts: ReadonlyArray<TElementContext>;
     readonly previewAnnotations: ReadonlyArray<TPreviewAnnotation>;
@@ -461,7 +461,7 @@ export function mergeComposerDraftForRetry<
   };
   currentDraft: {
     readonly prompt?: string;
-    readonly images?: ReadonlyArray<ComposerImageAttachment>;
+    readonly images?: ReadonlyArray<ComposerAttachment>;
     readonly terminalContexts?: ReadonlyArray<TTerminalContext>;
     readonly elementContexts?: ReadonlyArray<TElementContext>;
     readonly previewAnnotations?: ReadonlyArray<TPreviewAnnotation>;
@@ -470,7 +470,7 @@ export function mergeComposerDraftForRetry<
   } | null;
 }): {
   prompt: string;
-  images: ComposerImageAttachment[];
+  images: ComposerAttachment[];
   terminalContexts: TTerminalContext[];
   elementContexts: TElementContext[];
   previewAnnotations: TPreviewAnnotation[];

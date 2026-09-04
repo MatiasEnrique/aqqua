@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeURL from "node:url";
+
 import {
   ApprovalRequestId,
   type GrokSettings,
@@ -1047,6 +1050,15 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         method: "session/prompt",
                         detail: `Invalid attachment id '${attachment.id}'.`,
                       });
+                    }
+                    if (attachment.type === "file") {
+                      return {
+                        type: "resource_link",
+                        name: attachment.name,
+                        uri: NodeURL.pathToFileURL(attachmentPath).href,
+                        mimeType: attachment.mimeType,
+                        size: attachment.sizeBytes,
+                      } satisfies EffectAcpSchema.ContentBlock;
                     }
                     const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
                       Effect.mapError(

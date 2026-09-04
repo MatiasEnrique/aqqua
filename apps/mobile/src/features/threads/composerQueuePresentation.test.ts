@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
-  IMAGE_ONLY_BOOTSTRAP_PROMPT,
+  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
   queuedMessagePreview,
   resolveComposerPrimaryActions,
 } from "./composerQueuePresentation";
@@ -13,15 +13,15 @@ describe("queued message preview", () => {
     );
   });
 
-  it("describes an image-only queued message", () => {
-    expect(queuedMessagePreview({ text: "", attachmentCount: 1 })).toBe("1 image");
-    expect(queuedMessagePreview({ text: "   ", attachmentCount: 3 })).toBe("3 images");
+  it("describes an attachment-only queued message", () => {
+    expect(queuedMessagePreview({ text: "", attachmentCount: 1 })).toBe("1 attachment");
+    expect(queuedMessagePreview({ text: "   ", attachmentCount: 3 })).toBe("3 attachments");
   });
 
-  it("does not expose the internal image-only bootstrap prompt", () => {
-    expect(queuedMessagePreview({ text: IMAGE_ONLY_BOOTSTRAP_PROMPT, attachmentCount: 1 })).toBe(
-      "1 image",
-    );
+  it("does not expose the internal attachment-only bootstrap prompt", () => {
+    expect(
+      queuedMessagePreview({ text: ATTACHMENT_ONLY_BOOTSTRAP_PROMPT, attachmentCount: 1 }),
+    ).toBe("1 attachment");
   });
 });
 

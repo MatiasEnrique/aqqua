@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  attachmentRelativePath,
   createAttachmentId,
   parseThreadSegmentFromAttachmentId,
   resolveAttachmentPathById,
@@ -61,6 +62,18 @@ describe("attachmentStore", () => {
     } finally {
       NodeFS.rmSync(attachmentsDir, { recursive: true, force: true });
     }
+  });
+
+  it("stores arbitrary files under an opaque extension", () => {
+    expect(
+      attachmentRelativePath({
+        type: "file",
+        id: "thread-1-attachment",
+        name: "report.final.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 42,
+      }),
+    ).toBe("thread-1-attachment.bin");
   });
 
   it("returns null when no attachment file exists for the id", () => {

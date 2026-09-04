@@ -1048,38 +1048,59 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
   const sendTurn: PiAdapterShape["sendTurn"] = Effect.fn("PiAdapter.sendTurn")(function* (input) {
     const ctx = yield* requireSession(input.threadId);
     const text = input.input?.trim();
-    const images = yield* Effect.forEach(input.attachments ?? [], (attachment) =>
-      Effect.gen(function* () {
-        const attachmentPath = resolveAttachmentPath({
-          attachmentsDir: serverConfig.attachmentsDir,
-          attachment,
-        });
-        if (attachmentPath === null) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "prompt",
-            detail: `Invalid attachment id '${attachment.id}'.`,
+    const fileReferences: string[] = [];
+    const images = yield* Effect.forEach(
+      (input.attachments ?? []).filter((attachment) => attachment.type === "image"),
+      (attachment) =>
+        Effect.gen(function* () {
+          const attachmentPath = resolveAttachmentPath({
+            attachmentsDir: serverConfig.attachmentsDir,
+            attachment,
           });
-        }
-        const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "prompt",
-                detail: cause.message,
-                cause,
-              }),
-          ),
-        );
-        return {
-          type: "image",
-          data: Buffer.from(bytes).toString("base64"),
-          mimeType: attachment.mimeType,
-        };
-      }),
+          if (attachmentPath === null) {
+            return yield* new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "prompt",
+              detail: `Invalid attachment id '${attachment.id}'.`,
+            });
+          }
+          const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "prompt",
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+          return {
+            type: "image",
+            data: Buffer.from(bytes).toString("base64"),
+            mimeType: attachment.mimeType,
+          };
+        }),
     );
-    if (!text && images.length === 0) {
+    for (const attachment of input.attachments ?? []) {
+      if (attachment.type !== "file") continue;
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      if (attachmentPath === null) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "prompt",
+          detail: `Invalid attachment id '${attachment.id}'.`,
+        });
+      }
+      fileReferences.push(
+        `The user attached a file named ${attachment.name}. Read it from ${attachmentPath}.`,
+      );
+    }
+    const promptText = [text, ...fileReferences].filter((part) => part !== undefined).join("\n\n");
+    if (!promptText && images.length === 0) {
       return yield* new ProviderAdapterValidationError({
         provider: PROVIDER,
         operation: "sendTurn",
@@ -1113,7 +1134,7 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         const promptOutcome = yield* ctx.client
           .request({
             type: "prompt",
-            message: text ?? "",
+            message: promptText,
             ...(images.length === 0 ? {} : { images }),
             ...(streamingBehavior === undefined ? {} : { streamingBehavior }),
           })
