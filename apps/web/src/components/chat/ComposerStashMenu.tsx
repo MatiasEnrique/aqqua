@@ -25,6 +25,13 @@ function stashEntrySnippet(entry: PromptStashEntry): string {
     : "(empty)";
 }
 
+function isPersistedImageAttachment(attachment: PromptStashEntry["attachments"][number]): boolean {
+  return (
+    attachment.type === "image" ||
+    (attachment.type === undefined && attachment.mimeType.startsWith("image/"))
+  );
+}
+
 /**
  * Popover listing the stashed prompts. Keyboard-first: opened by ⌘S on an
  * empty composer, navigated with arrows, restored with Enter, dismissed
@@ -123,12 +130,10 @@ export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
                     onRestore(entry);
                   }}
                 >
-                  {entry.attachments.some((attachment) =>
-                    attachment.mimeType.startsWith("image/"),
-                  ) ? (
+                  {entry.attachments.some(isPersistedImageAttachment) ? (
                     <span className="flex shrink-0 items-center -space-x-1.5">
                       {entry.attachments
-                        .filter((attachment) => attachment.mimeType.startsWith("image/"))
+                        .filter(isPersistedImageAttachment)
                         .slice(0, 3)
                         .map((attachment) => (
                           <img

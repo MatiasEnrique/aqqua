@@ -62,6 +62,7 @@ import {
   COMPOSER_DRAFT_STORAGE_KEY,
   clearComposerDraftsEnvironment,
   finalizePromotedDraftThreadByRef,
+  hydrateImagesFromPersisted,
   markPromotedDraftThread,
   markPromotedDraftThreadByRef,
   markPromotedDraftThreads,
@@ -134,6 +135,61 @@ function resetComposerDraftStore() {
     stickyActiveProvider: null,
   });
 }
+
+describe("hydrateImagesFromPersisted", () => {
+  it("does not retain a data URL as the preview for a file attachment", () => {
+    const dataUrl = "data:text/plain;base64,dHJhY2U=";
+
+    expect(
+      hydrateImagesFromPersisted([
+        {
+          id: "file-1",
+          name: "trace.txt",
+          mimeType: "text/plain",
+          sizeBytes: 5,
+          dataUrl,
+        },
+      ]),
+    ).toMatchObject([
+      {
+        type: "file",
+        name: "trace.txt",
+        previewUrl: "",
+      },
+    ]);
+  });
+
+  it("preserves an explicit file discriminator even when the MIME type is image-like", () => {
+    expect(
+      hydrateImagesFromPersisted([
+        {
+          type: "file",
+          id: "file-2",
+          name: "raw-pixels.png",
+          mimeType: "image/png",
+          sizeBytes: 4,
+          dataUrl: "data:image/png;base64,dGVzdA==",
+        },
+      ]),
+    ).toMatchObject([{ type: "file", previewUrl: "" }]);
+  });
+
+  it("continues to infer legacy image attachments that lack a discriminator", () => {
+    const dataUrl = "data:image/png;base64,dGVzdA==";
+
+    expect(
+      hydrateImagesFromPersisted([
+        {
+          id: "image-legacy",
+          name: "screenshot.png",
+          mimeType: "image/png",
+          sizeBytes: 4,
+          dataUrl,
+        },
+      ]),
+    ).toMatchObject([{ type: "image", previewUrl: dataUrl }]);
+  });
+});
 
 function modelSelection(
   provider: ProviderDriverKind,

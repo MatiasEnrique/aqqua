@@ -101,7 +101,7 @@ import {
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { ThreadWorkGroupToggle, ThreadWorkLog } from "./thread-work-log";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
-import { useAssetUrl } from "../../state/assets";
+import { useAssetUrl, useAssetUrlState } from "../../state/assets";
 import { useEnvironmentQuery } from "../../state/query";
 import { providerSessionsEnvironment } from "../../state/providerSessions";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
@@ -296,25 +296,38 @@ function MessageAttachmentFile(props: {
   readonly name: string;
   readonly tintColor: ColorValue;
 }) {
-  const uri = useAssetUrl(props.environmentId, {
+  const assetUrl = useAssetUrlState(props.environmentId, {
     _tag: "attachment",
     attachmentId: props.attachmentId,
   });
+  const isLoading = assetUrl._tag === "Loading";
 
   return (
     <TouchableOpacity
       activeOpacity={0.7}
-      disabled={uri === null}
+      disabled={isLoading}
       onPress={() => {
-        if (uri !== null) void Linking.openURL(uri);
+        if (assetUrl._tag === "Success") {
+          void Linking.openURL(assetUrl.url);
+        } else if (assetUrl._tag === "Failure") {
+          assetUrl.retry();
+        }
       }}
+      accessibilityLabel={
+        assetUrl._tag === "Failure" ? `Retry loading ${props.name}` : `Open ${props.name}`
+      }
       className="min-h-10 flex-row items-center gap-2 rounded-xl bg-white/15 px-3 py-2"
     >
       <SymbolView name="doc" size={16} tintColor={props.tintColor} type="monochrome" />
       <Text className="min-w-0 flex-1 text-sm" style={{ color: props.tintColor }} numberOfLines={1}>
         {props.name}
       </Text>
-      {uri === null ? <ActivityIndicator size="small" /> : null}
+      {isLoading ? <ActivityIndicator size="small" /> : null}
+      {assetUrl._tag === "Failure" ? (
+        <Text className="text-xs" style={{ color: props.tintColor }}>
+          Couldn't load. Retry
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }

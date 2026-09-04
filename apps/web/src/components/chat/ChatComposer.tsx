@@ -1566,6 +1566,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             try {
               const dataUrl = await readFileAsDataUrl(image.file);
               stagedAttachmentById.set(image.id, {
+                type: image.type,
                 id: image.id,
                 name: image.name,
                 mimeType: image.mimeType,
@@ -2210,7 +2211,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
       }
 
-      // Only the prompt and images are cleared — terminal/element contexts,
+      // Only the prompt and attachments are cleared — terminal/element contexts,
       // preview annotations, and review comments are not stashable, so
       // destroying them here would be unrecoverable.
       promptRef.current = "";
@@ -2228,10 +2229,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
       }
 
-      // Images are re-encoded for the stash rather than stored verbatim: the
-      // composer allows up to 10MB per image, but localStorage gives the whole
-      // origin ~5MB. Only the stashed copy shrinks; the live attachment (and
-      // anything sent without stashing) keeps the original file.
+      // Attachments are encoded for the stash rather than stored verbatim. Images may be
+      // compressed to fit localStorage; generic files keep their original bytes and are
+      // dropped from the stash if they exceed its storage budget.
       const candidateAttachments: PersistedComposerAttachment[] = [];
       const oversizedImageNames: string[] = [];
       const unreadableImageNames: string[] = [];
@@ -2239,6 +2239,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (image.type === "file") {
           try {
             candidateAttachments.push({
+              type: "file",
               id: image.id,
               name: image.name,
               mimeType: image.mimeType,
@@ -2260,6 +2261,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           continue;
         }
         candidateAttachments.push({
+          type: "image",
           id: image.id,
           name: image.name,
           mimeType: result.image.mimeType,
@@ -2276,7 +2278,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       if (attached) {
         // The second phase can be rejected on its own: the text-only entry
-        // fit, but adding image payloads pushed past the quota. Disk would
+        // fit, but adding attachment payloads pushed past the quota. Disk would
         // then still hold the phase-one entry with pendingImageCount set,
         // which reads as an orphan after reload — so say so now. Gated on the
         // entry write having been durable: on the in-memory fallback nothing
@@ -2291,7 +2293,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           });
         }
       } else if (kept.length > 0) {
-        // The entry was restored or deleted before its images finished
+        // The entry was restored or deleted before its attachments finished
         // encoding, so they have nowhere to land. Say so rather than letting
         // them evaporate.
         toastManager.add({

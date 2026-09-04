@@ -81,6 +81,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 }
 
 export const PersistedComposerAttachment = Schema.Struct({
+  type: Schema.optionalKey(Schema.Literals(["image", "file"])),
   id: Schema.String,
   name: Schema.String,
   mimeType: Schema.String,
@@ -542,9 +543,9 @@ interface ComposerDraftStoreState {
   ) => void;
   clearComposerContent: (threadRef: ComposerThreadTarget) => void;
   /**
-   * Clears only the prompt text and image attachments, preserving terminal /
+   * Clears only the prompt text and attachments, preserving terminal /
    * element contexts, preview annotations, and review comments. Used by the
-   * prompt stash, which can only round-trip text + images: clearing the
+   * prompt stash, which can only round-trip text + attachments: clearing the
    * session-bound contexts would destroy state nothing can restore.
    */
   clearComposerPromptAndImages: (threadRef: ComposerThreadTarget) => void;
@@ -1107,6 +1108,7 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerAttachme
     return null;
   }
   const candidate = value as Record<string, unknown>;
+  const type = candidate.type;
   const id = candidate.id;
   const name = candidate.name;
   const mimeType = candidate.mimeType;
@@ -1119,12 +1121,14 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerAttachme
     typeof sizeBytes !== "number" ||
     !Number.isFinite(sizeBytes) ||
     typeof dataUrl !== "string" ||
+    (type !== undefined && type !== "image" && type !== "file") ||
     id.length === 0 ||
     dataUrl.length === 0
   ) {
     return null;
   }
   return {
+    ...(type === undefined ? {} : { type }),
     id,
     name,
     mimeType,
@@ -2194,15 +2198,16 @@ export function hydrateImagesFromPersisted(
   return attachments.flatMap((attachment) => {
     const file = hydratePersistedComposerAttachment(attachment);
     if (!file) return [];
+    const type = attachment.type ?? (attachment.mimeType.startsWith("image/") ? "image" : "file");
 
     return [
       {
-        type: attachment.mimeType.startsWith("image/") ? ("image" as const) : ("file" as const),
+        type,
         id: attachment.id,
         name: attachment.name,
         mimeType: attachment.mimeType,
         sizeBytes: attachment.sizeBytes,
-        previewUrl: attachment.dataUrl,
+        previewUrl: type === "image" ? attachment.dataUrl : "",
         file,
       } satisfies ComposerAttachment,
     ];
