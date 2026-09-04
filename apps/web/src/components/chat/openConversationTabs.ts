@@ -401,10 +401,17 @@ interface WorktreeFocusCandidate {
 export function resolveWorktreeFocusTarget(input: {
   readonly worktree: WorktreeFocusCandidate;
   readonly openKeys: ReadonlySet<string>;
+  /** A conversation being closed must not win the fallback selection. */
+  readonly excludedKey?: string;
 }): WorktreeFocusTarget {
-  const byRecency = [...input.worktree.active].sort(
-    (left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt),
-  );
+  const isExcluded = (ref: { environmentId: EnvironmentId; threadId: ThreadId }) =>
+    input.excludedKey === conversationTabKey(scopeThreadRef(ref.environmentId, ref.threadId));
+  const byRecency = input.worktree.active
+    .filter(
+      (candidate) =>
+        !isExcluded({ environmentId: candidate.environmentId, threadId: candidate.id }),
+    )
+    .sort((left, right) => parseTimestamp(right.updatedAt) - parseTimestamp(left.updatedAt));
   const independentlyNavigable = byRecency.filter(
     (candidate) => candidate.providerSubagent == null,
   );
@@ -422,7 +429,8 @@ export function resolveWorktreeFocusTarget(input: {
   if (openThread !== undefined) {
     return { _tag: "thread", threadRef: scopeThreadRef(openThread.environmentId, openThread.id) };
   }
-  const openDraft = input.worktree.drafts.find(isOpen);
+  const remainingDrafts = input.worktree.drafts.filter((draft) => !isExcluded(draft));
+  const openDraft = remainingDrafts.find(isOpen);
   if (openDraft !== undefined) return { _tag: "draft", draftId: openDraft.draftId };
 
   const thread = focusableThreads[0];
@@ -432,7 +440,7 @@ export function resolveWorktreeFocusTarget(input: {
       threadRef: scopeThreadRef(thread.environmentId, thread.id),
     };
   }
-  const draft = input.worktree.drafts[0];
+  const draft = remainingDrafts[0];
   return draft === undefined ? { _tag: "none" } : { _tag: "draft", draftId: draft.draftId };
 }
 
