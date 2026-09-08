@@ -263,7 +263,8 @@ export const OpenInPicker = memo(function OpenInPicker({
     <MenuTrigger
       render={
         <Button
-          aria-label={rail ? "Open in editor" : compact ? "Choose editor" : "Copy options"}
+          aria-label={rail || compact ? "Choose editor" : "Copy options"}
+          disabled={rail && openInCwd === null}
           className={
             rail
               ? "size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground"

@@ -227,6 +227,26 @@ describe("uiStateStore pure functions", () => {
     expect(reordered.worktreeOrder.slice(-visibleKeys.length)).toEqual(visibleKeys.toReversed());
   });
 
+  it("prunes expansion preferences for worktrees that no longer exist", () => {
+    const next = rememberWorktreeOrder(
+      makeUiState({
+        worktreeOrder: ["local:/current", "remote:/filtered", "local:/deleted"],
+        worktreeConversationExpandedByKey: {
+          "local:/current": false,
+          "remote:/filtered": false,
+          "local:/deleted": false,
+        },
+      }),
+      ["local:/current"],
+      ["local:/current", "remote:/filtered"],
+    );
+
+    expect(next.worktreeConversationExpandedByKey).toEqual({
+      "local:/current": false,
+      "remote:/filtered": false,
+    });
+  });
+
   it("stores explicit changed-file expansion choices", () => {
     const threadId = ThreadId.make("thread-1");
     const collapsed = setThreadChangedFilesExpanded(makeUiState(), threadId, "turn-1", false);

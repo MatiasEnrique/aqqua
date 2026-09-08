@@ -18,6 +18,7 @@ import {
   rightPanelSelectionMemoryKey,
   rightPanelSurfaceTitle,
   shouldClosePanelItemFromAuxClick,
+  shouldHideActivitySurface,
 } from "./RightPanelSidebar";
 import type { RightPanelSurface } from "~/rightPanelStore";
 
@@ -120,6 +121,55 @@ describe("RightPanelSidebar", () => {
       }),
     );
     expect(terminalUnavailable).toMatch(/aria-label="Terminal"[^>]*aria-disabled="true"/);
+
+    const openTerminalUnavailable = renderToStaticMarkup(
+      createElement(RightPanelSidebar, {
+        ...props,
+        collapsed: true,
+        surfaces: [
+          ...props.surfaces,
+          {
+            id: "terminal:terminal-1",
+            kind: "terminal",
+            resourceId: "terminal-1",
+            terminalIds: ["terminal-1"],
+            activeTerminalId: "terminal-1",
+            terminalPanes: [{ terminalId: "terminal-1", originThreadId: "thread-1" }],
+          },
+        ],
+        terminalAvailable: false,
+      }),
+    );
+    expect(openTerminalUnavailable).not.toMatch(/aria-label="Terminal"[^>]*aria-disabled="true"/);
+  });
+});
+
+describe("shouldHideActivitySurface", () => {
+  it("hides only when the resolved surface is the active surface", () => {
+    expect(
+      shouldHideActivitySurface({ collapsed: false, surfaceId: undefined, activeSurfaceId: null }),
+    ).toBe(false);
+    expect(
+      shouldHideActivitySurface({
+        collapsed: false,
+        surfaceId: "browser:second",
+        activeSurfaceId: "browser:first",
+      }),
+    ).toBe(false);
+    expect(
+      shouldHideActivitySurface({
+        collapsed: false,
+        surfaceId: "browser:first",
+        activeSurfaceId: "browser:first",
+      }),
+    ).toBe(true);
+    expect(
+      shouldHideActivitySurface({
+        collapsed: true,
+        surfaceId: "browser:first",
+        activeSurfaceId: "browser:first",
+      }),
+    ).toBe(false);
   });
 });
 

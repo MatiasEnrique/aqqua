@@ -34,8 +34,8 @@ Mobile uses its separate native thread list and device-local preferences.
   worktree creates a new conversation there, even when it has snoozed or settled history.
 - Conversations show their branch and recent activity below the title. Hover or activate a parent
   conversation to open its subthreads in a popover. Subthreads do not add nested sidebar rows. On narrow screens, tapping a parent
-  opens the picker with an **Open parent conversation** action. Snoozed conversations are labeled; settled history expands within each
-  worktree and loads more rows with **Show more**.
+  opens the picker with an **Open parent conversation** action. Snoozed conversations are labeled;
+  recent settled conversations appear in the **Settled** shelf.
 - Hover or focus a conversation card to reveal its **Settle conversation** button. The control is
   always visible on touch devices. Settled cards expose **Un-settle conversation** in the same place.
 - Worktrees start in creation order, oldest first. Drag a worktree by its grip to save a custom order;

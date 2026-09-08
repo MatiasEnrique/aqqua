@@ -484,7 +484,7 @@ Instead of preventing upward drag entirely, allow it with increasing friction. I
 
 ### Only animate transform and opacity
 
-These properties skip layout and paint, running on the GPU. Animating `padding`, `margin`, `height`, or `width` triggers all three rendering steps.
+These properties avoid layout and are the best candidates for compositor-only animation. Animating `padding`, `margin`, `height`, or `width` triggers layout and needs device testing.
 
 ### CSS variables are inheritable
 
@@ -498,27 +498,13 @@ element.style.setProperty("--swipe-amount", `${distance}px`);
 element.style.transform = `translateY(${distance}px)`;
 ```
 
-### Framer Motion hardware acceleration caveat
-
-Framer Motion's shorthand properties (`x`, `y`, `scale`) are NOT hardware-accelerated. They use `requestAnimationFrame` on the main thread. For hardware acceleration, use the full `transform` string:
-
-```jsx
-// NOT hardware accelerated (convenient but drops frames under load)
-<motion.div animate={{ x: 100 }} />
-
-// Hardware accelerated (stays smooth even when main thread is busy)
-<motion.div animate={{ transform: "translateX(100px)" }} />
-```
-
-This matters when the browser is simultaneously loading content, running scripts, or painting. At Vercel, the dashboard tab animation used Shared Layout Animations and dropped frames during page loads. Switching to CSS animations (off main thread) fixed it.
-
 ### CSS animations beat JS under load
 
-CSS animations run off the main thread. When the browser is busy loading a new page, Framer Motion animations (using `requestAnimationFrame`) drop frames. CSS animations remain smooth. Use CSS for predetermined animations; JS for dynamic, interruptible ones.
+Use CSS for predetermined animations and JavaScript for dynamic, interruptible ones. CSS animations limited to compositor-eligible properties such as `transform` and `opacity` may remain smooth while the main thread is busy. Animations of layout or paint-triggering properties can still stutter, so test them on target devices.
 
 ### Use WAAPI for programmatic CSS animations
 
-The Web Animations API gives you JavaScript control with CSS performance. Hardware-accelerated, interruptible, and no library needed.
+The Web Animations API gives you JavaScript control over browser animations without a library. Animations of compositor-eligible properties can be hardware-accelerated and remain interruptible.
 
 ```js
 element.animate([{ clipPath: "inset(0 0 100% 0)" }, { clipPath: "inset(0 0 0 0)" }], {
@@ -675,6 +661,5 @@ When reviewing UI code, check for:
 | Duration > 300ms on UI element         | Reduce to 150-250ms                                                                                    |
 | Hover animation without media query    | Add `@media (hover: hover) and (pointer: fine)`                                                        |
 | Keyframes on rapidly-triggered element | Use CSS transitions for interruptibility                                                               |
-| Framer Motion `x`/`y` props under load | Use `transform: "translateX()"` for hardware acceleration                                              |
 | Same enter/exit transition speed       | Make exit faster than enter (e.g., enter 2s, exit 200ms)                                               |
 | Elements all appear at once            | Add stagger delay (30-80ms between items)                                                              |

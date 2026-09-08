@@ -616,23 +616,31 @@ function retainBoundedInactiveWorktreeOrderKeys(
 export function rememberWorktreeOrder(
   state: UiState,
   creationOrderedWorktreeKeys: readonly string[],
+  currentWorktreeKeys: readonly string[] = creationOrderedWorktreeKeys,
 ): UiState {
   const visibleKeys = new Set(creationOrderedWorktreeKeys);
+  const currentKeys = new Set(currentWorktreeKeys);
   const rememberedKeys = new Set(state.worktreeOrder);
   const newKeys = creationOrderedWorktreeKeys.filter((key) => !rememberedKeys.has(key));
   const worktreeOrder = retainBoundedInactiveWorktreeOrderKeys(
     [...state.worktreeOrder, ...newKeys],
     visibleKeys,
   );
+  const worktreeConversationExpandedByKey = Object.fromEntries(
+    Object.entries(state.worktreeConversationExpandedByKey).filter(([key]) => currentKeys.has(key)),
+  );
   if (
     worktreeOrder.length === state.worktreeOrder.length &&
-    worktreeOrder.every((key, index) => key === state.worktreeOrder[index])
+    worktreeOrder.every((key, index) => key === state.worktreeOrder[index]) &&
+    Object.keys(worktreeConversationExpandedByKey).length ===
+      Object.keys(state.worktreeConversationExpandedByKey).length
   ) {
     return state;
   }
   return {
     ...state,
     worktreeOrder,
+    worktreeConversationExpandedByKey,
   };
 }
 
@@ -656,7 +664,10 @@ interface UiStateStore extends UiState {
     draggedWorktreeKey: string,
     targetWorktreeKey: string,
   ) => void;
-  rememberWorktreeOrder: (creationOrderedWorktreeKeys: readonly string[]) => void;
+  rememberWorktreeOrder: (
+    creationOrderedWorktreeKeys: readonly string[],
+    currentWorktreeKeys?: readonly string[],
+  ) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -684,8 +695,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderWorktrees(state, currentWorktreeOrder, draggedWorktreeKey, targetWorktreeKey),
     ),
-  rememberWorktreeOrder: (creationOrderedWorktreeKeys) =>
-    set((state) => rememberWorktreeOrder(state, creationOrderedWorktreeKeys)),
+  rememberWorktreeOrder: (creationOrderedWorktreeKeys, currentWorktreeKeys) =>
+    set((state) => rememberWorktreeOrder(state, creationOrderedWorktreeKeys, currentWorktreeKeys)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

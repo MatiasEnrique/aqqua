@@ -423,6 +423,16 @@ export function resolveActivitySurface(input: {
   );
 }
 
+export function shouldHideActivitySurface(input: {
+  readonly collapsed: boolean;
+  readonly surfaceId: string | undefined;
+  readonly activeSurfaceId: string | null;
+}): boolean {
+  return (
+    !input.collapsed && input.surfaceId !== undefined && input.surfaceId === input.activeSurfaceId
+  );
+}
+
 export function rightPanelSelectionMemoryKey(
   context: RightPanelContext,
   kind: RightPanelSurface["kind"],
@@ -484,7 +494,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
       kind: "terminal",
       label: "Terminal",
       icon: TerminalSquare,
-      available: props.terminalAvailable,
+      available: props.terminalAvailable || hasSurfaceOfKind("terminal"),
       disabledReason: props.terminalAvailable
         ? null
         : RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.terminal,
@@ -519,7 +529,13 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
         kind: activity.kind,
         preferredId: props.preferredSurfaceIdForKind(activity.kind),
       });
-      if (!props.collapsed && surface?.kind === activeSurfaceKind) {
+      if (
+        shouldHideActivitySurface({
+          collapsed: props.collapsed ?? false,
+          surfaceId: surface?.id,
+          activeSurfaceId: props.activeSurfaceId,
+        })
+      ) {
         props.onHide();
       } else if (surface) {
         props.onActivate(surface);
@@ -527,7 +543,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
         activity.onAdd?.();
       }
     },
-    [activeSurfaceKind, props],
+    [props],
   );
 
   const handleSurfaceContextMenu = useCallback(

@@ -168,24 +168,38 @@ function GroupHeading(props: { readonly label: string; readonly count: number })
   );
 }
 
+export function visibleStatusGroupThreads(input: {
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly descendantsByRoot: ReadonlyMap<string, readonly EnvironmentThreadShell[]>;
+  readonly selectedThreadKey: string | null;
+  readonly limit: number;
+}): { readonly threads: readonly EnvironmentThreadShell[]; readonly limit: number } {
+  const selectedIndex = input.threads.findIndex(
+    (thread) =>
+      sidebarThreadKey(thread) === input.selectedThreadKey ||
+      input.descendantsByRoot
+        .get(sidebarThreadKey(thread))
+        ?.some((child) => sidebarThreadKey(child) === input.selectedThreadKey),
+  );
+  const limit = Math.max(input.limit, selectedIndex + 1);
+  return { threads: input.threads.slice(0, limit), limit };
+}
+
 function StatusGroup(props: ConversationGroupsProps & { readonly label: string }) {
   const [limit, setLimit] = useState(20);
-  const visible = props.threads.slice(0, limit);
-  const selected = props.threads.find(
-    (thread) =>
-      sidebarThreadKey(thread) === props.selectedThreadKey ||
-      props.descendantsByRoot
-        .get(sidebarThreadKey(thread))
-        ?.some((child) => sidebarThreadKey(child) === props.selectedThreadKey),
-  );
-  if (selected && !visible.includes(selected)) visible.push(selected);
+  const visible = visibleStatusGroupThreads({
+    threads: props.threads,
+    descendantsByRoot: props.descendantsByRoot,
+    selectedThreadKey: props.selectedThreadKey,
+    limit,
+  });
   return (
     <section aria-label={props.label}>
       {props.grouping === "status" ? (
         <GroupHeading label={props.label} count={props.threads.length} />
       ) : null}
       <ul className="space-y-1">
-        {visible.map((thread) => {
+        {visible.threads.map((thread) => {
           const key = sidebarThreadKey(thread);
           const section = props.threadSectionByKey.get(key) ?? "active";
           return (
@@ -213,10 +227,10 @@ function StatusGroup(props: ConversationGroupsProps & { readonly label: string }
           );
         })}
       </ul>
-      {limit < props.threads.length ? (
+      {visible.limit < props.threads.length ? (
         <button
           type="button"
-          onClick={() => setLimit((value) => value + 20)}
+          onClick={() => setLimit(visible.limit + 20)}
           className="mt-1 h-7 rounded-md px-2 text-[13px] text-sidebar-muted-foreground hover:bg-sidebar-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Show more

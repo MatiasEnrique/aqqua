@@ -196,6 +196,15 @@ For a list or grid the user sees occasionally — not for a list they scroll pas
     transform: translateY(0);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .item {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    animation-delay: 0ms;
+  }
+}
 ```
 
 Stagger is decorative — it must never block interaction while it plays.

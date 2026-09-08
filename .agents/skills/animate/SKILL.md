@@ -1,15 +1,15 @@
 ---
 name: animate
-description: Build an animation from scratch, making the decisions in the order that determines whether it feels right — should it animate at all, what purpose, which tool, which properties, which curve and duration, how it interrupts, how it exits. Writes the implementation. Use when asked to animate something, add motion, make a component feel alive, or build a transition. For critiquing existing motion use review-animations; for auditing a whole codebase use improve-animations.
+description: Build an animation from scratch, making the decisions in the order that determines whether it feels right — should it animate at all, what purpose, which tool, which properties, which curve and duration, how it interrupts, how it exits. Writes the implementation. Use when asked to animate something, add motion, make a component feel alive, or build a transition.
 ---
 
 # Building Animations
 
-A construction skill. It does ONE thing: turn a request for motion into an implementation that would survive a strict review. It does not audit a codebase (that's `improve-animations`), critique a diff (that's `review-animations`), hunt for places that could animate (that's `find-animation-opportunities`), or build for React Native (that's `animate-expo`).
+A construction skill. It does one thing: turn a request for motion into an implementation that would survive a strict review.
 
 ## Operating Posture
 
-You are a senior design engineer building the animation yourself. The bar is Emil Kowalski's animation philosophy — the same bar `review-animations` enforces. Write it so it passes that review the first time.
+You are a senior design engineer building the animation yourself. Use Emil Kowalski's animation philosophy as the review bar.
 
 Two failure modes, and the first is worse:
 
@@ -60,15 +60,15 @@ Also check **function**: data the user is reading or acting on should not move f
 
 Walk down; stop at the first that fits.
 
-| Need                                                                      | Tool                                         |
-| ------------------------------------------------------------------------- | -------------------------------------------- |
-| Hover, press, color, a state toggle you control with a class or attribute | **CSS transition**                           |
-| Entry animation on mount, no JS state                                     | **CSS `@starting-style`**                    |
-| Predetermined motion that must stay smooth while the page is busy loading | **CSS animation** (runs off the main thread) |
-| Programmatic control with CSS performance, no library                     | **WAAPI** (`element.animate()`)              |
-| Springs, layout animations, exit animations, gesture-driven values        | **Motion** (`motion.dev`)                    |
+| Need                                                                      | Tool                            |
+| ------------------------------------------------------------------------- | ------------------------------- |
+| Hover, press, color, a state toggle you control with a class or attribute | **CSS transition**              |
+| Entry animation on mount, no JS state                                     | **CSS `@starting-style`**       |
+| Predetermined motion on compositor-eligible properties                    | **CSS animation**               |
+| Programmatic control with CSS performance, no library                     | **WAAPI** (`element.animate()`) |
+| Springs, layout animations, exit animations, gesture-driven values        | **Motion** (`motion.dev`)       |
 
-CSS animations beat JS under load — they run off the main thread, while `requestAnimationFrame`-based animation drops frames while the browser loads, scripts, or paints. Use CSS for predetermined motion, JS for dynamic and interruptible motion.
+Use CSS for predetermined motion and JavaScript for dynamic, interruptible motion. CSS animations limited to compositor-eligible properties such as `transform` and `opacity` may remain smooth while the main thread is busy. Test animations of other properties on target devices.
 
 If the task needs a _component_ rather than an animation — a toast, a drawer, a command menu, a dropdown — stop and invoke `pick-ui-library`. Hand-rolling those is how you end up with a `<div>` dropdown and no focus management.
 
@@ -78,12 +78,7 @@ If the task needs a _component_ rather than an animation — a toast, a drawer, 
 - **Never `scale(0)`.** Start from `scale(0.9–0.97)` + `opacity: 0`. Nothing in the real world appears from nothing.
 - **`transform-origin` at the trigger** for popovers, dropdowns, menus, tooltips — `var(--transform-origin)` in Base UI. **Modals are exempt**; they're not anchored to a trigger, so they stay centered.
 - **Percentages in `translate()`** are relative to the element's own size — `translateY(100%)` moves by its own height whatever the content. Prefer over hardcoded pixels.
-- **In Motion, use the full transform string.** `x`/`y`/`scale` shorthands are not hardware-accelerated and drop frames under load:
-
-```jsx
-<motion.div animate={{ x: 100 }} />                          // drops frames under load
-<motion.div animate={{ transform: "translateX(100px)" }} />  // hardware accelerated
-```
+- **Motion's `x`/`y`/`scale` shorthands compose into CSS transforms.** Use shorthands when independent transform values help readability, or a full `transform` string when the animation needs exact transform composition. Both can use compositor acceleration.
 
 - **Never drive a child's transform from a CSS variable on the parent** — it recalculates styles for every child. Set `transform` on the element directly.
 
@@ -170,7 +165,7 @@ For ready-to-build implementations of the common cases — button press, dropdow
 
 ## Never Ship
 
-Self-check before you finish. Each of these is an automatic block in `review-animations`:
+Self-check before you finish. Each of these blocks the implementation:
 
 | Never                                                      | Instead                                     |
 | ---------------------------------------------------------- | ------------------------------------------- |
@@ -183,7 +178,6 @@ Self-check before you finish. Each of these is an automatic block in `review-ani
 | `transform-origin: center` on a trigger-anchored popover   | `var(--transform-origin)` (modals exempt)   |
 | Keyframes on toasts, toggles, rapidly-triggered elements   | CSS transitions                             |
 | Animating `width`/`height`/`margin`/`padding`/`top`/`left` | `transform` / `opacity`                     |
-| Motion `x`/`y`/`scale` props under load                    | Full `transform` string                     |
 | Ungated `:hover` motion                                    | `@media (hover: hover) and (pointer: fine)` |
 | Missing `prefers-reduced-motion`                           | Gentler variant, not zero                   |
 | Everything entering at once                                | 30–80ms stagger                             |

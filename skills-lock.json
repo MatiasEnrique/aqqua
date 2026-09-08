@@ -5,31 +5,31 @@
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/animate/SKILL.md",
-      "computedHash": "609e30351bf518b21a8cfe87cd1111554855527075d6563605bafe61963252f7"
+      "computedHash": "2eb48e4ad74798a0ad21aa64a6abd1eb67853e23873d470c5e5ab758c564fbc7"
     },
     "animation-vocabulary": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/animation-vocabulary/SKILL.md",
-      "computedHash": "39319fc9a33c15be08666b3685f58666f042ff36bb902b7814c0834a5ba99df4"
+      "computedHash": "0467041b24408c894d78cd9de440e52bb7586c0c7698f96dc9504ca9bb8df9ca"
     },
     "apple-design": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/apple-design/SKILL.md",
-      "computedHash": "8b94db67cb9edaad5f1501010804caa610131f1d2dfda0a27664b2e858deade3"
+      "computedHash": "beb589f37846a6442bd93943bd27515a9639330480179c10f85e27947845dbeb"
     },
     "emil-design-eng": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/emil-design-eng/SKILL.md",
-      "computedHash": "41b0a4dc1a27164fe297845a6c6850a39e9242c42c9be999967fcee9df2c5974"
+      "computedHash": "11168c7b35b36f378d809b2c3d8738d78b18848e67c9565d93ea5a42947c1b5e"
     },
     "pick-ui-library": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/pick-ui-library/SKILL.md",
-      "computedHash": "f8d4d2cf4677bf54b14f35f62a741add93541bfcb67863315a40164365161b49"
+      "computedHash": "cfe1b55798fe85ff4edef0ef5eb9f95e17adc97e24301c53e53efa3003b6f269"
     }
   }
 }

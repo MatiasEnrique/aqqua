@@ -86,7 +86,7 @@ function HeaderTabScopeQuickAction() {
             size="icon"
             type="button"
             className="size-7 rounded-md focus-visible:ring-offset-2"
-            aria-label={actionLabel}
+            aria-label="Limit header tabs to the selected worktree"
             aria-pressed={showingSelectedWorktree}
             isActive={showingSelectedWorktree}
             onClick={() =>

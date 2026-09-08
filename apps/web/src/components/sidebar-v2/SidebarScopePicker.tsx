@@ -71,7 +71,7 @@ export function SidebarScopePicker<Item>(props: {
               <ComboboxChipsInput
                 aria-label={props.inputLabel}
                 placeholder={chosenItems.length === 0 ? props.allItemsLabel : ""}
-                className="min-w-16 bg-transparent ps-1 text-[13px] font-medium text-sidebar-foreground placeholder:text-sidebar-muted-foreground/80 sm:text-[13px]"
+                className="min-w-16 bg-transparent ps-1 font-medium text-sidebar-foreground placeholder:text-sidebar-muted-foreground/80 sm:text-[13px]"
               />
             </Fragment>
           )}

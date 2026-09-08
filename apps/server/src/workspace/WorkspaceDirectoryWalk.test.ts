@@ -89,6 +89,27 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("walkWorkspaceDirect
       }),
     );
 
+    it.effect("bounds repeated aliases without dropping the directory's real path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir;
+        yield* writeFile(cwd, "source/kept.md");
+        yield* Effect.promise(async () => {
+          for (let index = 0; index < 6; index += 1) {
+            await NodeFSP.symlink("source", `${cwd}/alias-${index}`, "dir");
+          }
+        });
+
+        const result = yield* walkWorkspaceDirectory(cwd);
+        const aliasedFiles = result.entries.filter(
+          (entry) => entry.path.startsWith("alias-") && entry.path.endsWith("/kept.md"),
+        );
+
+        expect(aliasedFiles).toHaveLength(4);
+        expect(result.entries).toContainEqual({ path: "source/kept.md", kind: "file" });
+        expect(result.truncated).toBe(false);
+      }),
+    );
+
     it.effect("does not descend into excluded directories through a symlink alias", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir;

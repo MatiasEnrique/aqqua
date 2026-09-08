@@ -69,7 +69,6 @@ export function ProjectSettingsPopover(props: {
   const target = props.target;
   const close = () => {
     props.handle.close();
-    props.onClose();
   };
   return (
     <Popover

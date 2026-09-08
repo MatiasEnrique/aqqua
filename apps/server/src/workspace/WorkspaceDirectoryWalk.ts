@@ -17,6 +17,7 @@ const WORKSPACE_DIRECTORY_MAX_ENTRIES = 25_000;
 const WORKSPACE_DIRECTORY_WALK_BUDGET_MS = 10_000;
 const WORKSPACE_DIRECTORY_CACHE_TTL = "5 seconds";
 const WORKSPACE_DIRECTORY_CACHE_CAPACITY = 32;
+const MAX_DIRECTORY_ALIAS_VISITS_PER_TARGET = 4;
 
 // Dependency and build caches can exhaust the 25k cap before the walk reaches
 // source files, leaving ordinary project folders with no listed children.
@@ -88,6 +89,7 @@ const walkDirectory = Effect.fn("WorkspaceDirectoryWalk.walkDirectory")(function
     const startedAt = NodePerfHooks.performance.now();
     const entries: ProjectEntry[] = [];
     const gitPaths = new Map<string, string>();
+    const directoryAliasVisits = new Map<string, number>();
     let workspaceRealPath: string;
     try {
       workspaceRealPath = await NodeFSP.realpath(cwd);
@@ -166,6 +168,9 @@ const walkDirectory = Effect.fn("WorkspaceDirectoryWalk.walkDirectory")(function
           ) {
             continue;
           }
+          const visits = directoryAliasVisits.get(directoryRealPath) ?? 0;
+          if (visits >= MAX_DIRECTORY_ALIAS_VISITS_PER_TARGET) continue;
+          directoryAliasVisits.set(directoryRealPath, visits + 1);
         }
         pendingDirectories.push({
           absolutePath: directoryRealPath,

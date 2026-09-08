@@ -19,7 +19,11 @@ import {
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
-import { useProjects, useThreadShells } from "../../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../../state/server";
@@ -130,6 +134,7 @@ export function useSidebarV2Sections(): SidebarV2Sections {
   const reorderWorktrees = useUiStateStore((store) => store.reorderWorktrees);
   const rememberWorktreeOrder = useUiStateStore((store) => store.rememberWorktreeOrder);
   const threads = useThreadShells();
+  const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -514,9 +519,6 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     () => filterHiddenSidebarWorktreeGroups(unfilteredWorktreeGroups, hiddenWorktreeKeys),
     [hiddenWorktreeKeys, unfilteredWorktreeGroups],
   );
-  useEffect(() => {
-    rememberWorktreeOrder(visibleWorktreeGroups.map((worktree) => worktree.key));
-  }, [rememberWorktreeOrder, visibleWorktreeGroups]);
   const worktreeGroups = useMemo(
     () =>
       orderItemsByPreferredIds({
@@ -724,6 +726,18 @@ export function useSidebarV2Sections(): SidebarV2Sections {
       worktreeProjectsByKey,
     ],
   );
+  useEffect(() => {
+    if (!allEnvironmentShellsBootstrapped) return;
+    rememberWorktreeOrder(
+      visibleWorktreeGroups.map((worktree) => worktree.key),
+      completeWorktreeGroups.map((worktree) => worktree.key),
+    );
+  }, [
+    allEnvironmentShellsBootstrapped,
+    completeWorktreeGroups,
+    rememberWorktreeOrder,
+    visibleWorktreeGroups,
+  ]);
   const worktreeKeyByThreadKey = useMemo(
     () =>
       new Map(
