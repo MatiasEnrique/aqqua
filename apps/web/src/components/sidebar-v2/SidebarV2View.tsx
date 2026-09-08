@@ -162,8 +162,14 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   } = worktreesSection;
 
   const { attemptDeleteWorktree, handleLocationContextMenu } = worktreeLifecycle;
-  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, confirmAndDeleteThread } =
-    useThreadActions();
+  const {
+    settleThread,
+    unsettleThread,
+    snoozeThread,
+    unsnoozeThread,
+    confirmAndDeleteThread,
+    deleteThreads,
+  } = useThreadActions();
   const {
     handleRemoveProjectMembers,
     renameProjectMember,
@@ -330,15 +336,31 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     [settleThread, unsettleThread],
   );
 
-  /** The settled shelf's quick delete: same confirmation the context menu runs. */
-  const handleDeleteThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      void confirmAndDeleteThread(thread).then((result) => {
-        if (result._tag === "Success") return;
-        toastManager.add({ type: "error", title: "Could not delete conversation" });
+  /**
+   * The settled shelf's delete, for one row or a whole selection: same
+   * confirmation the context menu runs, asked once for the batch.
+   */
+  const handleDeleteThreads = useCallback(
+    (threads: readonly EnvironmentThreadShell[]) => {
+      if (threads.length === 0) return;
+      void deleteThreads(threads).then((result) => {
+        if (result._tag !== "Success") {
+          toastManager.add({
+            type: "error",
+            title:
+              threads.length === 1
+                ? "Could not delete conversation"
+                : "Could not delete conversations",
+          });
+          return;
+        }
+        // Null means the confirmation was declined, so nothing left the sidebar.
+        if (result.value !== null) {
+          useThreadSelectionStore.getState().removeFromSelection([...result.value]);
+        }
       });
     },
-    [confirmAndDeleteThread],
+    [deleteThreads],
   );
 
   const handleThreadContextMenu = useCallback(
@@ -764,7 +786,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                   handleThreadContextMenu(event, thread, "settled")
                 }
                 onRestoreThread={(thread) => handleToggleThreadSettled(thread, "settled")}
-                onDeleteThread={handleDeleteThread}
+                onDeleteThreads={handleDeleteThreads}
               />
             )}
           </SidebarGroup>

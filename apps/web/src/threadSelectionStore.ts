@@ -22,6 +22,12 @@ interface ThreadSelectionStore extends ThreadSelectionState {
    * so the store can compute which threads fall between anchor and target.
    */
   rangeSelectTo: (threadKey: string, orderedThreadKeys: readonly string[]) => void;
+  /**
+   * Replace the whole selection at once, keeping the anchor if it survives.
+   * Drag-select needs this: every pointer move recomputes the set the marquee
+   * covers, which a sequence of toggles cannot express.
+   */
+  setSelection: (threadKeys: readonly string[]) => void;
   /** Clear all selection state. */
   clearSelection: () => void;
   /** Remove specific scoped thread keys from the selection (e.g. after deletion). */
@@ -83,6 +89,25 @@ export const useThreadSelectionStore = create<ThreadSelectionStore>((set, get) =
       }
       // Keep anchor stable so subsequent shift-clicks extend from the same point
       return { selectedThreadKeys: next, anchorThreadKey: anchor };
+    });
+  },
+
+  setSelection: (threadKeys) => {
+    set((state) => {
+      const next = new Set(threadKeys);
+      if (
+        next.size === state.selectedThreadKeys.size &&
+        [...next].every((key) => state.selectedThreadKeys.has(key))
+      ) {
+        return state;
+      }
+      return {
+        selectedThreadKeys: next,
+        anchorThreadKey:
+          state.anchorThreadKey !== null && next.has(state.anchorThreadKey)
+            ? state.anchorThreadKey
+            : null,
+      };
     });
   },
 

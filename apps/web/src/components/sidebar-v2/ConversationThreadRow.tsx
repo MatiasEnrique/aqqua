@@ -80,7 +80,7 @@ export function ConversationThreadRow(props: {
       data-sidebar-thread-key={threadKey}
       aria-current={props.isSelected || childSelected ? "page" : undefined}
       className={cn(
-        "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md py-0.5 pl-2 pr-10 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+        "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md py-0.5 pl-6 pr-10 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
         props.isSelected || childSelected || isMultiSelected
           ? "bg-sidebar-row-active text-sidebar-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-row-hover",

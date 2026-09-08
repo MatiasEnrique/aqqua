@@ -8,11 +8,33 @@ import {
   ThreadId,
 } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../ProjectFavicon", () => ({
   ProjectFavicon: ({ cwd }: { cwd: string }) => <span data-project-favicon={cwd} />,
 }));
+
+/**
+ * The shelf subscribes to the selection store directly rather than taking it
+ * as a prop, so a drag repaints ten rows instead of the whole sidebar. Under
+ * `renderToStaticMarkup` a zustand hook reports its INITIAL state, so the
+ * selection these tests want to see has to be stubbed in.
+ */
+const selection = vi.hoisted(() => ({ keys: new Set<string>() }));
+vi.mock("../../threadSelectionStore", () => {
+  const readState = () => ({
+    selectedThreadKeys: selection.keys,
+    removeFromSelection: () => {},
+    clearSelection: () => {},
+    toggleThread: () => {},
+    rangeSelectTo: () => {},
+    setSelection: () => {},
+  });
+  const useThreadSelectionStore = <T,>(selector: (state: ReturnType<typeof readState>) => T): T =>
+    selector(readState());
+  useThreadSelectionStore.getState = readState;
+  return { useThreadSelectionStore };
+});
 
 const { SidebarSettledSection } = await import("./SidebarSettledSection");
 
@@ -60,11 +82,15 @@ const render = (threads: readonly EnvironmentThreadShell[], selectedThreadKey: s
       onSelectThread={() => {}}
       onThreadContextMenu={() => {}}
       onRestoreThread={() => {}}
-      onDeleteThread={() => {}}
+      onDeleteThreads={() => {}}
     />,
   );
 
 describe("SidebarSettledSection", () => {
+  afterEach(() => {
+    selection.keys = new Set();
+  });
+
   it("stays out of the sidebar entirely when nothing is settled", () => {
     expect(render([], null)).toBe("");
   });
@@ -120,5 +146,36 @@ describe("SidebarSettledSection", () => {
     expect(markup).toContain(">14<");
     expect(markup).toContain("Settled 9");
     expect(markup).not.toContain("Settled 10");
+  });
+
+  it("stays out of the way until something is multi-selected", () => {
+    const settled = thread();
+
+    expect(render([settled], threadKey(settled))).not.toContain(
+      "data-sidebar-settled-selection-bar",
+    );
+  });
+
+  it("offers one delete for the whole selection, counting only the rows it shows", () => {
+    const first = thread();
+    const second = thread({ id: ThreadId.make("thread-2"), title: "Rework the header" });
+    selection.keys = new Set([threadKey(first), threadKey(second), "local:thread-elsewhere"]);
+
+    const markup = render([first, second], threadKey(first));
+
+    expect(markup).toContain("data-sidebar-settled-selection-bar");
+    expect(markup).toContain("2 selected");
+    expect(markup).toContain("Delete");
+    expect(markup).toContain('aria-label="Clear selection"');
+  });
+
+  it("marks selected rows so a marquee shows what it caught", () => {
+    const first = thread();
+    const second = thread({ id: ThreadId.make("thread-2"), title: "Rework the header" });
+    selection.keys = new Set([threadKey(second)]);
+
+    const markup = render([first, second], threadKey(first));
+
+    expect(markup.match(/data-multi-selected/g)).toHaveLength(1);
   });
 });

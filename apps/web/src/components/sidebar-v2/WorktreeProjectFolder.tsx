@@ -47,12 +47,12 @@ export function WorktreeProjectFolder(props: {
           // to the right of its own children's icons, which read as the tree
           // upside down. The project icon is the row's anchor instead, on the
           // same left edge as the branch icon of every card beneath it.
-          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md pl-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md pl-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
           <ProjectFavicon
             environmentId={props.environmentId}
             cwd={props.workspaceRoot}
-            className="size-4 shrink-0 rounded-sm"
+            className="size-3.5 shrink-0 rounded-sm"
           />
           <span className="min-w-0 truncate text-[13px] font-medium leading-5 text-sidebar-foreground">
             {props.displayName}

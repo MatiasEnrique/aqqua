@@ -159,7 +159,7 @@ export function SidebarConversationGroups(props: ConversationGroupsProps) {
 
 function GroupHeading(props: { readonly label: string; readonly count: number }) {
   return (
-    <h3 className="mb-1 flex h-8 items-center gap-2 rounded-md bg-sidebar-control-surface/60 px-2 text-[13px] font-semibold text-sidebar-foreground">
+    <h3 className="mb-1 flex h-8 items-center gap-2 rounded-md bg-sidebar-control-surface/60 pl-6 pr-2 text-[13px] font-semibold text-sidebar-foreground">
       {props.label}
       <span className="text-[11px] font-normal tabular-nums text-sidebar-muted-foreground">
         {props.count}
@@ -231,7 +231,7 @@ function StatusGroup(props: ConversationGroupsProps & { readonly label: string }
         <button
           type="button"
           onClick={() => setLimit(visible.limit + 20)}
-          className="mt-1 h-7 rounded-md px-2 text-[13px] text-sidebar-muted-foreground hover:bg-sidebar-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 h-7 rounded-md pl-6 pr-2 text-[13px] text-sidebar-muted-foreground hover:bg-sidebar-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Show more
         </button>

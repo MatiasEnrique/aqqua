@@ -208,6 +208,42 @@ describe("threadSelectionStore", () => {
     });
   });
 
+  describe("setSelection", () => {
+    it("replaces the whole selection, which is what a redrawn marquee means", () => {
+      const store = useThreadSelectionStore.getState();
+      store.toggleThread(THREAD_A);
+      store.setSelection([THREAD_C, THREAD_D]);
+
+      const state = useThreadSelectionStore.getState();
+      expect([...state.selectedThreadKeys]).toEqual([THREAD_C, THREAD_D]);
+    });
+
+    it("keeps the anchor while it survives, so a shift-click after a drag still extends", () => {
+      const store = useThreadSelectionStore.getState();
+      store.toggleThread(THREAD_B);
+      store.setSelection([THREAD_B, THREAD_C]);
+
+      expect(useThreadSelectionStore.getState().anchorThreadKey).toBe(THREAD_B);
+    });
+
+    it("drops an anchor the new selection no longer holds", () => {
+      const store = useThreadSelectionStore.getState();
+      store.toggleThread(THREAD_A);
+      store.setSelection([THREAD_C]);
+
+      expect(useThreadSelectionStore.getState().anchorThreadKey).toBe(null);
+    });
+
+    it("leaves state untouched when the set is unchanged, so a still drag repaints nothing", () => {
+      const store = useThreadSelectionStore.getState();
+      store.setSelection([THREAD_A, THREAD_B]);
+      const before = useThreadSelectionStore.getState().selectedThreadKeys;
+      store.setSelection([THREAD_B, THREAD_A]);
+
+      expect(useThreadSelectionStore.getState().selectedThreadKeys).toBe(before);
+    });
+  });
+
   describe("clearSelection", () => {
     it("clears all selected threads and anchor", () => {
       const store = useThreadSelectionStore.getState();

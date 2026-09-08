@@ -229,7 +229,7 @@ export function WorktreeCard(props: {
       >
         <div
           className={cn(
-            "relative flex h-8 items-center gap-1.5 rounded-md px-2 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+            "relative flex h-8 items-center gap-1.5 rounded-md pl-1 pr-2 transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
             // Selection is a *tinted* surface, not a lifted white one: the
             // registry sits on the sidebar's own ground, and hover is the same
             // material at half strength so the two never read as one state.
@@ -242,7 +242,7 @@ export function WorktreeCard(props: {
             <WorktreeDragHandle
               label={group.label}
               sortable={props.sortable}
-              className="absolute left-0.5 z-10 opacity-0 pointer-fine:group-hover/worktree:opacity-100 group-focus-within/worktree:opacity-100 focus-visible:opacity-100"
+              className="absolute -left-px z-10 opacity-0 pointer-fine:group-hover/worktree:opacity-100 group-focus-within/worktree:opacity-100 focus-visible:opacity-100"
             />
           ) : null}
           <button
@@ -331,7 +331,7 @@ export function WorktreeCard(props: {
             id={conversationListId}
             className="transition-[height,opacity] duration-200 ease-(--ease-fluid) data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none"
           >
-            <ul className="space-y-1 pt-1 pl-2">
+            <ul className="space-y-1 pt-1">
               {group.drafts.map((draft) => (
                 <ConversationDraftRow
                   key={`draft:${draft.draftId}`}
@@ -416,7 +416,7 @@ export function ConversationDraftRow(props: {
         onContextMenu={props.onContextMenu}
         aria-current={props.isSelected ? "page" : undefined}
         className={cn(
-          "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md py-0.5 pl-2 pr-10 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+          "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md py-0.5 pl-6 pr-10 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
           props.isSelected
             ? "bg-sidebar-row-active text-sidebar-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-row-hover",

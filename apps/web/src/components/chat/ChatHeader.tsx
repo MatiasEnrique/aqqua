@@ -144,27 +144,24 @@ export const ChatHeader = memo(function ChatHeader({
             {...(onOpenPullRequest ? { onOpenPullRequest } : {})}
           />
           {worktreeActions}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size={rail ? "icon-xs" : "sm"}
-                  className={
-                    rail
-                      ? "size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground"
-                      : undefined
-                  }
-                  aria-label="New thread in project"
-                  onClick={onNewThreadInProject}
-                />
-              }
-            >
-              <MessageSquareIcon aria-hidden className={rail ? "size-[18px]" : "size-3.5"} />
-              {rail ? null : "New thread in project"}
-            </TooltipTrigger>
-            <TooltipPopup side={rail ? "left" : "bottom"}>New thread in project</TooltipPopup>
-          </Tooltip>
+          {rail ? null : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="New thread in project"
+                    onClick={onNewThreadInProject}
+                  />
+                }
+              >
+                <MessageSquareIcon aria-hidden className="size-3.5" />
+                New thread in project
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">New thread in project</TooltipPopup>
+            </Tooltip>
+          )}
         </>
       ) : null}
       {rightPanelSurfaceControls}
