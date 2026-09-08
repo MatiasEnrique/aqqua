@@ -1,12 +1,14 @@
 import {
   AVAILABLE_CONNECTION_STATE,
   connectionProjectionPhase,
+  type SupervisorConnectionState,
 } from "@aqqua/client-runtime/connection";
 import {
   createEnvironmentShellAtoms,
   createEnvironmentShellSummaryAtom,
   createEnvironmentSnapshotAtom,
   createShellEnvironmentAtoms,
+  type EnvironmentShellState,
 } from "@aqqua/client-runtime/state/shell";
 import type { EnvironmentId } from "@aqqua/contracts";
 import * as Option from "effect/Option";
@@ -41,19 +43,30 @@ export const liveEnvironmentShellIdsAtom = Atom.make((get) => {
   return previousLiveEnvironmentIds;
 }).pipe(Atom.withLabel("web-live-environment-shell-ids"));
 
-export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
-  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
-  if (Option.isNone(catalog)) {
-    return false;
-  }
-  for (const environmentId of catalog.value.entries.keys()) {
-    if (Option.isSome(get(environmentShell.stateValueAtom(environmentId)).snapshot)) {
+interface EnvironmentShellBootstrapState {
+  readonly shell: EnvironmentShellState;
+  readonly connection: SupervisorConnectionState;
+}
+
+export function areEnvironmentShellsBootstrapped(
+  states: ReadonlyArray<EnvironmentShellBootstrapState>,
+): boolean {
+  for (const { shell, connection } of states) {
+    if (Option.isSome(shell.snapshot)) {
       continue;
     }
-    const connection = Option.getOrElse(
-      AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
-      () => AVAILABLE_CONNECTION_STATE,
-    );
+    // Runtime-backed connection atoms expose this placeholder while the
+    // registry is still acquiring and connecting the real supervisor. Calling
+    // it a completed disconnection creates a one-render window where restored
+    // UI state can be pruned against an empty shell.
+    if (
+      connection.phase === "available" &&
+      !connection.desired &&
+      connection.attempt === 0 &&
+      connection.generation === 0
+    ) {
+      return false;
+    }
     if (connectionProjectionPhase(connection) !== "disconnected") {
       return false;
     }
@@ -64,4 +77,20 @@ export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
     }
   }
   return true;
+}
+
+export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
+  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
+  if (Option.isNone(catalog)) {
+    return false;
+  }
+  return areEnvironmentShellsBootstrapped(
+    [...catalog.value.entries.keys()].map((environmentId) => ({
+      shell: get(environmentShell.stateValueAtom(environmentId)),
+      connection: Option.getOrElse(
+        AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
+        () => AVAILABLE_CONNECTION_STATE,
+      ),
+    })),
+  );
 }).pipe(Atom.withLabel("web-all-environment-shells-bootstrapped"));
