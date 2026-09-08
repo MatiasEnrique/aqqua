@@ -112,6 +112,12 @@ This is useful when a Codex-compatible setup needs account-specific variables. A
 the provider instance that should receive them, and mark API keys or tokens as sensitive. Sensitive
 values are stored as server secrets and are not sent back to the app after saving.
 
+## GPT-6-Astra
+
+aqqua includes `gpt-6-astra` in the Codex model picker while older Codex CLI builds do not advertise
+it through `model/list`. Once the CLI returns Astra itself, aqqua uses the CLI's model metadata and
+does not add a second entry. Astra supports low through ultra reasoning and defaults to medium.
+
 ## Can I Switch Accounts In An Existing Thread?
 
 Yes, when both Codex providers share the same `CODEX_HOME path`.

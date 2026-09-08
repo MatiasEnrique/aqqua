@@ -1,6 +1,10 @@
 import { assert, it } from "@effect/vitest";
 
-import { applyPreferredCodexDefaultModel, mapCodexModelCapabilities } from "./CodexProvider.ts";
+import {
+  appendKnownAndCustomCodexModels,
+  applyPreferredCodexDefaultModel,
+  mapCodexModelCapabilities,
+} from "./CodexProvider.ts";
 
 it("maps current Codex model capability fields", () => {
   const capabilities = mapCodexModelCapabilities({
@@ -102,6 +106,50 @@ it("uses standard routing when the catalog has no default service tier", () => {
       currentValue: "default",
     },
   ]);
+});
+
+it("adds GPT-6-Astra when Codex has not advertised it yet", () => {
+  const models = appendKnownAndCustomCodexModels(
+    [{ slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null }],
+    [],
+  );
+
+  const astra = models.find((model) => model.slug === "gpt-6-astra");
+  assert.equal(astra?.name, "GPT-6-Astra");
+  assert.equal(astra?.isCustom, false);
+  assert.deepStrictEqual(
+    astra?.capabilities?.optionDescriptors?.find(
+      (descriptor) => descriptor.semantic === "reasoning",
+    ),
+    {
+      id: "reasoningEffort",
+      label: "Reasoning",
+      semantic: "reasoning",
+      type: "select",
+      options: [
+        { id: "low", label: "Low" },
+        { id: "medium", label: "Medium", isDefault: true },
+        { id: "high", label: "High" },
+        { id: "xhigh", label: "Extra High" },
+        { id: "max", label: "Max" },
+        { id: "ultra", label: "Ultra" },
+      ],
+      currentValue: "medium",
+    },
+  );
+});
+
+it("keeps Codex's live GPT-6-Astra metadata without adding a duplicate", () => {
+  const liveAstra = {
+    slug: "gpt-6-astra",
+    name: "Astra from Codex",
+    isCustom: false,
+    isDefault: true,
+    capabilities: null,
+  };
+  const models = appendKnownAndCustomCodexModels([liveAstra], ["gpt-6-astra"]);
+
+  assert.deepStrictEqual(models, [liveAstra]);
 });
 
 it("marks the most preferred available model as default", () => {

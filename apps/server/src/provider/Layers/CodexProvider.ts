@@ -66,6 +66,47 @@ const REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
 
 const DEFAULT_SERVICE_TIER_ID = "default";
 
+const AQQUA_KNOWN_CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gpt-6-astra",
+    name: "GPT-6-Astra",
+    isCustom: false,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        {
+          id: "reasoningEffort",
+          label: "Reasoning",
+          semantic: "reasoning",
+          type: "select",
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium", isDefault: true },
+            { id: "high", label: "High" },
+            { id: "xhigh", label: "Extra High" },
+            { id: "max", label: "Max" },
+            { id: "ultra", label: "Ultra" },
+          ],
+          currentValue: "medium",
+        },
+        {
+          id: "serviceTier",
+          label: "Service Tier",
+          type: "select",
+          options: [
+            { id: "default", label: "Standard", isDefault: true },
+            {
+              id: "priority",
+              label: "Fast",
+              description: "1.5x speed, increased usage",
+            },
+          ],
+          currentValue: "default",
+        },
+      ],
+    }),
+  },
+];
+
 function reasoningEffortLabel(reasoningEffort: string): string {
   return REASONING_EFFORT_LABELS[reasoningEffort] ?? reasoningEffort;
 }
@@ -223,16 +264,16 @@ export function applyPreferredCodexDefaultModel(
   });
 }
 
-function appendCustomCodexModels(
+export function appendKnownAndCustomCodexModels(
   models: ReadonlyArray<ServerProviderModel>,
   customModels: ReadonlyArray<string>,
 ): ReadonlyArray<ServerProviderModel> {
-  if (customModels.length === 0) {
-    return models;
-  }
-
   const seen = new Set(models.map((model) => model.slug));
   const fallbackCapabilities = models.find((model) => model.capabilities)?.capabilities ?? null;
+  const knownEntries = AQQUA_KNOWN_CODEX_MODELS.filter((model) => !seen.has(model.slug));
+  for (const model of knownEntries) {
+    seen.add(model.slug);
+  }
   const customEntries: ServerProviderModel[] = [];
   for (const rawModel of customModels) {
     const slug = rawModel.trim();
@@ -247,7 +288,9 @@ function appendCustomCodexModels(
       capabilities: fallbackCapabilities,
     });
   }
-  return customEntries.length === 0 ? models : [...models, ...customEntries];
+  return knownEntries.length === 0 && customEntries.length === 0
+    ? models
+    : [...knownEntries, ...models, ...customEntries];
 }
 
 /**
@@ -413,7 +456,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     return {
       account: accountResponse,
       version,
-      models: appendCustomCodexModels([], input.customModels ?? []),
+      models: appendKnownAndCustomCodexModels([], input.customModels ?? []),
       skills: [],
     } satisfies CodexAppServerProviderSnapshot;
   }
@@ -432,7 +475,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     account: accountResponse,
     version,
     models: applyPreferredCodexDefaultModel(
-      appendCustomCodexModels(models, input.customModels ?? []),
+      appendKnownAndCustomCodexModels(models, input.customModels ?? []),
     ),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
   } satisfies CodexAppServerProviderSnapshot;
@@ -645,19 +688,7 @@ export const readCodexSession = Effect.fn("readCodexSession")(function* (input: 
 });
 
 const emptyCodexModelsFromSettings = (codexSettings: CodexSettings): ServerProvider["models"] => {
-  const models = new Set<string>();
-  for (const model of codexSettings.customModels) {
-    const trimmed = model.trim();
-    if (trimmed.length > 0) {
-      models.add(trimmed);
-    }
-  }
-  return Array.from(models, (model) => ({
-    slug: model,
-    name: model,
-    isCustom: true,
-    capabilities: null,
-  }));
+  return appendKnownAndCustomCodexModels([], codexSettings.customModels);
 };
 
 const makePendingCodexProvider = (
