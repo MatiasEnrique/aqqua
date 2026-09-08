@@ -69,6 +69,8 @@ export type SidebarProjectsSection = {
 export type SidebarThreadsSection = {
   readonly orderedThreadKeys: readonly string[];
   readonly threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
+  /** In scope, most recently settled first — what the settled shelf shows. */
+  readonly settledThreads: readonly EnvironmentThreadShell[];
 };
 
 /** Worktree/repository grouping and ephemeral delete hide. */
@@ -128,6 +130,7 @@ export type ProjectActionsController = {
 export type SidebarNavigationController = {
   readonly navigateToThread: (threadRef: ScopedThreadRef) => void;
   readonly navigateToDraft: (draftId: string) => void;
+  readonly createThreadInWorktree: (worktree: SidebarWorktreeGroup) => void;
   readonly discardDraft: (draftId: string) => void;
   readonly handleNewThreadClick: () => void;
   readonly attachListAutoAnimateRef: (node: HTMLUListElement | null) => void;

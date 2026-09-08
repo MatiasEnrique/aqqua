@@ -5,9 +5,6 @@ import { passkeys } from "@clerk/electron/passkeys";
 import { ClerkProvider as ElectronClerkProvider } from "@clerk/electron/react";
 import { createHashHistory, createBrowserHistory } from "@tanstack/react-router";
 
-// opsz, not index: index ships the weight axis only. Inter's optical-size axis
-// keeps compact UI text legible at 11-13px.
-import "@fontsource-variable/inter/opsz.css";
 import "@fontsource-variable/ibm-plex-sans/index.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";

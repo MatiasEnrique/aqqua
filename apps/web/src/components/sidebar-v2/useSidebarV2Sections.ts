@@ -30,7 +30,11 @@ import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../.
 import { useAtomCommand } from "../../state/use-atom-command";
 import { resolveActiveThreadRouteRef, resolveThreadRouteTarget } from "../../threadRoutes";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../../uiStateStore";
 import {
   firstValidTimestampMs,
   orderItemsByPreferredIds,
@@ -46,6 +50,7 @@ import {
   buildSidebarWorktreeGroups,
   canReorderSidebarWorktrees,
   filterHiddenSidebarWorktreeGroups,
+  resolveSidebarConversationWorktreeKey,
   sidebarProjectKey,
 } from "../Sidebar.worktreeGroups";
 import { useSidebar } from "../ui/sidebar";
@@ -65,10 +70,12 @@ import {
   type ProjectScopeSelection,
   projectScopeSelectionFromKeys,
   projectScopeSelectionKey,
-  pruneProjectScopeSelection,
+  resolveScopedProjectKeys,
   resolveSelectedProjectGroups,
   resolveSoleScopedProjectGroup,
 } from "./projectScopeSelection";
+import { orderThreadsParentFirst } from "./WorktreeCard";
+import { buildWorktreeCardGroups } from "./worktreeCardGroups";
 
 export type {
   SidebarProjectsSection,
@@ -122,12 +129,12 @@ export type SidebarV2Runtime = {
  */
 export function useSidebarV2Sections(): SidebarV2Sections {
   const projects = useProjects();
-  const projectsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const worktreeOrder = useUiStateStore((store) => store.worktreeOrder);
   const reorderWorktrees = useUiStateStore((store) => store.reorderWorktrees);
   const rememberWorktreeOrder = useUiStateStore((store) => store.rememberWorktreeOrder);
   const threads = useThreadShells();
+  const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -336,27 +343,11 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     setProjectScopeKeys([]);
   }, [setProjectScopeKeys]);
   const scopedProjectKeys = useMemo(
-    () =>
-      scopedProjectGroups.length === 0
-        ? null
-        : new Set(
-            scopedProjectGroups.flatMap((group) =>
-              group.memberProjectRefs.map(
-                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-              ),
-            ),
-          ),
-    [scopedProjectGroups],
+    () => resolveScopedProjectKeys(projectScopeSelection, scopedProjectGroups),
+    [projectScopeSelection, scopedProjectGroups],
   );
-  // A project that disappears — deleted, or regrouped under a new key by
-  // Settings → General — must not keep filtering the list from a chip that is
-  // no longer rendered. Wait for bootstrap before treating absence as deletion,
-  // or a cold reload would erase the restored scope while projects are loading.
-  useEffect(() => {
-    if (!projectsBootstrapped) return;
-    const next = pruneProjectScopeSelection(projectScopeSelection, projectGroups);
-    if (next !== projectScopeSelection) setProjectScopeKeys([...next]);
-  }, [projectGroups, projectScopeSelection, projectsBootstrapped, setProjectScopeKeys]);
+  // Derive the visible scope without overwriting saved keys: a missing project
+  // may still be loading or belong to a disconnected environment.
   // Scope flips drop the selection: rows selected under the old scope may be
   // hidden now, and bulk actions must never count or touch invisible rows.
   const projectScopeKey = useMemo(
@@ -437,9 +428,9 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     const bySoonestWake = (left: EnvironmentThreadShell, right: EnvironmentThreadShell) =>
       firstValidTimestampMs(left.snoozedUntil ?? null) -
       firstValidTimestampMs(right.snoozedUntil ?? null);
-    const unscopedActive = sortThreadsForSidebarV2(active);
-    const unscopedSnoozed = snoozed.toSorted(bySoonestWake);
-    const unscopedSettled = sortSettledThreadsForSidebarV2(settled);
+    const unscopedActive = orderThreadsParentFirst(sortThreadsForSidebarV2(active));
+    const unscopedSnoozed = orderThreadsParentFirst(snoozed.toSorted(bySoonestWake));
+    const unscopedSettled = orderThreadsParentFirst(sortSettledThreadsForSidebarV2(settled));
     return {
       // Filtering after the sort keeps both views in one order.
       activeThreads: unscopedActive.filter(inScope),
@@ -528,9 +519,6 @@ export function useSidebarV2Sections(): SidebarV2Sections {
     () => filterHiddenSidebarWorktreeGroups(unfilteredWorktreeGroups, hiddenWorktreeKeys),
     [hiddenWorktreeKeys, unfilteredWorktreeGroups],
   );
-  useEffect(() => {
-    rememberWorktreeOrder(visibleWorktreeGroups.map((worktree) => worktree.key));
-  }, [rememberWorktreeOrder, visibleWorktreeGroups]);
   const worktreeGroups = useMemo(
     () =>
       orderItemsByPreferredIds({
@@ -577,26 +565,86 @@ export function useSidebarV2Sections(): SidebarV2Sections {
           )?.state ?? "idle"),
     [repositoryGroups, scopedProjectGroup],
   );
-  const orderedThreads = useMemo(
+  const scopedWorktreeKeyByThreadKey = useMemo(
+    () =>
+      new Map(
+        [...activeThreads, ...snoozedThreads, ...settledThreads].flatMap((thread) => {
+          const worktreeKey = resolveSidebarConversationWorktreeKey({
+            environmentId: thread.environmentId,
+            projectId: thread.projectId,
+            worktreePath: thread.worktreePath,
+            projectRootByProjectKey: projectCwdByKey,
+          });
+          return worktreeKey === null
+            ? []
+            : [
+                [
+                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                  worktreeKey,
+                ] as const,
+              ];
+        }),
+      ),
+    [activeThreads, projectCwdByKey, settledThreads, snoozedThreads],
+  );
+  const worktreeCardGroups = useMemo(
+    () =>
+      buildWorktreeCardGroups({
+        repositories: repositoryGroups,
+        worktrees: worktreeGroups,
+        selection: projectScopeSelection,
+      }),
+    [projectScopeSelection, repositoryGroups, worktreeGroups],
+  );
+  const orderedThreadKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const cardGroup of worktreeCardGroups) {
+      if (
+        cardGroup.project !== null &&
+        !resolveProjectExpanded(projectExpandedById, [cardGroup.project.projectKey])
+      ) {
+        continue;
+      }
+      for (const worktree of cardGroup.worktrees) {
+        for (const thread of [...worktree.active, ...worktree.snoozed]) {
+          keys.push(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+        }
+        // Settled history lives in the shelf at the foot of the list, and the
+        // shelf opens itself on the routed conversation — so a routed settled
+        // row is still traversable even though no card shows it.
+        if (
+          routeThreadKey !== null &&
+          scopedWorktreeKeyByThreadKey.get(routeThreadKey) === worktree.key &&
+          settledThreads.some(
+            (thread) =>
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
+          )
+        ) {
+          keys.push(routeThreadKey);
+        }
+      }
+    }
+    return keys;
+  }, [
+    projectExpandedById,
+    routeThreadKey,
+    scopedWorktreeKeyByThreadKey,
+    settledThreads,
+    worktreeCardGroups,
+  ]);
+  const allThreads = useMemo(
     () => [...activeThreads, ...snoozedThreads, ...settledThreads],
     [activeThreads, settledThreads, snoozedThreads],
-  );
-  const orderedThreadKeys = useMemo(
-    () =>
-      orderedThreads.map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-    [orderedThreads],
   );
   const threadByKey = useMemo(
     () =>
       new Map(
-        orderedThreads.map(
+        allThreads.map(
           (thread) =>
             [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
         ),
       ),
-    [orderedThreads],
+    [allThreads],
   );
   // handleNewThread is inherently unstable (depends on the projects list);
   // a ref keeps it out of attemptSettle's dependency array.
@@ -639,6 +687,7 @@ export function useSidebarV2Sections(): SidebarV2Sections {
   const threadsSection: SidebarThreadsSection = {
     orderedThreadKeys,
     threadByKey,
+    settledThreads,
   };
 
   const hideWorktreeKey = useCallback((key: string) => {
@@ -677,6 +726,42 @@ export function useSidebarV2Sections(): SidebarV2Sections {
       worktreeProjectsByKey,
     ],
   );
+  useEffect(() => {
+    if (!allEnvironmentShellsBootstrapped) return;
+    rememberWorktreeOrder(
+      visibleWorktreeGroups.map((worktree) => worktree.key),
+      completeWorktreeGroups.map((worktree) => worktree.key),
+    );
+  }, [
+    allEnvironmentShellsBootstrapped,
+    completeWorktreeGroups,
+    rememberWorktreeOrder,
+    visibleWorktreeGroups,
+  ]);
+  const worktreeKeyByThreadKey = useMemo(
+    () =>
+      new Map(
+        [...unscopedActiveThreads, ...unscopedSnoozedThreads, ...unscopedSettledThreads].flatMap(
+          (thread) => {
+            const worktreeKey = resolveSidebarConversationWorktreeKey({
+              environmentId: thread.environmentId,
+              projectId: thread.projectId,
+              worktreePath: thread.worktreePath,
+              projectRootByProjectKey: projectCwdByKey,
+            });
+            return worktreeKey === null
+              ? []
+              : [
+                  [
+                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                    worktreeKey,
+                  ] as const,
+                ];
+          },
+        ),
+      ),
+    [projectCwdByKey, unscopedActiveThreads, unscopedSettledThreads, unscopedSnoozedThreads],
+  );
   // One source of truth for "which worktree am I in", shared by the card list
   // and the header tab strip so the two surfaces can never disagree.
   const activeWorktreeKey = useMemo(
@@ -685,9 +770,16 @@ export function useSidebarV2Sections(): SidebarV2Sections {
         routeThreadKey,
         routeDraftId,
         worktreeGroups: completeWorktreeGroups,
+        worktreeKeyByThreadKey,
         overrideKey: activeWorktreeOverrideKey,
       }),
-    [activeWorktreeOverrideKey, completeWorktreeGroups, routeDraftId, routeThreadKey],
+    [
+      activeWorktreeOverrideKey,
+      completeWorktreeGroups,
+      routeDraftId,
+      routeThreadKey,
+      worktreeKeyByThreadKey,
+    ],
   );
   const activeWorktreeGroup = useMemo(
     () => completeWorktreeGroups.find((group) => group.key === activeWorktreeKey) ?? null,

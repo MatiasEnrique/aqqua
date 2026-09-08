@@ -7,14 +7,14 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#fdfbf7" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#100f0e" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#100f0e" />
+    <meta name="theme-color" content="#121118" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#121118" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
       (() => {
         const LIGHT_BACKGROUND = "#fdfbf7";
-        const DARK_BACKGROUND = "#100f0e";
+        const DARK_BACKGROUND = "#121118";
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
           const storedTheme = window.localStorage.getItem("aqqua:theme");
@@ -48,8 +48,8 @@
         background: #fdfbf7;
         color: #292928;
         font-family:
-          "Inter Variable",
-          "Inter",
+          "IBM Plex Sans Variable",
+          "IBM Plex Sans",
           -apple-system,
           BlinkMacSystemFont,
           "Segoe UI",
@@ -58,8 +58,8 @@
       }
 
       html.dark body {
-        background: #100f0e;
-        color: #eae8e3;
+        background: #121118;
+        color: #e4e1ec;
       }
 
       #boot-shell {

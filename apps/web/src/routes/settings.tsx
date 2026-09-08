@@ -69,8 +69,10 @@ function SettingsContentLayout() {
   }, [navigateBackWithinApp]);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground isolate">
+      {/* Chrome is a flat sidebar surface, as in the chat workspace: the grain
+          on the inset belongs under the content slab, not behind the header. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar text-foreground">
         {!isElectron && (
           <header
             className={cn(
@@ -92,7 +94,7 @@ function SettingsContentLayout() {
         {isElectron && (
           <div
             className={cn(
-              "drag-region flex h-[52px] shrink-0 items-center px-5 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
+              "workspace-topbar drag-region px-5 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
               COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             )}
           >
@@ -107,7 +109,12 @@ function SettingsContentLayout() {
           </div>
         )}
 
-        <div key={restoreSignal} className="min-h-0 flex flex-1 flex-col">
+        {/* Same slab as the chat workspace: header chrome above, rounded
+            content surface below. */}
+        <div
+          key={restoreSignal}
+          className="min-h-0 flex flex-1 flex-col overflow-hidden bg-background md:rounded-xl"
+        >
           <Outlet />
         </div>
       </div>

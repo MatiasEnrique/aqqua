@@ -17,6 +17,15 @@ import {
   resolveFilePreviewMode,
   setMarkdownTaskChecked,
 } from "./filePreviewMode";
+import { shouldReplaceExplorerWithFile } from "./fileExplorerLayout";
+
+describe("file explorer layout", () => {
+  it("replaces the explorer at the same inclusive width as the container query", () => {
+    expect(shouldReplaceExplorerWithFile(559)).toBe(true);
+    expect(shouldReplaceExplorerWithFile(560)).toBe(true);
+    expect(shouldReplaceExplorerWithFile(561)).toBe(false);
+  });
+});
 
 describe("file comment annotations", () => {
   it("normalizes and formats selected line ranges", () => {

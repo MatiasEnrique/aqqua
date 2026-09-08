@@ -15,10 +15,12 @@ import {
   defaultInstanceIdForDriver,
   type BackgroundActivityProfile,
   type BackgroundActivitySettings,
+  type HeaderTabScope,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
+  type SidebarConversationGrouping,
   type SidebarProjectGroupingMode,
 } from "@aqqua/contracts";
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
@@ -150,6 +152,17 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const SIDEBAR_CONVERSATION_GROUPING_LABELS: Record<SidebarConversationGrouping, string> = {
+  project: "By project",
+  worktree: "By worktree",
+  status: "By status",
+};
+
+const HEADER_TAB_SCOPE_LABELS: Record<HeaderTabScope, string> = {
+  all: "All worktrees",
+  worktree: "Selected worktree",
+};
 
 const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
@@ -465,8 +478,15 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.headerTabScope !== DEFAULT_UNIFIED_SETTINGS.headerTabScope
+        ? ["Header tabs"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
+        : []),
+      ...(settings.sidebarConversationGrouping !==
+      DEFAULT_UNIFIED_SETTINGS.sidebarConversationGrouping
+        ? ["Conversation grouping"]
         : []),
       ...(settings.sidebarProjectGroupingMode !==
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
@@ -526,9 +546,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.environmentIdentificationMode,
       settings.glassOpacity,
+      settings.headerTabScope,
       settings.keepScreenAwakeWhileAgentsRun,
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
+      settings.sidebarConversationGrouping,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
@@ -554,7 +576,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      headerTabScope: DEFAULT_UNIFIED_SETTINGS.headerTabScope,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      sidebarConversationGrouping: DEFAULT_UNIFIED_SETTINGS.sidebarConversationGrouping,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       keepScreenAwakeWhileAgentsRun: DEFAULT_UNIFIED_SETTINGS.keepScreenAwakeWhileAgentsRun,
@@ -1025,7 +1049,82 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection title="General">
         <SettingsRow
-          title="Project Grouping"
+          title="Conversation grouping"
+          description="List conversations directly under each project, or group them by worktree or status."
+          resetAction={
+            settings.sidebarConversationGrouping !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarConversationGrouping ? (
+              <SettingResetButton
+                label="conversation grouping"
+                onClick={() =>
+                  updateSettings({
+                    sidebarConversationGrouping:
+                      DEFAULT_UNIFIED_SETTINGS.sidebarConversationGrouping,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarConversationGrouping}
+              onValueChange={(value) => {
+                if (value === "project" || value === "worktree" || value === "status") {
+                  updateSettings({ sidebarConversationGrouping: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Sidebar conversation grouping">
+                <SelectValue>
+                  {SIDEBAR_CONVERSATION_GROUPING_LABELS[settings.sidebarConversationGrouping]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem value="project">By project</SelectItem>
+                <SelectItem value="worktree">By worktree</SelectItem>
+                <SelectItem value="status">By status</SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Header tabs"
+          description="Show open conversations from every worktree or only the selected worktree."
+          resetAction={
+            settings.headerTabScope !== DEFAULT_UNIFIED_SETTINGS.headerTabScope ? (
+              <SettingResetButton
+                label="header tabs"
+                onClick={() =>
+                  updateSettings({
+                    headerTabScope: DEFAULT_UNIFIED_SETTINGS.headerTabScope,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.headerTabScope}
+              onValueChange={(value) => {
+                if (value === "all" || value === "worktree") {
+                  updateSettings({ headerTabScope: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Header tab scope">
+                <SelectValue>{HEADER_TAB_SCOPE_LABELS[settings.headerTabScope]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem value="all">All worktrees</SelectItem>
+                <SelectItem value="worktree">Selected worktree</SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Repository matching"
           description="Combine matching repositories across environments."
           resetAction={
             settings.sidebarProjectGroupingMode !==

@@ -184,8 +184,8 @@ export function PullRequestPanel({
             <GitPullRequestIcon className="mx-auto size-6 text-muted-foreground" aria-hidden />
             <h2 className="mt-3 text-sm font-medium">No pull request for this branch</h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Create one from the Git actions control in the workspace toolbar, then return here to
-              watch its status and checks.
+              Open Git actions in the right activity rail to create a pull request with Git actions,
+              then return here to watch its status and checks.
             </p>
             {isGitHub ? (
               <div className="mt-4">

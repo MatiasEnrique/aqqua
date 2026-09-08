@@ -1,10 +1,14 @@
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { EnvironmentId } from "@aqqua/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createTabFamilyPopoverMock } from "../TabFamilyPopover.test-utils";
 
 vi.mock("../TabFamilyPopover", () => createTabFamilyPopoverMock());
+vi.mock("../ProjectFavicon", () => ({
+  ProjectFavicon: ({ cwd }: { readonly cwd: string }) => <span data-project-favicon={cwd} />,
+}));
 vi.mock("~/components/ui/menu", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ui/menu")>();
   return {
@@ -26,6 +30,7 @@ const tab = (overrides: Partial<Extract<ConversationTab, { _tag: "thread" }>> = 
     title: "Fix palette warmth",
     state: "working",
     isActive: false,
+    project: null,
     ...overrides,
   }) as ConversationTab;
 
@@ -44,19 +49,21 @@ const render = (tabs: readonly ConversationTab[]) =>
   );
 
 describe("ConversationTabs", () => {
-  it("renders each tab as its own bordered white shell", () => {
+  it("renders each tab as a borderless rounded shell", () => {
     const markup = render([
-      tab(),
+      tab({ isActive: true }),
       tab({ key: "b", title: "Ship flows beta", state: "needsInput" }),
     ]);
 
-    expect(markup).toContain("bg-card");
-    expect(markup).toContain("rounded-xl border");
+    // Fill, not outline: only the routed tab carries the sidebar's selected-row surface.
+    expect(markup).toContain("bg-sidebar-row-active");
+    expect(markup).toContain("rounded-md");
+    expect(markup).not.toContain("rounded-md border");
     // The design's final state removed both enclosing rules.
     expect(markup).not.toContain("border-b border-border");
   });
 
-  it("distinguishes the routed tab by weight and border", () => {
+  it("distinguishes the routed tab by weight and fill", () => {
     const markup = render([tab({ isActive: true }), tab({ key: "b", title: "Ship flows beta" })]);
 
     expect(markup).toContain('aria-current="page"');
@@ -84,6 +91,7 @@ describe("ConversationTabs", () => {
         title: "New conversation",
         isActive: true,
         draftId: "draft",
+        project: null,
       },
     ]);
 
@@ -95,6 +103,35 @@ describe("ConversationTabs", () => {
     expect(render([tab({ state: "failed" })])).toContain("text-red-600");
     expect(render([tab({ state: "working" })])).toContain("text-sky-600");
     expect(render([tab({ state: "done" })])).toContain("text-emerald-600");
+  });
+
+  it("shows the project icon when tabs span all projects", () => {
+    const markup = render([
+      tab({
+        project: { environmentId: EnvironmentId.make("local"), workspaceRoot: "/repo/colors" },
+      }),
+    ]);
+
+    expect(markup).toContain('data-project-favicon="/repo/colors"');
+    expect(render([tab({ project: null })])).not.toContain("data-project-favicon");
+  });
+
+  it("orders a tab as project icon, title, status, then its lifecycle control", () => {
+    const markup = render([
+      tab({
+        project: { environmentId: EnvironmentId.make("local"), workspaceRoot: "/repo/colors" },
+      }),
+    ]);
+
+    const positions = [
+      markup.indexOf('data-project-favicon="/repo/colors"'),
+      markup.indexOf(">Fix palette warmth<"),
+      markup.indexOf('role="status"'),
+      markup.indexOf('aria-label="Archive Fix palette warmth"'),
+    ];
+
+    expect(positions).not.toContain(-1);
+    expect(positions).toStrictEqual([...positions].sort((left, right) => left - right));
   });
 
   it("names the plus control with the worktree it creates in", () => {

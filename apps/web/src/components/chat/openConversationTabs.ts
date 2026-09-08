@@ -13,6 +13,7 @@ import {
   type SidebarConversationAggregateState,
 } from "../Sidebar.summaryState";
 import {
+  sidebarProjectKey,
   resolveSidebarConversationWorktreeKey,
   resolveSidebarDraftWorktreeKey,
 } from "../Sidebar.worktreeGroups";
@@ -148,6 +149,7 @@ export type ConversationTab =
       readonly title: string;
       readonly isActive: boolean;
       readonly draftId: string;
+      readonly project: ConversationTabProject | null;
     }
   | {
       readonly _tag: "thread";
@@ -156,6 +158,7 @@ export type ConversationTab =
       readonly title: string;
       readonly isActive: boolean;
       readonly state: SidebarConversationAggregateState;
+      readonly project: ConversationTabProject | null;
       /**
        * The tab key of the orchestrator that spawned this thread, or null for a
        * top-level conversation. Set even when that tab is absent — whether the
@@ -163,6 +166,26 @@ export type ConversationTab =
        */
       readonly parentKey: string | null;
     };
+
+export interface ConversationTabProject {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string;
+}
+
+/** The tab to show after one closes, preferring its left-hand neighbor. */
+export function resolveConversationTabAfterClose(input: {
+  readonly tabs: readonly ConversationTab[];
+  readonly closingKey: string;
+}): ConversationTab | null {
+  const families = groupConversationTabFamilies(input.tabs);
+  const closingIndex = families.findIndex(
+    (family) =>
+      family.parent.key === input.closingKey ||
+      family.children.some((child) => child.key === input.closingKey),
+  );
+  if (closingIndex === -1) return null;
+  return families[closingIndex - 1]?.parent ?? families[closingIndex + 1]?.parent ?? null;
+}
 
 /** The tab key of a conversation's orchestrator, if it has one. */
 export function conversationTabParentKey(tab: ConversationTab): string | null {
@@ -231,20 +254,24 @@ export interface ConversationTabDraft {
   readonly title: string;
 }
 
-export interface ConversationTabSource {
+interface ConversationTabSourceBase {
   readonly openKeys: readonly string[];
   readonly threads: readonly EnvironmentThreadShell[];
   readonly drafts: readonly ConversationTabDraft[];
   readonly activeKey: string | null;
-  /**
-   * The worktree whose conversations the strip is showing. Null shows every
-   * open tab — the state before a worktree has been resolved, where hiding
-   * everything would be worse than showing too much.
-   */
-  readonly worktreeKey: string | null;
-  /** `environmentId:projectId` → the project's own checkout path. */
+  /** `environmentId:projectId` to the project's own checkout path. */
   readonly projectRootByProjectKey: ReadonlyMap<string, string>;
 }
+
+export type ConversationTabScope =
+  | { readonly scope: "all" }
+  | {
+      readonly scope: "worktree";
+      /** Null while the selected worktree is still resolving. */
+      readonly worktreeKey: string | null;
+    };
+
+export type ConversationTabSource = ConversationTabSourceBase & ConversationTabScope;
 
 /**
  * The strip's contents: the order the tabs were opened, with each sub-agent
@@ -280,13 +307,22 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
     ),
   );
 
-  // The routed conversation is always its own tab, whatever worktree it turns
-  // out to belong to. Routing somewhere and finding no active tab would be a
-  // worse failure than one out-of-scope tab.
-  const belongsToWorktree = (conversationWorktreeKey: string | null, key: string) =>
+  const belongsToScope = (conversationWorktreeKey: string | null, key: string) =>
+    source.scope === "all" ||
     source.worktreeKey === null ||
     key === source.activeKey ||
     conversationWorktreeKey === source.worktreeKey;
+
+  const projectForTab = (
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+  ): ConversationTabProject | null => {
+    if (source.scope !== "all") return null;
+    const workspaceRoot = source.projectRootByProjectKey.get(
+      sidebarProjectKey(environmentId, projectId),
+    );
+    return workspaceRoot === undefined ? null : { environmentId, workspaceRoot };
+  };
 
   return source.openKeys.flatMap((key): ConversationTab[] => {
     // The live thread wins over its own draft: the instant a draft is promoted
@@ -300,7 +336,8 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
         return [];
       }
       if (
-        !belongsToWorktree(
+        source.scope === "worktree" &&
+        !belongsToScope(
           resolveSidebarConversationWorktreeKey({
             environmentId: thread.environmentId,
             projectId: thread.projectId,
@@ -321,6 +358,7 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
           title: thread.title || "Untitled",
           state: resolveSidebarConversationAggregateState(thread),
           isActive: source.activeKey === key,
+          project: projectForTab(thread.environmentId, thread.projectId),
           parentKey:
             parentThreadId === null
               ? null
@@ -331,15 +369,10 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
     const draft = draftByKey.get(key);
     if (draft !== undefined) {
       if (
-        !belongsToWorktree(
+        source.scope === "worktree" &&
+        !belongsToScope(
           resolveSidebarDraftWorktreeKey({
-            draft: {
-              draftId: draft.draftId,
-              environmentId: draft.environmentId,
-              projectId: draft.projectId,
-              envMode: draft.envMode,
-              worktreePath: draft.worktreePath,
-            },
+            draft,
             projectRootByProjectKey: source.projectRootByProjectKey,
           }),
           key,
@@ -355,6 +388,7 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
           threadRef: scopeThreadRef(draft.environmentId, draft.threadId),
           title: draft.title,
           isActive: source.activeKey === key,
+          project: projectForTab(draft.environmentId, draft.projectId),
         },
       ];
     }
@@ -442,6 +476,38 @@ export function resolveWorktreeFocusTarget(input: {
   }
   const draft = remainingDrafts[0];
   return draft === undefined ? { _tag: "none" } : { _tag: "draft", draftId: draft.draftId };
+}
+
+export type WorktreeSelectionTarget = WorktreeFocusTarget | { readonly _tag: "new-thread" };
+
+/**
+ * Where clicking a worktree lands, including the empty-worktree action.
+ *
+ * The active list is already in the same order as the sidebar. A worktree
+ * click therefore opens its first independently navigable active thread,
+ * regardless of which conversations or drafts already have tabs open.
+ *
+ * If there is no active conversation or draft to open, clicking starts a new
+ * thread. Snoozed and settled history must not leave the click with no target.
+ */
+export function resolveWorktreeSelectionTarget(input: {
+  readonly worktree: WorktreeFocusCandidate & { readonly conversationCount: number };
+  readonly openKeys: ReadonlySet<string>;
+}): WorktreeSelectionTarget {
+  const independentlyNavigable = input.worktree.active.filter(
+    (candidate) => candidate.providerSubagent == null,
+  );
+  const topLevel = independentlyNavigable.filter((candidate) => candidate.parentThreadId == null);
+  const firstActive = (topLevel.length > 0 ? topLevel : independentlyNavigable)[0];
+  if (firstActive !== undefined) {
+    return {
+      _tag: "thread",
+      threadRef: scopeThreadRef(firstActive.environmentId, firstActive.id),
+    };
+  }
+
+  const target = resolveWorktreeFocusTarget(input);
+  return target._tag === "none" ? { _tag: "new-thread" } : target;
 }
 
 /**

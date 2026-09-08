@@ -6,11 +6,10 @@ import {
   type ThreadId,
 } from "@aqqua/contracts";
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
-import { ChevronRightIcon } from "lucide-react";
+import { MessageSquareIcon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
@@ -18,14 +17,14 @@ import ProjectScriptsControl, {
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useAqquaProjectFileScripts } from "~/hooks/useAqquaProjectFileScripts";
-import { ProjectFavicon } from "../ProjectFavicon";
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Button } from "../ui/button";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
-  activeThreadTitle: string;
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   openInCwd: string | null;
@@ -33,15 +32,11 @@ interface ChatHeaderProps {
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
-  rightPanelOpen: boolean;
-  /** Per-surface right-panel icon buttons (Files / Diff / Terminal / Browser). */
+  rail?: boolean;
+  /** Compact workspace tool picker when the activity rail cannot fit. */
   rightPanelSurfaceControls?: ReactNode;
   gitCwd: string | null;
-  /**
-   * In `worktree-tabs` mode the breadcrumb names the *worktree* and the tab
-   * strip below names the conversation, so the thread title would be said
-   * twice. Left undefined, the header keeps its original thread breadcrumb.
-   */
+  /** Worktree context shown with the project actions. */
   worktreeLabel?: string;
   /** "3 worktrees · 4 open conversations" — the shape of the workspace, in words. */
   worktreeSummary?: string;
@@ -74,7 +69,6 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
-  activeThreadTitle,
   activeProjectName,
   activeProjectCwd,
   openInCwd,
@@ -82,7 +76,7 @@ export const ChatHeader = memo(function ChatHeader({
   preferredScriptId,
   keybindings,
   availableEditors,
-  rightPanelOpen,
+  rail = false,
   rightPanelSurfaceControls,
   gitCwd,
   worktreeLabel,
@@ -106,116 +100,74 @@ export const ChatHeader = memo(function ChatHeader({
     primaryEnvironmentId,
   });
   return (
-    <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
-        {/* The project always leads the header: knowing which project a
-            thread lives in is priority zero, and the thread title alone
-            doesn't answer it. */}
-        {activeProjectName ? (
-          <span className="inline-flex shrink-0 items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`New thread in ${activeProjectName}`}
-                    onClick={onNewThreadInProject}
-                    className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                }
-              >
-                <ProjectFavicon
-                  environmentId={activeThreadEnvironmentId}
-                  cwd={activeProjectCwd ?? ""}
-                  className="size-3.5"
-                />
-                <span className="max-w-40 truncate text-sm font-medium">{activeProjectName}</span>
-              </TooltipTrigger>
-              <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
-            </Tooltip>
-            <ChevronRightIcon aria-hidden className="size-3.5 text-muted-foreground/40" />
-          </span>
-        ) : null}
-        {/* With tabs below, the breadcrumb's job is the *container*: the strip
-            already says which conversation is open, and repeating it here
-            spends the one line that answers "where am I". */}
-        {worktreeLabel === undefined ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <h2
-                  aria-label={activeThreadTitle}
-                  className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
-                >
-                  {activeThreadTitle}
-                </h2>
-              }
+    <div
+      data-chat-header-actions
+      role="group"
+      aria-label={
+        [activeProjectName, worktreeLabel, worktreeSummary].filter(Boolean).join(" · ") ||
+        "Project actions"
+      }
+      className={cn(
+        "flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]",
+        rail ? "w-10 flex-col gap-0" : "flex-wrap [&_span.sr-only]:not-sr-only",
+      )}
+    >
+      {activeProjectName ? (
+        <>
+          {showOpenInPicker ? (
+            <OpenInPicker
+              rail={rail}
+              environmentId={activeThreadEnvironmentId}
+              keybindings={keybindings}
+              availableEditors={availableEditors}
+              openInCwd={openInCwd}
             />
-            <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
-          </Tooltip>
-        ) : (
-          <>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <h2
-                    aria-label={`Worktree ${worktreeLabel}`}
-                    className="min-w-0 truncate text-sm font-medium text-foreground"
-                  >
-                    {worktreeLabel}
-                  </h2>
-                }
-              />
-              <TooltipPopup side="top">Worktree {worktreeLabel}</TooltipPopup>
-            </Tooltip>
-            {worktreeSummary ? (
-              <span className="hidden min-w-0 shrink truncate text-xs text-muted-foreground/70 @2xl/header-actions:inline">
-                {worktreeSummary}
-              </span>
-            ) : null}
-            {worktreeActions}
-          </>
-        )}
-      </div>
-      <div
-        data-chat-header-actions
-        className={cn(
-          "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-          // When the panel is closed the terminal-drawer toggle floats over the
-          // header as an absolute overlay; leave room for it.
-          rightPanelOpen ? "pr-0" : "pr-8",
-        )}
-      >
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            fileScripts={fileScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-            onDeleteScript={onDeleteProjectScript}
-          />
-        )}
-        {showOpenInPicker && (
-          <OpenInPicker
-            environmentId={activeThreadEnvironmentId}
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
-        )}
-        {activeProjectName && (
+          ) : null}
+          {activeProjectScripts ? (
+            <ProjectScriptsControl
+              rail={rail}
+              scripts={activeProjectScripts}
+              fileScripts={fileScripts}
+              keybindings={keybindings}
+              preferredScriptId={preferredScriptId}
+              onRunScript={onRunProjectScript}
+              onAddScript={onAddProjectScript}
+              onUpdateScript={onUpdateProjectScript}
+              onDeleteScript={onDeleteProjectScript}
+            />
+          ) : null}
           <GitActionsControl
+            rail={rail}
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             {...(draftId ? { draftId } : {})}
             {...(onOpenPullRequest ? { onOpenPullRequest } : {})}
           />
-        )}
-        {rightPanelSurfaceControls}
-      </div>
+          {worktreeActions}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size={rail ? "icon-xs" : "sm"}
+                  className={
+                    rail
+                      ? "size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground"
+                      : undefined
+                  }
+                  aria-label="New thread in project"
+                  onClick={onNewThreadInProject}
+                />
+              }
+            >
+              <MessageSquareIcon aria-hidden className={rail ? "size-[18px]" : "size-3.5"} />
+              {rail ? null : "New thread in project"}
+            </TooltipTrigger>
+            <TooltipPopup side={rail ? "left" : "bottom"}>New thread in project</TooltipPopup>
+          </Tooltip>
+        </>
+      ) : null}
+      {rightPanelSurfaceControls}
     </div>
   );
 });

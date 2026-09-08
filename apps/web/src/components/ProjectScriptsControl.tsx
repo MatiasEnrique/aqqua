@@ -115,6 +115,7 @@ interface ProjectScriptsControlProps {
   scripts: ReadonlyArray<ProjectScript>;
   /** Scripts declared in the project's checked-in aqqua.json, offered for import. */
   fileScripts?: ReadonlyArray<AqquaProjectFileScript>;
+  rail?: boolean;
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
@@ -129,6 +130,7 @@ interface ProjectScriptsControlProps {
 export default function ProjectScriptsControl({
   scripts,
   fileScripts = NO_FILE_SCRIPTS,
+  rail = false,
   keybindings,
   preferredScriptId = null,
   onRunScript,
@@ -334,37 +336,63 @@ export default function ProjectScriptsControl({
   return (
     <>
       {primaryScript ? (
-        <Group aria-label="Project scripts">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  aria-label={`Run ${primaryScript.name}`}
-                  onClick={() => onRunScript(primaryScript)}
-                />
-              }
-            >
-              <ScriptIcon icon={primaryScript.icon} />
-              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-                {primaryScript.name}
-              </span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">Run {primaryScript.name}</TooltipPopup>
-          </Tooltip>
-          <GroupSeparator className="hidden @3xl/header-actions:block" />
+        <Group aria-label="Project scripts" className={rail ? "size-10 shrink-0" : ""}>
+          {!rail ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      aria-label={`Run ${primaryScript.name}`}
+                      onClick={() => onRunScript(primaryScript)}
+                    />
+                  }
+                >
+                  <ScriptIcon icon={primaryScript.icon} />
+                  <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                    {primaryScript.name}
+                  </span>
+                </TooltipTrigger>
+                <TooltipPopup side="top">Run {primaryScript.name}</TooltipPopup>
+              </Tooltip>
+              <GroupSeparator className="hidden @3xl/header-actions:block" />
+            </>
+          ) : null}
           <Menu
             highlightItemOnHover={false}
             open={actionsMenuOpen.scripts}
             onOpenChange={(open) => setActionsMenuOpen({ scripts: open, imports: false })}
           >
-            <MenuTrigger
-              render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
-            >
-              <ChevronDownIcon className="size-4" />
-            </MenuTrigger>
-            <MenuPopup align="end">
+            {rail ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <MenuTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          className="size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground [&_svg]:size-[18px]!"
+                          aria-label="Script actions"
+                        />
+                      }
+                    />
+                  }
+                >
+                  <ScriptIcon icon={primaryScript.icon} />
+                </TooltipTrigger>
+                <TooltipPopup side="left">Script actions</TooltipPopup>
+              </Tooltip>
+            ) : (
+              <MenuTrigger
+                render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
+              >
+                <ChevronDownIcon className="size-4" />
+              </MenuTrigger>
+            )}
+            <MenuPopup align="end" side={rail ? "left" : "bottom"}>
               {scripts.map((script) => {
                 const shortcutLabel = shortcutLabelForCommand(
                   keybindings,
@@ -422,14 +450,39 @@ export default function ProjectScriptsControl({
           open={actionsMenuOpen.imports}
           onOpenChange={(open) => setActionsMenuOpen({ scripts: false, imports: open })}
         >
-          <MenuTrigger render={<Button size="xs" variant="outline" aria-label="Project actions" />}>
-            <PlusIcon className="size-3.5" />
-            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-              Add action
-            </span>
-            <ChevronDownIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup align="end">
+          {rail ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        className="size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground [&_svg]:size-[18px]!"
+                        aria-label="Project actions"
+                      />
+                    }
+                  />
+                }
+              >
+                <PlusIcon className="size-3.5" />
+                <span className="sr-only">Add action</span>
+              </TooltipTrigger>
+              <TooltipPopup side="left">Project actions</TooltipPopup>
+            </Tooltip>
+          ) : (
+            <MenuTrigger
+              render={<Button size="xs" variant="outline" aria-label="Project actions" />}
+            >
+              <PlusIcon className="size-3.5" />
+              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                Add action
+              </span>
+              <ChevronDownIcon className="size-3.5" />
+            </MenuTrigger>
+          )}
+          <MenuPopup align="end" side={rail ? "left" : "bottom"}>
             {importMenuItems}
             <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
               <PlusIcon className="size-4" />
@@ -441,15 +494,31 @@ export default function ProjectScriptsControl({
         <Tooltip>
           <TooltipTrigger
             render={
-              <Button size="xs" variant="outline" aria-label="Add action" onClick={openAddDialog} />
+              <Button
+                size="xs"
+                variant={rail ? "ghost" : "outline"}
+                className={
+                  rail
+                    ? "size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground [&_svg]:size-[18px]!"
+                    : undefined
+                }
+                aria-label="Add action"
+                onClick={openAddDialog}
+              />
             }
           >
             <PlusIcon className="size-3.5" />
-            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+            <span
+              className={
+                rail
+                  ? "sr-only"
+                  : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
+              }
+            >
               Add action
             </span>
           </TooltipTrigger>
-          <TooltipPopup side="top">Add action</TooltipPopup>
+          <TooltipPopup side={rail ? "left" : "top"}>Add action</TooltipPopup>
         </Tooltip>
       )}
 

@@ -1,5 +1,6 @@
 import type { EnvironmentId, ProjectId, ThreadId } from "@aqqua/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
+import { MessageSquareIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -19,6 +20,7 @@ type ProjectRef = {
 export function SidebarSurfaceSwitcher(props: {
   readonly scopedProjectRef: ProjectRef | null;
   readonly onFlowsIntent?: () => void;
+  readonly orientation?: "inline" | "rows";
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -62,6 +64,7 @@ export function SidebarSurfaceSwitcher(props: {
         projectId: routeParams.projectId as ProjectId,
       }
     : props.scopedProjectRef;
+  const orientation = props.orientation ?? "inline";
   const afterSurfacePaint = (run: () => void) => {
     if (navigationFrameRef.current !== null) {
       window.cancelAnimationFrame(navigationFrameRef.current);
@@ -93,18 +96,17 @@ export function SidebarSurfaceSwitcher(props: {
   return (
     <nav
       aria-label="Workspace view"
-      /* Word-only, and no rule beneath it. Two surfaces do not need a tab bar:
-         at this size the words carry the switch, and the sidebar's first
-         hairline is better spent on something the eye has to find. */
-      /* `gap-0.5` plus each tab's own `px-1.5` is the design's 14px between
-         words; `-mr-1.5` cancels the last tab's padding so the words still end
-         flush with the header's edge. */
-      className="-mr-1.5 flex shrink-0 items-center gap-0.5"
+      className={cn(
+        "flex shrink-0",
+        orientation === "rows" ? "w-full flex-col gap-0.5" : "-mr-1.5 items-center gap-0.5",
+      )}
     >
       <SurfaceTab
         active={displayedSurface === "threads"}
         current={!isBoard}
+        icon={<MessageSquareIcon aria-hidden />}
         label="Threads"
+        orientation={orientation}
         onClick={() => {
           requestSidebarSurfaceNavigation({
             surface: "threads",
@@ -117,7 +119,9 @@ export function SidebarSurfaceSwitcher(props: {
       <SurfaceTab
         active={displayedSurface === "flows"}
         current={isBoard}
+        icon={<WorkflowIcon aria-hidden />}
         label="Flows"
+        orientation={orientation}
         aria-label={boardProjectRef ? "Open Flows" : "Select a project to open its flows"}
         disabled={boardProjectRef === null}
         onMouseEnter={props.onFlowsIntent}
@@ -145,12 +149,16 @@ export function SidebarSurfaceSwitcher(props: {
 function SurfaceTab({
   active,
   current,
+  icon,
   label,
+  orientation,
   ...props
 }: React.ComponentProps<"button"> & {
   readonly active: boolean;
   readonly current: boolean;
+  readonly icon: React.ReactNode;
   readonly label: string;
+  readonly orientation: "inline" | "rows";
 }) {
   return (
     <button
@@ -161,15 +169,29 @@ function SurfaceTab({
         // 12px-tall hit area, and this is the primary surface switch — reachable
         // by thumb in the sidebar header. Padding brings it to WCAG 2.5.8's
         // 24px without changing how it reads.
-        "inline-flex min-h-6 shrink-0 cursor-pointer items-center rounded-sm px-1.5 py-1 text-xs outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex min-h-6 shrink-0 cursor-pointer items-center rounded-md outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:pointer-events-none disabled:opacity-50",
+        orientation === "rows"
+          ? "h-8 w-full justify-start gap-1.5 px-1 text-[13px] font-medium leading-5"
+          : "gap-0.5 px-1.5 py-1 text-xs",
         // Weight is the whole indicator. It reads at a glance without spending
         // a rule, a chip or a colour on a two-item switch.
         active
-          ? "font-semibold text-sidebar-foreground"
-          : "text-sidebar-muted-foreground hover:text-sidebar-foreground",
+          ? orientation === "rows"
+            ? "font-medium text-sidebar-foreground"
+            : "font-semibold text-sidebar-foreground"
+          : "text-sidebar-foreground/80 hover:text-sidebar-foreground",
       )}
       {...props}
     >
+      <span
+        className={cn(
+          orientation === "rows"
+            ? "text-sidebar-muted-foreground [&_svg]:size-3.5 [&_svg]:stroke-[1.5]"
+            : "hidden",
+        )}
+      >
+        {icon}
+      </span>
       {label}
     </button>
   );

@@ -192,14 +192,14 @@ export function SidebarWorktreeStateDetails(props: { counts: SidebarWorktreeStat
               <StatusIndicator state={state.key} label={state.label} size="size-2" pulse={false} />
             </span>
             <span className="min-w-0">
-              <span className="block text-xs font-medium text-foreground">{state.label}</span>
+              <span className="block text-[13px] font-medium text-foreground">{state.label}</span>
               <span className="block text-[11px] leading-4 text-muted-foreground text-pretty">
                 {state.description}
               </span>
             </span>
             <span
               className={cn(
-                "self-start pt-0.5 text-xs font-semibold tabular-nums",
+                "self-start pt-0.5 text-[11px] font-semibold tabular-nums",
                 state.className,
               )}
             >

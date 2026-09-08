@@ -35,7 +35,7 @@ export function SidebarCardActionButton(props: {
         "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-30",
         isSquare
           ? "size-7 text-muted-foreground/65 transition-[background-color,color,scale] hover:bg-sidebar-row-hover active:scale-[0.96] motion-reduce:transform-none"
-          : "px-1.5 text-xs text-muted-foreground",
+          : "px-1.5 text-[11px] text-muted-foreground",
         props.tone === "destructive"
           ? "hover:text-destructive-foreground"
           : "hover:text-foreground",

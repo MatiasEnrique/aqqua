@@ -1,10 +1,4 @@
 import type { EnvironmentId, ProjectId } from "@aqqua/contracts";
-import {
-  Children,
-  type MouseEvent as ReactMouseEvent,
-  type ReactElement,
-  type ReactNode,
-} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -14,8 +8,12 @@ vi.mock("../ProjectFavicon", () => ({
   ProjectFavicon: ({ cwd }: { cwd: string }) => <span data-project-favicon={cwd} />,
 }));
 
-const { projectKeysFromScopeSelection, SidebarProjectScopeChips, SidebarProjectScopePopup } =
-  await import("./SidebarProjectScopeChips");
+const {
+  projectKeysFromScopeSelection,
+  projectScopeLabel,
+  SidebarProjectScopeChips,
+  toggleProjectScopeKey,
+} = await import("./SidebarProjectScopeChips");
 
 const project = (name: string): SidebarProjectSnapshot =>
   ({
@@ -29,126 +27,60 @@ const project = (name: string): SidebarProjectSnapshot =>
 
 const projectGroups = [project("aqqua-web"), project("marketing"), project("docs")];
 
-const render = (selected: readonly string[]) =>
+const render = (selected: readonly string[], selectedProjectKeys = selected) =>
   renderToStaticMarkup(
     <SidebarProjectScopeChips
       projectGroups={projectGroups}
       scopedProjectGroups={projectGroups.filter((group) => selected.includes(group.projectKey))}
+      selectedProjectKeys={selectedProjectKeys}
       onSelectionChange={() => {}}
-      onProjectActions={() => {}}
       onProjectContextMenu={() => {}}
     />,
   );
 
-const renderPopup = (input?: {
-  readonly selected?: readonly SidebarProjectSnapshot[];
-  readonly onSelectionChange?: (projectKeys: readonly string[]) => void;
-  readonly onProjectActions?: (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    project: SidebarProjectSnapshot,
-  ) => void;
-  readonly onRequestClose?: () => void;
-}) =>
-  SidebarProjectScopePopup({
-    scopedProjectGroups: input?.selected ?? [projectGroups[0]!],
-    onSelectionChange: input?.onSelectionChange ?? (() => {}),
-    onProjectActions: input?.onProjectActions ?? (() => {}),
-    onRequestClose: input?.onRequestClose ?? (() => {}),
-  }) as ReactElement<{ readonly children: ReactNode }>;
-
-function popupChildren(input?: Parameters<typeof renderPopup>[0]) {
-  return Children.toArray(renderPopup(input).props.children) as ReadonlyArray<
-    ReactElement<{ readonly children: ReactNode }>
-  >;
-}
-
 describe("SidebarProjectScopeChips", () => {
-  it("reads as every project when nothing is selected", () => {
+  it("uses one simple dropdown with no second search input", () => {
     const markup = render([]);
 
     expect(markup).toContain("All projects");
-    expect(markup).not.toContain("sidebar-project-scope-chip-");
+    expect(markup).toContain('aria-label="Filter threads by project"');
+    expect(markup).not.toContain("<input");
+    expect(markup).not.toContain("combobox");
   });
 
-  it("carries one dismissible chip per selected project", () => {
-    const markup = render(["aqqua-web", "marketing"]);
-
-    expect(markup).toContain('data-testid="sidebar-project-scope-chip-aqqua-web"');
-    expect(markup).toContain('data-testid="sidebar-project-scope-chip-marketing"');
-    // Each chip names its project, so its "Remove" button is distinguishable
-    // from the one on the chip beside it.
-    expect(markup).toContain('aria-label="aqqua-web"');
-    expect(markup).toContain('data-slot="combobox-chip-remove"');
-    // Selecting some projects is a filter, not a mode — the placeholder goes.
-    expect(markup).not.toContain("All projects");
+  it("summarizes one or several selected projects in the trigger", () => {
+    expect(projectScopeLabel([projectGroups[2]!])).toBe("docs");
+    expect(projectScopeLabel([projectGroups[0]!, projectGroups[2]!])).toBe("2 projects");
+    expect(render(["docs"])).toContain("docs");
+    expect(render(["aqqua-web", "docs"])).toContain("2 projects");
   });
 
-  it("keeps a chip for every selection, not just the first", () => {
-    const markup = render(["aqqua-web", "marketing", "docs"]);
-
-    expect(markup.match(/data-testid="sidebar-project-scope-chip-/g)).toHaveLength(3);
+  it("does not describe an unavailable saved scope as all projects", () => {
+    expect(projectScopeLabel([], true)).toBe("Selected projects unavailable");
+    expect(render([], ["offline:project"])).toContain("Selected projects unavailable");
   });
 
-  it("renders each chip's favicon from the project workspace", () => {
-    expect(render(["docs"])).toContain('data-project-favicon="/repos/docs"');
+  it("keeps a folder icon and dropdown affordance as fixed landmarks", () => {
+    const markup = render(["docs"]);
+
+    expect(markup).toContain("lucide-folder");
+    expect(markup).toContain("lucide-chevron-down");
   });
 
-  it("keeps the picker reachable so a filtered sidebar can be widened again", () => {
-    expect(render(["aqqua-web"])).toContain('aria-label="Filter threads by project"');
-  });
-
-  it("offers the placeholder only while the scope is every project", () => {
-    expect(render([])).toContain('placeholder="All projects"');
-    expect(render(["docs"])).toContain('placeholder=""');
-  });
-
-  it("carries a folder icon as the row's fixed landmark", () => {
-    // Present whether or not any project is picked — chips and placeholder
-    // both move, so the icon is the only stable thing to scan for.
-    expect(render([])).toContain("lucide-folder");
-    expect(render(["docs"])).toContain("lucide-folder");
-  });
-
-  it("maps combobox value changes to project keys", () => {
+  it("maps selected projects to stable project keys", () => {
     expect(projectKeysFromScopeSelection([projectGroups[2]!, projectGroups[0]!])).toEqual([
       "docs",
       "aqqua-web",
     ]);
   });
 
-  it("clears a non-empty project scope from the popup", () => {
-    const onSelectionChange = vi.fn();
-    const clearRow = popupChildren({ onSelectionChange })[0]!;
-    const clearButton = Children.toArray(clearRow.props.children)[0] as ReactElement<{
-      readonly onClick: () => void;
-    }>;
+  it("adds and removes projects while treating an empty selection as all projects", () => {
+    const one = toggleProjectScopeKey([], "aqqua-web", true);
+    const two = toggleProjectScopeKey(one, "docs", true);
 
-    clearButton.props.onClick();
-
-    expect(onSelectionChange).toHaveBeenCalledWith([]);
-    expect(popupChildren({ selected: [] })).toHaveLength(2);
-  });
-
-  it("closes the popup before opening project actions", () => {
-    const calls: string[] = [];
-    const stopPropagation = vi.fn();
-    const list = popupChildren({
-      onRequestClose: () => calls.push("close"),
-      onProjectActions: () => calls.push("actions"),
-    })[2]!;
-    const renderItem = list.props.children as unknown as (
-      project: SidebarProjectSnapshot,
-    ) => ReactElement<{ readonly children: ReactNode }>;
-    const item = renderItem(projectGroups[0]!);
-    const actionButton = Children.toArray(item.props.children)[2] as ReactElement<{
-      readonly onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-    }>;
-
-    actionButton.props.onClick({
-      stopPropagation,
-    } as unknown as ReactMouseEvent<HTMLButtonElement>);
-
-    expect(stopPropagation).toHaveBeenCalledOnce();
-    expect(calls).toEqual(["close", "actions"]);
+    expect(one).toEqual(["aqqua-web"]);
+    expect(two).toEqual(["aqqua-web", "docs"]);
+    expect(toggleProjectScopeKey(two, "aqqua-web", false)).toEqual(["docs"]);
+    expect(toggleProjectScopeKey(["docs"], "docs", false)).toEqual([]);
   });
 });

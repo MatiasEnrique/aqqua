@@ -6,6 +6,7 @@ import { ChevronDownIcon, FolderClosedIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   AntigravityIcon,
   CursorIcon,
@@ -189,6 +190,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   availableEditors,
   openInCwd,
   compact = false,
+  rail = false,
   enableShortcut = true,
 }: {
   environmentId: EnvironmentId;
@@ -196,6 +198,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   availableEditors: ReadonlyArray<EditorId>;
   openInCwd: string | null;
   compact?: boolean;
+  rail?: boolean;
   enableShortcut?: boolean;
 }) {
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
@@ -256,45 +259,74 @@ export const OpenInPicker = memo(function OpenInPicker({
     preferredEditor,
   ]);
 
-  return (
-    <Group aria-label="Open in editor">
-      <Button
-        aria-label={compact ? "Open file in preferred editor" : undefined}
-        size="xs"
-        variant="outline"
-        disabled={!preferredEditor || !openInCwd}
-        onClick={() => openInEditor(preferredEditor)}
-      >
-        {primaryOption?.Icon && (
-          <primaryOption.Icon
-            aria-hidden="true"
-            className={cn("size-3.5", getOpenInIconClass(primaryOption.kind))}
-          />
-        )}
-        <span
+  const menuTrigger = (
+    <MenuTrigger
+      render={
+        <Button
+          aria-label={rail || compact ? "Choose editor" : "Copy options"}
+          disabled={rail && openInCwd === null}
           className={
-            compact
-              ? "sr-only"
-              : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
+            rail
+              ? "size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground"
+              : undefined
           }
+          size="icon-xs"
+          variant={rail ? "ghost" : "outline"}
+        />
+      }
+    >
+      {rail ? (
+        primaryOption?.Icon ? (
+          <primaryOption.Icon aria-hidden="true" className="size-[18px]" />
+        ) : (
+          <FolderClosedIcon aria-hidden="true" className="size-[18px]" />
+        )
+      ) : (
+        <ChevronDownIcon aria-hidden="true" className="size-4" />
+      )}
+    </MenuTrigger>
+  );
+
+  return (
+    <Group aria-label="Open in editor" className={rail ? "h-10 w-10 shrink-0" : ""}>
+      {!rail ? (
+        <Button
+          aria-label={compact ? "Open file in preferred editor" : undefined}
+          size="xs"
+          variant="outline"
+          disabled={!preferredEditor || !openInCwd}
+          onClick={() => openInEditor(preferredEditor)}
         >
-          Open
-        </span>
-      </Button>
-      <GroupSeparator {...(!compact ? { className: "hidden @3xl/header-actions:block" } : {})} />
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              aria-label={compact ? "Choose editor" : "Copy options"}
-              size="icon-xs"
-              variant="outline"
+          {primaryOption?.Icon && (
+            <primaryOption.Icon
+              aria-hidden="true"
+              className={cn("size-3.5", getOpenInIconClass(primaryOption.kind))}
             />
-          }
-        >
-          <ChevronDownIcon aria-hidden="true" className="size-4" />
-        </MenuTrigger>
-        <MenuPopup align="end">
+          )}
+          <span
+            className={
+              compact
+                ? "sr-only"
+                : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
+            }
+          >
+            Open
+          </span>
+        </Button>
+      ) : null}
+      {!rail ? (
+        <GroupSeparator {...(!compact ? { className: "hidden @3xl/header-actions:block" } : {})} />
+      ) : null}
+      <Menu>
+        {rail ? (
+          <Tooltip>
+            <TooltipTrigger render={menuTrigger} />
+            <TooltipPopup side="left">Open in editor</TooltipPopup>
+          </Tooltip>
+        ) : (
+          menuTrigger
+        )}
+        <MenuPopup align="end" side={rail ? "left" : "bottom"}>
           {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
           {options.map(({ label, Icon, value, kind }) => (
             <MenuItem key={value} onClick={() => openInEditor(value)}>

@@ -23,6 +23,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloudUploadIcon,
+  CloudDownloadIcon,
   ExternalLinkIcon,
   GitBranchPlusIcon,
   GitCommitIcon,
@@ -94,6 +95,7 @@ interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
+  rail?: boolean;
   /** Opens the in-app pull request panel for the current workspace. */
   onOpenPullRequest?: () => void;
 }
@@ -971,6 +973,7 @@ export default function GitActionsControl({
   gitCwd,
   activeThreadRef,
   draftId,
+  rail = false,
   onOpenPullRequest,
 }: GitActionsControlProps) {
   const updateThreadMetadata = useAtomCommand(
@@ -1520,49 +1523,53 @@ export default function GitActionsControl({
     });
   };
 
+  const runPull = () => {
+    const toastId = toastManager.add({
+      type: "loading",
+      title: "Pulling...",
+      timeout: 0,
+      data: threadToastData,
+    });
+    void (async () => {
+      const result = await pullAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
+          toastManager.close(toastId);
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
+        toastManager.update(
+          toastId,
+          stackedThreadToast({
+            type: "error",
+            title: "Pull failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+        return;
+      }
+
+      const pullResult = result.value;
+      toastManager.update(toastId, {
+        type: "success",
+        title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
+        description:
+          pullResult.status === "pulled"
+            ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+            : `${pullResult.refName} is already synchronized.`,
+        data: threadToastData,
+      });
+    })();
+  };
+
   const runQuickAction = () => {
     if (quickAction.kind === "open_publish") {
       setIsPublishDialogOpen(true);
       return;
     }
     if (quickAction.kind === "run_pull") {
-      const toastId = toastManager.add({
-        type: "loading",
-        title: "Pulling...",
-        timeout: 0,
-        data: threadToastData,
-      });
-      void (async () => {
-        const result = await pullAction.run();
-        if (result._tag === "Failure") {
-          if (isAtomCommandInterrupted(result)) {
-            toastManager.close(toastId);
-            return;
-          }
-          const error = squashAtomCommandFailure(result);
-          toastManager.update(
-            toastId,
-            stackedThreadToast({
-              type: "error",
-              title: "Pull failed",
-              description: error instanceof Error ? error.message : "An error occurred.",
-              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-            }),
-          );
-          return;
-        }
-
-        const pullResult = result.value;
-        toastManager.update(toastId, {
-          type: "success",
-          title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
-          description:
-            pullResult.status === "pulled"
-              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-              : `${pullResult.refName} is already synchronized.`,
-          data: threadToastData,
-        });
-      })();
+      runPull();
       return;
     }
     if (quickAction.kind === "show_hint") {
@@ -1642,44 +1649,102 @@ export default function GitActionsControl({
     [gitCwd, openInPreferredEditor, threadToastData],
   );
 
+  const pullDisabledReason = isGitUiBusy
+    ? "Another Git action is running."
+    : !gitStatusForActions
+      ? "Loading repository status."
+      : !hasPrimaryRemote
+        ? "Publish the repository or add a remote before pulling."
+        : !gitStatusForActions.refName
+          ? "Check out a branch before pulling."
+          : !gitStatusForActions.hasUpstream
+            ? "Set an upstream branch before pulling."
+            : null;
+
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
+  const gitActionMenuItemsForPresentation =
+    rail &&
+    quickAction.kind === "run_action" &&
+    quickAction.action !== "commit" &&
+    quickAction.action !== undefined
+      ? gitActionMenuItems.filter((item) => item.dialogAction !== quickAction.action)
+      : gitActionMenuItems;
 
   if (!gitCwd) return null;
 
   return (
     <>
       {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initAction.isPending}
-          onClick={() => {
-            void (async () => {
-              const result = await initAction.run();
-              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-                return;
+        rail ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={initAction.isPending ? "Initializing Git" : "Initialize Git"}
+                  className="size-10! shrink-0 rounded-md border-0 px-0 shadow-none [&_svg]:size-[18px]!"
+                  variant="ghost"
+                  size="xs"
+                  disabled={initAction.isPending}
+                  onClick={() => {
+                    void (async () => {
+                      const result = await initAction.run();
+                      if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+                        return;
+                      }
+                      const error = squashAtomCommandFailure(result);
+                      toastManager.add(
+                        stackedThreadToast({
+                          type: "error",
+                          title: "Git initialization failed",
+                          description:
+                            error instanceof Error ? error.message : "An error occurred.",
+                          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                        }),
+                      );
+                    })();
+                  }}
+                />
               }
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Git initialization failed",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-                }),
-              );
-            })();
-          }}
-        >
-          <GitBranchPlusIcon className="size-3.5" aria-hidden />
-          <span className="ml-0.5">
-            {initAction.isPending ? "Initializing..." : "Initialize Git"}
-          </span>
-        </Button>
+            >
+              <GitBranchPlusIcon className="size-3.5" aria-hidden />
+            </TooltipTrigger>
+            <TooltipPopup side="left">
+              {initAction.isPending ? "Initializing Git..." : "Initialize Git"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={initAction.isPending}
+            onClick={() => {
+              void (async () => {
+                const result = await initAction.run();
+                if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+                  return;
+                }
+                const error = squashAtomCommandFailure(result);
+                toastManager.add(
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Git initialization failed",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                    ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+                  }),
+                );
+              })();
+            }}
+          >
+            <GitBranchPlusIcon className="size-3.5" aria-hidden />
+            <span className="ml-0.5">
+              {initAction.isPending ? "Initializing..." : "Initialize Git"}
+            </span>
+          </Button>
+        )
       ) : (
         <div className="flex shrink-0 items-center gap-1.5">
-          <Group aria-label="Git actions" className="shrink-0">
-            {quickActionDisabledReason ? (
+          <Group aria-label="Git actions" className={rail ? "size-10! shrink-0" : "shrink-0"}>
+            {!rail && quickActionDisabledReason ? (
               <Popover>
                 <PopoverTrigger
                   openOnHover
@@ -1704,7 +1769,7 @@ export default function GitActionsControl({
                   {quickActionDisabledReason}
                 </PopoverPopup>
               </Popover>
-            ) : (
+            ) : !rail ? (
               <Button
                 variant="outline"
                 size="xs"
@@ -1719,8 +1784,8 @@ export default function GitActionsControl({
                   {quickAction.label}
                 </span>
               </Button>
-            )}
-            <GroupSeparator className="hidden @3xl/header-actions:block" />
+            ) : null}
+            {!rail ? <GroupSeparator className="hidden @3xl/header-actions:block" /> : null}
             <Menu
               onOpenChange={(open) => {
                 if (open) {
@@ -1728,14 +1793,85 @@ export default function GitActionsControl({
                 }
               }}
             >
-              <MenuTrigger
-                render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
-                disabled={isGitUiBusy}
+              {rail ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <MenuTrigger
+                        render={
+                          <Button
+                            aria-label="Git actions"
+                            className="size-10! shrink-0 rounded-md border-0 px-0 text-muted-foreground shadow-none hover:text-foreground [&_svg]:size-[18px]!"
+                            size="icon-xs"
+                            variant="ghost"
+                          />
+                        }
+                      />
+                    }
+                  >
+                    <GitQuickActionIcon
+                      quickAction={quickAction}
+                      SourceControlIcon={SourceControlIcon}
+                    />
+                  </TooltipTrigger>
+                  <TooltipPopup side="left">Git actions</TooltipPopup>
+                </Tooltip>
+              ) : (
+                <MenuTrigger
+                  render={
+                    <Button aria-label="Git action options" size="icon-xs" variant="outline" />
+                  }
+                  disabled={isGitUiBusy}
+                >
+                  <ChevronDownIcon aria-hidden="true" className="size-4" />
+                </MenuTrigger>
+              )}
+              <MenuPopup
+                align="end"
+                className={rail ? "min-w-40" : "w-full"}
+                side={rail ? "left" : "bottom"}
               >
-                <ChevronDownIcon aria-hidden="true" className="size-4" />
-              </MenuTrigger>
-              <MenuPopup align="end" className="w-full">
-                {gitActionMenuItems.map((item) => {
+                {rail && quickAction.kind !== "run_pull" ? (
+                  quickActionDisabledReason ? (
+                    <MenuItem
+                      className="w-full"
+                      disabled
+                      aria-label={`${quickAction.label}: ${quickActionDisabledReason}`}
+                      title={quickActionDisabledReason}
+                    >
+                      <GitQuickActionIcon
+                        quickAction={quickAction}
+                        SourceControlIcon={SourceControlIcon}
+                      />
+                      {quickAction.label}
+                    </MenuItem>
+                  ) : (
+                    <MenuItem onClick={runQuickAction}>
+                      <GitQuickActionIcon
+                        quickAction={quickAction}
+                        SourceControlIcon={SourceControlIcon}
+                      />
+                      {quickAction.label}
+                    </MenuItem>
+                  )
+                ) : null}
+                {pullDisabledReason ? (
+                  <MenuItem
+                    className="w-full"
+                    disabled
+                    aria-label={`Pull: ${pullDisabledReason}`}
+                    title={pullDisabledReason}
+                  >
+                    <CloudDownloadIcon />
+                    Pull
+                  </MenuItem>
+                ) : (
+                  <MenuItem onClick={runPull}>
+                    <CloudDownloadIcon />
+                    Pull
+                  </MenuItem>
+                )}
+                {gitActionMenuItemsForPresentation.map((item) => {
                   const disabledReason = getMenuActionDisabledReason({
                     item,
                     gitStatus: gitStatusForActions,
@@ -1744,24 +1880,16 @@ export default function GitActionsControl({
                   });
                   if (item.disabled && disabledReason) {
                     return (
-                      <Popover key={`${item.id}-${item.label}`}>
-                        <PopoverTrigger
-                          openOnHover
-                          nativeButton={false}
-                          render={<span className="block w-max cursor-not-allowed" />}
-                        >
-                          <MenuItem className="w-full" disabled>
-                            <GitActionItemIcon
-                              icon={item.icon}
-                              SourceControlIcon={SourceControlIcon}
-                            />
-                            {item.label}
-                          </MenuItem>
-                        </PopoverTrigger>
-                        <PopoverPopup tooltipStyle side="left" align="center">
-                          {disabledReason}
-                        </PopoverPopup>
-                      </Popover>
+                      <MenuItem
+                        key={`${item.id}-${item.label}`}
+                        className="w-full"
+                        disabled
+                        aria-label={`${item.label}: ${disabledReason}`}
+                        title={disabledReason}
+                      >
+                        <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
+                        {item.label}
+                      </MenuItem>
                     );
                   }
 
@@ -1778,7 +1906,7 @@ export default function GitActionsControl({
                     </MenuItem>
                   );
                 })}
-                {canPublishRepository ? (
+                {canPublishRepository && !(rail && quickAction.kind === "open_publish") ? (
                   <MenuItem
                     disabled={isGitUiBusy}
                     onClick={() => {

@@ -22,8 +22,10 @@ const clientSettings: ClientSettings = {
   keepScreenAwakeWhileAgentsRun: true,
   favorites: [],
   glassOpacity: 80,
+  headerTabScope: "worktree",
   providerModelPreferences: {},
   sidebarAutoSettleAfterDays: 3,
+  sidebarConversationGrouping: "status",
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",

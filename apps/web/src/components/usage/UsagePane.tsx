@@ -195,11 +195,15 @@ export function UsagePane() {
   };
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
+      {/* Chrome is a flat sidebar surface, as in the chat workspace: the grain
+          on the inset belongs under the content slab, not behind the header. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar">
         <header
           className={cn(
-            "workspace-topbar shrink-0 border-b border-border/60 px-3 sm:px-5",
+            // Header sits on the chrome; the surface change below replaces the
+            // rule that used to divide them.
+            "workspace-topbar shrink-0 px-3 sm:px-5",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             isElectron && "drag-region",
           )}
@@ -242,7 +246,7 @@ export function UsagePane() {
           </div>
         </header>
 
-        <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8 sm:py-9">
+        <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto bg-background px-4 py-7 sm:px-8 sm:py-9 md:rounded-xl">
           <div className="@container/usage mx-auto flex w-full max-w-5xl flex-col gap-5">
             <UsageRateLimitGauges />
 

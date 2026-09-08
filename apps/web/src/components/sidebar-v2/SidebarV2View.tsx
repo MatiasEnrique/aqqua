@@ -1,14 +1,41 @@
-import { scopeProjectRef } from "@aqqua/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@aqqua/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { EllipsisIcon, FolderPlusIcon, PlusIcon, SearchIcon, SquarePenIcon } from "lucide-react";
-import { Fragment, lazy, Suspense, useEffect, useMemo } from "react";
+import {
+  EllipsisIcon,
+  FolderPlusIcon,
+  ListFilterIcon,
+  PlusIcon,
+  SearchIcon,
+  SquarePenIcon,
+} from "lucide-react";
+import {
+  Fragment,
+  lazy,
+  type MouseEvent as ReactMouseEvent,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import { isElectron } from "../../env";
+import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { buildSidebarThreadFamilies, sidebarThreadKey } from "./sidebarThreadFamilies";
+import { SidebarConversationGroups } from "./SidebarConversationGroups";
+import { useThreadActions } from "../../hooks/useThreadActions";
+import { readLocalApi } from "../../localApi";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
+import { useThreadSelectionStore } from "../../threadSelectionStore";
 import { resolveProjectExpanded, useUiStateStore } from "../../uiStateStore";
 import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
 import { SidebarSurfaceSwitcher } from "../board/SidebarSurfaceSwitcher";
-import { resolveWorktreeFocusTarget } from "../chat/openConversationTabs";
+import { resolveWorktreeSelectionTarget } from "../chat/openConversationTabs";
 import {
+  resolveSidebarConversationWorktreeKey,
   resolveSidebarWorktreeConversationLocation,
   type SidebarWorktreeGroup,
 } from "../Sidebar.worktreeGroups";
@@ -16,22 +43,66 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChro
 import { Button } from "../ui/button";
 import { CommandDialogTrigger } from "../ui/command";
 import { Kbd } from "../ui/kbd";
+import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from "../ui/sidebar";
+import { toastManager } from "../ui/toast";
+import { readRenderedSidebarThreadKeys } from "./renderedThreadOrder";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import type { SidebarV2ViewModel } from "./models";
 import { ProjectNewWorktreeButton } from "./ProjectNewWorktreeButton";
-import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
+import { ProjectSettingsPopover } from "./ProjectSettingsPopover";
 import { resolveProjectScopeAddition } from "./projectScopeSelection";
 import { SidebarProjectScopeChips } from "./SidebarProjectScopeChips";
-import { SortableWorktreeCardList } from "./WorktreeCard";
+import { SidebarSettledSection } from "./SidebarSettledSection";
+import {
+  buildThreadContextMenuItems,
+  resolveConversationClickAction,
+  type SidebarThreadSection,
+  SortableWorktreeCardList,
+} from "./WorktreeCard";
 import { WorktreeProjectFolder } from "./WorktreeProjectFolder";
 import { buildWorktreeCardGroups } from "./worktreeCardGroups";
+import { resolveActiveWorktreeProjectKey } from "./activeWorktree";
 
 const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
     default: module.SidebarBoardPanel,
   }));
 const SidebarBoardPanel = lazy(loadSidebarBoardPanel);
+
+function HeaderTabScopeQuickAction() {
+  const headerTabScope = useClientSettings((settings) => settings.headerTabScope);
+  const updateSettings = useUpdateClientSettings();
+  const showingSelectedWorktree = headerTabScope === "worktree";
+  const actionLabel = showingSelectedWorktree
+    ? "Show header tabs from all worktrees"
+    : "Show header tabs from the selected worktree";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <SidebarMenuButton
+            size="icon"
+            type="button"
+            className="size-7 rounded-md focus-visible:ring-offset-2"
+            aria-label="Limit header tabs to the selected worktree"
+            aria-pressed={showingSelectedWorktree}
+            isActive={showingSelectedWorktree}
+            onClick={() =>
+              updateSettings({
+                headerTabScope: showingSelectedWorktree ? "all" : "worktree",
+              })
+            }
+          />
+        }
+      >
+        <ListFilterIcon />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{actionLabel}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   const {
@@ -44,7 +115,10 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     navigation,
   } = props.model;
 
-  const { routeThreadKey } = route;
+  const { routeThreadKey, isMobile } = route;
+  const conversationGrouping = useClientSettings(
+    (settings) => settings.sidebarConversationGrouping,
+  );
 
   const {
     projects,
@@ -58,9 +132,15 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     projectActionsTarget,
     setProjectActionsTarget,
     projectGroupingSettings,
+    projectCwdByKey,
+    projectDisplayNameByKey,
   } = projectsSection;
+  const projectSettingsPopoverHandle = useMemo(
+    () => PopoverCreateHandle<SidebarProjectSnapshot>(),
+    [],
+  );
 
-  const { threadByKey } = threadsSection;
+  const { orderedThreadKeys, threadByKey, settledThreads } = threadsSection;
 
   const activeThread = routeThreadKey ? (threadByKey.get(routeThreadKey) ?? null) : null;
   const boardProjectRef = scopedProjectGroup
@@ -82,14 +162,14 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   } = worktreesSection;
 
   const { attemptDeleteWorktree, handleLocationContextMenu } = worktreeLifecycle;
-
+  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, confirmAndDeleteThread } =
+    useThreadActions();
   const {
     handleRemoveProjectMembers,
     renameProjectMember,
     updateProjectMemberIcon,
     updateProjectMemberOriginBranch,
     updateProjectGroupingPreference,
-    handleProjectActions,
     copyProjectPath,
     openAddProjectCommandPalette,
   } = projectActions;
@@ -97,6 +177,8 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   const {
     navigateToThread,
     navigateToDraft,
+    createThreadInWorktree,
+    discardDraft,
     handleNewThreadClick,
     attachListAutoAnimateRef,
     commandPaletteShortcutLabel,
@@ -107,6 +189,12 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
   const isBoardSurface = pathname.startsWith("/board/");
   const boardNavigate = useNavigate();
   const openConversationTabKeys = useUiStateStore((store) => store.openConversationTabKeys);
+  const worktreeConversationExpandedByKey = useUiStateStore(
+    (store) => store.worktreeConversationExpandedByKey,
+  );
+  const setWorktreeConversationExpanded = useUiStateStore(
+    (store) => store.setWorktreeConversationExpanded,
+  );
 
   // Publish the selection so the chat header's tab strip reads the same group
   // this list renders, rather than re-deriving the settled/snoozed partition.
@@ -122,16 +210,199 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     [projectScopeSelection, repositoryGroups, worktreeGroups],
   );
   const hasVisibleWorktrees = worktreeCardGroups.some((group) => group.worktrees.length > 0);
+  const threadSectionByKey = useMemo(() => {
+    const sections = new Map<string, SidebarThreadSection>();
+    for (const group of worktreeGroups) {
+      for (const thread of group.active) {
+        sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "active");
+      }
+      for (const thread of group.snoozed) {
+        sections.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), "snoozed");
+      }
+    }
+    for (const threadKey of threadByKey.keys()) {
+      if (!sections.has(threadKey)) sections.set(threadKey, "settled");
+    }
+    return sections;
+  }, [threadByKey, worktreeGroups]);
+  const threadFamilies = useMemo(
+    () => buildSidebarThreadFamilies([...threadByKey.values()]),
+    [threadByKey],
+  );
+  // Settled conversations answer to the shelf at the foot of the list, not to
+  // every project group in turn — one place to look for finished work.
+  const isSettledThread = useCallback(
+    (thread: EnvironmentThreadShell) =>
+      threadSectionByKey.get(sidebarThreadKey(thread)) === "settled",
+    [threadSectionByKey],
+  );
+  const threadsByWorktreeKey = useMemo(() => {
+    const grouped = new Map<string, EnvironmentThreadShell[]>();
+    for (const thread of threadFamilies.roots) {
+      const key = resolveSidebarConversationWorktreeKey({
+        environmentId: thread.environmentId,
+        projectId: thread.projectId,
+        worktreePath: thread.worktreePath,
+        projectRootByProjectKey: projectsSection.projectCwdByKey,
+      });
+      if (key === null) continue;
+      const current = grouped.get(key);
+      if (current) {
+        current.push(thread);
+      } else {
+        grouped.set(key, [thread]);
+      }
+    }
+    return grouped;
+  }, [projectsSection.projectCwdByKey, threadFamilies]);
+  const statusThreads = useMemo(
+    () =>
+      worktreeCardGroups
+        .flatMap((cardGroup) =>
+          cardGroup.worktrees.flatMap((worktree) => threadsByWorktreeKey.get(worktree.key) ?? []),
+        )
+        .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    [threadsByWorktreeKey, worktreeCardGroups],
+  );
+  const statusDrafts = useMemo(
+    () =>
+      worktreeCardGroups.flatMap((cardGroup) =>
+        cardGroup.worktrees.flatMap((worktree) => worktree.drafts),
+      ),
+    [worktreeCardGroups],
+  );
+  const showEmptyState =
+    conversationGrouping === "status"
+      ? statusThreads.length === 0 && statusDrafts.length === 0
+      : !hasVisibleWorktrees;
+  const activeProjectKey = useMemo(
+    () =>
+      resolveActiveWorktreeProjectKey({
+        activeWorktree: activeWorktreeGroup,
+        projects: projectGroups,
+      }),
+    [activeWorktreeGroup, projectGroups],
+  );
+
+  const handleThreadClick = useCallback(
+    (event: ReactMouseEvent, thread: EnvironmentThreadShell) => {
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const threadKey = scopedThreadKey(threadRef);
+      const action = resolveConversationClickAction({
+        platform: navigator.platform,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        detail: event.detail,
+      });
+      if (action === "toggle-selection") {
+        event.preventDefault();
+        useThreadSelectionStore.getState().toggleThread(threadKey);
+        return;
+      }
+      if (action === "range-selection") {
+        event.preventDefault();
+        useThreadSelectionStore
+          .getState()
+          .rangeSelectTo(threadKey, readRenderedSidebarThreadKeys(orderedThreadKeys));
+        return;
+      }
+      if (action === "navigate") navigateToThread(threadRef);
+    },
+    [navigateToThread, orderedThreadKeys],
+  );
+
+  const handleToggleThreadSettled = useCallback(
+    (thread: EnvironmentThreadShell, section: SidebarThreadSection) => {
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const action = section === "settled" ? unsettleThread(threadRef) : settleThread(threadRef);
+      void action.then((result) => {
+        if (result._tag === "Success") return;
+        toastManager.add({
+          type: "error",
+          title:
+            section === "settled"
+              ? "Could not un-settle conversation"
+              : "Could not settle conversation",
+        });
+      });
+    },
+    [settleThread, unsettleThread],
+  );
+
+  const handleThreadContextMenu = useCallback(
+    (event: ReactMouseEvent, thread: EnvironmentThreadShell, section: SidebarThreadSection) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const api = readLocalApi();
+      if (!api) return;
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const presets = [
+        {
+          id: "one-hour",
+          label: "For 1 hour",
+          snoozedUntil: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+        },
+        {
+          id: "tomorrow",
+          label: "Until tomorrow",
+          snoozedUntil: new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString(),
+        },
+      ] as const;
+      const items = buildThreadContextMenuItems(section, presets);
+      const position = { x: event.clientX, y: event.clientY };
+      void api.contextMenu.show(items, position).then(async (action) => {
+        if (action === null || action === "snooze") return;
+        const runAction = async (): Promise<boolean> => {
+          if (action.startsWith("snooze:")) {
+            const preset = presets.find((candidate) => `snooze:${candidate.id}` === action);
+            return preset
+              ? (await snoozeThread(threadRef, preset.snoozedUntil))._tag === "Success"
+              : true;
+          }
+          if (action === "settle") return (await settleThread(threadRef))._tag === "Success";
+          if (action === "unsettle") return (await unsettleThread(threadRef))._tag === "Success";
+          if (action === "unsnooze") return (await unsnoozeThread(threadRef))._tag === "Success";
+          return (await confirmAndDeleteThread(thread))._tag === "Success";
+        };
+        if (!(await runAction())) {
+          toastManager.add({ type: "error", title: "Thread action failed" });
+        }
+      });
+    },
+    [confirmAndDeleteThread, settleThread, snoozeThread, unsettleThread, unsnoozeThread],
+  );
+
+  const handleDraftContextMenu = useCallback(
+    (event: ReactMouseEvent, draft: { readonly draftId: string }) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const api = readLocalApi();
+      if (!api) return;
+      const position = { x: event.clientX, y: event.clientY };
+      void api.contextMenu
+        .show([{ id: "discard", label: "Discard draft", destructive: true }], position)
+        .then((action) => {
+          if (action === "discard") discardDraft(draft.draftId);
+        });
+    },
+    [discardDraft],
+  );
   useEffect(() => {
     setHeaderWorktree({ group: activeWorktreeGroup, worktreeCount });
     return () => setHeaderWorktree({ group: null, worktreeCount: 0 });
   }, [activeWorktreeGroup, setHeaderWorktree, worktreeCount]);
+  useEffect(() => {
+    if (activeProjectKey !== null) {
+      setProjectExpanded(activeProjectKey, true);
+    }
+  }, [activeProjectKey, route.routeDraftId, routeThreadKey, setProjectExpanded]);
 
   // Selecting a worktree means routing into it: the active worktree is derived
   // from the route, so navigation *is* the selection. The override is only for
   // a worktree with nothing to route to yet.
   const selectWorktree = (group: SidebarWorktreeGroup) => {
-    const target = resolveWorktreeFocusTarget({
+    const target = resolveWorktreeSelectionTarget({
       worktree: group,
       openKeys: new Set(openConversationTabKeys),
     });
@@ -145,6 +416,11 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
       navigateToDraft(target.draftId);
       return;
     }
+    if (target._tag === "new-thread") {
+      setActiveWorktreeOverrideKey(group.key);
+      createThreadInWorktree(group);
+      return;
+    }
     setActiveWorktreeOverrideKey(group.key);
   };
 
@@ -152,8 +428,10 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     <SortableWorktreeCardList
       groups={groups}
       activeWorktreeKey={activeWorktreeKey}
+      worktreeConversationExpandedByKey={worktreeConversationExpandedByKey}
       removingWorktreeKey={removingWorktreeKey}
       onSelect={selectWorktree}
+      onWorktreeConversationExpandedChange={setWorktreeConversationExpanded}
       onDeleteWorktree={attemptDeleteWorktree}
       onContextMenu={(event, target) => {
         const location = resolveSidebarWorktreeConversationLocation(target);
@@ -164,25 +442,42 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
         });
       }}
       onReorder={reorderWorktree}
+      threadsByWorktreeKey={threadsByWorktreeKey}
+      descendantsByRoot={threadFamilies.descendantsByRoot}
+      threadSectionByKey={threadSectionByKey}
+      isMobile={isMobile}
+      selectedThreadKey={routeThreadKey}
+      selectedDraftId={route.routeDraftId}
+      onSelectThread={handleThreadClick}
+      onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
+      onThreadContextMenu={handleThreadContextMenu}
+      onToggleThreadSettled={handleToggleThreadSettled}
+      onDraftContextMenu={handleDraftContextMenu}
     />
   );
 
-  // A tab-reachable way into project actions. The copy inside the project
-  // combobox sits in a listbox, where arrow keys move between options and Tab
-  // never lands on a nested control — so on its own it left the action
-  // mouse-only.
+  // Keep project actions anchored to their keyboard-accessible trigger.
   const renderProjectActionsButton = (project: SidebarProjectSnapshot) => (
-    <button
-      type="button"
-      aria-label={`Project actions for ${project.displayName}`}
-      title={`Project actions for ${project.displayName}`}
-      onClick={(event) => {
-        void handleProjectActions(event, project);
-      }}
-      className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    <PopoverTrigger
+      handle={projectSettingsPopoverHandle}
+      payload={project}
+      render={
+        <button
+          type="button"
+          aria-label={`Project actions for ${project.displayName}`}
+          title={`Project actions for ${project.displayName}`}
+          onClickCapture={() => setProjectActionsTarget(project)}
+          onClick={(event) => event.stopPropagation()}
+          className="relative inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-sidebar-row-hover hover:text-foreground active:scale-[0.96] data-popup-open:bg-sidebar-row-hover data-popup-open:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
+        />
+      }
     >
-      <EllipsisIcon className="size-3.5" />
-    </button>
+      <EllipsisIcon aria-hidden className="size-3.5" />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,2.75rem)] -translate-1/2 pointer-fine:hidden"
+      />
+    </PopoverTrigger>
   );
 
   return (
@@ -190,71 +485,61 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
       <SidebarChromeHeader
         isElectron={isElectron}
         trailing={
-          <SidebarSurfaceSwitcher
-            scopedProjectRef={boardProjectRef}
-            onFlowsIntent={loadSidebarBoardPanel}
-          />
+          <>
+            <CommandDialogTrigger
+              render={
+                <SidebarMenuButton
+                  size="icon"
+                  type="button"
+                  aria-label="Search threads and commands"
+                  className="size-7 rounded-md focus-visible:ring-offset-2"
+                  data-testid="command-palette-trigger"
+                />
+              }
+            >
+              <SearchIcon />
+              {commandPaletteShortcutLabel ? (
+                <span className="sr-only">{commandPaletteShortcutLabel}</span>
+              ) : null}
+            </CommandDialogTrigger>
+            <HeaderTabScopeQuickAction />
+          </>
         }
       />
       <SidebarContent
         className="@container/sidebar-conversations gap-0"
         fixedHeader={
-          <SidebarGroup className="gap-1 p-2">
-            <div className="flex items-center gap-1">
-              <div className="min-w-0 flex-1">
-                <CommandDialogTrigger
-                  render={
-                    <SidebarMenuButton
-                      type="button"
-                      aria-label="Search threads and commands"
-                      className="focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-                      data-testid="command-palette-trigger"
-                    />
-                  }
-                >
-                  <SearchIcon />
-                  <div className="flex-1 truncate text-left">Search</div>
-                  {commandPaletteShortcutLabel ? (
-                    <Kbd className="mr-px h-4 min-w-0 rounded-sm bg-sidebar-control-surface px-1.5 text-[10px] text-sidebar-muted-foreground ring-1 ring-sidebar-border">
-                      {commandPaletteShortcutLabel}
-                    </Kbd>
-                  ) : null}
-                </CommandDialogTrigger>
-              </div>
-              <div className="shrink-0">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <SidebarMenuButton
-                        size="icon"
-                        type="button"
-                        className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-                        onClick={handleNewThreadClick}
-                        disabled={projects.length === 0}
-                        aria-label="New thread"
-                      />
-                    }
-                  >
-                    <SquarePenIcon />
-                    <span
-                      className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-                      aria-hidden="true"
-                    />
-                  </TooltipTrigger>
-                  <TooltipPopup side="right">
-                    {newThreadShortcutLabel
-                      ? `New thread (${newThreadShortcutLabel})`
-                      : "New thread"}
-                  </TooltipPopup>
-                </Tooltip>
-              </div>
-            </div>
+          <div className="px-2 pb-2 pt-2">
+            <SidebarGroup className="gap-0.5 p-0">
+              <SidebarMenuButton
+                type="button"
+                onClick={handleNewThreadClick}
+                disabled={projects.length === 0}
+                aria-label="New thread"
+                className="h-8 gap-1.5 rounded-md px-1 text-[13px] font-medium leading-5 text-sidebar-foreground/80 [&_svg]:stroke-[1.5]"
+              >
+                <SquarePenIcon />
+                <span className="flex-1">New thread</span>
+                {newThreadShortcutLabel ? (
+                  <Kbd className="h-4 rounded-sm bg-sidebar-control-surface px-1.5 text-[11px] font-normal text-sidebar-muted-foreground ring-1 ring-sidebar-border">
+                    {newThreadShortcutLabel}
+                  </Kbd>
+                ) : null}
+              </SidebarMenuButton>
+              <SidebarSurfaceSwitcher
+                orientation="rows"
+                scopedProjectRef={boardProjectRef}
+                onFlowsIntent={loadSidebarBoardPanel}
+              />
+            </SidebarGroup>
+            <div className="h-3" />
             {projectGroups.length > 0 ? (
-              <div className="flex items-center gap-1">
+              <div className="mt-1 flex items-center gap-1">
                 <div className="min-w-0 flex-1">
                   <SidebarProjectScopeChips
                     projectGroups={projectGroups}
                     scopedProjectGroups={scopedProjectGroups}
+                    selectedProjectKeys={[...projectScopeSelection]}
                     onSelectionChange={(projectKeys) => {
                       // In board mode the scope filter doubles as the board's
                       // project switcher — the surface is per-project, so
@@ -278,7 +563,6 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                         },
                       });
                     }}
-                    onProjectActions={handleProjectActions}
                     onProjectContextMenu={(event, project) => {
                       handleLocationContextMenu(event, {
                         projectRef: scopeProjectRef(project.environmentId, project.id),
@@ -320,7 +604,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                 </Tooltip>
               </div>
             ) : null}
-          </SidebarGroup>
+          </div>
         }
       >
         {isBoardSurface ? (
@@ -335,64 +619,106 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
             />
           </Suspense>
         ) : (
-          // The scope chips are a control, not a heading for the list below:
-          // the extra top pad keeps the multiselect from reading as the first
-          // row of the project registry.
-          <SidebarGroup className="px-2 pb-1 pt-2">
+          <SidebarGroup data-sidebar-thread-list className="px-2 pb-1 pt-0">
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
               delay={150}
               closeDelay={0}
               timeout={400}
             >
-              <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1">
-                {worktreeCardGroups.map((cardGroup) => {
-                  const { project } = cardGroup;
-                  if (project === null) {
-                    return (
-                      <Fragment key={`worktree-folder:${cardGroup.key}`}>
-                        {renderWorktreeCards(cardGroup.worktrees)}
-                      </Fragment>
-                    );
-                  }
-                  const projectRef = scopeProjectRef(project.environmentId, project.id);
-                  const expanded = resolveProjectExpanded(projectExpandedById, [
-                    project.projectKey,
-                  ]);
-                  const projectState =
-                    repositoryGroups.find(
-                      (repository) => repository.project.projectKey === project.projectKey,
-                    )?.state ?? "idle";
-                  return (
-                    <WorktreeProjectFolder
-                      key={`worktree-folder:${cardGroup.key}`}
-                      displayName={project.displayName}
-                      environmentId={project.environmentId}
-                      workspaceRoot={project.workspaceRoot}
-                      projectKey={project.projectKey}
-                      worktreeCount={cardGroup.worktrees.length}
-                      state={projectState === "settled" ? "idle" : projectState}
-                      expanded={expanded}
-                      onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
-                      onContextMenu={(event) => handleLocationContextMenu(event, { projectRef })}
-                      actions={
-                        <>
-                          {renderProjectActionsButton(project)}
-                          <ProjectNewWorktreeButton
-                            projectRef={projectRef}
-                            projectName={project.displayName}
+              {conversationGrouping === "status" ? (
+                <SidebarConversationGroups
+                  grouping="status"
+                  threads={statusThreads}
+                  drafts={statusDrafts}
+                  descendantsByRoot={threadFamilies.descendantsByRoot}
+                  threadSectionByKey={threadSectionByKey}
+                  isMobile={isMobile}
+                  selectedThreadKey={routeThreadKey}
+                  selectedDraftId={route.routeDraftId}
+                  onSelectThread={handleThreadClick}
+                  onThreadContextMenu={handleThreadContextMenu}
+                  onToggleThreadSettled={handleToggleThreadSettled}
+                  onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
+                  onDraftContextMenu={handleDraftContextMenu}
+                />
+              ) : (
+                <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1">
+                  {worktreeCardGroups.map((cardGroup) => {
+                    const { project } = cardGroup;
+                    const conversations =
+                      conversationGrouping === "project" ? (
+                        <li className="list-none">
+                          <SidebarConversationGroups
+                            grouping="project"
+                            threads={cardGroup.worktrees
+                              .flatMap((worktree) => threadsByWorktreeKey.get(worktree.key) ?? [])
+                              .filter((thread) => !isSettledThread(thread))
+                              .toSorted(
+                                (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+                              )}
+                            drafts={cardGroup.worktrees.flatMap((worktree) => worktree.drafts)}
+                            descendantsByRoot={threadFamilies.descendantsByRoot}
+                            threadSectionByKey={threadSectionByKey}
+                            isMobile={isMobile}
+                            selectedThreadKey={routeThreadKey}
+                            selectedDraftId={route.routeDraftId}
+                            onSelectThread={handleThreadClick}
+                            onThreadContextMenu={handleThreadContextMenu}
+                            onToggleThreadSettled={handleToggleThreadSettled}
+                            onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
+                            onDraftContextMenu={handleDraftContextMenu}
                           />
-                        </>
-                      }
-                    >
-                      {renderWorktreeCards(cardGroup.worktrees)}
-                    </WorktreeProjectFolder>
-                  );
-                })}
-              </ul>
+                        </li>
+                      ) : (
+                        renderWorktreeCards(cardGroup.worktrees)
+                      );
+                    if (project === null) {
+                      return (
+                        <Fragment key={`worktree-folder:${cardGroup.key}`}>
+                          {conversations}
+                        </Fragment>
+                      );
+                    }
+                    const projectRef = scopeProjectRef(project.environmentId, project.id);
+                    const expanded = resolveProjectExpanded(projectExpandedById, [
+                      project.projectKey,
+                    ]);
+                    const projectState =
+                      repositoryGroups.find(
+                        (repository) => repository.project.projectKey === project.projectKey,
+                      )?.state ?? "idle";
+                    return (
+                      <WorktreeProjectFolder
+                        key={`worktree-folder:${cardGroup.key}`}
+                        displayName={project.displayName}
+                        environmentId={project.environmentId}
+                        workspaceRoot={project.workspaceRoot}
+                        projectKey={project.projectKey}
+                        worktreeCount={cardGroup.worktrees.length}
+                        state={projectState === "settled" ? "idle" : projectState}
+                        expanded={expanded}
+                        onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
+                        onContextMenu={(event) => handleLocationContextMenu(event, { projectRef })}
+                        actions={
+                          <>
+                            {renderProjectActionsButton(project)}
+                            <ProjectNewWorktreeButton
+                              projectRef={projectRef}
+                              projectName={project.displayName}
+                            />
+                          </>
+                        }
+                      >
+                        {conversations}
+                      </WorktreeProjectFolder>
+                    );
+                  })}
+                </ul>
+              )}
             </TooltipProvider>
-            {!hasVisibleWorktrees ? (
-              <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
+            {showEmptyState ? (
+              <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-[13px] text-muted-foreground/60">
                 {projects.length === 0 ? (
                   <>
                     <span>No projects yet</span>
@@ -400,7 +726,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                       size="xs"
                       variant="outline"
                       onClick={openAddProjectCommandPalette}
-                      className="border-sidebar-border bg-transparent text-[11px] text-sidebar-muted-foreground shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                      className="border-sidebar-border bg-transparent text-[13px] text-sidebar-muted-foreground shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                     >
                       <PlusIcon className="size-3" />
                       Add project
@@ -413,10 +739,27 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                 )}
               </div>
             ) : null}
+            {/* Status grouping already collects settled work into its own
+                section at the foot of the list, so the shelf would only say
+                the same thing twice there. */}
+            {conversationGrouping === "status" ? null : (
+              <SidebarSettledSection
+                threads={settledThreads}
+                projectCwdByKey={projectCwdByKey}
+                projectDisplayNameByKey={projectDisplayNameByKey}
+                selectedThreadKey={routeThreadKey}
+                onSelectThread={handleThreadClick}
+                onThreadContextMenu={(event, thread) =>
+                  handleThreadContextMenu(event, thread, "settled")
+                }
+                onRestoreThread={(thread) => handleToggleThreadSettled(thread, "settled")}
+              />
+            )}
           </SidebarGroup>
         )}
       </SidebarContent>
-      <ProjectSettingsDialog
+      <ProjectSettingsPopover
+        handle={projectSettingsPopoverHandle}
         target={projectActionsTarget}
         onClose={() => setProjectActionsTarget(null)}
         projectGroupingMode={projectGroupingSettings.sidebarProjectGroupingMode}

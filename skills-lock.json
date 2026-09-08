@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "animate": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/animate/SKILL.md",
+      "computedHash": "2eb48e4ad74798a0ad21aa64a6abd1eb67853e23873d470c5e5ab758c564fbc7"
+    },
+    "animation-vocabulary": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/animation-vocabulary/SKILL.md",
+      "computedHash": "0467041b24408c894d78cd9de440e52bb7586c0c7698f96dc9504ca9bb8df9ca"
+    },
+    "apple-design": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/apple-design/SKILL.md",
+      "computedHash": "beb589f37846a6442bd93943bd27515a9639330480179c10f85e27947845dbeb"
+    },
+    "emil-design-eng": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/emil-design-eng/SKILL.md",
+      "computedHash": "11168c7b35b36f378d809b2c3d8738d78b18848e67c9565d93ea5a42947c1b5e"
+    },
+    "pick-ui-library": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pick-ui-library/SKILL.md",
+      "computedHash": "cfe1b55798fe85ff4edef0ef5eb9f95e17adc97e24301c53e53efa3003b6f269"
+    }
+  }
+}

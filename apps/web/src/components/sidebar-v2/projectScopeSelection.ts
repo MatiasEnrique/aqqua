@@ -49,6 +49,25 @@ export function resolveSelectedProjectGroups<T extends ProjectScopeCandidate>(
   return candidates.filter((candidate) => selection.has(candidate.projectKey));
 }
 
+export function resolveScopedProjectKeys(
+  selection: ProjectScopeSelection,
+  groups: readonly {
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  }[],
+): ReadonlySet<string> | null {
+  if (selection.size === 0) return null;
+  return new Set(
+    groups.flatMap((group) =>
+      group.memberProjectRefs.map(
+        (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+      ),
+    ),
+  );
+}
+
 /**
  * The one project in scope, or null.
  *

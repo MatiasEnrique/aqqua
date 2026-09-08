@@ -83,12 +83,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --glass-opacity: 80%;
   --glass-saturation: 1.14;
   --desktop-window-right-resize-inset: 0px;
-  --workspace-topbar-height: 52px;
-  /* The conversation tab strip, when the tabbed header is on. Deliberately a
-     separate token: --workspace-topbar-height is read by the floating sidebar
-     toggle, the sidebar chrome, settings and usage panes, all of which must
-     stay aligned to row one no matter how tall the header grows. */
-  --workspace-tabbar-height: 42px;
+  --workspace-topbar-height: 36px;
+  /* Tabs share the header row and its sidebar/tool rail alignment. */
+  --workspace-tabbar-height: var(--workspace-topbar-height);
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
@@ -112,7 +109,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 }
 
 .wco {
-  --workspace-topbar-height: env(titlebar-area-height, 52px);
+  --workspace-topbar-height: env(titlebar-area-height, 36px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
@@ -171,10 +168,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
   /* Product UI, body, anything at or below 16px. */
   --font-sans:
-    "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    "IBM Plex Sans Variable", "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
   /* Headings, brand moments, display copy. Never below 20px, never above 600. */
-  --font-display:
-    "IBM Plex Sans Variable", "IBM Plex Sans", "Inter Variable", system-ui, sans-serif;
+  --font-display: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, sans-serif;
   /* Sibling to the display face, so diffs and terminal tie back to the brand. */
   --font-mono:
     "IBM Plex Mono", "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -301,54 +298,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 }
 
 @layer components {
-  .sidebar-brand {
-    /* The crest is a fixed-aspect lockup (340x105) rendered at h-4, so its
-       rendered width is knowable in CSS: centering can be clamped rather than
-       measured. Assumes the link itself adds no padding around the mark — give
-       it any and the centering silently drifts by half of it. */
-    --sidebar-brand-width: calc(1rem * (340 / 105));
-    /* Where the header's own chrome ends. --workspace-titlebar-content-left
-       describes a single overlay button, which is the right answer everywhere
-       the app draws its own controls. */
-    --sidebar-brand-min-left: var(--workspace-titlebar-content-left, 0px);
-
-    display: none;
-    position: absolute;
-    /* Centered in the sidebar, but never allowed to slide under the window
-       controls when the sidebar is dragged narrow. Today the container query
-       below keeps the brand hidden until the header is wide enough that the
-       centered position already clears the floor, so this is a guard against a
-       narrower future threshold rather than a live constraint. */
-    left: max(calc(50% - var(--sidebar-brand-width) / 2), var(--sidebar-brand-min-left));
-  }
-
-  /* macOS keeps its native traffic lights inside this header (hiddenInset,
-     positioned at x=16), so the floor is the cluster's right edge plus a gap —
-     roughly 3x the single-button inset the shared variable describes. Matched
-     by exclusion: Windows and Linux both draw a Window Controls Overlay and so
-     carry .wco (Windows additionally carries .electron-windows). */
-  html.electron:not(.electron-windows):not(.wco) .sidebar-brand {
-    --sidebar-brand-min-left: 4.75rem;
-  }
-
-  .sidebar-brand-stage {
-    display: none;
-  }
-
-  @media (min-width: 48rem) {
-    @container sidebar-header (min-width: 13.5rem) {
-      .sidebar-brand {
-        display: flex;
-      }
-    }
-
-    @container sidebar-header (min-width: 15.75rem) {
-      .sidebar-brand-stage {
-        display: inline-flex;
-      }
-    }
-  }
-
   .workspace-topbar {
     display: flex;
     height: var(--workspace-topbar-height);
@@ -694,8 +643,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
     }
 
     .chat-composer-horizontal-inset {
-      padding-inline-start: calc(env(safe-area-inset-left) + 1.25rem);
-      padding-inline-end: calc(env(safe-area-inset-right) + 1.25rem);
+      padding-inline-start: calc(env(safe-area-inset-left) + 0.75rem);
+      padding-inline-end: calc(env(safe-area-inset-right) + 0.75rem);
     }
   }
 
@@ -838,9 +787,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --sidebar-foreground: var(--foreground);
   --sidebar-muted-foreground: var(--muted-foreground);
   --sidebar-control-surface: var(--color-ink-100);
-  --sidebar-row-hover: var(--color-ink-25);
-  --sidebar-row-active: var(--color-paper);
-  --sidebar-row-selected: var(--color-paper);
+  /* Rows lift toward paper without reaching it. Pure white against the ink-50
+     sidebar is the brightest surface in the app and reads as a hard band; a
+     partial mix keeps the ramp legible — hover, selected, pressed — while the
+     selected row stays quieter than the content it points at. */
+  --sidebar-row-hover: color-mix(in srgb, var(--color-paper) 40%, var(--sidebar));
+  --sidebar-row-active: color-mix(in srgb, var(--color-paper) 85%, var(--sidebar));
+  --sidebar-row-selected: color-mix(in srgb, var(--color-paper) 62%, var(--sidebar));
   --sidebar-border: var(--border);
   /* A conversation card is the composer's shell, reused: same surface, same
      hairline, same radius. These mirror .chat-composer-glass-shell so the two
@@ -934,9 +887,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --sidebar-foreground: var(--color-ink-800);
   --sidebar-muted-foreground: var(--color-ink-500);
   --sidebar-control-surface: var(--color-ink-100);
-  --sidebar-row-hover: var(--color-ink-25);
-  --sidebar-row-active: var(--color-paper);
-  --sidebar-row-selected: var(--color-paper);
+  /* Rows lift toward paper without reaching it. Pure white against the ink-50
+     sidebar is the brightest surface in the app and reads as a hard band; a
+     partial mix keeps the ramp legible — hover, selected, pressed — while the
+     selected row stays quieter than the content it points at. */
+  --sidebar-row-hover: color-mix(in srgb, var(--color-paper) 40%, var(--sidebar));
+  --sidebar-row-active: color-mix(in srgb, var(--color-paper) 85%, var(--sidebar));
+  --sidebar-row-selected: color-mix(in srgb, var(--color-paper) 62%, var(--sidebar));
   --sidebar-border: var(--color-ink-200);
   background-color: var(--sidebar);
 }
@@ -944,7 +901,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 .dark [data-app-sidebar] {
   --background: var(--color-ink-950);
   --foreground: var(--color-ink-100);
-  --card: var(--color-ink-950);
+  --card: color-mix(in srgb, var(--color-ink-950) 96%, var(--color-white));
   --card-foreground: var(--foreground);
   --accent: color-mix(in srgb, var(--color-ink-950) 88%, var(--color-white));
   --accent-foreground: var(--color-ink-50);
@@ -963,17 +920,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
 }
 
 body {
-  font-family:
-    "Inter Variable",
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
-  /* Engages Inter's opsz axis so small UI text picks up the sturdier optical
-     design instead of the display cut's thin strokes. */
-  font-optical-sizing: auto;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
   margin: 0;
   padding: 0;
 }

@@ -35,7 +35,7 @@ export function WorktreeProjectFolder(props: {
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the context menu belongs to the composite folder row. */}
       <div
         onContextMenu={props.onContextMenu}
-        className="flex h-7 w-full min-w-0 items-center rounded-md pr-0.5 text-sidebar-foreground transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-sidebar-row-hover"
+        className="group/project flex h-7 w-full min-w-0 items-center rounded-md pr-0.5 text-sidebar-foreground transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-sidebar-row-hover"
       >
         <button
           type="button"
@@ -45,16 +45,16 @@ export function WorktreeProjectFolder(props: {
           onClick={props.onToggle}
           // No chevron. It took the leftmost slot and pushed the project's icon
           // to the right of its own children's icons, which read as the tree
-          // upside down. The project icon is the row's anchor instead, and it
-          // sits left of every card beneath it.
-          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md pl-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          // upside down. The project icon is the row's anchor instead, on the
+          // same left edge as the branch icon of every card beneath it.
+          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md pl-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
           <ProjectFavicon
             environmentId={props.environmentId}
             cwd={props.workspaceRoot}
             className="size-4 shrink-0 rounded-sm"
           />
-          <span className="min-w-0 truncate text-xs font-medium text-sidebar-muted-foreground">
+          <span className="min-w-0 truncate text-[13px] font-medium leading-5 text-sidebar-foreground">
             {props.displayName}
           </span>
           {/* Only while shut. Open, every checkout states its own case one row
@@ -63,18 +63,18 @@ export function WorktreeProjectFolder(props: {
           {props.expanded ? null : (
             <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
               <SidebarProjectStateIndicator state={props.state} />
-              <span className="text-[10px] tabular-nums text-sidebar-muted-foreground/70">
+              <span className="text-[11px] tabular-nums text-sidebar-muted-foreground/70">
                 {props.worktreeCount}
               </span>
             </span>
           )}
         </button>
-        {props.actions}
+        <div className="flex items-center pointer-fine:opacity-0 pointer-fine:group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+          {props.actions}
+        </div>
       </div>
       {props.expanded ? (
-        // Indented past the project icon, so a checkout's own icon starts
-        // right of its project's.
-        <ul id={`worktree-folder-${props.projectKey}`} className="flex flex-col gap-1 pt-1 pl-2.5">
+        <ul id={`worktree-folder-${props.projectKey}`} className="flex flex-col gap-1 pt-1">
           {props.children}
         </ul>
       ) : null}

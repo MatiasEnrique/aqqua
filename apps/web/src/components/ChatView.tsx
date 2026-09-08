@@ -141,7 +141,11 @@ import {
   selectThreadPreviewMiniPlayer,
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
-import { RightPanelTabs } from "./RightPanelTabs";
+import {
+  resolveActivitySurface,
+  RightPanelSidebar,
+  rightPanelSelectionMemoryKey,
+} from "./RightPanelSidebar";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -153,6 +157,7 @@ import {
   ChevronDownIcon,
   GitBranchIcon,
   HistoryIcon,
+  PanelRightIcon,
   TriangleAlertIcon,
   WifiOffIcon,
 } from "lucide-react";
@@ -174,7 +179,11 @@ import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { ConversationTabs } from "./chat/ConversationTabs";
 import { NativeSubagentActivity } from "./chat/NativeSubagentActivity";
-import { resolveWorktreeFocusTarget, type WorktreeFocusTarget } from "./chat/openConversationTabs";
+import {
+  resolveConversationTabAfterClose,
+  resolveWorktreeFocusTarget,
+  type WorktreeFocusTarget,
+} from "./chat/openConversationTabs";
 import { useConversationTabs } from "./chat/useConversationTabs";
 import { useWorktreeHeaderStore } from "../worktreeHeaderStore";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -326,6 +335,7 @@ import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -1337,6 +1347,8 @@ function ChatViewContent(props: ChatViewProps) {
     routeThreadKey,
     enabled: worktreeTabsHeader,
   });
+  const conversationTabsRef = useRef(conversationTabs);
+  conversationTabsRef.current = conversationTabs;
   const headerWorktreeGroupRef = useRef(headerWorktreeGroup);
   headerWorktreeGroupRef.current = headerWorktreeGroup;
   const resolveFocusAfterConversationClose = useCallback(
@@ -1427,24 +1439,25 @@ function ChatViewContent(props: ChatViewProps) {
   routedDraftIdRef.current = draftId;
   const discardConversationDraftTab = useCallback(
     (nextDraftId: string) => {
-      const draft = headerWorktreeGroupRef.current?.drafts.find(
-        (candidate) => candidate.draftId === nextDraftId,
+      const closingTab = conversationTabsRef.current.find(
+        (tab) => tab._tag === "draft" && tab.draftId === nextDraftId,
       );
-      const target: WorktreeFocusTarget = draft
-        ? resolveFocusAfterConversationClose(
-            scopedThreadKey(scopeThreadRef(draft.environmentId, draft.threadId)),
-          )
-        : { _tag: "none" };
+      const target = closingTab
+        ? resolveConversationTabAfterClose({
+            tabs: conversationTabsRef.current,
+            closingKey: closingTab.key,
+          })
+        : null;
       useComposerDraftStore.getState().clearDraftThread(DraftId.make(nextDraftId));
       if (routedDraftIdRef.current === nextDraftId) {
-        if (target._tag === "none") {
+        if (target === null) {
           void navigate({ to: "/" });
         } else {
           void navigateAfterConversationClose(target);
         }
       }
     },
-    [navigate, navigateAfterConversationClose, resolveFocusAfterConversationClose],
+    [navigate, navigateAfterConversationClose],
   );
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
@@ -1459,18 +1472,6 @@ function ChatViewContent(props: ChatViewProps) {
   const composerResumeSession = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.resumeSession ?? null,
   );
-  const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
-  const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
-  const setComposerDraftTerminalContexts = useComposerDraftStore(
-    (store) => store.setTerminalContexts,
-  );
-  const setComposerDraftElementContexts = useComposerDraftStore(
-    (store) => store.setElementContexts,
-  );
-  const setComposerDraftPreviewAnnotations = useComposerDraftStore(
-    (store) => store.setPreviewAnnotations,
-  );
-  const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setComposerResumeSession = useComposerDraftStore((store) => store.setResumeSession);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
@@ -1537,7 +1538,22 @@ function ChatViewContent(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const compactViewport = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const [workspaceElement, setWorkspaceElement] = useState<HTMLDivElement | null>(null);
+  const [workspaceCompact, setWorkspaceCompact] = useState<boolean | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!workspaceElement) return;
+    const updateCompactState = () => {
+      const next = workspaceElement.clientWidth < 800;
+      setWorkspaceCompact((current) => (current === next ? current : next));
+    };
+    updateCompactState();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateCompactState);
+    observer.observe(workspaceElement);
+    return () => observer.disconnect();
+  }, [workspaceElement]);
+  const shouldUsePlanSidebarSheet = compactViewport || workspaceCompact === true;
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -1872,6 +1888,27 @@ function ChatViewContent(props: ChatViewProps) {
       null
     );
   }, [rightPanelState]);
+  const preferredRightPanelSurfaceIdsRef = useRef(new Map<string, string>());
+  const preferredRightPanelSurfaceIdForKind = useCallback(
+    (kind: RightPanelSurface["kind"]) => {
+      if (!rightPanelContext) return undefined;
+      return preferredRightPanelSurfaceIdsRef.current.get(
+        rightPanelSelectionMemoryKey(rightPanelContext, kind),
+      );
+    },
+    [rightPanelContext],
+  );
+  useEffect(() => {
+    if (!rightPanelContext || rightPanelState.activeSurfaceId === null) return;
+    const activeSurface = rightPanelState.surfaces.find(
+      (surface) => surface.id === rightPanelState.activeSurfaceId,
+    );
+    if (!activeSurface) return;
+    preferredRightPanelSurfaceIdsRef.current.set(
+      rightPanelSelectionMemoryKey(rightPanelContext, activeSurface.kind),
+      activeSurface.id,
+    );
+  }, [rightPanelContext, rightPanelState.activeSurfaceId, rightPanelState.surfaces]);
   const activeRightPanelKind = activeRightPanelSurface?.kind ?? null;
   const diffOpen = activeRightPanelKind === "diff";
   const activeFileSurface =
@@ -1894,6 +1931,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
+  const [workspaceToolsOpen, setWorkspaceToolsOpen] = useState(false);
   const canMaximizeRightPanel = rightPanelOpen && !shouldUsePlanSidebarSheet;
   const rightPanelMaximized =
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
@@ -3777,7 +3815,11 @@ function ChatViewContent(props: ChatViewProps) {
     (kind: RightPanelSurfaceButtonKind) => {
       if (kind === "browser" || kind === "terminal") {
         const wantedKind = kind === "browser" ? "preview" : "terminal";
-        const existing = rightPanelState.surfaces.find((surface) => surface.kind === wantedKind);
+        const existing = resolveActivitySurface({
+          surfaces: rightPanelState.surfaces,
+          kind: wantedKind,
+          preferredId: preferredRightPanelSurfaceIdForKind(wantedKind),
+        });
         if (existing) {
           activateRightPanelSurface(existing);
           return;
@@ -3812,6 +3854,7 @@ function ChatViewContent(props: ChatViewProps) {
       addPullRequestSurface,
       addTerminalSurface,
       createBrowserSurface,
+      preferredRightPanelSurfaceIdForKind,
       rightPanelState.surfaces,
     ],
   );
@@ -6393,14 +6436,6 @@ function ChatViewContent(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
-  const panelToggleControls = (
-    <PanelLayoutControls
-      terminalAvailable={activeProject !== null}
-      terminalOpen={terminalUiState.terminalOpen}
-      terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
-      onToggleTerminal={toggleTerminalVisibility}
-    />
-  );
   const rightPanelSurfaceControls = (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       <RightPanelSurfaceControls
@@ -6413,8 +6448,14 @@ function ChatViewContent(props: ChatViewProps) {
           terminal: activeProject !== null,
           browser: isPreviewSupportedInRuntime(),
         }}
-        onOpenSurface={openRightPanelSurface}
-        onCloseSurface={closePreviewPanel}
+        onOpenSurface={(kind) => {
+          setWorkspaceToolsOpen(false);
+          openRightPanelSurface(kind);
+        }}
+        onCloseSurface={() => {
+          setWorkspaceToolsOpen(false);
+          closePreviewPanel();
+        }}
       />
     </div>
   );
@@ -6426,7 +6467,12 @@ function ChatViewContent(props: ChatViewProps) {
           onToggle={toggleRightPanelMaximized}
         />
       ) : null}
-      {panelToggleControls}
+      <PanelLayoutControls
+        terminalAvailable={activeProject !== null}
+        terminalOpen={terminalUiState.terminalOpen}
+        terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
+        onToggleTerminal={toggleTerminalVisibility}
+      />
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
@@ -6562,8 +6608,42 @@ function ChatViewContent(props: ChatViewProps) {
       />
     ) : null;
 
+  const workspaceActions = (
+    <ChatHeader
+      activeThreadEnvironmentId={activeThread.environmentId}
+      activeThreadId={activeThread.id}
+      {...(routeKind === "draft" && draftId ? { draftId } : {})}
+      activeProjectName={activeProject?.title}
+      activeProjectCwd={activeProject?.workspaceRoot ?? null}
+      openInCwd={gitCwd}
+      activeProjectScripts={activeProject?.scripts}
+      preferredScriptId={
+        activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+      }
+      keybindings={keybindings}
+      availableEditors={availableEditors}
+      rail={!shouldUsePlanSidebarSheet}
+      gitCwd={gitCwd}
+      {...(worktreeTabsHeader && headerWorktreeGroup
+        ? {
+            worktreeLabel: headerWorktreeGroup.label,
+            worktreeSummary: workspaceSummaryLabel,
+          }
+        : {})}
+      onOpenPullRequest={addPullRequestSurface}
+      onNewThreadInProject={handleNewThreadInActiveProject}
+      onRunProjectScript={runProjectScript}
+      onAddProjectScript={saveProjectScript}
+      onUpdateProjectScript={updateProjectScript}
+      onDeleteProjectScript={deleteProjectScript}
+    />
+  );
+
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div
+      ref={setWorkspaceElement}
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-sidebar"
+    >
       {rightPanelOpen && !shouldUsePlanSidebarSheet ? panelLayoutControls : null}
       <div
         className={cn(
@@ -6572,70 +6652,58 @@ function ChatViewContent(props: ChatViewProps) {
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
-        {/* Top bar. In worktree-tabs mode this is row one only — the tab strip
-            below is a separate, non-drag sub-bar, so the native window-control
-            inset and the drag region stay bound to a 52px row exactly as
-            before. */}
+        {/* Conversations and workspace actions share one native titlebar row. */}
         <header
           data-chat-header
           className={cn(
-            "bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            "bg-sidebar transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
             isElectron
               ? cn(
-                  "workspace-topbar drag-region relative px-3 sm:px-5",
+                  "workspace-topbar drag-region relative gap-2",
                   reserveTitleBarControlInset &&
                     !inlineRightPanelOwnsTitleBar &&
                     "wco:pr-[var(--workspace-native-controls-inset)]",
                 )
-              : "workspace-topbar pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)]",
+              : "workspace-topbar gap-2 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          {!rightPanelOpen ? panelLayoutControls : null}
-          <ChatHeader
-            activeThreadEnvironmentId={activeThread.environmentId}
-            activeThreadId={activeThread.id}
-            {...(routeKind === "draft" && draftId ? { draftId } : {})}
-            activeThreadTitle={activeThread.title}
-            activeProjectName={activeProject?.title}
-            activeProjectCwd={activeProject?.workspaceRoot ?? null}
-            openInCwd={gitCwd}
-            activeProjectScripts={activeProject?.scripts}
-            preferredScriptId={
-              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-            }
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            rightPanelOpen={rightPanelOpen}
-            rightPanelSurfaceControls={rightPanelSurfaceControls}
-            gitCwd={gitCwd}
-            {...(worktreeTabsHeader && headerWorktreeGroup
-              ? {
-                  worktreeLabel: headerWorktreeGroup.label,
-                  worktreeSummary: workspaceSummaryLabel,
-                }
-              : {})}
-            onOpenPullRequest={addPullRequestSurface}
-            onNewThreadInProject={handleNewThreadInActiveProject}
-            onRunProjectScript={runProjectScript}
-            onAddProjectScript={saveProjectScript}
-            onUpdateProjectScript={updateProjectScript}
-            onDeleteProjectScript={deleteProjectScript}
-          />
+          <div className="min-w-0 flex-1">
+            {surfaceTabs ??
+              (worktreeTabsHeader ? (
+                <ConversationTabs
+                  tabs={conversationTabs}
+                  onSelectThread={navigateToThreadRef}
+                  onSelectDraft={navigateToDraftId}
+                  onDiscardDraft={discardConversationDraftTab}
+                  onArchiveThread={archiveConversationTab}
+                  confirmArchive={confirmThreadArchive}
+                  onNewThread={handleNewThreadInActiveWorktree}
+                  newThreadLabel={newConversationTabLabel}
+                />
+              ) : null)}
+          </div>
+          {!shouldUsePlanSidebarSheet && !rightPanelOpen ? panelLayoutControls : null}
+          {shouldUsePlanSidebarSheet ? (
+            <Popover open={workspaceToolsOpen} onOpenChange={setWorkspaceToolsOpen}>
+              <PopoverTrigger
+                render={<Button variant="ghost" size="icon-sm" aria-label="Workspace tools" />}
+              >
+                <PanelRightIcon aria-hidden className="size-4" />
+              </PopoverTrigger>
+              <PopoverPopup keepMounted align="end" viewportClassName="p-2">
+                {rightPanelSurfaceControls}
+                <PanelLayoutControls
+                  terminalAvailable={activeProject !== null}
+                  terminalOpen={terminalUiState.terminalOpen}
+                  terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
+                  onToggleTerminal={toggleTerminalVisibility}
+                />
+                {workspaceActions}
+              </PopoverPopup>
+            </Popover>
+          ) : undefined}
         </header>
-        {surfaceTabs ??
-          (worktreeTabsHeader ? (
-            <ConversationTabs
-              tabs={conversationTabs}
-              onSelectThread={navigateToThreadRef}
-              onSelectDraft={navigateToDraftId}
-              onDiscardDraft={discardConversationDraftTab}
-              onArchiveThread={archiveConversationTab}
-              confirmArchive={confirmThreadArchive}
-              onNewThread={handleNewThreadInActiveWorktree}
-              newThreadLabel={newConversationTabLabel}
-            />
-          ) : null)}
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => {
@@ -6655,8 +6723,10 @@ function ChatViewContent(props: ChatViewProps) {
             setThreadError(activeThread.id, null);
           }}
         />
-        {/* Main content area with optional plan sidebar */}
-        <div className="flex min-h-0 min-w-0 flex-1">
+        {/* Main content area with optional plan sidebar. Stays a fully rounded
+            slab even beside the right panel: the two surfaces read as separate
+            cards on the chrome, with the resize gutter between them. */}
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background md:rounded-xl">
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Provider status overlays the timeline without changing its content height. */}
@@ -6760,9 +6830,9 @@ function ChatViewContent(props: ChatViewProps) {
               >
                 <div className="pointer-events-auto relative z-10">
                   {isDraftHeroState ? (
-                    <div className="absolute inset-x-0 bottom-full z-0">
+                    <div className="relative z-0 mx-auto w-full max-w-3xl">
                       <div
-                        className="pb-12"
+                        className="pb-6 sm:pb-8"
                         style={
                           forceExpandedMobileComposer
                             ? {
@@ -7017,15 +7087,18 @@ function ChatViewContent(props: ChatViewProps) {
         ))}
       </div>
 
-      {!shouldUsePlanSidebarSheet && rightPanelOpen && activeThreadRef ? (
-        <RightPanelTabs
+      {!shouldUsePlanSidebarSheet && activeThreadRef ? (
+        <RightPanelSidebar
           mode="inline"
+          projectActions={workspaceActions}
+          collapsed={!rightPanelOpen}
           maximized={rightPanelMaximized}
           surfaces={rightPanelState.surfaces}
-          activeSurfaceId={activeRightPanelSurface?.id ?? null}
+          activeSurfaceId={rightPanelState.activeSurfaceId}
           pendingSurfaceIds={pendingFileSurfaceIds}
           previewSessions={activePreviewState.sessions}
           terminalLabelsById={activeTerminalLabelsById}
+          preferredSurfaceIdForKind={preferredRightPanelSurfaceIdForKind}
           onActivate={activateRightPanelSurface}
           onCloseSurface={closeRightPanelSurface}
           onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
@@ -7040,23 +7113,25 @@ function ChatViewContent(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
+          terminalAvailable={activeProject !== null}
           diffAvailable={diffSurfaceAvailable}
           historyAvailable={diffSurfaceAvailable}
           pullRequestAvailable={diffSurfaceAvailable}
           filesAvailable={activeProject !== null}
         >
-          {rightPanelContent}
-        </RightPanelTabs>
+          {rightPanelOpen ? rightPanelContent : null}
+        </RightPanelSidebar>
       ) : null}
       {shouldUsePlanSidebarSheet && rightPanelOpen && activeThreadRef ? (
         <RightPanelSheet open onClose={planSidebarOpen ? closePlanSidebar : closePreviewPanel}>
-          <RightPanelTabs
+          <RightPanelSidebar
             mode="sheet"
             surfaces={rightPanelState.surfaces}
-            activeSurfaceId={activeRightPanelSurface?.id ?? null}
+            activeSurfaceId={rightPanelState.activeSurfaceId}
             pendingSurfaceIds={pendingFileSurfaceIds}
             previewSessions={activePreviewState.sessions}
             terminalLabelsById={activeTerminalLabelsById}
+            preferredSurfaceIdForKind={preferredRightPanelSurfaceIdForKind}
             onActivate={activateRightPanelSurface}
             onCloseSurface={closeRightPanelSurface}
             onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
@@ -7071,13 +7146,14 @@ function ChatViewContent(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
+            terminalAvailable={activeProject !== null}
             diffAvailable={diffSurfaceAvailable}
             historyAvailable={diffSurfaceAvailable}
             pullRequestAvailable={diffSurfaceAvailable}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}
-          </RightPanelTabs>
+          </RightPanelSidebar>
         </RightPanelSheet>
       ) : null}
 

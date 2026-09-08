@@ -32,6 +32,7 @@ export interface PersistedUiState {
   projectOrder?: string[];
   projectScopeKeys?: string[];
   worktreeOrder?: string[];
+  worktreeConversationExpandedByKey?: Record<string, boolean>;
   threadLastVisitedAtById?: Record<string, string>;
   /** @deprecated Ignored on read and omitted on write. */
   threadExpandedById?: Record<string, boolean>;
@@ -57,6 +58,7 @@ export interface UiProjectState {
   /** Project filter for this window. Empty means every project. */
   projectScopeKeys: string[];
   worktreeOrder: string[];
+  worktreeConversationExpandedByKey: Record<string, boolean>;
 }
 
 export interface UiThreadState {
@@ -91,6 +93,7 @@ const initialState: UiState = {
   projectOrder: [],
   projectScopeKeys: [],
   worktreeOrder: [],
+  worktreeConversationExpandedByKey: {},
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   activeWorktreeOverrideKey: null,
@@ -172,6 +175,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectOrder,
     projectScopeKeys: sanitizeStringArray(parsed.projectScopeKeys),
     worktreeOrder: sanitizeStringArray(parsed.worktreeOrder),
+    worktreeConversationExpandedByKey: sanitizeBooleanRecord(
+      parsed.worktreeConversationExpandedByKey,
+    ),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     activeWorktreeOverrideKey:
       typeof parsed.activeWorktreeOverrideKey === "string"
@@ -244,7 +250,10 @@ function withWindowLocalState(state: UiState): UiState {
   }
   return {
     ...state,
-    projectScopeKeys: sanitizeStringArray(parsed.projectScopeKeys),
+    projectScopeKeys:
+      parsed.projectScopeKeys === undefined
+        ? state.projectScopeKeys
+        : sanitizeStringArray(parsed.projectScopeKeys),
     activeWorktreeOverrideKey:
       typeof parsed.activeWorktreeOverrideKey === "string"
         ? parsed.activeWorktreeOverrideKey
@@ -296,7 +305,9 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
+        projectScopeKeys: state.projectScopeKeys,
         worktreeOrder: state.worktreeOrder,
+        worktreeConversationExpandedByKey: state.worktreeConversationExpandedByKey,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
@@ -466,6 +477,39 @@ export function setProjectExpanded(
   };
 }
 
+export function resolveWorktreeConversationExpanded(
+  worktreeConversationExpandedByKey: Readonly<Record<string, boolean>>,
+  worktreeKey: string,
+): boolean {
+  return worktreeConversationExpandedByKey[worktreeKey] ?? true;
+}
+
+export function setWorktreeConversationExpanded(
+  state: UiState,
+  worktreeKey: string,
+  expanded: boolean,
+): UiState {
+  const current = state.worktreeConversationExpandedByKey[worktreeKey];
+  if (expanded) {
+    if (current === undefined) return state;
+    const worktreeConversationExpandedByKey = {
+      ...state.worktreeConversationExpandedByKey,
+    };
+    delete worktreeConversationExpandedByKey[worktreeKey];
+    return { ...state, worktreeConversationExpandedByKey };
+  }
+  if (current === false) {
+    return state;
+  }
+  return {
+    ...state,
+    worktreeConversationExpandedByKey: {
+      ...state.worktreeConversationExpandedByKey,
+      [worktreeKey]: false,
+    },
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   currentProjectOrder: readonly string[],
@@ -572,23 +616,31 @@ function retainBoundedInactiveWorktreeOrderKeys(
 export function rememberWorktreeOrder(
   state: UiState,
   creationOrderedWorktreeKeys: readonly string[],
+  currentWorktreeKeys: readonly string[] = creationOrderedWorktreeKeys,
 ): UiState {
   const visibleKeys = new Set(creationOrderedWorktreeKeys);
+  const currentKeys = new Set(currentWorktreeKeys);
   const rememberedKeys = new Set(state.worktreeOrder);
   const newKeys = creationOrderedWorktreeKeys.filter((key) => !rememberedKeys.has(key));
   const worktreeOrder = retainBoundedInactiveWorktreeOrderKeys(
     [...state.worktreeOrder, ...newKeys],
     visibleKeys,
   );
+  const worktreeConversationExpandedByKey = Object.fromEntries(
+    Object.entries(state.worktreeConversationExpandedByKey).filter(([key]) => currentKeys.has(key)),
+  );
   if (
     worktreeOrder.length === state.worktreeOrder.length &&
-    worktreeOrder.every((key, index) => key === state.worktreeOrder[index])
+    worktreeOrder.every((key, index) => key === state.worktreeOrder[index]) &&
+    Object.keys(worktreeConversationExpandedByKey).length ===
+      Object.keys(state.worktreeConversationExpandedByKey).length
   ) {
     return state;
   }
   return {
     ...state,
     worktreeOrder,
+    worktreeConversationExpandedByKey,
   };
 }
 
@@ -601,6 +653,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
+  setWorktreeConversationExpanded: (worktreeKey: string, expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
     draggedProjectIds: readonly string[],
@@ -611,7 +664,10 @@ interface UiStateStore extends UiState {
     draggedWorktreeKey: string,
     targetWorktreeKey: string,
   ) => void;
-  rememberWorktreeOrder: (creationOrderedWorktreeKeys: readonly string[]) => void;
+  rememberWorktreeOrder: (
+    creationOrderedWorktreeKeys: readonly string[],
+    currentWorktreeKeys?: readonly string[],
+  ) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -629,6 +685,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
+  setWorktreeConversationExpanded: (worktreeKey, expanded) =>
+    set((state) => setWorktreeConversationExpanded(state, worktreeKey, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
@@ -637,8 +695,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderWorktrees(state, currentWorktreeOrder, draggedWorktreeKey, targetWorktreeKey),
     ),
-  rememberWorktreeOrder: (creationOrderedWorktreeKeys) =>
-    set((state) => rememberWorktreeOrder(state, creationOrderedWorktreeKeys)),
+  rememberWorktreeOrder: (creationOrderedWorktreeKeys, currentWorktreeKeys) =>
+    set((state) => rememberWorktreeOrder(state, creationOrderedWorktreeKeys, currentWorktreeKeys)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
