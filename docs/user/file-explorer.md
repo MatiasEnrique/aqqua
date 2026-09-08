@@ -1,12 +1,19 @@
 # File explorer
 
-Open **Files** from the workspace toolbar to browse and read files in the active workspace.
-The Explorer uses one right-panel tab. Selecting another file replaces the current file view inside
-that Explorer tab instead of creating a tab for each path, and every selection brings Explorer to
-the front.
+Open **Files** from the right activity rail or the **Workspace tools** picker to browse and read files in the active workspace.
+The Explorer uses one right-panel item. Selecting another file replaces the current file view
+inside that item, and every selection brings Explorer to the front.
+
+Folders linked to another directory inside the workspace show their contents under the linked
+path too, including shared skills folders such as `.claude/skills`. Links outside the workspace
+and links that would create a directory cycle remain visible but are not expanded.
+The Explorer omits `.git`, `node_modules`, `.pnpm-store`, and `.turbo` so repository metadata and
+generated caches do not exhaust the file-list limit before it reaches source files.
 
 Use the folder-tree control in the file toolbar to show or hide the Explorer alongside the current
-file. Closing the Explorer tab also closes the current file view.
+file. In narrow panels, the Explorer uses the full width; opening a file from the Explorer, chat,
+or another entry point replaces it with the file preview. Use the folder-tree control to return to the Explorer. Wider panels show both
+side by side. Closing the Explorer item also closes the current file view.
 
 ## Manage files and folders
 

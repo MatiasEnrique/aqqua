@@ -5,6 +5,7 @@ import {
   projectScopeSelectionKey,
   pruneProjectScopeSelection,
   resolveProjectScopeAddition,
+  resolveScopedProjectKeys,
   resolveSelectedProjectGroups,
   resolveSoleScopedProjectGroup,
 } from "./projectScopeSelection";
@@ -71,6 +72,16 @@ describe("resolveSelectedProjectGroups", () => {
   it("returns the selected groups in sidebar order, not click order", () => {
     const selected = resolveSelectedProjectGroups(new Set(["docs", "aqqua-web"]), candidates);
     expect(selected.map((group) => group.projectKey)).toEqual(["aqqua-web", "docs"]);
+  });
+});
+
+describe("resolveScopedProjectKeys", () => {
+  it("returns an empty set, not all projects, while an explicit scope is unavailable", () => {
+    expect(resolveScopedProjectKeys(new Set(["offline"]), [])).toEqual(new Set());
+  });
+
+  it("uses null only for the explicit all-projects selection", () => {
+    expect(resolveScopedProjectKeys(EMPTY_PROJECT_SCOPE_SELECTION, [])).toBeNull();
   });
 });
 

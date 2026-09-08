@@ -1,5 +1,5 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { ArchiveIcon, ListIcon, PlusIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { ArchiveIcon, ListIcon, PlusIcon, CircleIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Menu,
@@ -11,6 +11,8 @@ import {
 } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
+import { ConversationStateIcon } from "../ConversationStateIcon";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { StatusIndicator } from "../StatusIndicator";
 import { TabFamilyCountTrigger, TabFamilyPopover } from "../TabFamilyPopover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -21,7 +23,7 @@ import {
 } from "./openConversationTabs";
 
 /**
- * The open conversations, as a tab strip under the toolbar.
+ * The open conversations, sharing the titlebar with workspace actions.
  *
  * Tabs are global rather than per-worktree: the strip is the set of
  * conversations you are currently juggling, and picking one takes you to it
@@ -31,9 +33,8 @@ import {
  * carries a compact picker for the sub-agents it spawned, so descendants stay
  * reachable without consuming the strip's horizontal room.
  *
- * Deliberately borderless. The toolbar above and the transcript below already
- * separate themselves by content; a rule on either edge of a row of bordered
- * shells reads as a stack of boxes inside a box.
+ * The strip shares the titlebar with workspace actions. The transcript owns
+ * the dividing edge, so the tabs do not add another enclosing border.
  */
 export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly tabs: readonly ConversationTab[];
@@ -63,7 +64,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
     <nav
       aria-label="Open conversations"
       data-conversation-tabbar
-      className="flex h-[var(--workspace-tabbar-height)] shrink-0 items-center gap-1 px-2 pt-[5px] pb-1 has-[[data-has-overflow-x]]:[&>[data-conversation-tab-overflow]]:block"
+      className="flex h-[var(--workspace-tabbar-height)] min-w-0 items-center gap-1 py-1 has-[[data-has-overflow-x]]:[&>[data-conversation-tab-overflow]]:block"
     >
       <ScrollArea
         ref={stripRef}
@@ -92,7 +93,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
                     type="button"
                     aria-label={props.newThreadLabel}
                     onClick={props.onNewThread}
-                    className="inline-flex size-8 cursor-pointer items-center justify-center rounded-xl text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [-webkit-app-region:no-drag]"
+                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [-webkit-app-region:no-drag]"
                   />
                 }
               >
@@ -131,7 +132,7 @@ function ConversationTabOverflowPicker(props: {
         <MenuTrigger
           aria-label="Show all open conversations"
           title="All open conversations"
-          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-xl text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ListIcon aria-hidden className="size-4" />
         </MenuTrigger>
@@ -240,9 +241,13 @@ function SubAgentCountChip(props: {
         label: tab.title,
         leading:
           tab._tag === "thread" ? (
-            <StatusIndicator state={tab.state} size="size-1.5" />
+            <StatusIndicator
+              state={tab.state}
+              glyph={<ConversationStateIcon state={tab.state} />}
+              pulse={false}
+            />
           ) : (
-            <SquarePenIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
+            <CircleIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground/70" />
           ),
         active: tab.isActive,
         onSelect: () => props.onSelectTab(tab),
@@ -251,15 +256,31 @@ function SubAgentCountChip(props: {
   );
 }
 
+/**
+ * A tab reads left to right as where it lives, what it is, and how it is
+ * doing: project icon, then title, then the state glyph next to the
+ * close/archive control that acts on it.
+ */
 function ConversationTabIdentity(props: { readonly tab: ConversationTab }) {
   return (
     <>
-      {props.tab._tag === "draft" ? (
-        <SquarePenIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
-      ) : (
-        <StatusIndicator state={props.tab.state} size="size-1.5" />
+      {props.tab.project === null ? null : (
+        <ProjectFavicon
+          environmentId={props.tab.project.environmentId}
+          cwd={props.tab.project.workspaceRoot}
+          className="size-3.5 shrink-0 rounded-sm"
+        />
       )}
       <span className="max-w-44 truncate">{props.tab.title}</span>
+      {props.tab._tag === "draft" ? (
+        <CircleIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground/70" />
+      ) : (
+        <StatusIndicator
+          state={props.tab.state}
+          glyph={<ConversationStateIcon state={props.tab.state} />}
+          pulse={false}
+        />
+      )}
     </>
   );
 }
@@ -299,9 +320,11 @@ function ConversationTabShell(props: {
       data-active-tab={tab.isActive}
       data-testid={`conversation-tab-${tab.key}`}
       className={cn(
-        "flex shrink-0 items-center gap-1 border bg-card pr-1.5 pl-2.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid) [-webkit-app-region:no-drag]",
-        "h-8 rounded-xl",
-        tab.isActive ? "border-input" : "border-border hover:border-input",
+        "flex shrink-0 items-center gap-1 pr-2 pl-2.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid) [-webkit-app-region:no-drag]",
+        "h-7 rounded-md",
+        // Fill alone marks the current tab — an outline on every tab turns the
+        // strip into a row of boxes competing with the header's own edges.
+        tab.isActive ? "bg-sidebar-row-active" : "hover:bg-accent",
       )}
     >
       <button

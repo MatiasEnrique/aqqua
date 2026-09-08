@@ -1,11 +1,16 @@
-import { EllipsisIcon, FolderIcon } from "lucide-react";
+import { ChevronDownIcon, FolderIcon } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Fragment } from "react";
+
 import { cn } from "~/lib/utils";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { ComboboxEmpty, ComboboxItem, ComboboxList } from "../ui/combobox";
-import { SidebarScopePicker } from "./SidebarScopePicker";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/menu";
 
 export function projectKeysFromScopeSelection(
   projects: readonly SidebarProjectSnapshot[],
@@ -13,141 +18,116 @@ export function projectKeysFromScopeSelection(
   return projects.map((project) => project.projectKey);
 }
 
-export function SidebarProjectScopePopup(props: {
-  readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
-  readonly onSelectionChange: (projectKeys: readonly string[]) => void;
-  readonly onProjectActions: (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    project: SidebarProjectSnapshot,
-  ) => void | Promise<void>;
-  readonly onRequestClose: () => void;
-}) {
-  return (
-    <Fragment>
-      {/* One control, and only while it would do something. Selecting every
-          project and selecting none both show every thread, so a "Select
-          all" beside this would just be a second way to say what clearing
-          already says — with the added cost of filling the row with a chip
-          per project to express the resting state.
+export function toggleProjectScopeKey(
+  currentKeys: readonly string[],
+  projectKey: string,
+  checked: boolean,
+): readonly string[] {
+  const alreadySelected = currentKeys.includes(projectKey);
+  if (checked) return alreadySelected ? currentKeys : [...currentKeys, projectKey];
+  return alreadySelected ? currentKeys.filter((key) => key !== projectKey) : currentKeys;
+}
 
-          Above the list rather than in it: a row that can be arrowed onto
-          and highlighted like a project invites being picked by accident
-          when typing narrows the list to one. */}
-      {props.scopedProjectGroups.length > 0 ? (
-        <div className="border-b border-border/60 p-1">
-          <button
-            type="button"
-            className={cn(
-              "w-full cursor-pointer rounded-sm px-2 py-1 text-left text-xs font-medium text-muted-foreground",
-              "outline-none transition-colors hover:bg-accent hover:text-foreground",
-              "focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-            // Stopped so the combobox does not read the press as an outside
-            // interaction and close before the click lands.
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => props.onSelectionChange([])}
-          >
-            Deselect all
-          </button>
-        </div>
-      ) : null}
-      <ComboboxEmpty>No projects found.</ComboboxEmpty>
-      <ComboboxList>
-        {(project: SidebarProjectSnapshot) => (
-          <ComboboxItem
-            key={project.projectKey}
-            value={project}
-            className="pe-1"
-            contentClassName="flex min-w-0 items-center gap-2"
-          >
+export function projectScopeLabel(
+  scopedProjectGroups: readonly SidebarProjectSnapshot[],
+  hasUnavailableSelection = false,
+): string {
+  if (scopedProjectGroups.length === 0)
+    return hasUnavailableSelection ? "Selected projects unavailable" : "All projects";
+  if (scopedProjectGroups.length === 1)
+    return scopedProjectGroups[0]?.displayName ?? "All projects";
+  return `${scopedProjectGroups.length} projects`;
+}
+
+export function SidebarProjectScopePopup(props: {
+  readonly projectGroups: readonly SidebarProjectSnapshot[];
+  readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
+  readonly selectedProjectKeys: readonly string[];
+  readonly onSelectionChange: (projectKeys: readonly string[]) => void;
+  readonly onProjectContextMenu: (event: ReactMouseEvent, project: SidebarProjectSnapshot) => void;
+}) {
+  const selectedProjectKeys = props.selectedProjectKeys;
+
+  return (
+    <DropdownMenuContent align="start" className="w-60">
+      <DropdownMenuCheckboxItem
+        checked={selectedProjectKeys.length === 0}
+        closeOnClick
+        label="All projects"
+        onCheckedChange={() => props.onSelectionChange([])}
+      >
+        All projects
+      </DropdownMenuCheckboxItem>
+      <DropdownMenuSeparator />
+      {props.projectGroups.map((project) => (
+        <DropdownMenuCheckboxItem
+          key={project.projectKey}
+          checked={selectedProjectKeys.includes(project.projectKey)}
+          label={project.displayName}
+          onCheckedChange={(checked) =>
+            props.onSelectionChange(
+              toggleProjectScopeKey(selectedProjectKeys, project.projectKey, checked),
+            )
+          }
+          onContextMenu={(event) => props.onProjectContextMenu(event, project)}
+        >
+          <span className="flex min-w-0 items-center gap-2">
             <ProjectFavicon
               environmentId={project.environmentId}
               cwd={project.workspaceRoot}
               className="size-4 shrink-0 rounded-sm"
             />
-            <span className="min-w-0 flex-1 truncate">{project.displayName}</span>
-            <button
-              type="button"
-              aria-label={`Project actions for ${project.displayName}`}
-              title={`Project actions for ${project.displayName}`}
-              className={cn(
-                "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-                "text-muted-foreground/55 outline-none transition-colors hover:bg-accent hover:text-foreground",
-                "focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-              )}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onRequestClose();
-                void props.onProjectActions(event, project);
-              }}
-            >
-              <EllipsisIcon className="size-3.5" />
-            </button>
-          </ComboboxItem>
-        )}
-      </ComboboxList>
-    </Fragment>
+            <span className="truncate">{project.displayName}</span>
+          </span>
+        </DropdownMenuCheckboxItem>
+      ))}
+    </DropdownMenuContent>
   );
 }
 
 /**
- * The project filter, as a multi-select combobox.
+ * A compact multi-project filter. Empty means every project.
  *
- * The registry below is a flat list of checkouts, so the filter has to be the
- * thing that says which repositories are in play — and it has to say it while
- * you read the list, not behind a menu. Selected projects stay on screen as
- * removable chips, and typing filters the rest, which is the only affordance
- * that survives someone with thirty repositories.
- *
- * An empty selection means every project. That is the resting state, so it
- * reads as placeholder text rather than a filter that has hidden the list.
+ * Search belongs to the sidebar's top search field. This menu only lists the
+ * available choices and keeps multi-selection visible as a short summary.
  */
 export function SidebarProjectScopeChips(props: {
   readonly projectGroups: readonly SidebarProjectSnapshot[];
   readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
+  readonly selectedProjectKeys: readonly string[];
   readonly onSelectionChange: (projectKeys: readonly string[]) => void;
-  readonly onProjectActions: (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    project: SidebarProjectSnapshot,
-  ) => void | Promise<void>;
   readonly onProjectContextMenu: (event: ReactMouseEvent, project: SidebarProjectSnapshot) => void;
 }) {
   return (
-    <SidebarScopePicker
-      items={props.projectGroups}
-      chosenItems={props.scopedProjectGroups}
-      itemKey={(project) => project.projectKey}
-      itemLabel={(project) => project.displayName}
-      icon={<FolderIcon className="size-4" />}
-      testId="sidebar-project-scope-chips"
-      inputLabel="Filter threads by project"
-      allItemsLabel="All projects"
-      onSelectionChange={(projects) =>
-        props.onSelectionChange(projectKeysFromScopeSelection(projects))
-      }
-      renderChip={(project) => (
-        <span
-          data-testid={`sidebar-project-scope-chip-${project.projectKey}`}
-          className="contents"
-          onContextMenu={(event: ReactMouseEvent) => props.onProjectContextMenu(event, project)}
-        >
-          <ProjectFavicon
-            environmentId={project.environmentId}
-            cwd={project.workspaceRoot}
-            className="size-4 shrink-0 rounded-sm"
-          />
-          <span className="min-w-0 truncate">{project.displayName}</span>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Filter threads by project"
+        className={cn(
+          "flex min-h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-1 text-left text-[13px] font-medium leading-5 text-sidebar-foreground outline-none",
+          "transition-colors hover:bg-sidebar-row-hover data-popup-open:bg-sidebar-row-hover",
+          "focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+        data-testid="sidebar-project-scope-chips"
+      >
+        <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground/80" />
+        <span className="min-w-0 flex-1 truncate">
+          {projectScopeLabel(
+            props.scopedProjectGroups,
+            props.selectedProjectKeys.length > 0 && props.scopedProjectGroups.length === 0,
+          )}
         </span>
-      )}
-      renderPopup={(close) => (
-        <SidebarProjectScopePopup
-          scopedProjectGroups={props.scopedProjectGroups}
-          onSelectionChange={props.onSelectionChange}
-          onProjectActions={props.onProjectActions}
-          onRequestClose={close}
+        <ChevronDownIcon
+          aria-hidden
+          className="size-3.5 shrink-0 text-sidebar-muted-foreground/70"
         />
-      )}
-    />
+      </DropdownMenuTrigger>
+      <SidebarProjectScopePopup
+        projectGroups={props.projectGroups}
+        scopedProjectGroups={props.scopedProjectGroups}
+        selectedProjectKeys={props.selectedProjectKeys}
+        onSelectionChange={props.onSelectionChange}
+        onProjectContextMenu={props.onProjectContextMenu}
+      />
+    </DropdownMenu>
   );
 }

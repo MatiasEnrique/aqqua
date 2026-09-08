@@ -92,6 +92,31 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   });
 
   describe("list", () => {
+    it.effect("lists linked skill files without losing gitignore annotations", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        yield* writeTextFile(cwd, ".gitignore", ".env\n.agents/skills/local.md\n");
+        yield* writeTextFile(cwd, ".env");
+        yield* writeTextFile(cwd, ".agents/skills/SKILL.md");
+        yield* writeTextFile(cwd, ".agents/skills/local.md");
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(`${cwd}/.claude`);
+          await NodeFSP.symlink("../.agents/skills", `${cwd}/.claude/skills`, "dir");
+        });
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* workspaceEntries.list({ cwd });
+
+        expect(result.entries).toEqual(
+          expect.arrayContaining([
+            { path: ".env", kind: "file", ignored: true },
+            { path: ".claude/skills/SKILL.md", kind: "file", ignored: false },
+            { path: ".claude/skills/local.md", kind: "file", ignored: true },
+          ]),
+        );
+      }),
+    );
+
     it.effect("lists gitignored files and annotates whether git ignores them", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({ git: true });

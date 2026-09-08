@@ -14,6 +14,7 @@ import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { AppFooter } from "./AppFooter";
 import ConversationSidebar from "./ConversationSidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { resolveAppSidebarSurface } from "./AppSidebarLayout.logic";
@@ -52,7 +53,7 @@ function readInitialThreadSidebarWidth(): number {
 
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, state } = useSidebar();
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   useEffect(() => {
@@ -75,6 +76,9 @@ function SidebarControl() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings, toggleSidebar]);
+
+  // The expanded sidebar owns its toggle; keep this control for reopening it.
+  if (state === "expanded") return null;
 
   return (
     <div
@@ -157,27 +161,34 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, [navigate, pathname]);
 
   return (
-    <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={sidebarProviderStyle}>
-      <Sidebar
-        side="left"
-        collapsible="offcanvas"
-        data-app-sidebar=""
-        className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-        resizable={{
-          maxWidth: sidebarMaximumWidth,
-          minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-          shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-            nextWidth <= currentWidth ||
-            wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-          storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-          onResize: setSidebarWidth,
-        }}
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-sidebar [--workspace-footer-height:0px] md:[--workspace-footer-height:calc(28px+env(safe-area-inset-bottom))]">
+      <SidebarProvider
+        className="min-h-0! flex-1 [&>[data-slot=sidebar-inset]]:h-full"
+        defaultOpen
+        style={sidebarProviderStyle}
       >
-        {sidebarSurface === "settings" ? <SettingsSidebar /> : <ConversationSidebar />}
-        <SidebarRail />
-      </Sidebar>
-      {children}
-      <SidebarControl />
-    </SidebarProvider>
+        <Sidebar
+          side="left"
+          collapsible="offcanvas"
+          data-app-sidebar=""
+          className="bottom-[var(--workspace-footer-height)] h-auto group-data-[side=left]:border-r-0 bg-sidebar text-sidebar-foreground"
+          resizable={{
+            maxWidth: sidebarMaximumWidth,
+            minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+              nextWidth <= currentWidth ||
+              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+            onResize: setSidebarWidth,
+          }}
+        >
+          {sidebarSurface === "settings" ? <SettingsSidebar /> : <ConversationSidebar />}
+          <SidebarRail className="top-[var(--workspace-topbar-height)]" />
+        </Sidebar>
+        {children}
+        <SidebarControl />
+      </SidebarProvider>
+      <AppFooter />
+    </div>
   );
 }

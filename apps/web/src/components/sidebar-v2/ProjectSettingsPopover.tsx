@@ -1,4 +1,4 @@
-import { CopyIcon, FolderIcon, ServerIcon, Trash2Icon } from "lucide-react";
+import { CopyIcon, FolderIcon, ServerIcon } from "lucide-react";
 import type { ProjectIcon, SidebarProjectGroupingMode } from "@aqqua/contracts";
 import { useProjectIcon } from "~/state/entities";
 import { ProjectIconPicker } from "../ProjectIconPicker";
@@ -7,17 +7,14 @@ import type {
   SidebarProjectGroupMember,
   SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
-import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+  Popover,
+  PopoverPopup,
+  PopoverTitle,
+  PopoverDescription,
+  PopoverCreateHandle,
+} from "../ui/popover";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { PROJECT_GROUPING_MODE_LABELS } from "./projectGroupingLabels";
@@ -34,6 +31,7 @@ function ProjectMemberIconPicker(props: {
   const icon = useProjectIcon(props.member.environmentId, props.member.workspaceRoot);
   return (
     <ProjectIconPicker
+      className="text-xs [&_fieldset>div]:grid-cols-6 [&_input]:h-8 [&_input]:text-[13px] [&_span.text-base]:text-[11px]"
       title={props.member.title}
       workspaceRoot={props.member.workspaceRoot}
       value={icon}
@@ -43,7 +41,8 @@ function ProjectMemberIconPicker(props: {
   );
 }
 
-export function ProjectSettingsDialog(props: {
+export function ProjectSettingsPopover(props: {
+  handle: ReturnType<typeof PopoverCreateHandle<SidebarProjectSnapshot>>;
   target: SidebarProjectSnapshot | null;
   onClose: () => void;
   projectGroupingMode: SidebarProjectGroupingMode;
@@ -68,22 +67,35 @@ export function ProjectSettingsDialog(props: {
   ) => void | Promise<void>;
 }) {
   const target = props.target;
+  const close = () => {
+    props.handle.close();
+    props.onClose();
+  };
   return (
-    <Dialog
-      open={target !== null}
+    <Popover
+      handle={props.handle}
       onOpenChange={(open) => {
         if (!open) props.onClose();
       }}
     >
-      <DialogPopup className="max-w-xl">
-        <DialogHeader className="gap-3 pb-1!">
-          <DialogTitle className="text-balance">Project settings</DialogTitle>
-          <DialogDescription className="sr-only">
+      <PopoverPopup
+        side="right"
+        align="start"
+        sideOffset={8}
+        className="w-[340px]"
+        viewportClassName="max-h-[min(34rem,calc(100dvh-2rem))] p-3"
+      >
+        <div className="space-y-2 pb-3">
+          <PopoverTitle className="text-[13px] font-semibold">{target?.displayName}</PopoverTitle>
+          <PopoverDescription className="sr-only">
             Manage project names, worktree defaults, grouping rules, and environments.
-          </DialogDescription>
-          <div className="grid gap-1.5 text-base text-muted-foreground">
+          </PopoverDescription>
+          <div className="grid gap-1.5 text-[11px] text-muted-foreground">
             {target?.memberProjects.map((member) => (
-              <div key={member.physicalProjectKey} className="flex min-w-0 items-center gap-3">
+              <div
+                key={member.physicalProjectKey}
+                className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
+              >
                 <span className="flex min-w-0 items-center gap-1">
                   <FolderIcon className="size-3.5 shrink-0 opacity-60" />
                   <span className="min-w-0 truncate font-mono">{member.workspaceRoot}</span>
@@ -109,18 +121,16 @@ export function ProjectSettingsDialog(props: {
               </div>
             ))}
           </div>
-        </DialogHeader>
-        <DialogPanel className="p-0">
+        </div>
+        <div>
           <div className="divide-y divide-border/60">
             {target?.memberProjects.map((member) => (
-              <section
-                key={member.physicalProjectKey}
-                className="grid min-w-0 gap-5 px-6 pb-5 pt-2 sm:gap-4 sm:pb-4 sm:pt-2"
-              >
-                <div className="grid gap-4 sm:grid-cols-2 sm:gap-3">
+              <section key={member.physicalProjectKey} className="grid min-w-0 gap-3 py-3">
+                <div className="grid gap-3">
                   <label className="grid min-w-0 gap-1.5">
-                    <span className="font-medium text-foreground">Project name</span>
+                    <span className="text-xs font-medium text-foreground">Project name</span>
                     <Input
+                      className="h-8 text-[13px]"
                       key={`${member.physicalProjectKey}:${member.title}`}
                       aria-label={`Project name in ${member.environmentLabel ?? "current environment"}`}
                       defaultValue={member.title}
@@ -133,7 +143,7 @@ export function ProjectSettingsDialog(props: {
                     />
                   </label>
                   <label className="grid min-w-0 gap-1.5">
-                    <span className="font-medium text-foreground">Grouping rule</span>
+                    <span className="text-xs font-medium text-foreground">Grouping rule</span>
                     <Select
                       value={
                         props.projectGroupingOverrides?.[
@@ -152,7 +162,7 @@ export function ProjectSettingsDialog(props: {
                       }}
                     >
                       <SelectTrigger
-                        className="w-full sm:min-h-7.5"
+                        className="h-8 w-full text-[13px]"
                         aria-label={`Grouping rule for ${member.environmentLabel ?? "current environment"}`}
                       >
                         <SelectValue>
@@ -184,16 +194,23 @@ export function ProjectSettingsDialog(props: {
                     </Select>
                   </label>
                 </div>
-                <div className="grid min-w-0 gap-1.5">
-                  <span className="font-medium text-foreground">Icon</span>
-                  <ProjectMemberIconPicker
-                    member={member}
-                    onChange={(icon) => void props.updateProjectMemberIcon(member, icon)}
-                  />
-                </div>
+                <details className="min-w-0 text-xs">
+                  <summary className="cursor-pointer py-1 font-medium text-foreground">
+                    Project icon
+                  </summary>
+                  <div className="pt-2">
+                    <ProjectMemberIconPicker
+                      member={member}
+                      onChange={(icon) => void props.updateProjectMemberIcon(member, icon)}
+                    />
+                  </div>
+                </details>
                 <label className="grid min-w-0 gap-1.5">
-                  <span className="font-medium text-foreground">Worktree origin branch</span>
+                  <span className="text-xs font-medium text-foreground">
+                    Worktree origin branch
+                  </span>
                   <Input
+                    className="h-8 text-[13px]"
                     key={`${member.physicalProjectKey}:${member.newWorktreesOriginBranch ?? ""}`}
                     aria-label={`Worktree origin branch in ${member.environmentLabel ?? "current environment"}`}
                     defaultValue={member.newWorktreesOriginBranch ?? ""}
@@ -206,7 +223,7 @@ export function ProjectSettingsDialog(props: {
                       if (event.key === "Enter") event.currentTarget.blur();
                     }}
                   />
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-[11px] leading-4 text-muted-foreground">
                     When new worktrees start from origin, they use this branch. Leave empty to use
                     the repository default.
                   </span>
@@ -218,11 +235,10 @@ export function ProjectSettingsDialog(props: {
                       variant="ghost"
                       className="text-destructive-foreground hover:bg-destructive/8 hover:text-destructive-foreground"
                       onClick={() => {
-                        props.onClose();
+                        close();
                         void props.onRemoveMembers(target, [member]);
                       }}
                     >
-                      <Trash2Icon />
                       Remove project
                     </Button>
                   </div>
@@ -231,12 +247,12 @@ export function ProjectSettingsDialog(props: {
             ))}
           </div>
           {target && target.memberProjects.length > 1 ? (
-            <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/32 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-t border-border/60 py-3">
               <div className="min-w-0">
-                <p className="text-base font-medium text-foreground sm:text-sm">
+                <p className="text-xs font-medium text-foreground">
                   Remove this project everywhere
                 </p>
-                <p className="text-base text-pretty text-muted-foreground sm:text-sm">
+                <p className="text-[11px] text-pretty text-muted-foreground">
                   Deletes all grouped entries and their conversation history.
                 </p>
               </div>
@@ -245,35 +261,34 @@ export function ProjectSettingsDialog(props: {
                 variant="destructive-outline"
                 className="shrink-0"
                 onClick={() => {
-                  props.onClose();
+                  close();
                   void props.onRemoveMembers(target, target.memberProjects);
                 }}
               >
-                <Trash2Icon />
                 Remove all entries
               </Button>
             </div>
           ) : null}
-        </DialogPanel>
-        <DialogFooter
-          variant="bare"
-          className={cn(target?.memberProjects.length === 1 && "sm:justify-between")}
-        >
+        </div>
+        <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-3">
           {target?.memberProjects.length === 1 ? (
             <Button
-              variant="destructive-outline"
+              variant="ghost"
+              size="sm"
+              className="text-destructive-foreground"
               onClick={() => {
-                props.onClose();
+                close();
                 void props.onRemoveMembers(target, target.memberProjects);
               }}
             >
-              <Trash2Icon />
               Remove project
             </Button>
           ) : null}
-          <Button onClick={() => props.onClose()}>Close</Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
+          <Button variant="ghost" size="sm" onClick={close}>
+            Close
+          </Button>
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }

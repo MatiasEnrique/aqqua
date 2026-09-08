@@ -12,6 +12,31 @@ export interface ActiveWorktreeCandidate {
   readonly snoozed: readonly EnvironmentThreadShell[];
 }
 
+export function resolveActiveWorktreeProjectKey(input: {
+  readonly activeWorktree: {
+    readonly environmentId: string;
+    readonly projectId: string;
+  } | null;
+  readonly projects: readonly {
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  }[];
+}): string | null {
+  if (input.activeWorktree === null) return null;
+  return (
+    input.projects.find((project) =>
+      project.memberProjectRefs.some(
+        (member) =>
+          member.environmentId === input.activeWorktree?.environmentId &&
+          member.projectId === input.activeWorktree.projectId,
+      ),
+    )?.projectKey ?? null
+  );
+}
+
 /**
  * Which worktree the workspace is currently pointed at.
  *
@@ -28,6 +53,8 @@ export function resolveActiveWorktreeKey(input: {
   readonly routeThreadKey: string | null;
   readonly routeDraftId: string | null;
   readonly worktreeGroups: readonly ActiveWorktreeCandidate[];
+  /** Includes settled rows, which worktree groups intentionally count but do not retain. */
+  readonly worktreeKeyByThreadKey?: ReadonlyMap<string, string>;
   readonly overrideKey: string | null;
 }): string | null {
   const routed = resolveRoutedWorktreeKey(input);
@@ -44,7 +71,17 @@ function resolveRoutedWorktreeKey(input: {
   readonly routeThreadKey: string | null;
   readonly routeDraftId: string | null;
   readonly worktreeGroups: readonly ActiveWorktreeCandidate[];
+  readonly worktreeKeyByThreadKey?: ReadonlyMap<string, string>;
 }): string | null {
+  if (input.routeThreadKey !== null) {
+    const mappedWorktreeKey = input.worktreeKeyByThreadKey?.get(input.routeThreadKey);
+    if (
+      mappedWorktreeKey !== undefined &&
+      input.worktreeGroups.some((group) => group.key === mappedWorktreeKey)
+    ) {
+      return mappedWorktreeKey;
+    }
+  }
   for (const group of input.worktreeGroups) {
     if (
       input.routeDraftId !== null &&

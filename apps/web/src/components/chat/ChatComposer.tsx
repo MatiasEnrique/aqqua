@@ -3238,7 +3238,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           {/* Bottom toolbar — a recessed tray, so the surface change carries the
               separation from the prompt and the hairline can stay near-invisible. */}
           {isComposerCollapsedMobile ? null : activePendingApproval ? (
-            <div className="flex items-center justify-end gap-2 rounded-b-[var(--chat-composer-inner-radius,9px)] border-t border-border/55 bg-muted px-2.5 py-2 sm:px-3">
+            <div className="flex items-center justify-end gap-2 rounded-b-[var(--chat-composer-inner-radius,9px)] border-t border-border/55 bg-sidebar px-2.5 py-2 sm:px-3">
               <ComposerPendingApprovalActions
                 requestId={activePendingApproval.requestId}
                 isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
@@ -3250,7 +3250,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-footer="true"
               data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
               className={cn(
-                "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible rounded-b-[var(--chat-composer-inner-radius,9px)] border-t border-border/55 bg-muted px-2.5 py-2 sm:px-3",
+                "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible rounded-b-[var(--chat-composer-inner-radius,9px)] border-t border-border/55 bg-sidebar px-2.5 py-2 sm:px-3",
                 isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 showMobilePendingAnswerActions && "hidden sm:flex",
               )}

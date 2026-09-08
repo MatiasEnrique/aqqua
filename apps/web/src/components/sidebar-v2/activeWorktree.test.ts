@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vite-plus/test";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
+import { describe, expect, it } from "vite-plus/test";
 
-import { resolveActiveWorktreeKey, type ActiveWorktreeCandidate } from "./activeWorktree";
+import {
+  type ActiveWorktreeCandidate,
+  resolveActiveWorktreeKey,
+  resolveActiveWorktreeProjectKey,
+} from "./activeWorktree";
 
 function thread(id: string, updatedAt: string): EnvironmentThreadShell {
   return {
@@ -27,8 +31,12 @@ describe("resolveActiveWorktreeKey", () => {
         routeThreadKey: "env:b",
         routeDraftId: null,
         worktreeGroups: [
-          group("env:/repo", { active: [thread("a", "2026-01-01T00:00:00.000Z")] }),
-          group("env:/repo-wt", { active: [thread("b", "2026-01-01T00:00:00.000Z")] }),
+          group("env:/repo", {
+            active: [thread("a", "2026-01-01T00:00:00.000Z")],
+          }),
+          group("env:/repo-wt", {
+            active: [thread("b", "2026-01-01T00:00:00.000Z")],
+          }),
         ],
         overrideKey: null,
       }),
@@ -41,8 +49,22 @@ describe("resolveActiveWorktreeKey", () => {
         routeThreadKey: "env:b",
         routeDraftId: null,
         worktreeGroups: [
-          group("env:/repo-wt", { snoozed: [thread("b", "2026-01-01T00:00:00.000Z")] }),
+          group("env:/repo-wt", {
+            snoozed: [thread("b", "2026-01-01T00:00:00.000Z")],
+          }),
         ],
+        overrideKey: null,
+      }),
+    ).toBe("env:/repo-wt");
+  });
+
+  it("finds a routed settled conversation through its authoritative worktree mapping", () => {
+    expect(
+      resolveActiveWorktreeKey({
+        routeThreadKey: "env:settled",
+        routeDraftId: null,
+        worktreeGroups: [group("env:/repo"), group("env:/repo-wt")],
+        worktreeKeyByThreadKey: new Map([["env:settled", "env:/repo-wt"]]),
         overrideKey: null,
       }),
     ).toBe("env:/repo-wt");
@@ -68,7 +90,9 @@ describe("resolveActiveWorktreeKey", () => {
         routeThreadKey: "env:a",
         routeDraftId: null,
         worktreeGroups: [
-          group("env:/repo", { active: [thread("a", "2026-01-01T00:00:00.000Z")] }),
+          group("env:/repo", {
+            active: [thread("a", "2026-01-01T00:00:00.000Z")],
+          }),
           group("env:/empty"),
         ],
         overrideKey: "env:/empty",
@@ -107,5 +131,21 @@ describe("resolveActiveWorktreeKey", () => {
         overrideKey: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveActiveWorktreeProjectKey", () => {
+  it("finds the containing grouped project for the routed worktree", () => {
+    expect(
+      resolveActiveWorktreeProjectKey({
+        activeWorktree: { environmentId: "remote", projectId: "member" },
+        projects: [
+          {
+            projectKey: "grouped-project",
+            memberProjectRefs: [{ environmentId: "remote", projectId: "member" }],
+          },
+        ],
+      }),
+    ).toBe("grouped-project");
   });
 });

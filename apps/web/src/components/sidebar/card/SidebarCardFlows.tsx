@@ -31,7 +31,7 @@ export function FlowCardStateBadge({
         label="Deleting"
         showLabel
         size="size-2"
-        className={cn("h-4 text-[10px] text-destructive-foreground", className)}
+        className={cn("h-4 text-[11px] text-destructive-foreground", className)}
       />
     );
   }
@@ -42,14 +42,14 @@ export function FlowCardStateBadge({
         label={cardOperationPresentation(operation).label}
         showLabel
         size="size-2"
-        className={cn("h-4 text-[10px] text-sidebar-muted-foreground", className)}
+        className={cn("h-4 text-[11px] text-sidebar-muted-foreground", className)}
       />
     );
   }
   return (
     <SidebarSummaryStateLabel
       state={cardSidebarSummaryState(card)}
-      className={cn("text-[10px]", className)}
+      className={cn("text-[11px]", className)}
     />
   );
 }

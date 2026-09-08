@@ -153,7 +153,7 @@ export function SidebarUpdatePill() {
       )}
       {visible && (
         <div
-          className={`group/update relative flex h-7 w-full items-center rounded-lg bg-primary/15 text-xs font-medium text-primary ${
+          className={`group/update relative flex h-7 w-full items-center rounded-lg bg-primary/15 text-[13px] font-medium text-primary ${
             disabled ? " cursor-not-allowed opacity-60" : ""
           }`}
         >

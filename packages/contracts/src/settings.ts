@@ -26,6 +26,10 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
+export const HeaderTabScope = Schema.Literals(["all", "worktree"]);
+export type HeaderTabScope = typeof HeaderTabScope.Type;
+export const DEFAULT_HEADER_TAB_SCOPE: HeaderTabScope = "all";
+
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
@@ -33,6 +37,10 @@ export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "upda
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
+export const SidebarConversationGrouping = Schema.Literals(["project", "worktree", "status"]);
+export type SidebarConversationGrouping = typeof SidebarConversationGrouping.Type;
+export const DEFAULT_SIDEBAR_CONVERSATION_GROUPING: SidebarConversationGrouping = "project";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
@@ -91,6 +99,9 @@ export const ClientSettingsSchema = Schema.Struct({
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
   ),
+  headerTabScope: HeaderTabScope.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_HEADER_TAB_SCOPE)),
+  ),
   keepScreenAwakeWhileAgentsRun: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -121,6 +132,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
+  ),
+  sidebarConversationGrouping: SidebarConversationGrouping.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_CONVERSATION_GROUPING)),
   ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -971,6 +985,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  headerTabScope: Schema.optionalKey(HeaderTabScope),
   keepScreenAwakeWhileAgentsRun: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(
     Schema.Array(
@@ -994,6 +1009,7 @@ export const ClientSettingsPatch = Schema.Struct({
     ),
   ),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
+  sidebarConversationGrouping: Schema.optionalKey(SidebarConversationGrouping),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

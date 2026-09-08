@@ -40,6 +40,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import FileBrowserPanel from "./FileBrowserPanel";
+import { shouldReplaceExplorerWithFile } from "./fileExplorerLayout";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -54,7 +55,6 @@ import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import {
   areFileCommentAnnotationsEqual,
   beginFileEditingSession,
-  projectFileCacheKey,
   resolveFileEditingSession,
 } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
@@ -619,6 +619,8 @@ export default function FilePreviewPanel({
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
   const file = useProjectFileQuery(environmentId, cwd, relativePath, !isImage);
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const previousRelativePathRef = useRef<string | null>(null);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
@@ -662,6 +664,14 @@ export default function FilePreviewPanel({
     );
     currentCrumb?.scrollIntoView({ block: "nearest", inline: "end" });
   }, [relativePath]);
+  useEffect(() => {
+    const pathChanged = relativePath !== null && relativePath !== previousRelativePathRef.current;
+    previousRelativePathRef.current = relativePath;
+    const panelWidth = panelRef.current?.clientWidth;
+    if (pathChanged && panelWidth !== undefined && shouldReplaceExplorerWithFile(panelWidth)) {
+      setExplorerOpen(false);
+    }
+  }, [relativePath]);
 
   const toggleExplorer = () => {
     setExplorerOpen((current) => {
@@ -700,7 +710,11 @@ export default function FilePreviewPanel({
   }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div
+      ref={panelRef}
+      data-file-preview
+      className="@container/file-preview flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+    >
       {relativePath ? (
         <div className="surface-subheader gap-2 px-3" data-surface-subheader>
           <ScrollArea
@@ -820,9 +834,11 @@ export default function FilePreviewPanel({
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div
+          data-file-preview-content
           className={cn(
             "min-w-0 flex-1 flex-col overflow-hidden",
             relativePath ? "flex" : "hidden",
+            explorerOpen && "@max-[560px]/file-preview:hidden",
           )}
         >
           {relativePath && isImage && absolutePath ? (
@@ -884,7 +900,7 @@ export default function FilePreviewPanel({
             className={cn(
               "flex min-h-0 shrink-0 bg-background",
               relativePath
-                ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60"
+                ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60 @max-[560px]/file-preview:w-full @max-[560px]/file-preview:min-w-0 @max-[560px]/file-preview:border-l-0"
                 : "min-w-0 flex-1",
             )}
           >
@@ -893,7 +909,15 @@ export default function FilePreviewPanel({
               environmentId={environmentId}
               cwd={cwd}
               projectName={projectName}
-              onOpenFile={onOpenFile}
+              onOpenFile={(path) => {
+                onOpenFile(path);
+                if (
+                  panelRef.current &&
+                  shouldReplaceExplorerWithFile(panelRef.current.clientWidth)
+                ) {
+                  setExplorerOpen(false);
+                }
+              }}
             />
           </aside>
         ) : null}

@@ -58,7 +58,9 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain("rounded-md");
     expect(html).toContain("px-2");
     expect(html).toContain("py-1.5");
-    expect(html).toContain("]:size-4");
+    // 14px icons against the sidebar's 13px rows; 16px read a size larger than
+    // the label beside them.
+    expect(html).toContain("]:size-3.5");
     expect(html).toContain("]:shrink-0");
     expect(html).toContain("cursor-pointer");
   });

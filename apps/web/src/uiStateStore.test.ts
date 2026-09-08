@@ -15,11 +15,13 @@ import {
   reorderProjects,
   reorderWorktrees,
   resolveProjectExpanded,
+  resolveWorktreeConversationExpanded,
   setDefaultAdvertisedEndpointKey,
   setOpenConversationTabKeys,
   setProjectExpanded,
   setProjectScopeKeys,
   setThreadChangedFilesExpanded,
+  setWorktreeConversationExpanded,
   type UiState,
   WINDOW_STATE_KEY,
 } from "./uiStateStore";
@@ -30,6 +32,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     projectScopeKeys: [],
     worktreeOrder: [],
+    worktreeConversationExpandedByKey: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     activeWorktreeOverrideKey: null,
@@ -90,6 +93,30 @@ describe("uiStateStore pure functions", () => {
       "environment-b:/repo": false,
     });
     expect(setProjectExpanded(next, keys, false)).toBe(next);
+  });
+
+  it("stores worktree conversation expansion and defaults new worktrees to expanded", () => {
+    const initialState = makeUiState();
+    expect(
+      resolveWorktreeConversationExpanded(
+        initialState.worktreeConversationExpandedByKey,
+        "worktree-a",
+      ),
+    ).toBe(true);
+
+    const collapsed = setWorktreeConversationExpanded(initialState, "worktree-a", false);
+
+    expect(
+      resolveWorktreeConversationExpanded(
+        collapsed.worktreeConversationExpandedByKey,
+        "worktree-a",
+      ),
+    ).toBe(false);
+    expect(setWorktreeConversationExpanded(collapsed, "worktree-a", false)).toBe(collapsed);
+    expect(
+      setWorktreeConversationExpanded(collapsed, "worktree-a", true)
+        .worktreeConversationExpandedByKey,
+    ).toEqual({});
   });
 
   it("reorders from the current atom-derived project order", () => {
@@ -239,6 +266,10 @@ describe("parsePersistedState", () => {
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
       worktreeOrder: ["local:/repo-b", "", "local:/repo-a", "local:/repo-b"],
+      worktreeConversationExpandedByKey: {
+        "local:/repo-a": false,
+        invalid: "no" as unknown as boolean,
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -264,6 +295,9 @@ describe("parsePersistedState", () => {
       projectOrder: ["physical-b", "physical-a"],
       projectScopeKeys: [],
       worktreeOrder: ["local:/repo-b", "local:/repo-a"],
+      worktreeConversationExpandedByKey: {
+        "local:/repo-a": false,
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -399,9 +433,11 @@ describe("uiStateStore persistence", () => {
     expect(JSON.parse(sessionStorageStub.getItem(WINDOW_STATE_KEY) ?? "{}")).toMatchObject({
       projectScopeKeys: ["ciber", "aqqua"],
     });
-    expect(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")).not.toHaveProperty(
-      "projectScopeKeys",
-    );
+    expect(JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}")).toMatchObject({
+      projectScopeKeys: ["ciber", "aqqua"],
+    });
+    sessionStorageStub.clear();
+    expect(readPersistedState().projectScopeKeys).toEqual(["ciber", "aqqua"]);
   });
 
   it("persists raw UI preferences including thread visit markers", () => {
@@ -411,6 +447,9 @@ describe("uiStateStore persistence", () => {
       },
       projectOrder: ["physical-b", "physical-a"],
       worktreeOrder: [],
+      worktreeConversationExpandedByKey: {
+        "local:/repo-a": false,
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -429,11 +468,15 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(persisted).toEqual({
+      projectScopeKeys: [],
       projectExpandedById: {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
       worktreeOrder: [],
+      worktreeConversationExpandedByKey: {
+        "local:/repo-a": false,
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },

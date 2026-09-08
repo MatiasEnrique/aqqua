@@ -1,6 +1,7 @@
 import { scopeThreadRef } from "@aqqua/client-runtime/environment";
 import { useEffect, useMemo, useRef } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { useClientSettings } from "../../hooks/useSettings";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -14,6 +15,7 @@ import { buildProjectRootByProjectKey } from "../Sidebar.worktreeGroups";
 import {
   buildConversationTabs,
   type ConversationTab,
+  type ConversationTabScope,
   conversationTabKey,
   openConversationTab,
   openNewSubAgentConversationTabs,
@@ -50,6 +52,7 @@ export function useConversationTabs(input: {
   // Pruning mid-bootstrap would wipe the restored strip on every cold start.
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const draftsByDraftId = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const headerTabScope = useClientSettings((settings) => settings.headerTabScope);
   const previousThreadsRef = useRef<typeof threads | null>(null);
 
   const existingThreadKeys = useMemo(
@@ -133,14 +136,20 @@ export function useConversationTabs(input: {
     if (retained.length !== current.length) setOpenKeys(retained);
   }, [bootstrapped, enabled, knownKeys, setOpenKeys]);
 
-  // The strip belongs to one worktree: switching checkouts is switching the set
-  // of conversations you are holding open, not adding to a global pile. Open
-  // keys stay unscoped in the store, so returning to a worktree brings its own
-  // tabs back exactly as they were.
   const activeWorktreeKey = useWorktreeHeaderStore(
     (store) => store.activeWorktreeGroup?.key ?? null,
   );
   const projectRootByProjectKey = useMemo(() => buildProjectRootByProjectKey(projects), [projects]);
+  const tabScope = useMemo<ConversationTabScope>(
+    () =>
+      headerTabScope === "worktree"
+        ? {
+            scope: "worktree",
+            worktreeKey: activeWorktreeKey,
+          }
+        : { scope: "all" },
+    [activeWorktreeKey, headerTabScope],
+  );
 
   const tabs = useMemo(
     () =>
@@ -150,11 +159,11 @@ export function useConversationTabs(input: {
             threads,
             drafts,
             activeKey: tabRouteKey,
-            worktreeKey: activeWorktreeKey,
             projectRootByProjectKey,
+            ...tabScope,
           })
         : [],
-    [activeWorktreeKey, drafts, enabled, openKeys, projectRootByProjectKey, tabRouteKey, threads],
+    [drafts, enabled, openKeys, projectRootByProjectKey, tabRouteKey, tabScope, threads],
   );
 
   return { tabs };

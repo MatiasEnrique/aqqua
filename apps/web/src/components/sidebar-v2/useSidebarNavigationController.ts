@@ -10,15 +10,20 @@ import {
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
 } from "../../keybindings";
-import { startNewThreadFromContext } from "../../lib/chatThreadActions";
+import {
+  resolveConversationTabNewThreadAction,
+  startNewThreadFromContext,
+} from "../../lib/chatThreadActions";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
 import { resolveAdjacentThreadId } from "../Sidebar.logic";
+import type { SidebarWorktreeGroup } from "../Sidebar.worktreeGroups";
 import type { SidebarNavigationController } from "./models";
 import type { SidebarV2Sections } from "./useSidebarV2Sections";
+import { readRenderedSidebarThreadKeys } from "./renderedThreadOrder";
 
 export function useSidebarNavigationController(
   sections: Pick<SidebarV2Sections, "route" | "projects" | "threads" | "runtime">,
@@ -62,6 +67,24 @@ export function useSidebarNavigationController(
     [clearSelection, isMobile, router, setOpenMobile],
   );
 
+  const createThreadInWorktree = useCallback(
+    (worktree: SidebarWorktreeGroup) => {
+      const action = resolveConversationTabNewThreadAction({
+        activeProjectRef: null,
+        activeWorktree: worktree,
+      });
+      if (action._tag !== "create") return;
+      if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
+        clearSelection();
+      }
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void newThreadContext.handleNewThread(action.projectRef, action.options);
+    },
+    [clearSelection, isMobile, newThreadContext, setOpenMobile],
+  );
+
   // Drafts are client-local, so discarding is a plain store removal — no
   // server command, no confirm. Leaving the routed draft's page after its
   // state is gone would strand the composer, so navigation falls back home.
@@ -103,19 +126,25 @@ export function useSidebarNavigationController(
         return true;
       };
       const traversalDirection = threadTraversalDirectionFromCommand(command);
+      const jumpIndex = threadJumpIndexFromCommand(command ?? "");
+      if (traversalDirection === null && jumpIndex === null) return;
+      const displayedThreadKeys = readRenderedSidebarThreadKeys(orderedThreadKeys);
       if (traversalDirection !== null) {
         navigateToThreadKey(
           resolveAdjacentThreadId({
-            threadIds: orderedThreadKeys,
-            currentThreadId: routeThreadKey,
+            threadIds: displayedThreadKeys,
+            currentThreadId: displayedThreadKeys.includes(routeThreadKey ?? "")
+              ? routeThreadKey
+              : (document.querySelector<HTMLElement>(
+                  '[data-app-sidebar] [data-sidebar-thread-key][aria-current="page"]',
+                )?.dataset.sidebarThreadKey ?? routeThreadKey),
             direction: traversalDirection,
           }),
         );
         return;
       }
-      const jumpIndex = threadJumpIndexFromCommand(command ?? "");
       if (jumpIndex === null) return;
-      navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
+      navigateToThreadKey(displayedThreadKeys[jumpIndex] ?? null);
     };
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
@@ -163,6 +192,7 @@ export function useSidebarNavigationController(
   return {
     navigateToThread,
     navigateToDraft,
+    createThreadInWorktree,
     discardDraft,
     handleNewThreadClick,
     attachListAutoAnimateRef,

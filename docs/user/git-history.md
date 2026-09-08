@@ -1,6 +1,6 @@
 # Git history
 
-Open **History** from the workspace toolbar to inspect the current branch's commit graph. History
+Open **History** from the right activity rail or the **Workspace tools** picker to inspect the current branch's commit graph. History
 shows commits reachable from the checked-out local branch by default. Select **Include origin** to
 also show commits reachable from the matching `origin/<branch>` ref, including fetched-but-unpulled
 commits. Other local and remote branches do not expand the graph.
@@ -17,7 +17,7 @@ Tags on commits in the visible graph remain available as labels.
 
 ## Watch a pull request
 
-Select the **Pull request** icon in the chat header to watch the change request associated with the
+Select **Pull request** in the right activity rail or the **Workspace tools** picker to watch the change request associated with the
 checked-out branch. Select it again to close the panel. The panel shows its number, title, state,
 base and head refs, aggregate CI status, and each check reported by the remote host. Status changes
 arrive through the workspace's live Git status stream; the check list refreshes when that remote
@@ -30,7 +30,7 @@ The Git actions toolbar also shows the aggregate checks status whenever the bran
 request. Mobile thread lists show the same aggregate status beside the change request number.
 
 If the current branch has no pull request or merge request, create one from the Git actions control
-in the workspace toolbar. Some source-control hosts provide only an aggregate checks status; the
+from the Git actions in the right activity rail. Some source-control hosts provide only an aggregate checks status; the
 panel keeps showing that status and explains when individual check details are unavailable.
 Management capabilities also vary by provider. Azure DevOps currently supports closing and
 reopening change requests in aqqua, but merge and auto-merge remain available on the provider until

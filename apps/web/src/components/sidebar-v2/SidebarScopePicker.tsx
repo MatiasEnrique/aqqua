@@ -63,7 +63,7 @@ export function SidebarScopePicker<Item>(props: {
                 <ComboboxChip
                   key={props.itemKey(item)}
                   aria-label={props.itemLabel(item)}
-                  className="flex items-center gap-[5px] rounded-md bg-sidebar-control-surface ps-1 text-xs font-medium text-sidebar-foreground outline-none [&_svg:not([class*='size-'])]:size-3"
+                  className="flex items-center gap-[5px] rounded-md bg-sidebar-control-surface ps-1 text-[13px] font-medium text-sidebar-foreground outline-none [&_svg:not([class*='size-'])]:size-3"
                 >
                   {props.renderChip(item)}
                 </ComboboxChip>
@@ -71,7 +71,7 @@ export function SidebarScopePicker<Item>(props: {
               <ComboboxChipsInput
                 aria-label={props.inputLabel}
                 placeholder={chosenItems.length === 0 ? props.allItemsLabel : ""}
-                className="min-w-16 bg-transparent ps-1 text-sm font-medium text-sidebar-foreground placeholder:text-sidebar-muted-foreground/80 sm:text-sm"
+                className="min-w-16 bg-transparent ps-1 text-[13px] font-medium text-sidebar-foreground placeholder:text-sidebar-muted-foreground/80 sm:text-[13px]"
               />
             </Fragment>
           )}

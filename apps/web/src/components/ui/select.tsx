@@ -134,7 +134,8 @@ function SelectPopup({
         alignItemWithTrigger={alignItemWithTrigger}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50 select-none"
+        // Select options portal to the body, above menus and popovers at z-60.
+        className="z-[70] select-none"
         data-slot="select-positioner"
         side={side}
         sideOffset={sideOffset}

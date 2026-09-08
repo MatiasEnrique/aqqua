@@ -76,6 +76,22 @@ describe("ClientSettings environment identification", () => {
   });
 });
 
+describe("ClientSettings header tabs", () => {
+  it("shows tabs from all worktrees by default", () => {
+    expect(decodeClientSettings({}).headerTabScope).toBe("all");
+  });
+
+  it.each(["all", "worktree"] as const)("accepts the supported tab scope: %s", (headerTabScope) => {
+    expect(decodeClientSettings({ headerTabScope }).headerTabScope).toBe(headerTabScope);
+    expect(decodeClientSettingsPatch({ headerTabScope }).headerTabScope).toBe(headerTabScope);
+  });
+
+  it("rejects an unsupported tab scope", () => {
+    expect(() => decodeClientSettings({ headerTabScope: "project" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ headerTabScope: "project" })).toThrow();
+  });
+});
+
 describe("ClientSettings agent wake lock", () => {
   it("is opt-in by default", () => {
     expect(decodeClientSettings({}).keepScreenAwakeWhileAgentsRun).toBe(false);
@@ -93,6 +109,29 @@ describe("ClientSettings agent wake lock", () => {
 });
 
 describe("ClientSettings sidebar", () => {
+  it("groups conversations directly under projects by default", () => {
+    expect(decodeClientSettings({}).sidebarConversationGrouping).toBe("project");
+  });
+
+  it.each(["project", "worktree", "status"] as const)(
+    "accepts the supported conversation grouping: %s",
+    (sidebarConversationGrouping) => {
+      expect(
+        decodeClientSettings({ sidebarConversationGrouping }).sidebarConversationGrouping,
+      ).toBe(sidebarConversationGrouping);
+      expect(
+        decodeClientSettingsPatch({ sidebarConversationGrouping }).sidebarConversationGrouping,
+      ).toBe(sidebarConversationGrouping);
+    },
+  );
+
+  it("rejects unsupported conversation grouping", () => {
+    expect(() => decodeClientSettings({ sidebarConversationGrouping: "repository" })).toThrow();
+    expect(() =>
+      decodeClientSettingsPatch({ sidebarConversationGrouping: "repository" }),
+    ).toThrow();
+  });
+
   it("defaults to a three-day auto-settle threshold", () => {
     expect(decodeClientSettings({}).sidebarAutoSettleAfterDays).toBe(3);
   });
