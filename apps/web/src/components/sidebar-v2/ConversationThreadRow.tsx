@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import { CircleCheckIcon, GitForkIcon, RotateCcwIcon } from "lucide-react";
+import { ArchiveIcon, GitForkIcon, RotateCcwIcon } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "~/lib/utils";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
@@ -60,7 +60,7 @@ export function ConversationThreadRow(props: {
         : {
             label: `Settle conversation ${props.thread.title}`,
             tooltip: "Settle conversation",
-            icon: <CircleCheckIcon aria-hidden className="size-3.5" />,
+            icon: <ArchiveIcon aria-hidden className="size-3.5" />,
           };
   const metadata = [
     props.section === "snoozed" ? "Snoozed" : props.section === "settled" ? "Settled" : null,
@@ -193,7 +193,7 @@ export function ConversationThreadRow(props: {
                 type="button"
                 aria-label={settlementAction.label}
                 onClick={props.onToggleSettled}
-                className="absolute right-0 top-0 inline-flex size-10 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-100 outline-none transition-[background-color,color,opacity,transform] duration-(--duration-fast) ease-(--ease-fluid) hover:bg-destructive/10 hover:text-destructive active:scale-[0.96] pointer-fine:opacity-0 pointer-fine:group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 focus-visible:ring-2 focus-visible:ring-destructive/40 focus-visible:ring-inset motion-reduce:transform-none"
+                className="absolute right-0 top-0 inline-flex size-10 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground opacity-100 outline-none transition-[background-color,color,opacity,transform] duration-(--duration-fast) ease-(--ease-fluid) hover:text-sidebar-foreground active:scale-[0.96] pointer-fine:opacity-0 pointer-fine:group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transform-none"
               />
             }
           >

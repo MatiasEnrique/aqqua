@@ -39,13 +39,16 @@ import { cn } from "~/lib/utils";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  type GitCommitAction,
   type GitActionIconName,
   type GitActionMenuItem,
   type GitQuickAction,
   type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitMenuItemIntent,
   resolveLiveThreadBranchUpdate,
+  resolveRailQuickActionIntent,
   resolveThreadBranchMetadataPatch,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -1002,6 +1005,7 @@ export default function GitActionsControl({
   });
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [commitDialogAction, setCommitDialogAction] = useState<GitCommitAction>("commit");
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
@@ -1510,12 +1514,13 @@ export default function GitActionsControl({
     const commitMessage = dialogCommitMessage.trim();
 
     setIsCommitDialogOpen(false);
+    setCommitDialogAction("commit");
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
 
     void runGitActionWithToast({
-      action: "commit",
+      action: commitDialogAction,
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
       featureBranch: true,
@@ -1581,39 +1586,52 @@ export default function GitActionsControl({
       });
       return;
     }
-    if (quickAction.action) {
-      void runGitActionWithToast({ action: quickAction.action });
-    }
+    void runGitActionWithToast({ action: quickAction.action });
   };
 
-  const openDialogForMenuItem = (item: GitActionMenuItem) => {
-    if (item.disabled) return;
-    if (item.kind === "open_pr") {
-      openExistingPr();
-      return;
-    }
-    if (item.dialogAction === "push") {
-      void runGitActionWithToast({ action: "push" });
-      return;
-    }
-    if (item.dialogAction === "create_pr") {
-      void runGitActionWithToast({ action: "create_pr" });
-      return;
-    }
+  const openCommitDialog = (action: GitCommitAction) => {
+    setCommitDialogAction(action);
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     setIsCommitDialogOpen(true);
+  };
+
+  const runRailQuickAction = () => {
+    const intent = resolveRailQuickActionIntent({
+      quickAction,
+      hasWorkingTreeChanges: !!gitStatusForActions?.hasWorkingTreeChanges,
+    });
+    if (intent.kind === "open_commit_dialog") {
+      openCommitDialog(intent.action);
+      return;
+    }
+    runQuickAction();
+  };
+
+  const openDialogForMenuItem = (item: GitActionMenuItem) => {
+    const intent = resolveGitMenuItemIntent(item);
+    if (intent.kind === "no_action") return;
+    if (intent.kind === "open_existing_pr") {
+      openExistingPr();
+      return;
+    }
+    if (intent.kind === "run_action") {
+      void runGitActionWithToast({ action: intent.action });
+      return;
+    }
+    openCommitDialog("commit");
   };
 
   const runDialogAction = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
     setIsCommitDialogOpen(false);
+    setCommitDialogAction("commit");
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     void runGitActionWithToast({
-      action: "commit",
+      action: commitDialogAction,
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
@@ -1663,11 +1681,10 @@ export default function GitActionsControl({
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
   const gitActionMenuItemsForPresentation =
-    rail &&
-    quickAction.kind === "run_action" &&
-    quickAction.action !== "commit" &&
-    quickAction.action !== undefined
-      ? gitActionMenuItems.filter((item) => item.dialogAction !== quickAction.action)
+    rail && quickAction.kind === "run_action" && quickAction.action !== "commit"
+      ? gitActionMenuItems.filter(
+          (item) => item.kind !== "open_dialog" || item.dialogAction !== quickAction.action,
+        )
       : gitActionMenuItems;
 
   if (!gitCwd) return null;
@@ -1846,7 +1863,7 @@ export default function GitActionsControl({
                       {quickAction.label}
                     </MenuItem>
                   ) : (
-                    <MenuItem onClick={runQuickAction}>
+                    <MenuItem onClick={runRailQuickAction}>
                       <GitQuickActionIcon
                         quickAction={quickAction}
                         SourceControlIcon={SourceControlIcon}
@@ -1946,6 +1963,7 @@ export default function GitActionsControl({
         onOpenChange={(open) => {
           if (!open) {
             setIsCommitDialogOpen(false);
+            setCommitDialogAction("commit");
             setDialogCommitMessage("");
             setExcludedFiles(new Set());
             setIsEditingFiles(false);
@@ -2086,6 +2104,7 @@ export default function GitActionsControl({
               size="sm"
               onClick={() => {
                 setIsCommitDialogOpen(false);
+                setCommitDialogAction("commit");
                 setDialogCommitMessage("");
                 setExcludedFiles(new Set());
                 setIsEditingFiles(false);
@@ -2099,10 +2118,18 @@ export default function GitActionsControl({
               disabled={noneSelected}
               onClick={runDialogActionOnNewBranch}
             >
-              Commit on new refName
+              {commitDialogAction === "commit"
+                ? "Commit on new refName"
+                : commitDialogAction === "commit_push"
+                  ? "Commit & push on new refName"
+                  : `Commit, push & create ${changeRequestTerminology.shortLabel} on new refName`}
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
-              Commit
+              {commitDialogAction === "commit"
+                ? "Commit"
+                : commitDialogAction === "commit_push"
+                  ? "Commit & push"
+                  : `Commit, push & create ${changeRequestTerminology.shortLabel}`}
             </Button>
           </DialogFooter>
         </DialogPopup>

@@ -330,6 +330,17 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     [settleThread, unsettleThread],
   );
 
+  /** The settled shelf's quick delete: same confirmation the context menu runs. */
+  const handleDeleteThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      void confirmAndDeleteThread(thread).then((result) => {
+        if (result._tag === "Success") return;
+        toastManager.add({ type: "error", title: "Could not delete conversation" });
+      });
+    },
+    [confirmAndDeleteThread],
+  );
+
   const handleThreadContextMenu = useCallback(
     (event: ReactMouseEvent, thread: EnvironmentThreadShell, section: SidebarThreadSection) => {
       event.preventDefault();
@@ -753,6 +764,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
                   handleThreadContextMenu(event, thread, "settled")
                 }
                 onRestoreThread={(thread) => handleToggleThreadSettled(thread, "settled")}
+                onDeleteThread={handleDeleteThread}
               />
             )}
           </SidebarGroup>

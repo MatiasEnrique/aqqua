@@ -467,9 +467,12 @@ it.layer(NodeServices.layer)("decider deletion flows", (it) => {
       });
       const events = Array.isArray(result) ? result : [result];
 
+      // Flow ownership blocks deletion, never settlement: the root settles and
+      // its spawned sub-agents are archived out of the inbox with it. Card step
+      // threads are always top-level, so none of them can be swept up here.
       expect(events.map((event) => event.type)).toEqual([
-        "thread.settled",
-        "thread.settled",
+        "thread.archived",
+        "thread.archived",
         "thread.settled",
       ]);
     }),

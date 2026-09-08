@@ -89,6 +89,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(aqqua-mo
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
+  /* The floating controls hover over whatever reaches the window's right edge,
+     so a bar that runs under them reserves their footprint: the cluster's own
+     right inset, plus two small ghost toggles and the gap between them. Keep
+     this in step with `.workspace-titlebar-controls`, or the bar's last button
+     ends up underneath the cluster instead of beside it. */
+  --workspace-titlebar-controls-reserve: calc(var(--workspace-controls-right) + 4.5rem);
   --workspace-native-controls-inset: 0px;
   --workspace-titlebar-control-size: 1.75rem;
   --workspace-titlebar-control-gap: 0.75rem;

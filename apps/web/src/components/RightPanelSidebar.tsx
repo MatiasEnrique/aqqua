@@ -433,6 +433,35 @@ export function shouldHideActivitySurface(input: {
   );
 }
 
+export type RightPanelActivityIntent =
+  | { readonly kind: "no_action" }
+  | { readonly kind: "hide" }
+  | { readonly kind: "activate"; readonly surface: RightPanelSurface }
+  | { readonly kind: "add" };
+
+export function resolveRightPanelActivityIntent(input: {
+  readonly available: boolean;
+  readonly surfaces: readonly RightPanelSurface[];
+  readonly kind: RightPanelSurface["kind"];
+  readonly preferredId: string | undefined;
+  readonly collapsed: boolean;
+  readonly activeSurfaceId: string | null;
+}): RightPanelActivityIntent {
+  if (!input.available) return { kind: "no_action" };
+  const surface = resolveActivitySurface(input);
+  if (
+    shouldHideActivitySurface({
+      collapsed: input.collapsed,
+      surfaceId: surface?.id,
+      activeSurfaceId: input.activeSurfaceId,
+    })
+  ) {
+    return { kind: "hide" };
+  }
+  if (surface) return { kind: "activate", surface };
+  return { kind: "add" };
+}
+
 export function rightPanelSelectionMemoryKey(
   context: RightPanelContext,
   kind: RightPanelSurface["kind"],
@@ -523,25 +552,24 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
 
   const handleActivityClick = useCallback(
     (activity: RightPanelActivity) => {
-      if (!activity.available) return;
-      const surface = resolveActivitySurface({
+      const intent = resolveRightPanelActivityIntent({
+        available: activity.available,
         surfaces: props.surfaces,
         kind: activity.kind,
         preferredId: props.preferredSurfaceIdForKind(activity.kind),
+        collapsed: props.collapsed ?? false,
+        activeSurfaceId: props.activeSurfaceId,
       });
-      if (
-        shouldHideActivitySurface({
-          collapsed: props.collapsed ?? false,
-          surfaceId: surface?.id,
-          activeSurfaceId: props.activeSurfaceId,
-        })
-      ) {
+      if (intent.kind === "no_action") return;
+      if (intent.kind === "hide") {
         props.onHide();
-      } else if (surface) {
-        props.onActivate(surface);
-      } else {
-        activity.onAdd?.();
+        return;
       }
+      if (intent.kind === "activate") {
+        props.onActivate(intent.surface);
+        return;
+      }
+      activity.onAdd?.();
     },
     [props],
   );
@@ -666,8 +694,11 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
             "workspace-topbar gap-1 bg-sidebar",
             ownsDesktopTitleBar && "drag-region",
             props.mode !== "inline" && "[--workspace-topbar-height:--spacing(11)]",
-            props.mode === "inline" ? "pr-12" : "pr-2",
-            ownsDesktopTitleBar && "wco:pr-[calc(var(--workspace-native-controls-inset)+3rem)]",
+            // Inline, this row runs to the window edge under the floating
+            // workspace controls, so it reserves their seat. The reserve
+            // already carries the window-controls inset, so WCO needs no
+            // second helping.
+            props.mode === "inline" ? "pr-[var(--workspace-titlebar-controls-reserve)]" : "pr-2",
             props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
           data-right-panel-toolbar

@@ -9,12 +9,108 @@ import {
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitMenuItemIntent,
   resolveLiveThreadBranchUpdate,
   resolveChangeRequestManagementState,
   resolveQuickAction,
+  resolveRailQuickActionIntent,
   resolveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
 } from "./GitActionsControl.logic";
+
+describe("Git menu item intent", () => {
+  it("maps every enabled dropdown item to an explicit behavior", () => {
+    assert.deepEqual(
+      resolveGitMenuItemIntent({
+        id: "commit",
+        label: "Commit",
+        disabled: false,
+        icon: "commit",
+        kind: "open_dialog",
+        dialogAction: "commit",
+      }),
+      { kind: "open_commit_dialog" },
+    );
+    assert.deepEqual(
+      resolveGitMenuItemIntent({
+        id: "push",
+        label: "Push",
+        disabled: false,
+        icon: "push",
+        kind: "open_dialog",
+        dialogAction: "push",
+      }),
+      { kind: "run_action", action: "push" },
+    );
+    assert.deepEqual(
+      resolveGitMenuItemIntent({
+        id: "pr",
+        label: "Create PR",
+        disabled: false,
+        icon: "pr",
+        kind: "open_dialog",
+        dialogAction: "create_pr",
+      }),
+      { kind: "run_action", action: "create_pr" },
+    );
+    assert.deepEqual(
+      resolveGitMenuItemIntent({
+        id: "pr",
+        label: "View PR",
+        disabled: false,
+        icon: "pr",
+        kind: "open_pr",
+      }),
+      { kind: "open_existing_pr" },
+    );
+  });
+
+  it("does nothing for disabled dropdown items", () => {
+    assert.deepEqual(
+      resolveGitMenuItemIntent({
+        id: "push",
+        label: "Push",
+        disabled: true,
+        icon: "push",
+        kind: "open_dialog",
+        dialogAction: "push",
+      }),
+      { kind: "no_action" },
+    );
+  });
+});
+
+describe("rail quick action", () => {
+  it("opens the commit dialog for commit and push without losing the combined action", () => {
+    assert.deepEqual(
+      resolveRailQuickActionIntent({
+        quickAction: {
+          label: "Commit & push",
+          disabled: false,
+          kind: "run_action",
+          action: "commit_push",
+        },
+        hasWorkingTreeChanges: true,
+      }),
+      { kind: "open_commit_dialog", action: "commit_push" },
+    );
+  });
+
+  it("runs a push-only quick action directly when the worktree is clean", () => {
+    assert.deepEqual(
+      resolveRailQuickActionIntent({
+        quickAction: {
+          label: "Push",
+          disabled: false,
+          kind: "run_action",
+          action: "commit_push",
+        },
+        hasWorkingTreeChanges: false,
+      }),
+      { kind: "run_quick_action" },
+    );
+  });
+});
 
 describe("change request management", () => {
   const options = {

@@ -96,7 +96,15 @@ A side-effecting service that handles follow-up work after events or runtime sig
 The optional behavior that settles a worktree thread after its pull request or merge request is
 reported as merged. [PullRequestSettleReactor.ts][33] consumes subscription-gated remote status
 updates, respects the server setting, and remembers which change request settled the thread so a
-manual un-settle is not reversed for the same change request.
+manual un-settle is not reversed for the same change request. Auto-settle cascades settlement to
+sub-agent threads and preserves keep-active pins; unlike a user's own settle, it archives nothing.
+
+#### Settle cascade
+
+What a user's `thread.settle` does to the family below the thread: every spawned sub-agent is
+archived rather than settled, so a sub-agent that is still working — or sitting on an approval —
+no longer vetoes the whole command. Provider-native subagents are skipped, since archiving one
+would drop its transcript out of the live shell stream that renders it inside its owner.
 
 #### Receipt
 

@@ -49,47 +49,48 @@ describe("rightPanelSurfaceTitle", () => {
 });
 
 describe("RightPanelSidebar", () => {
+  const props: ComponentProps<typeof RightPanelSidebar> = {
+    mode: "sidebar",
+    surfaces: [
+      { id: "diff", kind: "diff" },
+      { id: "pullRequest", kind: "pullRequest" },
+      { id: "history", kind: "history" },
+      {
+        id: "files",
+        kind: "files",
+        relativePath: null,
+        revealLine: null,
+        revealRequestId: 0,
+      },
+    ],
+    activeSurfaceId: "files",
+    pendingSurfaceIds: new Set<string>(),
+    previewSessions: {},
+    terminalLabelsById: new Map(),
+    preferredSurfaceIdForKind: () => undefined,
+    onActivate: noop,
+    onCloseSurface: noop,
+    onCloseOtherSurfaces: noop,
+    onCloseSurfacesToRight: noop,
+    onCloseAllSurfaces: noop,
+    onHide: noop,
+    onCopyFilePath: noop,
+    onAddBrowser: noop,
+    onAddTerminal: noop,
+    onAddDiff: noop,
+    onAddHistory: noop,
+    onAddPullRequest: noop,
+    onAddFiles: noop,
+    browserAvailable: true,
+    terminalAvailable: true,
+    diffAvailable: true,
+    historyAvailable: true,
+    pullRequestAvailable: true,
+    filesAvailable: true,
+    children: createElement("div", null, "Panel body"),
+  };
+
   it("renders directly selectable tabs alongside the vertical activity rail", () => {
-    const props: ComponentProps<typeof RightPanelSidebar> = {
-      mode: "sidebar",
-      surfaces: [
-        { id: "diff", kind: "diff" },
-        { id: "pullRequest", kind: "pullRequest" },
-        { id: "history", kind: "history" },
-        {
-          id: "files",
-          kind: "files",
-          relativePath: null,
-          revealLine: null,
-          revealRequestId: 0,
-        },
-      ],
-      activeSurfaceId: "files",
-      pendingSurfaceIds: new Set<string>(),
-      previewSessions: {},
-      terminalLabelsById: new Map(),
-      preferredSurfaceIdForKind: () => undefined,
-      onActivate: noop,
-      onCloseSurface: noop,
-      onCloseOtherSurfaces: noop,
-      onCloseSurfacesToRight: noop,
-      onCloseAllSurfaces: noop,
-      onHide: noop,
-      onCopyFilePath: noop,
-      onAddBrowser: noop,
-      onAddTerminal: noop,
-      onAddDiff: noop,
-      onAddHistory: noop,
-      onAddPullRequest: noop,
-      onAddFiles: noop,
-      browserAvailable: true,
-      terminalAvailable: true,
-      diffAvailable: true,
-      historyAvailable: true,
-      pullRequestAvailable: true,
-      filesAvailable: true,
-      children: createElement("div", null, "Panel body"),
-    };
     const markup = renderToStaticMarkup(createElement(RightPanelSidebar, props));
 
     expect(markup).toContain('aria-label="Right panel tools"');
@@ -141,6 +142,15 @@ describe("RightPanelSidebar", () => {
       }),
     );
     expect(openTerminalUnavailable).not.toMatch(/aria-label="Terminal"[^>]*aria-disabled="true"/);
+  });
+
+  it("keeps the inline toolbar clear of the floating workspace controls", () => {
+    const inline = renderToStaticMarkup(
+      createElement(RightPanelSidebar, { ...props, mode: "inline" as const }),
+    );
+
+    expect(inline).toContain("pr-[var(--workspace-titlebar-controls-reserve)]");
+    expect(inline).not.toContain("pr-12");
   });
 });
 

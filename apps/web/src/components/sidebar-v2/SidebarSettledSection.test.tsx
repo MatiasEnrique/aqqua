@@ -60,6 +60,7 @@ const render = (threads: readonly EnvironmentThreadShell[], selectedThreadKey: s
       onSelectThread={() => {}}
       onThreadContextMenu={() => {}}
       onRestoreThread={() => {}}
+      onDeleteThread={() => {}}
     />,
   );
 
@@ -87,11 +88,18 @@ describe("SidebarSettledSection", () => {
     expect(markup).toContain("aqqua");
   });
 
-  it("offers the one action a settled conversation has left", () => {
+  it("offers the two actions a settled conversation has left", () => {
     const settled = thread();
     const markup = render([settled], threadKey(settled));
 
     expect(markup).toContain('aria-label="Restore conversation Fix sidebar rows"');
+    expect(markup).toContain('aria-label="Delete conversation Fix sidebar rows"');
+  });
+
+  it("marks the quick delete as destructive so it never reads as one more nudge", () => {
+    const markup = render([thread()], threadKey(thread()));
+
+    expect(markup).toContain("hover:text-destructive");
   });
 
   it("opens itself on the routed conversation so route and list agree", () => {

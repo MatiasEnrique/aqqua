@@ -36,6 +36,7 @@ import {
 import {
   findThreadById,
   listActiveDescendantDeletionRoots,
+  listSpawnedSubagentArchiveRoots,
   listThreadsByParentThreadId,
   listThreadsByProjectId,
   listUnarchivedDescendantArchiveRoots,
@@ -911,46 +912,81 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // Settling an orchestrator takes its sub-agent threads with it: each
+      // Settling an orchestrator takes its spawned sub-agents with it, and
+      // takes them by ARCHIVING rather than settling. A sub-agent is
+      // scaffolding for the parent's work, not a conversation anyone returns
+      // to, and settling one ran it through the guards above: a sub-agent
+      // whose session was still alive — or that sat on an open request —
+      // vetoed the whole cascade, so a parent that had ever spawned an agent
+      // could not be settled from the sidebar at all. Archive carries no such
+      // guard, and its own cascade takes each sub-agent's descendants with it.
+      // Provider-native subagents are left where they are: they render inside
+      // their owner's transcript rather than the inbox, and archiving one
+      // would drop that transcript out of the live shell stream.
+      //
+      // Auto-settle (a merged change request) keeps the older settle cascade
+      // instead. It is a heuristic, not a decision: it may tidy the inbox, but
+      // it must not archive work nobody asked it to archive. Each
       // not-yet-settled child is settled through its own thread.settle so
       // grandchildren cascade too and every descendant gets its own
-      // thread.settled event. Already-settled children are skipped (parent
-      // settle stays a silent no-op for them). If any descendant would be
-      // rejected by the settle guards above, decideCommandSequence fails
-      // the whole command — never a partial cascade.
-      // Archived children are excluded rather than cascaded: they are out of
-      // the inbox entirely, and their requireThreadNotArchived guard would
-      // otherwise veto the parent's settle over an invisible row.
-      // A merged-change-request cascade also preserves explicit keep-active
-      // pins. Propagating the trigger makes that rule recursive and records the
-      // merge memo on every descendant that was actually auto-settled.
-      const unsettledChildThreads = listThreadsByParentThreadId(readModel, command.threadId).filter(
-        (child) =>
-          child.deletedAt === null &&
-          child.archivedAt === null &&
-          !(child.settledOverride === "settled" && child.settledAt !== null) &&
-          !(command.trigger !== undefined && child.settledOverride === "active"),
-      );
-      if (unsettledChildThreads.length > 0) {
-        return yield* decideCommandSequence({
-          readModel,
-          commands: [
-            ...unsettledChildThreads.map(
-              (child): Extract<OrchestrationCommand, { type: "thread.settle" }> => ({
+      // thread.settled event; already-settled children, archived children, and
+      // explicit keep-active pins are all left alone. Propagating the trigger
+      // makes those rules recursive and records the merge memo on every
+      // descendant that was actually auto-settled.
+      const trigger = command.trigger;
+      if (trigger === undefined) {
+        const spawnedSubagents = listSpawnedSubagentArchiveRoots(readModel, command.threadId);
+        if (spawnedSubagents.length > 0) {
+          return yield* decideCommandSequence({
+            readModel,
+            commands: [
+              ...spawnedSubagents.map(
+                (child): Extract<OrchestrationCommand, { type: "thread.archive" }> => ({
+                  type: "thread.archive",
+                  commandId: command.commandId,
+                  threadId: child.id,
+                }),
+              ),
+              {
                 type: "thread.settle",
                 commandId: command.commandId,
-                threadId: child.id,
-                ...(command.trigger !== undefined ? { trigger: command.trigger } : {}),
-              }),
-            ),
-            {
-              type: "thread.settle",
-              commandId: command.commandId,
-              threadId: command.threadId,
-              ...(command.trigger !== undefined ? { trigger: command.trigger } : {}),
-            },
-          ],
-        });
+                threadId: command.threadId,
+              },
+            ],
+          });
+        }
+      } else {
+        const unsettledChildThreads = listThreadsByParentThreadId(
+          readModel,
+          command.threadId,
+        ).filter(
+          (child) =>
+            child.deletedAt === null &&
+            child.archivedAt === null &&
+            !(child.settledOverride === "settled" && child.settledAt !== null) &&
+            child.settledOverride !== "active",
+        );
+        if (unsettledChildThreads.length > 0) {
+          return yield* decideCommandSequence({
+            readModel,
+            commands: [
+              ...unsettledChildThreads.map(
+                (child): Extract<OrchestrationCommand, { type: "thread.settle" }> => ({
+                  type: "thread.settle",
+                  commandId: command.commandId,
+                  threadId: child.id,
+                  trigger,
+                }),
+              ),
+              {
+                type: "thread.settle",
+                commandId: command.commandId,
+                threadId: command.threadId,
+                trigger,
+              },
+            ],
+          });
+        }
       }
       // Settling an already-settled thread re-emits with the original
       // settledAt: the engine rejects zero-event commands, and bulk-settle /

@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
 import { AqquaMark } from "../AqquaMark";
+import { ConversationTabScrollControls } from "../chat/ConversationTabScrollControls";
+import { useConversationTabStripScroll } from "../chat/conversationTabStripScroll";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -24,15 +26,28 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   /** Search and navigation controls below the native titlebar. */
   trailing?: ReactNode;
 }) {
+  const { present: tabStripPresent } = useConversationTabStripScroll();
+
   return (
     <SidebarHeader className={cn("shrink-0 gap-0 p-0", isElectron && "drag-region")}>
-      {isElectron ? (
-        <div aria-hidden className="hidden h-[var(--workspace-topbar-height)] shrink-0 md:block" />
+      {/* The row the tabs sit on across the divide. On desktop the traffic
+        lights own its left and nothing owns its right, so the tab strip's
+        paging arrows take that corner instead of eating room the tabs need;
+        the web layout keeps the same shape, and only pays for the row while
+        there are tabs to page. */}
+      {isElectron || tabStripPresent ? (
+        <div className="hidden h-[var(--workspace-topbar-height)] shrink-0 items-center justify-end pr-3 md:flex">
+          {/* A chevron's ink stops 4px short of its box, where the panel and
+            folder glyphs below fill theirs. Sharing a box edge would leave the
+            arrows visibly inset, so the group hangs into the padding to line
+            the ink up instead. */}
+          <ConversationTabScrollControls className="-mr-1" />
+        </div>
       ) : null}
       {/* The mark shares the controls row rather than holding a line of its
         own: on its own row it left the whole left half of this one empty. The
-        row matches the titlebar height so the mark and its controls sit on the
-        same optical line as the conversation tabs across the divide. */}
+        row matches the titlebar height so it stacks cleanly under the row
+        above it. */}
       <div className="flex h-[var(--workspace-topbar-height)] shrink-0 items-center gap-2 px-3 [-webkit-app-region:no-drag]">
         <div
           role="img"

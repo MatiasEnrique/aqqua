@@ -21,6 +21,7 @@ import {
   type ConversationTabFamily,
   groupConversationTabFamilies,
 } from "./openConversationTabs";
+import { registerConversationTabStrip } from "./conversationTabStripScroll";
 
 /**
  * The open conversations, sharing the titlebar with workspace actions.
@@ -52,6 +53,15 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   const activeSubAgentInPopover = families.some((family) =>
     family.children.some((child) => child.isActive),
   );
+
+  // The paging arrows live in the sidebar's titlebar corner, so hand them the
+  // viewport they move.
+  useEffect(() => {
+    registerConversationTabStrip(
+      stripRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null,
+    );
+    return () => registerConversationTabStrip(null);
+  }, []);
 
   // Keep the routed conversation visible when the strip overflows — arriving
   // from a deep link or a notification must not land on a tab off-screen.
@@ -116,7 +126,7 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
 /**
  * A stable way to reach any tab when the horizontal strip clips. The scroll
  * area exposes `data-has-overflow-x`, so CSS can keep this out of the toolbar
- * until the picker is useful without adding resize observers or render work.
+ * until the picker is useful, with no render work of its own.
  */
 function ConversationTabOverflowPicker(props: {
   readonly tabs: readonly ConversationTab[];
@@ -390,7 +400,7 @@ function ConversationTabShell(props: {
                     props.onArchive?.();
                   }
                 }}
-                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               />
             }
           >

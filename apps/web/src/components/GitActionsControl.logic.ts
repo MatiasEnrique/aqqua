@@ -105,21 +105,71 @@ export function resolveChangeRequestManagementState(input: {
 
 export type GitDialogAction = "commit" | "push" | "create_pr";
 
-export interface GitActionMenuItem {
-  id: "commit" | "push" | "pr";
-  label: string;
-  disabled: boolean;
-  icon: GitActionIconName;
-  kind: "open_dialog" | "open_pr";
-  dialogAction?: GitDialogAction;
+interface GitActionMenuItemBase {
+  readonly id: "commit" | "push" | "pr";
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly icon: GitActionIconName;
 }
 
-export interface GitQuickAction {
-  label: string;
-  disabled: boolean;
-  kind: "run_action" | "run_pull" | "open_publish" | "show_hint";
-  action?: GitStackedAction;
-  hint?: string;
+export type GitActionMenuItem = GitActionMenuItemBase &
+  (
+    | { readonly kind: "open_dialog"; readonly dialogAction: GitDialogAction }
+    | { readonly kind: "open_pr" }
+  );
+
+export type GitQuickAction =
+  | {
+      readonly label: string;
+      readonly disabled: false;
+      readonly kind: "run_action";
+      readonly action: GitStackedAction;
+    }
+  | { readonly label: string; readonly disabled: false; readonly kind: "run_pull" }
+  | { readonly label: string; readonly disabled: false; readonly kind: "open_publish" }
+  | {
+      readonly label: string;
+      readonly disabled: true;
+      readonly kind: "show_hint";
+      readonly hint: string;
+    };
+
+export type GitCommitAction = Extract<
+  GitStackedAction,
+  "commit" | "commit_push" | "commit_push_pr"
+>;
+
+export type RailQuickActionIntent =
+  | { readonly kind: "open_commit_dialog"; readonly action: GitCommitAction }
+  | { readonly kind: "run_quick_action" };
+
+export function resolveRailQuickActionIntent(input: {
+  readonly quickAction: GitQuickAction;
+  readonly hasWorkingTreeChanges: boolean;
+}): RailQuickActionIntent {
+  const { quickAction } = input;
+  if (
+    quickAction.kind === "run_action" &&
+    (quickAction.action === "commit" ||
+      (input.hasWorkingTreeChanges &&
+        (quickAction.action === "commit_push" || quickAction.action === "commit_push_pr")))
+  ) {
+    return { kind: "open_commit_dialog", action: quickAction.action };
+  }
+  return { kind: "run_quick_action" };
+}
+
+export type GitMenuItemIntent =
+  | { readonly kind: "no_action" }
+  | { readonly kind: "open_existing_pr" }
+  | { readonly kind: "open_commit_dialog" }
+  | { readonly kind: "run_action"; readonly action: "push" | "create_pr" };
+
+export function resolveGitMenuItemIntent(item: GitActionMenuItem): GitMenuItemIntent {
+  if (item.disabled) return { kind: "no_action" };
+  if (item.kind === "open_pr") return { kind: "open_existing_pr" };
+  if (item.dialogAction === "commit") return { kind: "open_commit_dialog" };
+  return { kind: "run_action", action: item.dialogAction };
 }
 
 export interface DefaultBranchActionDialogCopy {

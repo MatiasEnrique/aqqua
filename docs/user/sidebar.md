@@ -38,6 +38,10 @@ Mobile uses its separate native thread list and device-local preferences.
   recent settled conversations appear in the **Settled** shelf.
 - Hover or focus a conversation card to reveal its **Settle conversation** button. The control is
   always visible on touch devices. Settled cards expose **Un-settle conversation** in the same place.
+- Settling a conversation that spawned sub-agents archives those sub-agents with it, including ones
+  still working. Bring one back from **Settings → Archive**; un-settling the parent does not.
+  Native subagents are left alone — they belong to their owner's transcript, not the inbox.
+  A conversation whose own session is live still cannot be settled.
 - Worktrees start in creation order, oldest first. Drag a worktree by its grip to save a custom order;
   worktrees remain within their project while being rearranged.
 - Right-click a project or worktree to create a conversation in that location. Project menus also

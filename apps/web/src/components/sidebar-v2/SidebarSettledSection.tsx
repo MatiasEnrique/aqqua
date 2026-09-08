@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import { ChevronRightIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronRightIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "~/lib/utils";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -13,14 +13,18 @@ import { sidebarThreadKey } from "./sidebarThreadFamilies";
  */
 const RECENTLY_SETTLED_LIMIT = 10;
 
+/** Both row actions share one hit target, so the pair reads as one cluster. */
+const ACTION_BUTTON =
+  "inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground outline-none transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-fluid) active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transform-none";
+
 /**
  * One shelf of recently settled conversations, at the foot of the list.
  *
  * Deliberately thinner than a conversation row: no status dot, no branch, no
  * timestamp. A settled conversation has nothing left to report, so the row
- * carries only what identifies it — its project and its title — plus the one
- * action it can still take: coming back. The section stays shut until someone
- * asks for it.
+ * carries only what identifies it — its project and its title — plus the two
+ * actions it has left: coming back, or going away for good. The section stays
+ * shut until someone asks for it.
  */
 export function SidebarSettledSection(props: {
   readonly threads: readonly EnvironmentThreadShell[];
@@ -31,6 +35,8 @@ export function SidebarSettledSection(props: {
   readonly onThreadContextMenu: (event: ReactMouseEvent, thread: EnvironmentThreadShell) => void;
   /** Un-settles the conversation, which drops it back into its project. */
   readonly onRestoreThread: (thread: EnvironmentThreadShell) => void;
+  /** Deletes the conversation for good, behind the same confirmation the menu uses. */
+  readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
 }) {
   const [manuallyExpanded, setManuallyExpanded] = useState<boolean | null>(null);
   const recent = props.threads.slice(0, RECENTLY_SETTLED_LIMIT);
@@ -83,10 +89,10 @@ export function SidebarSettledSection(props: {
                   title={
                     projectName === undefined ? thread.title : `${projectName} · ${thread.title}`
                   }
-                  // The right pad is the restore button's seat, held open at
-                  // rest so nothing shifts or gets covered when it appears.
+                  // The right pad is the action pair's seat, held open at rest
+                  // so nothing shifts or gets covered when they appear.
                   className={cn(
-                    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md py-1 pl-2 pr-9 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+                    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md py-1 pl-2 pr-14 text-left outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
                     isSelected
                       ? "bg-sidebar-row-active text-sidebar-foreground"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -104,15 +110,26 @@ export function SidebarSettledSection(props: {
                     {thread.title}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  aria-label={`Restore conversation ${thread.title}`}
-                  title="Restore conversation"
-                  onClick={() => props.onRestoreThread(thread)}
-                  className="absolute right-1 top-1 inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground outline-none transition-[color,opacity,transform] duration-(--duration-fast) ease-(--ease-fluid) hover:text-sidebar-foreground active:scale-[0.96] pointer-fine:opacity-0 pointer-fine:group-hover/settled-row:opacity-100 group-focus-within/settled-row:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transform-none"
-                >
-                  <RotateCcwIcon aria-hidden className="size-3.5" />
-                </button>
+                <span className="absolute right-1 top-1 flex items-center gap-0.5 transition-opacity duration-(--duration-fast) ease-(--ease-fluid) pointer-fine:opacity-0 pointer-fine:group-hover/settled-row:opacity-100 group-focus-within/settled-row:opacity-100">
+                  <button
+                    type="button"
+                    aria-label={`Delete conversation ${thread.title}`}
+                    title="Delete conversation"
+                    onClick={() => props.onDeleteThread(thread)}
+                    className={cn(ACTION_BUTTON, "hover:bg-destructive/10 hover:text-destructive")}
+                  >
+                    <Trash2Icon aria-hidden className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Restore conversation ${thread.title}`}
+                    title="Restore conversation"
+                    onClick={() => props.onRestoreThread(thread)}
+                    className={cn(ACTION_BUTTON, "hover:text-sidebar-foreground")}
+                  >
+                    <RotateCcwIcon aria-hidden className="size-3.5" />
+                  </button>
+                </span>
               </li>
             );
           })}

@@ -120,6 +120,39 @@ export function listUnarchivedDescendantArchiveRoots(
   return roots;
 }
 
+/**
+ * Nearest live spawned sub-agents that a parent settle should archive.
+ *
+ * Archived/deleted nodes are transparent, exactly as for archive: a still-live
+ * grandchild below one must not escape the family. Provider-native subagents
+ * are transparent too, but for a different reason — they are not independent
+ * conversations (they share their owner's session and render inside its
+ * transcript), and archiving one would drop that transcript out of the live
+ * shell stream the client reads.
+ */
+export function listSpawnedSubagentArchiveRoots(
+  readModel: OrchestrationReadModel,
+  parentThreadId: ThreadId,
+): ReadonlyArray<OrchestrationThread> {
+  const roots: OrchestrationThread[] = [];
+  const visited = new Set<ThreadId>([parentThreadId]);
+
+  const visitChildren = (threadId: ThreadId): void => {
+    for (const child of listThreadsByParentThreadId(readModel, threadId)) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      if (child.deletedAt === null && child.archivedAt === null && child.providerSubagent == null) {
+        roots.push(child);
+      } else {
+        visitChildren(child.id);
+      }
+    }
+  };
+
+  visitChildren(parentThreadId);
+  return roots;
+}
+
 export function listUnarchivedCardsOwningThread(
   readModel: OrchestrationReadModel,
   threadId: ThreadId,
