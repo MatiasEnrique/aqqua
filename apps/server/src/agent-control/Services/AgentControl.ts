@@ -115,6 +115,8 @@ export interface AgentControlShape {
     readonly title?: string;
     /** Create a fresh branch/worktree instead of sharing the orchestrator's checkout. */
     readonly worktree?: boolean;
+    /** Reuse the worktree attached to another sub-agent owned by this orchestrator. */
+    readonly worktreeFromThreadId?: ThreadId;
   }) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Compatibility path for legacy profile-based callers. */
@@ -124,6 +126,7 @@ export interface AgentControlShape {
     readonly task: string;
     readonly title?: string;
     readonly worktree?: boolean;
+    readonly worktreeFromThreadId?: ThreadId;
   }) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Start an unparented agent in the project or worktree containing `cwd`. */
@@ -133,6 +136,7 @@ export interface AgentControlShape {
     readonly task: string;
     readonly title?: string;
     readonly worktree?: boolean;
+    readonly worktreeFromThreadId?: ThreadId;
   }) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Compatibility path for legacy standalone profile-based callers. */
@@ -142,6 +146,7 @@ export interface AgentControlShape {
     readonly task: string;
     readonly title?: string;
     readonly worktree?: boolean;
+    readonly worktreeFromThreadId?: ThreadId;
   }) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Continue a sub-agent this parent owns, preserving its context. */

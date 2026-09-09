@@ -1,8 +1,10 @@
 import { assert, it } from "@effect/vitest";
 import {
+  AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthSessionId,
   EnvironmentAuthenticatedPrincipal,
+  ThreadId,
 } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -61,6 +63,45 @@ it.effect("rejects a standalone spawn session without orchestration operate scop
     );
 
     assert.equal(failure._tag, "EnvironmentScopeRequiredError");
+    assert.isFalse(spawnCalled);
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        Layer.succeed(AgentControl, agents),
+        Layer.succeed(EnvironmentAuthenticatedPrincipal, principal),
+      ),
+    ),
+  );
+});
+
+it.effect("rejects fresh and existing worktree selectors together", () => {
+  let spawnCalled = false;
+  const agents = {
+    spawnStandalone: () =>
+      Effect.sync(() => {
+        spawnCalled = true;
+        return null as never;
+      }),
+  } as unknown as AgentControl["Service"];
+  const principal = {
+    sessionId: AuthSessionId.make("operate-session"),
+    subject: "test",
+    method: "bearer-access-token" as const,
+    scopes: new Set([AuthOrchestrationOperateScope]),
+  };
+
+  return Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      handleStandaloneSpawn({
+        cwd: "/tmp/project",
+        task: "must not start",
+        worktree: true,
+        worktreeFromThreadId: ThreadId.make("implementation-thread"),
+      }),
+    );
+
+    assert.equal(failure._tag, "EnvironmentHttpBadRequestError");
+    assert.match(failure.message, /fresh or existing worktree/);
     assert.isFalse(spawnCalled);
   }).pipe(
     Effect.provide(

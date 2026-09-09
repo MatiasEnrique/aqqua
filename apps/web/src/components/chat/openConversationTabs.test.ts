@@ -164,22 +164,27 @@ describe("openNewSubAgentConversationTabs", () => {
     ).toEqual([key("parent"), key("child")]);
   });
 
-  it("opens three isolated-worktree sub-agents as one header family", () => {
+  it("keeps isolated and reused-worktree sub-agents in one header family", () => {
     const parent = thread("parent", { worktreePath: null });
-    const children = ["one", "two", "three"].map((id) =>
+    const children = [
+      ["one", "lane-one"],
+      ["two", "lane-one"],
+      ["three", "lane-three"],
+    ] as const;
+    const childThreads = children.map(([id, worktree]) =>
       thread(id, {
         parentThreadId: "parent",
-        worktreePath: `/repo/.aqqua/worktrees/${id}`,
+        worktreePath: `/repo/.aqqua/worktrees/${worktree}`,
       } as never),
     );
     const openKeys = openNewSubAgentConversationTabs({
       openKeys: [key("parent")],
       previousThreads: [parent],
-      threads: [parent, ...children],
+      threads: [parent, ...childThreads],
     });
     const tabs = buildConversationTabs({
       openKeys,
-      threads: [parent, ...children],
+      threads: [parent, ...childThreads],
       drafts: [],
       activeKey: key("parent"),
       ...allWorktrees,

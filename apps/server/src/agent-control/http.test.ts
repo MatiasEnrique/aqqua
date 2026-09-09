@@ -52,6 +52,14 @@ it.effect("routes canonical, bare, and legacy session spawn requests explicitly"
     yield* dispatchAgentSpawn({
       agents,
       parentThreadId,
+      body: {
+        task: "review",
+        worktreeFromThreadId: ThreadId.make("implementation-thread"),
+      },
+    });
+    yield* dispatchAgentSpawn({
+      agents,
+      parentThreadId,
       body: { task: "legacy", profile: "implementer" },
     });
 
@@ -80,6 +88,15 @@ it.effect("routes canonical, bare, and legacy session spawn requests explicitly"
           parentThreadId,
           task: "isolated",
           worktree: true,
+          selection: { model: null },
+        },
+      },
+      {
+        method: "spawn",
+        input: {
+          parentThreadId,
+          task: "review",
+          worktreeFromThreadId: ThreadId.make("implementation-thread"),
           selection: { model: null },
         },
       },
@@ -118,6 +135,41 @@ it.effect("rejects conflicting session selectors as a bad request before spawnin
     assert.equal(failure._tag, "AgentSpawnSelectorConflictError");
     assert.equal(agentFailureStatus(failure._tag), 400);
     assert.match(failure.message, /cannot be combined/);
+    assert.equal(spawnCalls, 0);
+  });
+});
+
+it.effect("rejects conflicting worktree selectors as a bad request before spawning", () => {
+  let spawnCalls = 0;
+  const agents = {
+    spawn: () =>
+      Effect.sync(() => {
+        spawnCalls += 1;
+        return handle;
+      }),
+    spawnProfile: () =>
+      Effect.sync(() => {
+        spawnCalls += 1;
+        return handle;
+      }),
+  } satisfies Pick<AgentControl["Service"], "spawn" | "spawnProfile">;
+
+  return Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      dispatchAgentSpawn({
+        agents,
+        parentThreadId,
+        body: {
+          task: "conflict",
+          worktree: true,
+          worktreeFromThreadId: ThreadId.make("implementation-thread"),
+        },
+      }),
+    );
+
+    assert.equal(failure._tag, "AgentSpawnWorktreeConflictError");
+    assert.equal(agentFailureStatus(failure._tag), 400);
+    assert.match(failure.message, /fresh or existing worktree/);
     assert.equal(spawnCalls, 0);
   });
 });

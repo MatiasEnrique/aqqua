@@ -11,6 +11,7 @@ import {
   AgentSpawnResponse,
   AgentStandaloneSpawnRequest,
 } from "./agentControl.ts";
+import { ThreadId } from "./baseSchemas.ts";
 
 const decodeAgentModelsResponse = Schema.decodeUnknownSync(AgentModelsResponse);
 const decodeAgentSpawnResponse = Schema.decodeUnknownSync(AgentSpawnResponse);
@@ -44,6 +45,14 @@ it("decodes explicit worktree isolation without changing the default", () => {
     worktree: true,
   });
   assert.deepEqual(decodeAgentSpawnRequest({ task: "shared" }), { task: "shared" });
+});
+
+it("decodes a thread id that selects an existing worktree", () => {
+  assert.deepEqual(
+    decodeAgentSpawnRequest({ task: "review", worktreeFromThreadId: "implementation-thread" }),
+    { task: "review", worktreeFromThreadId: ThreadId.make("implementation-thread") },
+  );
+  assert.throws(() => decodeAgentSpawnRequest({ task: "review", worktreeFromThreadId: "   " }));
 });
 
 it("still decodes a legacy profile spawn from an un-migrated client", () => {

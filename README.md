@@ -28,7 +28,7 @@ aqqua agent models
 aqqua agent spawn --instance codex --model gpt-5.6-sol --task "Fix the failing test"
 ```
 
-`aqqua agent models` lists every advertised provider-instance/model row, including unavailable rows and the reason they cannot currently spawn. `spawn` names an available row exactly. Add `--reasoning high` to pick a reasoning level, `--worktree` to create a fresh temporary branch and worktree for the agent, or drop `--instance`/`--model` to use the project's default. An isolated spawn also starts the project's configured worktree-create action.
+`aqqua agent models` lists every advertised provider-instance/model row, including unavailable rows and the reason they cannot currently spawn. `spawn` names an available row exactly. Add `--reasoning high` to pick a reasoning level, `--worktree` to create a fresh temporary branch and worktree, or `--worktree-from <threadId>` to reuse an earlier agent's worktree. Drop `--instance` and `--model` to use the project's default. A fresh isolated spawn also starts the project's configured worktree-create action.
 
 The new thread appears in the desktop app. From a project directory it uses the project root; from an existing aqqua worktree it uses that worktree and branch.
 

@@ -50,7 +50,13 @@ flag, it shares the checkout of the orchestrator that spawned it. Worktree isola
 break the orchestration family: the new conversation appears under its own worktree in the sidebar
 and remains behind the orchestrator's numbered sub-agent control in the header. Aqqua also runs the
 project action marked **Run on worktree create** in the new checkout, with the same environment it
-uses for worktrees created from the app.
+uses for worktrees created from the app. The action runs independently of the agent's first turn, so
+the agent may begin before the action finishes.
+
+Use `--worktree-from <threadId>` to put a later agent in the worktree attached to an earlier sibling.
+For example, an implementation agent can create the worktree with `--worktree`, then a review agent
+can reuse it by naming the implementation thread. Aqqua verifies that the thread belongs to the same
+orchestrator and project. Reusing a worktree does not rerun the worktree-create action.
 
 ### Defaults and fallback
 

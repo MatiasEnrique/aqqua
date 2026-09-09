@@ -5,6 +5,7 @@ import {
   EnvironmentHttpApi,
   type AgentStandaloneSpawnRequest,
   type ModelSelection,
+  type ThreadId,
 } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,6 +34,7 @@ export const standaloneSpawnPayload = (input: {
   readonly task: string;
   readonly title?: string;
   readonly worktree?: boolean;
+  readonly worktreeFromThreadId?: ThreadId;
 }): AgentStandaloneSpawnRequest => ({
   cwd: input.cwd,
   task: input.task,
@@ -41,6 +43,9 @@ export const standaloneSpawnPayload = (input: {
   ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
   ...(input.title === undefined ? {} : { title: input.title }),
   ...(input.worktree === true ? { worktree: true } : {}),
+  ...(input.worktreeFromThreadId === undefined
+    ? {}
+    : { worktreeFromThreadId: input.worktreeFromThreadId }),
 });
 
 /**
@@ -179,6 +184,7 @@ export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(functi
   readonly task: string;
   readonly title?: string;
   readonly worktree?: boolean;
+  readonly worktreeFromThreadId?: ThreadId;
 }) {
   return yield* withStandaloneEnvironmentClient({
     flags: input.flags,

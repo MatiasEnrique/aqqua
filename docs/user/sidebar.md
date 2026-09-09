@@ -36,9 +36,11 @@ Mobile uses its separate native thread list and device-local preferences.
   worktree creates a new conversation there, even when it has snoozed or settled history.
 - Conversations show their branch and recent activity below the title. Hover or activate a parent
   conversation to open same-worktree subthreads in a popover. A sub-agent started with
-  `aqqua agent spawn --worktree` appears as a conversation under its own worktree instead. On narrow
-  screens, tap a parent to open the picker with an **Open parent conversation** action. Snoozed conversations are labeled;
-  recent settled conversations appear in the **Settled** shelf.
+  `aqqua agent spawn --worktree` appears as a conversation under its own worktree instead. Later
+  sub-agents started with `--worktree-from <threadId>` appear in that same worktree. Their header tabs
+  stay in the orchestrator's family. On narrow screens, tap a parent to open the picker with an
+  **Open parent conversation** action. Snoozed conversations are labeled; recent settled conversations
+  appear in the **Settled** shelf.
 - Hover or focus a conversation card to reveal its **Settle conversation** button. The control is
   always visible on touch devices. Settled cards expose **Un-settle conversation** in the same place.
 - Delete actions in the **Settled** shelf permanently delete the selected conversations without a

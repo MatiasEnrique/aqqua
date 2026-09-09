@@ -39,13 +39,14 @@ describe("sidebar thread families", () => {
     const parent = thread("parent");
     const sharedChild = thread("shared", "parent");
     const isolatedChild = thread("isolated", "parent", "local", "isolated");
+    const isolatedReviewer = thread("review", "parent", "local", "isolated");
     const isolatedGrandchild = thread("grandchild", "isolated", "local", "isolated");
     const family = buildSidebarThreadFamilies(
-      [parent, sharedChild, isolatedChild, isolatedGrandchild],
+      [parent, sharedChild, isolatedChild, isolatedReviewer, isolatedGrandchild],
       { familyScopeKey: (member) => member.worktree },
     );
 
-    expect(family.roots).toEqual([parent, isolatedChild]);
+    expect(family.roots).toEqual([parent, isolatedChild, isolatedReviewer]);
     expect(family.descendantsByRoot.get(sidebarThreadKey(parent))).toEqual([sharedChild]);
     expect(family.descendantsByRoot.get(sidebarThreadKey(isolatedChild))).toEqual([
       isolatedGrandchild,

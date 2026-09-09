@@ -5,6 +5,7 @@ import {
   AgentModelsResponse,
   ProviderDriverKind,
   ProviderInstanceId,
+  ThreadId,
 } from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -25,6 +26,7 @@ import {
   resolveText,
   resolveSpawnTransport,
   resolveSpawnSelector,
+  resolveSpawnWorktree,
   watchTransitions,
 } from "./agent.ts";
 
@@ -182,6 +184,22 @@ it.effect("rejects half model selections and profile conflicts", () =>
         model: undefined,
         reasoning: "high",
       }),
+    );
+    assert.match(conflict.message, /cannot be combined/);
+  }),
+);
+
+it.effect("selects a fresh or existing worktree and rejects both together", () =>
+  Effect.gen(function* () {
+    assert.deepEqual(yield* resolveSpawnWorktree({ fresh: true, fromThreadId: undefined }), {
+      worktree: true,
+    });
+    assert.deepEqual(
+      yield* resolveSpawnWorktree({ fresh: false, fromThreadId: "implementation-thread" }),
+      { worktreeFromThreadId: ThreadId.make("implementation-thread") },
+    );
+    const conflict = yield* Effect.flip(
+      resolveSpawnWorktree({ fresh: true, fromThreadId: "implementation-thread" }),
     );
     assert.match(conflict.message, /cannot be combined/);
   }),
