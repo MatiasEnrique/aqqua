@@ -36,7 +36,10 @@ import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import { AgentControl } from "./Services/AgentControl.ts";
 import {
   AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
+  AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+  agentSpawnWorkspaceSelection,
   hasAgentSpawnSelectorConflict,
+  hasAgentSpawnWorktreeConflict,
 } from "./SpawnRequest.ts";
 
 export const AGENT_API_PREFIX = "/api/agents";
@@ -79,10 +82,16 @@ const authenticate = Effect.fn("agentControl.authenticate")(function* () {
 
 const INVALID_PROFILE_NAME_TAG = "InvalidAgentProfileNameError";
 const CONFLICTING_SELECTORS_TAG = "AgentSpawnSelectorConflictError";
+const CONFLICTING_WORKTREES_TAG = "AgentSpawnWorktreeConflictError";
 
 export const agentFailureStatus = (tag: string): number => {
   if (tag === "AgentNotOwnedError") return 403;
-  if (tag === INVALID_PROFILE_NAME_TAG || tag === CONFLICTING_SELECTORS_TAG) return 400;
+  if (
+    tag === INVALID_PROFILE_NAME_TAG ||
+    tag === CONFLICTING_SELECTORS_TAG ||
+    tag === CONFLICTING_WORKTREES_TAG
+  )
+    return 400;
   if (tag === "AgentModelInstanceUnknownError" || tag === "AgentModelUnknownError") return 404;
   return 409;
 };
@@ -124,20 +133,29 @@ const selectorConflict = {
   message: AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
 } as const;
 
+const worktreeConflict = {
+  _tag: CONFLICTING_WORKTREES_TAG,
+  message: AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+} as const;
+
 export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(function* (input: {
   readonly agents: Pick<AgentControl["Service"], "spawn" | "spawnProfile">;
   readonly parentThreadId: ThreadId;
   readonly body: AgentSpawnRequestType;
 }) {
   const { agents, body, parentThreadId } = input;
-  const shared = {
-    parentThreadId,
-    task: body.task,
-    ...(body.title === undefined ? {} : { title: body.title }),
-  };
   if (hasAgentSpawnSelectorConflict(body)) {
     return yield* Effect.fail(selectorConflict);
   }
+  if (hasAgentSpawnWorktreeConflict(body)) {
+    return yield* Effect.fail(worktreeConflict);
+  }
+  const shared = {
+    parentThreadId,
+    task: body.task,
+    ...agentSpawnWorkspaceSelection(body),
+    ...(body.title === undefined ? {} : { title: body.title }),
+  };
   if (body.profile !== undefined) {
     const profile = yield* decodeProfileName(body.profile);
     return yield* agents.spawnProfile({ ...shared, profile });

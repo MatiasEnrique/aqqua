@@ -21,7 +21,10 @@ import type { AgentControlError } from "./Errors.ts";
 import { AgentControl } from "./Services/AgentControl.ts";
 import {
   AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
+  AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+  agentSpawnWorkspaceSelection,
   hasAgentSpawnSelectorConflict,
+  hasAgentSpawnWorktreeConflict,
 } from "./SpawnRequest.ts";
 
 const decodeAgentProfileName = Schema.decodeUnknownEffect(AgentProfileName);
@@ -68,9 +71,15 @@ export const handleStandaloneSpawn = Effect.fn("environment.agents.handleStandal
         message: AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
       });
     }
+    if (hasAgentSpawnWorktreeConflict(payload)) {
+      return yield* new EnvironmentHttpBadRequestError({
+        message: AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+      });
+    }
     const shared = {
       cwd: payload.cwd,
       task: payload.task,
+      ...agentSpawnWorkspaceSelection(payload),
       ...(payload.title === undefined ? {} : { title: payload.title }),
     };
     if (payload.profile !== undefined) {

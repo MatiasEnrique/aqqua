@@ -1,6 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AuthOrchestrationOperateScope, AuthSessionId, ProviderInstanceId } from "@aqqua/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  AuthSessionId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@aqqua/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -49,6 +54,39 @@ it("forwards legacy standalone profiles through the compatibility field", () => 
       profile: "terminalImplementer",
       task: "Run interactively",
       title: "Terminal lane",
+    },
+  );
+});
+
+it("forwards isolated worktree intent only when the spawn flag is set", () => {
+  assert.deepEqual(
+    standaloneSpawnPayload({
+      cwd: "/tmp/project",
+      profile: "implementer",
+      task: "Run in isolation",
+      worktree: true,
+    }),
+    {
+      cwd: "/tmp/project",
+      profile: "implementer",
+      task: "Run in isolation",
+      worktree: true,
+    },
+  );
+});
+
+it("forwards the thread that supplies an existing worktree", () => {
+  const implementationThreadId = ThreadId.make("implementation-thread");
+  assert.deepEqual(
+    standaloneSpawnPayload({
+      cwd: "/tmp/project",
+      task: "Review the implementation",
+      worktreeFromThreadId: implementationThreadId,
+    }),
+    {
+      cwd: "/tmp/project",
+      task: "Review the implementation",
+      worktreeFromThreadId: implementationThreadId,
     },
   );
 });

@@ -100,6 +100,12 @@ export interface AgentModelSummary {
   readonly isProjectDefault: boolean;
 }
 
+/** Pick the caller's checkout, a fresh worktree, or an earlier agent's worktree. */
+export type AgentSpawnWorkspaceSelection =
+  | { readonly worktree?: false; readonly worktreeFromThreadId?: never }
+  | { readonly worktree: true; readonly worktreeFromThreadId?: never }
+  | { readonly worktree?: false; readonly worktreeFromThreadId: ThreadId };
+
 export interface AgentControlShape {
   /**
    * Create a sub-agent thread under `parentThreadId` and start its first turn.
@@ -108,36 +114,44 @@ export interface AgentControlShape {
    * caller is not blocked while it works, and the sub-agent is already visible
    * and interactive in the sidebar.
    */
-  readonly spawn: (input: {
-    readonly parentThreadId: ThreadId;
-    readonly selection: AgentModelSelection;
-    readonly task: string;
-    readonly title?: string;
-  }) => Effect.Effect<AgentHandle, AgentControlError>;
+  readonly spawn: (
+    input: {
+      readonly parentThreadId: ThreadId;
+      readonly selection: AgentModelSelection;
+      readonly task: string;
+      readonly title?: string;
+    } & AgentSpawnWorkspaceSelection,
+  ) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Compatibility path for legacy profile-based callers. */
-  readonly spawnProfile: (input: {
-    readonly parentThreadId: ThreadId;
-    readonly profile: AgentProfileName;
-    readonly task: string;
-    readonly title?: string;
-  }) => Effect.Effect<AgentHandle, AgentControlError>;
+  readonly spawnProfile: (
+    input: {
+      readonly parentThreadId: ThreadId;
+      readonly profile: AgentProfileName;
+      readonly task: string;
+      readonly title?: string;
+    } & AgentSpawnWorkspaceSelection,
+  ) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Start an unparented agent in the project or worktree containing `cwd`. */
-  readonly spawnStandalone: (input: {
-    readonly cwd: string;
-    readonly selection: AgentModelSelection;
-    readonly task: string;
-    readonly title?: string;
-  }) => Effect.Effect<AgentHandle, AgentControlError>;
+  readonly spawnStandalone: (
+    input: {
+      readonly cwd: string;
+      readonly selection: AgentModelSelection;
+      readonly task: string;
+      readonly title?: string;
+    } & AgentSpawnWorkspaceSelection,
+  ) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Compatibility path for legacy standalone profile-based callers. */
-  readonly spawnStandaloneProfile: (input: {
-    readonly cwd: string;
-    readonly profile: AgentProfileName;
-    readonly task: string;
-    readonly title?: string;
-  }) => Effect.Effect<AgentHandle, AgentControlError>;
+  readonly spawnStandaloneProfile: (
+    input: {
+      readonly cwd: string;
+      readonly profile: AgentProfileName;
+      readonly task: string;
+      readonly title?: string;
+    } & AgentSpawnWorkspaceSelection,
+  ) => Effect.Effect<AgentHandle, AgentControlError>;
 
   /** Continue a sub-agent this parent owns, preserving its context. */
   readonly send: (input: {

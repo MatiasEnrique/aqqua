@@ -393,6 +393,8 @@ const AgentControlLayerLive = AgentControlLive.pipe(
   // re-exported; delegation needs it directly to enumerate provider instances
   // while resolving an agent profile.
   Layer.provide(ProviderAdapterRegistryLive),
+  Layer.provide(GitWorkflowLayerLive),
+  Layer.provideMerge(ProjectSetupScriptRunner.layer),
   Layer.provideMerge(ProviderRuntimeLayerLive),
 );
 

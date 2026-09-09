@@ -55,6 +55,7 @@ import {
   AgentSpawnRequest,
   AgentSpawnResponse,
   ProviderInstanceId,
+  ThreadId,
 } from "@aqqua/contracts";
 import { findReasoningDescriptor } from "../agent-control/ModelCatalog.ts";
 
@@ -129,6 +130,7 @@ const decodeAgentInterruptResponse = Schema.decodeUnknownEffect(AgentInterruptRe
 const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
 const decodeAgentProfilesResponse = Schema.decodeUnknownEffect(AgentProfilesResponse);
 const decodeAgentModelsResponse = Schema.decodeUnknownEffect(AgentModelsResponse);
+const decodeThreadId = Schema.decodeUnknownEffect(ThreadId);
 
 const invalidServerResponse = (status: number, path: string) =>
   new AgentCliError({
@@ -319,6 +321,27 @@ export const resolveSpawnSelector = Effect.fn("agentCli.resolveSpawnSelector")(f
   } as const;
 });
 
+export const resolveSpawnWorktree = Effect.fn("agentCli.resolveSpawnWorktree")(function* (input: {
+  readonly fresh: boolean;
+  readonly fromThreadId: string | undefined;
+}) {
+  if (input.fresh && input.fromThreadId !== undefined) {
+    return yield* new AgentCliError({
+      detail: "--worktree cannot be combined with --worktree-from.",
+    });
+  }
+  if (input.fresh) return { worktree: true } as const;
+  if (input.fromThreadId !== undefined) {
+    const worktreeFromThreadId = yield* decodeThreadId(input.fromThreadId).pipe(
+      Effect.mapError(
+        () => new AgentCliError({ detail: "--worktree-from must be a non-empty thread ID." }),
+      ),
+    );
+    return { worktreeFromThreadId } as const;
+  }
+  return {};
+});
+
 const spawnCommand = Command.make("spawn", {
   ...projectLocationFlags,
   json: jsonFlag,
@@ -350,6 +373,13 @@ const spawnCommand = Command.make("spawn", {
     Flag.withDescription("Optional agent thread title."),
     Flag.optional,
   ),
+  worktree: Flag.boolean("worktree").pipe(
+    Flag.withDescription("Run the agent in a fresh branch and worktree."),
+  ),
+  worktreeFrom: Flag.string("worktree-from").pipe(
+    Flag.withDescription("Reuse the worktree attached to an earlier agent thread."),
+    Flag.optional,
+  ),
 }).pipe(
   Command.withDescription("Start an agent on a task and return immediately."),
   Command.withHandler((flags) =>
@@ -366,6 +396,10 @@ const spawnCommand = Command.make("spawn", {
         model: Option.getOrUndefined(flags.model),
         reasoning: Option.getOrUndefined(flags.reasoning),
       });
+      const worktree = yield* resolveSpawnWorktree({
+        fresh: flags.worktree,
+        fromThreadId: Option.getOrUndefined(flags.worktreeFrom),
+      });
       const directTransport = resolveSpawnTransport(process.env);
       const transport =
         directTransport === "standalone"
@@ -381,12 +415,14 @@ const spawnCommand = Command.make("spawn", {
         transport === "session"
           ? yield* (yield* agentApi()).spawn({
               ...selector,
+              ...worktree,
               task,
               ...(title === undefined ? {} : { title }),
             })
           : yield* spawnStandaloneAgent({
               flags,
               ...selector,
+              ...worktree,
               task,
               ...(title === undefined ? {} : { title }),
             });

@@ -18,6 +18,7 @@ import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
+import type { AgentSpawnWorkspaceSelection } from "../agent-control/Services/AgentControl.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { AgentCliError } from "./agentCliError.ts";
 import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
@@ -25,20 +26,26 @@ import { withEnvironmentCliSessionToken } from "./environmentAccess.ts";
 
 const standalonePresenceError = (detail: string) => new AgentCliError({ detail });
 
-export const standaloneSpawnPayload = (input: {
-  readonly cwd: string;
-  readonly profile?: string;
-  readonly modelSelection?: ModelSelection;
-  readonly reasoning?: string;
-  readonly task: string;
-  readonly title?: string;
-}): AgentStandaloneSpawnRequest => ({
+export const standaloneSpawnPayload = (
+  input: {
+    readonly cwd: string;
+    readonly profile?: string;
+    readonly modelSelection?: ModelSelection;
+    readonly reasoning?: string;
+    readonly task: string;
+    readonly title?: string;
+  } & AgentSpawnWorkspaceSelection,
+): AgentStandaloneSpawnRequest => ({
   cwd: input.cwd,
   task: input.task,
   ...(input.profile === undefined ? {} : { profile: input.profile }),
   ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
   ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
   ...(input.title === undefined ? {} : { title: input.title }),
+  ...(input.worktree === true ? { worktree: true } : {}),
+  ...(input.worktreeFromThreadId === undefined
+    ? {}
+    : { worktreeFromThreadId: input.worktreeFromThreadId }),
 });
 
 /**
@@ -169,14 +176,16 @@ export const listStandaloneAgentModels = Effect.fn("agentCli.listStandaloneModel
   },
 );
 
-export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(function* (input: {
-  readonly flags: CliAuthLocationFlags;
-  readonly profile?: string;
-  readonly modelSelection?: ModelSelection;
-  readonly reasoning?: string;
-  readonly task: string;
-  readonly title?: string;
-}) {
+export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(function* (
+  input: {
+    readonly flags: CliAuthLocationFlags;
+    readonly profile?: string;
+    readonly modelSelection?: ModelSelection;
+    readonly reasoning?: string;
+    readonly task: string;
+    readonly title?: string;
+  } & AgentSpawnWorkspaceSelection,
+) {
   return yield* withStandaloneEnvironmentClient({
     flags: input.flags,
     scopes: [AuthOrchestrationOperateScope],

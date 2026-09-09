@@ -4,6 +4,7 @@ import {
   AgentProfileName,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  GitObjectId,
   MessageId,
   type ModelSelection,
   type OrchestrationSessionStatus,
@@ -14,6 +15,8 @@ import {
   type TerminalOpenInput,
   ThreadId,
   TurnId,
+  type VcsCreateWorktreeInput,
+  type VcsRemoveWorktreeInput,
 } from "@aqqua/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -24,9 +27,11 @@ import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
+import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "../../orchestration/runtimeLayer.ts";
@@ -41,6 +46,8 @@ const implementer = AgentProfileName.make("implementer");
 const terminalProfile = AgentProfileName.make("terminalImplementer");
 const codexInstanceId = ProviderInstanceId.make("codex");
 const codexAltInstanceId = ProviderInstanceId.make("codex-alt");
+const sourceHeadCommit = GitObjectId.make("a".repeat(40));
+const failingTerminalTask = "Fail after creating the worktree";
 
 let providerRefreshCalls = 0;
 const catalogProviders: ReadonlyArray<ServerProvider> = [
@@ -135,8 +142,11 @@ const openedTerminals: Array<{
 }> = [];
 
 const terminalStub = Layer.succeed(TerminalManager.TerminalManager, {
-  open: (input: TerminalOpenInput) =>
-    Effect.sync(() => {
+  open: (input: TerminalOpenInput) => {
+    if (input.args?.[0] === failingTerminalTask) {
+      return Effect.fail({ message: "terminal refused to start" });
+    }
+    return Effect.sync(() => {
       openedTerminals.push({
         threadId: input.threadId,
         program: input.program,
@@ -156,8 +166,73 @@ const terminalStub = Layer.succeed(TerminalManager.TerminalManager, {
         label: input.program ?? "shell",
         updatedAt: "2026-04-06T00:00:00.000Z",
       };
-    }),
+    });
+  },
 } as unknown as typeof TerminalManager.TerminalManager.Service);
+
+const createdWorktrees: VcsCreateWorktreeInput[] = [];
+const listedHistoryCwds: string[] = [];
+const removedWorktrees: VcsRemoveWorktreeInput[] = [];
+type DeleteLocalBranchInput = Parameters<GitWorkflowService["Service"]["deleteLocalBranch"]>[0];
+const deletedBranches: DeleteLocalBranchInput[] = [];
+const gitWorkflowStub = Layer.succeed(GitWorkflowService, {
+  listHistory: (input: { readonly cwd: string }) =>
+    Effect.sync(() => {
+      listedHistoryCwds.push(input.cwd);
+      return {
+        commits: [
+          {
+            id: sourceHeadCommit,
+            parentIds: [],
+            subject: "Source commit",
+            authorName: "Aqqua",
+            authorEmail: "aqqua@example.com",
+            authoredAt: "2026-04-06T00:00:00.000Z",
+            committedAt: "2026-04-06T00:00:00.000Z",
+            isHead: true,
+            refs: [],
+          },
+        ],
+        isRepo: true,
+        nextCursor: null,
+        referencesTruncated: false,
+      };
+    }),
+  createWorktree: (input: VcsCreateWorktreeInput) =>
+    Effect.sync(() => {
+      createdWorktrees.push(input);
+      const refName = input.newRefName ?? input.refName;
+      return {
+        worktree: {
+          refName,
+          path: `/tmp/aqqua-agent-control/generated/${refName.replaceAll("/", "-")}`,
+        },
+      };
+    }),
+  removeWorktree: (input: VcsRemoveWorktreeInput) =>
+    Effect.sync(() => {
+      removedWorktrees.push(input);
+    }),
+  deleteLocalBranch: (input: DeleteLocalBranchInput) =>
+    Effect.sync(() => {
+      deletedBranches.push(input);
+    }),
+} as unknown as typeof GitWorkflowService.Service);
+
+const worktreeSetupInputs: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput[] = [];
+const setupScriptRunnerStub = Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
+  runForThread: (input: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput) =>
+    Effect.sync(() => {
+      worktreeSetupInputs.push(input);
+      return {
+        status: "started" as const,
+        scriptId: "setup",
+        scriptName: "Setup Worktree",
+        terminalId: "setup-setup",
+        cwd: input.worktreePath,
+      };
+    }),
+});
 
 // One engine and one projection pipeline, composed the way the server composes
 // them. Building `OrchestrationEngineLive` twice would give the test and
@@ -171,6 +246,8 @@ const agentControlLayer = it.layer(
         registryStub,
         providerRegistryStub,
         terminalStub,
+        gitWorkflowStub,
+        setupScriptRunnerStub,
         serverSettingsLayerTest({
           agentProfiles: {
             [terminalProfile]: {
@@ -366,6 +443,162 @@ agentControlLayer("AgentControl", (it) => {
     }),
   );
 
+  it.effect("spawns three sibling sub-agents in distinct worktrees when requested", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, projectId, workspaceRoot, worktreePath } = yield* makeOrchestrator();
+      const worktreeCallStart = createdWorktrees.length;
+      const setupCallStart = worktreeSetupInputs.length;
+
+      const handles = [];
+      for (const task of ["Implement lane one", "Implement lane two", "Implement lane three"]) {
+        handles.push(
+          yield* agents.spawn({
+            parentThreadId,
+            selection: { model: null },
+            task,
+            worktree: true,
+          }),
+        );
+      }
+
+      const children = yield* Effect.forEach(handles, (handle) => readThread(handle.threadId));
+      assert.deepEqual(
+        children.map((child) => child.parentThreadId),
+        [parentThreadId, parentThreadId, parentThreadId],
+      );
+      assert.deepEqual(
+        children.map((child) => child.projectId),
+        [projectId, projectId, projectId],
+      );
+      assert.equal(new Set(children.map((child) => child.branch)).size, 3);
+      assert.equal(new Set(children.map((child) => child.worktreePath)).size, 3);
+      for (const child of children) {
+        assert.match(child.branch ?? "", /^aqqua\/[0-9a-f]{8}$/);
+        assert.notEqual(child.worktreePath, worktreePath);
+        assert.ok(child.activities.some((activity) => activity.kind === "setup-script.requested"));
+        assert.ok(child.activities.some((activity) => activity.kind === "setup-script.started"));
+      }
+
+      const calls = createdWorktrees.slice(worktreeCallStart);
+      assert.equal(calls.length, 3);
+      for (const call of calls) {
+        assert.equal(call.cwd, workspaceRoot);
+        assert.equal(call.refName, sourceHeadCommit);
+        assert.equal(call.baseRefName, "feat/delegation");
+        assert.equal(call.path, null);
+      }
+      assert.deepEqual(
+        worktreeSetupInputs
+          .slice(setupCallStart)
+          .map((input) => input.worktreePath)
+          .toSorted(),
+        children
+          .map((child) => child.worktreePath)
+          .filter((path): path is string => path !== null)
+          .toSorted(),
+      );
+      for (const input of worktreeSetupInputs.slice(setupCallStart)) {
+        assert.equal(input.projectId, projectId);
+        assert.equal(input.projectCwd, workspaceRoot);
+        // No explicit id means the runner resolves the action marked
+        // `runOnWorktreeCreate`, matching a normal Aqqua worktree creation.
+        assert.equal(input.scriptId, undefined);
+      }
+    }),
+  );
+
+  it.effect("reuses one isolated worktree for a later sibling agent", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const worktreeCallStart = createdWorktrees.length;
+      const setupCallStart = worktreeSetupInputs.length;
+
+      const implementation = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Implement the change",
+        worktree: true,
+      });
+      const review = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Review the implementation",
+        worktreeFromThreadId: implementation.threadId,
+      });
+
+      const [implementationThread, reviewThread] = yield* Effect.all([
+        readThread(implementation.threadId),
+        readThread(review.threadId),
+      ]);
+      assert.equal(reviewThread.branch, implementationThread.branch);
+      assert.equal(reviewThread.worktreePath, implementationThread.worktreePath);
+      assert.equal(createdWorktrees.length - worktreeCallStart, 1);
+      assert.equal(worktreeSetupInputs.length - setupCallStart, 1);
+    }),
+  );
+
+  it.effect("rejects another orchestrator's worktree", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId } = yield* makeOrchestrator();
+      const other = yield* makeOrchestrator();
+      const isolated = yield* agents.spawn({
+        parentThreadId: other.parentThreadId,
+        selection: { model: null },
+        task: "Work for another orchestrator",
+        worktree: true,
+      });
+
+      const failure = yield* Effect.flip(
+        agents.spawn({
+          parentThreadId,
+          selection: { model: null },
+          task: "Try to reuse it",
+          worktreeFromThreadId: isolated.threadId,
+        }),
+      );
+      assert.equal(failure._tag, "AgentWorktreeUnavailableError");
+    }),
+  );
+
+  it.effect("removes a fresh worktree and guarded branch when agent launch fails", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, workspaceRoot, worktreePath } = yield* makeOrchestrator();
+      const createStart = createdWorktrees.length;
+      const historyStart = listedHistoryCwds.length;
+      const removeStart = removedWorktrees.length;
+      const deleteStart = deletedBranches.length;
+
+      const failure = yield* Effect.flip(
+        agents.spawnProfile({
+          parentThreadId,
+          profile: terminalProfile,
+          task: failingTerminalTask,
+          worktree: true,
+        }),
+      );
+
+      assert.equal(failure._tag, "AgentLaunchFailedError");
+      assert.deepEqual(listedHistoryCwds.slice(historyStart), [worktreePath]);
+      const created = createdWorktrees[createStart];
+      assert.ok(created?.newRefName);
+      const generatedPath = `/tmp/aqqua-agent-control/generated/${created.newRefName.replaceAll("/", "-")}`;
+      assert.deepEqual(removedWorktrees.slice(removeStart), [
+        { cwd: workspaceRoot, path: generatedPath, force: true },
+      ]);
+      assert.deepEqual(deletedBranches.slice(deleteStart), [
+        {
+          cwd: workspaceRoot,
+          refName: created.newRefName,
+          expectedHeadCommit: sourceHeadCommit,
+        },
+      ]);
+    }),
+  );
+
   it.effect(
     "spawns an exact catalog model with semantic reasoning translated to native options",
     () =>
@@ -519,6 +752,77 @@ agentControlLayer("AgentControl", (it) => {
       assert.equal(thread.projectId, projectId);
       assert.equal(thread.branch, "feat/delegation");
       assert.equal(thread.worktreePath, worktreePath);
+    }),
+  );
+
+  it.effect("reuses a worktree created by an earlier standalone agent", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { workspaceRoot } = yield* makeOrchestrator();
+      const createStart = createdWorktrees.length;
+      const setupStart = worktreeSetupInputs.length;
+
+      const implementation = yield* agents.spawnStandalone({
+        cwd: workspaceRoot,
+        selection: { model: null },
+        task: "Implement from the CLI",
+        worktree: true,
+      });
+      const review = yield* agents.spawnStandalone({
+        cwd: workspaceRoot,
+        selection: { model: null },
+        task: "Review from the CLI",
+        worktreeFromThreadId: implementation.threadId,
+      });
+
+      const [implementationThread, reviewThread] = yield* Effect.all([
+        readThread(implementation.threadId),
+        readThread(review.threadId),
+      ]);
+      assert.equal(reviewThread.branch, implementationThread.branch);
+      assert.equal(reviewThread.worktreePath, implementationThread.worktreePath);
+      assert.equal(createdWorktrees.length - createStart, 1);
+      assert.equal(worktreeSetupInputs.length - setupStart, 1);
+    }),
+  );
+
+  it.effect("rejects an ordinary root thread as a standalone worktree source", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, worktreePath } = yield* makeOrchestrator();
+
+      const failure = yield* Effect.flip(
+        agents.spawnStandalone({
+          cwd: worktreePath,
+          selection: { model: null },
+          task: "Do not enter the root conversation's worktree",
+          worktreeFromThreadId: parentThreadId,
+        }),
+      );
+      assert.equal(failure._tag, "AgentWorktreeUnavailableError");
+    }),
+  );
+
+  it.effect("rejects an orchestrator-owned child as a standalone worktree source", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, workspaceRoot } = yield* makeOrchestrator();
+      const child = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Implement for the orchestrator",
+        worktree: true,
+      });
+
+      const failure = yield* Effect.flip(
+        agents.spawnStandalone({
+          cwd: workspaceRoot,
+          selection: { model: null },
+          task: "Do not enter another orchestrator's worktree",
+          worktreeFromThreadId: child.threadId,
+        }),
+      );
+      assert.equal(failure._tag, "AgentWorktreeUnavailableError");
     }),
   );
 

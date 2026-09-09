@@ -156,6 +156,17 @@ export class AgentWorkspaceNotFoundError extends Schema.TaggedErrorClass<AgentWo
   }
 }
 
+export class AgentWorktreeUnavailableError extends Schema.TaggedErrorClass<AgentWorktreeUnavailableError>()(
+  "AgentWorktreeUnavailableError",
+  {
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return `Thread '${this.threadId}' cannot supply a reusable worktree. It must be an active agent thread in this project with its own worktree.`;
+  }
+}
+
 export class AgentNotOwnedError extends Schema.TaggedErrorClass<AgentNotOwnedError>()(
   "AgentNotOwnedError",
   {
@@ -241,6 +252,7 @@ export type AgentControlError =
   | AgentModelCatalogError
   | AgentParentNotFoundError
   | AgentWorkspaceNotFoundError
+  | AgentWorktreeUnavailableError
   | AgentNotOwnedError
   | AgentRecursionDeniedError
   | AgentConcurrencyLimitError

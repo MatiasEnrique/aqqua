@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderModel } from "./server.ts";
@@ -24,6 +24,10 @@ export type AgentRunStatus = typeof AgentRunStatus.Type;
 export const AgentSpawnRequest = Schema.Struct({
   task: Schema.String,
   title: Schema.optional(Schema.String),
+  /** Create a fresh branch/worktree for this agent instead of sharing the caller's checkout. */
+  worktree: Schema.optional(Schema.Boolean),
+  /** Reuse the checkout attached to an earlier agent thread. */
+  worktreeFromThreadId: Schema.optional(ThreadId),
   modelSelection: Schema.optional(ModelSelection),
   /** Semantic reasoning level; validated against the selected model's choices. */
   reasoning: Schema.optional(TrimmedNonEmptyString),

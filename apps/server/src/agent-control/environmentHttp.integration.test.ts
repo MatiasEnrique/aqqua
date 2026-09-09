@@ -208,6 +208,7 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
         options: [{ id: "serviceTier", value: "priority" }],
       },
       reasoning: "high",
+      worktree: true,
     };
 
     return withAgentHttpApp(
@@ -230,6 +231,7 @@ it.layer(NodeServices.layer)("standalone agent HTTP boundary", (it) => {
         assert.deepEqual(received, {
           cwd: payload.cwd,
           task: payload.task,
+          worktree: true,
           selection: { model: payload.modelSelection, reasoning: "high" },
         });
       }),

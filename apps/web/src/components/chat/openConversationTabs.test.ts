@@ -164,6 +164,43 @@ describe("openNewSubAgentConversationTabs", () => {
     ).toEqual([key("parent"), key("child")]);
   });
 
+  it("keeps isolated and reused-worktree sub-agents in one header family", () => {
+    const parent = thread("parent", { worktreePath: null });
+    const children = [
+      ["one", "lane-one"],
+      ["two", "lane-one"],
+      ["three", "lane-three"],
+    ] as const;
+    const childThreads = children.map(([id, worktree]) =>
+      thread(id, {
+        parentThreadId: "parent",
+        worktreePath: `/repo/.aqqua/worktrees/${worktree}`,
+      } as never),
+    );
+    const openKeys = openNewSubAgentConversationTabs({
+      openKeys: [key("parent")],
+      previousThreads: [parent],
+      threads: [parent, ...childThreads],
+    });
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [parent, ...childThreads],
+      drafts: [],
+      activeKey: key("parent"),
+      ...allWorktrees,
+    });
+    const families = groupConversationTabFamilies(tabs);
+
+    expect(openKeys).toEqual([key("parent"), key("one"), key("two"), key("three")]);
+    expect(families).toHaveLength(1);
+    expect(families[0]?.parent.key).toBe(key("parent"));
+    expect(families[0]?.children.map((child) => child.key)).toEqual([
+      key("one"),
+      key("two"),
+      key("three"),
+    ]);
+  });
+
   it("does not turn a newly loaded root conversation into an open tab", () => {
     expect(
       openNewSubAgentConversationTabs({

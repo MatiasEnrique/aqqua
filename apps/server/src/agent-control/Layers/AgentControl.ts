@@ -16,6 +16,7 @@ import {
   type ProjectId,
   ThreadId,
 } from "@aqqua/contracts";
+import { buildTemporaryWorktreeBranchName } from "@aqqua/shared/git";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -32,6 +33,8 @@ import * as Stream from "effect/Stream";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -47,6 +50,7 @@ import {
   AgentRecursionDeniedError,
   AgentTerminalRuntimeError,
   AgentWorkspaceNotFoundError,
+  AgentWorktreeUnavailableError,
 } from "../Errors.ts";
 import {
   type AgentInstanceCandidate,
@@ -76,11 +80,8 @@ import {
 } from "../Status.ts";
 
 /**
- * Live sub-agents allowed per orchestrator.
- *
- * Sub-agents share their orchestrator's worktree in this milestone, so this cap
- * is the primary defence against parallel writers clobbering each other. No
- * orchestration invariant enforces it, so it is enforced here before creation.
+ * Live sub-agents allowed per orchestrator. No orchestration invariant enforces
+ * it, so AgentControl checks the cap before creating a child.
  */
 export const MAX_LIVE_SUB_AGENTS_PER_PARENT = 3;
 
@@ -136,6 +137,8 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry;
   const settings = yield* ServerSettingsService;
   const terminals = yield* TerminalManager.TerminalManager;
+  const gitWorkflow = yield* GitWorkflowService;
+  const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -387,140 +390,387 @@ const make = Effect.gen(function* () {
     return snapshot.terminalId;
   });
 
-  const launchAgent = Effect.fn("AgentControl.launchAgent")(function* (input: {
-    readonly operation: string;
-    readonly projectId: ProjectId;
-    readonly projectWorkspaceRoot: string;
-    readonly parentThreadId: ThreadId | null;
-    readonly branch: string | null;
-    readonly worktreePath: string | null;
-    readonly compatibilityLabel: string;
-    readonly resolved: ResolvedAgentLaunch | ResolvedAgentProfile;
-    readonly task: string;
-    readonly title?: string;
-  }) {
-    const resolved = input.resolved;
-
-    const childThreadId = ThreadId.make(yield* uuid);
-    const createdAt = yield* nowIso;
-    const title = input.title ?? deriveTitle(resolved.titlePrefix, input.task);
-
-    yield* dispatch(input.operation, {
-      type: "thread.create",
-      commandId: yield* commandId("thread-create"),
-      threadId: childThreadId,
-      projectId: input.projectId,
-      ...(input.parentThreadId === null ? {} : { parentThreadId: input.parentThreadId }),
-      title,
-      modelSelection: resolved.modelSelection,
-      runtimeMode: resolved.runtimeMode,
-      interactionMode: resolved.interactionMode,
-      branch: input.branch,
-      worktreePath: input.worktreePath,
-      createdAt,
-    });
-
-    // Everything after creation is compensated: an agent thread that exists
-    // but never got a turn is a dead row in the sidebar.
-    const launch = Effect.gen(function* () {
-      if (input.parentThreadId === null) {
-        yield* appendActivity({
-          operation: input.operation,
-          threadId: childThreadId,
-          kind: "agent.cli.started",
-          summary: "Started from the aqqua CLI",
-          tone: "info",
-          payload: { profile: input.compatibilityLabel, runtime: resolved.runtime },
-          createdAt,
-        });
-      } else {
-        // Durable delegation marker. Recursion prevention and any future
-        // capability gating read this, so it must land before the sub-agent's
-        // provider session can start.
-        yield* appendActivity({
-          operation: input.operation,
-          threadId: childThreadId,
-          kind: "agent.parent.linked",
-          summary: "Started by an orchestrator",
-          tone: "info",
-          payload: {
-            parentThreadId: input.parentThreadId,
-            profile: input.compatibilityLabel,
-            runtime: resolved.runtime,
-          },
-          createdAt,
-        });
-        yield* appendActivity({
-          operation: input.operation,
-          threadId: input.parentThreadId,
-          kind: "agent.child.started",
-          summary: `Delegated to ${resolved.titlePrefix}`,
-          tone: "tool",
-          payload: {
-            childThreadId,
-            profile: input.compatibilityLabel,
-            runtime: resolved.runtime,
-            title,
-          },
-          createdAt,
-        });
-      }
-      if (resolved.runtime === "terminal") {
-        const serverSettings = yield* settings.getSettings.pipe(
-          Effect.catchCause(dispatchFailure(input.operation)),
-        );
-        return yield* openAgentTerminal({
-          childThreadId,
-          cwd: input.worktreePath ?? input.projectWorkspaceRoot,
-          program: driverBinaryPath(
-            serverSettings.providers as Record<
-              string,
-              { readonly binaryPath?: string | undefined } | undefined
-            >,
-            resolved.driverKind,
+  /** Run the project's default worktree-create action without delaying agent startup. */
+  const runWorktreeCreateAction = Effect.fn("AgentControl.runWorktreeCreateAction")(
+    function* (input: {
+      readonly operation: string;
+      readonly childThreadId: ThreadId;
+      readonly projectId: ProjectId;
+      readonly projectWorkspaceRoot: string;
+      readonly worktreePath: string;
+    }) {
+      const requestedAt = yield* nowIso;
+      yield* setupScriptRunner
+        .runForThread({
+          threadId: input.childThreadId,
+          projectId: input.projectId,
+          projectCwd: input.projectWorkspaceRoot,
+          worktreePath: input.worktreePath,
+        })
+        .pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              appendActivity({
+                operation: input.operation,
+                threadId: input.childThreadId,
+                kind: "setup-script.failed",
+                summary: "Setup script failed to start",
+                tone: "error",
+                payload: {
+                  detail: error.message,
+                  worktreePath: input.worktreePath,
+                },
+                createdAt: requestedAt,
+              }),
+            onSuccess: (result) => {
+              if (result.status !== "started") return Effect.void;
+              const payload = {
+                scriptId: result.scriptId,
+                scriptName: result.scriptName,
+                terminalId: result.terminalId,
+                worktreePath: input.worktreePath,
+              };
+              return Effect.gen(function* () {
+                yield* appendActivity({
+                  operation: input.operation,
+                  threadId: input.childThreadId,
+                  kind: "setup-script.requested",
+                  summary: "Starting setup script",
+                  tone: "info",
+                  payload,
+                  createdAt: requestedAt,
+                });
+                yield* appendActivity({
+                  operation: input.operation,
+                  threadId: input.childThreadId,
+                  kind: "setup-script.started",
+                  summary: "Setup script started",
+                  tone: "info",
+                  payload,
+                  createdAt: yield* nowIso,
+                });
+              });
+            },
+          }),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("sub-agent worktree create action failed", {
+              threadId: input.childThreadId,
+              worktreePath: input.worktreePath,
+              detail: Cause.pretty(cause),
+            }),
           ),
-          task: input.task,
-        });
-      }
-      yield* startTurn({
-        operation: input.operation,
+        );
+    },
+  );
+
+  const cleanupFailedWorktreeSpawn = Effect.fn("AgentControl.cleanupFailedWorktreeSpawn")(
+    function* (input: {
+      readonly projectWorkspaceRoot: string;
+      readonly worktreePath: string;
+      readonly branch: string;
+      readonly expectedHeadCommit: string;
+    }) {
+      const removed = yield* gitWorkflow
+        .removeWorktree({
+          cwd: input.projectWorkspaceRoot,
+          path: input.worktreePath,
+          force: true,
+        })
+        .pipe(
+          Effect.matchCauseEffect({
+            onFailure: (cause) =>
+              Effect.logWarning("failed to remove worktree after sub-agent launch failure", {
+                branch: input.branch,
+                detail: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+            onSuccess: () => Effect.succeed(true),
+          }),
+        );
+      if (!removed) return;
+      yield* gitWorkflow
+        .deleteLocalBranch({
+          cwd: input.projectWorkspaceRoot,
+          refName: input.branch,
+          expectedHeadCommit: input.expectedHeadCommit,
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to delete branch after sub-agent launch failure", {
+              branch: input.branch,
+              detail: Cause.pretty(cause),
+            }),
+          ),
+        );
+    },
+  );
+
+  const launchAgent = Effect.fn("AgentControl.launchAgent")(
+    function* (input: {
+      readonly operation: string;
+      readonly projectId: ProjectId;
+      readonly projectWorkspaceRoot: string;
+      readonly parentThreadId: ThreadId | null;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+      readonly compatibilityLabel: string;
+      readonly resolved: ResolvedAgentLaunch | ResolvedAgentProfile;
+      readonly task: string;
+      readonly title?: string;
+      readonly runWorktreeCreateAction?: boolean;
+      readonly failedLaunchCleanup: {
+        readonly worktreePath: string;
+        readonly branch: string;
+        readonly expectedHeadCommit: string;
+      } | null;
+    }) {
+      const resolved = input.resolved;
+
+      const childThreadId = ThreadId.make(yield* uuid);
+      const createdAt = yield* nowIso;
+      const title = input.title ?? deriveTitle(resolved.titlePrefix, input.task);
+
+      yield* dispatch(input.operation, {
+        type: "thread.create",
+        commandId: yield* commandId("thread-create"),
         threadId: childThreadId,
-        text: input.task,
+        projectId: input.projectId,
+        ...(input.parentThreadId === null ? {} : { parentThreadId: input.parentThreadId }),
+        title,
+        modelSelection: resolved.modelSelection,
         runtimeMode: resolved.runtimeMode,
         interactionMode: resolved.interactionMode,
+        branch: input.branch,
+        worktreePath: input.worktreePath,
         createdAt,
       });
-      return null;
-    });
 
-    const terminalId = yield* launch.pipe(
-      Effect.catchCause((cause) =>
-        commandId("thread-delete").pipe(
-          Effect.flatMap((id) =>
-            engine.dispatch({ type: "thread.delete", commandId: id, threadId: childThreadId }),
-          ),
-          Effect.ignoreCause({ log: true }),
-          Effect.andThen(
-            Effect.fail(
-              new AgentLaunchFailedError({
-                profile: input.compatibilityLabel,
-                detail: Cause.hasInterrupts(cause)
-                  ? "the request was interrupted before the sub-agent could start."
-                  : Cause.pretty(cause),
-              }),
+      // Everything after creation is compensated: an agent thread that exists
+      // but never got a turn is a dead row in the sidebar.
+      const launch = Effect.gen(function* () {
+        if (input.parentThreadId === null) {
+          yield* appendActivity({
+            operation: input.operation,
+            threadId: childThreadId,
+            kind: "agent.cli.started",
+            summary: "Started from the aqqua CLI",
+            tone: "info",
+            payload: { profile: input.compatibilityLabel, runtime: resolved.runtime },
+            createdAt,
+          });
+        } else {
+          // Durable delegation marker. Recursion prevention and any future
+          // capability gating read this, so it must land before the sub-agent's
+          // provider session can start.
+          yield* appendActivity({
+            operation: input.operation,
+            threadId: childThreadId,
+            kind: "agent.parent.linked",
+            summary: "Started by an orchestrator",
+            tone: "info",
+            payload: {
+              parentThreadId: input.parentThreadId,
+              profile: input.compatibilityLabel,
+              runtime: resolved.runtime,
+            },
+            createdAt,
+          });
+          yield* appendActivity({
+            operation: input.operation,
+            threadId: input.parentThreadId,
+            kind: "agent.child.started",
+            summary: `Delegated to ${resolved.titlePrefix}`,
+            tone: "tool",
+            payload: {
+              childThreadId,
+              profile: input.compatibilityLabel,
+              runtime: resolved.runtime,
+              title,
+            },
+            createdAt,
+          });
+        }
+        if (input.runWorktreeCreateAction === true && input.worktreePath !== null) {
+          yield* runWorktreeCreateAction({
+            operation: input.operation,
+            childThreadId,
+            projectId: input.projectId,
+            projectWorkspaceRoot: input.projectWorkspaceRoot,
+            worktreePath: input.worktreePath,
+          });
+        }
+        if (resolved.runtime === "terminal") {
+          const serverSettings = yield* settings.getSettings.pipe(
+            Effect.catchCause(dispatchFailure(input.operation)),
+          );
+          return yield* openAgentTerminal({
+            childThreadId,
+            cwd: input.worktreePath ?? input.projectWorkspaceRoot,
+            program: driverBinaryPath(
+              serverSettings.providers as Record<
+                string,
+                { readonly binaryPath?: string | undefined } | undefined
+              >,
+              resolved.driverKind,
+            ),
+            task: input.task,
+          });
+        }
+        yield* startTurn({
+          operation: input.operation,
+          threadId: childThreadId,
+          text: input.task,
+          runtimeMode: resolved.runtimeMode,
+          interactionMode: resolved.interactionMode,
+          createdAt,
+        });
+        return null;
+      });
+
+      const terminalId = yield* launch.pipe(
+        Effect.catchCause((cause) =>
+          commandId("thread-delete").pipe(
+            Effect.flatMap((id) =>
+              engine.dispatch({ type: "thread.delete", commandId: id, threadId: childThreadId }),
+            ),
+            Effect.ignoreCause({ log: true }),
+            Effect.andThen(
+              Effect.fail(
+                new AgentLaunchFailedError({
+                  profile: input.compatibilityLabel,
+                  detail: Cause.hasInterrupts(cause)
+                    ? "the request was interrupted before the sub-agent could start."
+                    : Cause.pretty(cause),
+                }),
+              ),
             ),
           ),
         ),
+      );
+
+      return {
+        threadId: childThreadId,
+        profile: input.compatibilityLabel,
+        // Set for a PTY-hosted sub-agent. A `session` sub-agent gets its terminal
+        // from the UI on demand, like any other thread.
+        terminalId,
+      } satisfies AgentHandle;
+    },
+    (effect, input) => {
+      const cleanup = input.failedLaunchCleanup;
+      return cleanup === null
+        ? effect
+        : Effect.catchCause(effect, (cause) =>
+            Effect.uninterruptible(
+              cleanupFailedWorktreeSpawn({
+                projectWorkspaceRoot: input.projectWorkspaceRoot,
+                ...cleanup,
+              }),
+            ).pipe(Effect.andThen(Effect.failCause(cause))),
+          );
+    },
+  );
+
+  /**
+   * Resolve the checkout for one spawn.
+   *
+   * Spawn flags are the whole policy boundary. A caller can share its checkout,
+   * create a fresh worktree, or reuse a sibling agent's worktree.
+   */
+  const resolveSpawnWorkspace = Effect.fn("AgentControl.resolveSpawnWorkspace")(function* (input: {
+    readonly operation: "spawn" | "spawnStandalone";
+    readonly createWorktree: boolean;
+    readonly worktreeFromThreadId: ThreadId | undefined;
+    readonly parentThreadId: ThreadId | null;
+    readonly projectId: ProjectId;
+    readonly projectWorkspaceRoot: string;
+    readonly sourceBranch: string | null;
+    readonly inheritedWorktreePath: string | null;
+    readonly compatibilityLabel: string;
+  }) {
+    if (input.worktreeFromThreadId !== undefined) {
+      const target = yield* readThread(input.operation, input.worktreeFromThreadId);
+      const ownedAgentThread =
+        target !== null &&
+        (input.parentThreadId === null
+          ? target.parentThreadId === null &&
+            target.activities.some((activity) => activity.kind === "agent.cli.started")
+          : target.parentThreadId === input.parentThreadId);
+      if (
+        target === null ||
+        target.deletedAt !== null ||
+        target.archivedAt !== null ||
+        target.providerSubagent != null ||
+        target.projectId !== input.projectId ||
+        target.branch === null ||
+        target.worktreePath === null ||
+        !ownedAgentThread
+      ) {
+        return yield* new AgentWorktreeUnavailableError({
+          threadId: input.worktreeFromThreadId,
+        });
+      }
+      return {
+        branch: target.branch,
+        worktreePath: target.worktreePath,
+        runWorktreeCreateAction: false,
+        failedLaunchCleanup: null,
+      } as const;
+    }
+    if (!input.createWorktree) {
+      return {
+        branch: input.sourceBranch,
+        worktreePath: input.inheritedWorktreePath,
+        runWorktreeCreateAction: false,
+        failedLaunchCleanup: null,
+      } as const;
+    }
+
+    const sourceCwd = input.inheritedWorktreePath ?? input.projectWorkspaceRoot;
+    const history = yield* gitWorkflow.listHistory({ cwd: sourceCwd, limit: 1 }).pipe(
+      Effect.mapError(
+        (error) =>
+          new AgentLaunchFailedError({
+            profile: input.compatibilityLabel,
+            detail: `could not resolve the source commit for an isolated worktree: ${error.message}`,
+          }),
       ),
     );
-
+    const headCommit = history.commits.find((commit) => commit.isHead)?.id;
+    if (headCommit === undefined) {
+      return yield* new AgentLaunchFailedError({
+        profile: input.compatibilityLabel,
+        detail: "could not resolve the source commit for an isolated worktree.",
+      });
+    }
+    const branchToken = yield* uuid;
+    const branch = buildTemporaryWorktreeBranchName(() => branchToken);
+    const created = yield* gitWorkflow
+      .createWorktree({
+        cwd: input.projectWorkspaceRoot,
+        refName: headCommit,
+        newRefName: branch,
+        ...(input.sourceBranch === null ? {} : { baseRefName: input.sourceBranch }),
+        path: null,
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new AgentLaunchFailedError({
+              profile: input.compatibilityLabel,
+              detail: `could not create an isolated worktree: ${error.message}`,
+            }),
+        ),
+      );
     return {
-      threadId: childThreadId,
-      profile: input.compatibilityLabel,
-      // Set for a PTY-hosted sub-agent. A `session` sub-agent gets its terminal
-      // from the UI on demand, like any other thread.
-      terminalId,
-    } satisfies AgentHandle;
+      branch: created.worktree.refName,
+      worktreePath: created.worktree.path,
+      runWorktreeCreateAction: true,
+      failedLaunchCleanup: {
+        worktreePath: created.worktree.path,
+        branch: created.worktree.refName,
+        expectedHeadCommit: headCommit,
+      },
+    } as const;
   });
 
   const resolveCatalogLaunch = Effect.fn("AgentControl.resolveCatalogLaunch")(function* (input: {
@@ -592,13 +842,23 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       selection: input.selection,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      operation: "spawn",
+      createWorktree: input.worktree === true,
+      worktreeFromThreadId: input.worktreeFromThreadId,
+      parentThreadId: input.parentThreadId,
+      projectId: parent.projectId,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: parent.branch,
+      inheritedWorktreePath: parent.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawn",
       projectId: parent.projectId,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: input.parentThreadId,
-      branch: parent.branch,
-      worktreePath: parent.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -613,13 +873,23 @@ const make = Effect.gen(function* () {
         projectDefaultModelSelection: project.defaultModelSelection,
         profile: input.profile,
       });
+      const workspace = yield* resolveSpawnWorkspace({
+        operation: "spawn",
+        createWorktree: input.worktree === true,
+        worktreeFromThreadId: input.worktreeFromThreadId,
+        parentThreadId: input.parentThreadId,
+        projectId: parent.projectId,
+        projectWorkspaceRoot: project.workspaceRoot,
+        sourceBranch: parent.branch,
+        inheritedWorktreePath: parent.worktreePath,
+        compatibilityLabel: launch.compatibilityLabel,
+      });
       return yield* launchAgent({
         operation: "spawn",
         projectId: parent.projectId,
         projectWorkspaceRoot: project.workspaceRoot,
         parentThreadId: input.parentThreadId,
-        branch: parent.branch,
-        worktreePath: parent.worktreePath,
+        ...workspace,
         ...launch,
         task: input.task,
         ...(input.title === undefined ? {} : { title: input.title }),
@@ -694,13 +964,23 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       selection: input.selection,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      operation: "spawnStandalone",
+      createWorktree: input.worktree === true,
+      worktreeFromThreadId: input.worktreeFromThreadId,
+      parentThreadId: null,
+      projectId: project.id,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: target.branch,
+      inheritedWorktreePath: target.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawnStandalone",
       projectId: project.id,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: null,
-      branch: target.branch,
-      worktreePath: target.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -716,13 +996,23 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       profile: input.profile,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      operation: "spawnStandalone",
+      createWorktree: input.worktree === true,
+      worktreeFromThreadId: input.worktreeFromThreadId,
+      parentThreadId: null,
+      projectId: project.id,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: target.branch,
+      inheritedWorktreePath: target.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawnStandalone",
       projectId: project.id,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: null,
-      branch: target.branch,
-      worktreePath: target.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
