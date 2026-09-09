@@ -53,6 +53,23 @@ it("forwards legacy standalone profiles through the compatibility field", () => 
   );
 });
 
+it("forwards isolated worktree intent only when the spawn flag is set", () => {
+  assert.deepEqual(
+    standaloneSpawnPayload({
+      cwd: "/tmp/project",
+      profile: "implementer",
+      task: "Run in isolation",
+      worktree: true,
+    }),
+    {
+      cwd: "/tmp/project",
+      profile: "implementer",
+      task: "Run in isolation",
+      worktree: true,
+    },
+  );
+});
+
 it.effect("requires an attached interactive terminal before standalone authorization", () =>
   Effect.gen(function* () {
     let confirmationRequested = false;

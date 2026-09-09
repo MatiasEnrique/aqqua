@@ -47,6 +47,11 @@ it.effect("routes canonical, bare, and legacy session spawn requests explicitly"
     yield* dispatchAgentSpawn({
       agents,
       parentThreadId,
+      body: { task: "isolated", worktree: true },
+    });
+    yield* dispatchAgentSpawn({
+      agents,
+      parentThreadId,
       body: { task: "legacy", profile: "implementer" },
     });
 
@@ -68,6 +73,15 @@ it.effect("routes canonical, bare, and legacy session spawn requests explicitly"
       {
         method: "spawn",
         input: { parentThreadId, task: "bare", selection: { model: null } },
+      },
+      {
+        method: "spawn",
+        input: {
+          parentThreadId,
+          task: "isolated",
+          worktree: true,
+          selection: { model: null },
+        },
       },
       {
         method: "spawnProfile",

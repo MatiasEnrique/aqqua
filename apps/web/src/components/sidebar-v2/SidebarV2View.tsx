@@ -295,8 +295,17 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     return sections;
   }, [threadByKey, worktreeGroups]);
   const threadFamilies = useMemo(
-    () => buildSidebarThreadFamilies([...threadByKey.values()]),
-    [threadByKey],
+    () =>
+      buildSidebarThreadFamilies([...threadByKey.values()], {
+        familyScopeKey: (thread) =>
+          resolveSidebarConversationWorktreeKey({
+            environmentId: thread.environmentId,
+            projectId: thread.projectId,
+            worktreePath: thread.worktreePath,
+            projectRootByProjectKey: projectCwdByKey,
+          }),
+      }),
+    [projectCwdByKey, threadByKey],
   );
   // Settled conversations answer to the shelf at the foot of the list, not to
   // every project group in turn — one place to look for finished work.

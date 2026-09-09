@@ -133,6 +133,7 @@ export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(functi
   const shared = {
     parentThreadId,
     task: body.task,
+    ...(body.worktree === true ? { worktree: true } : {}),
     ...(body.title === undefined ? {} : { title: body.title }),
   };
   if (hasAgentSpawnSelectorConflict(body)) {

@@ -14,6 +14,7 @@ import {
   type TerminalOpenInput,
   ThreadId,
   TurnId,
+  type VcsCreateWorktreeInput,
 } from "@aqqua/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -24,9 +25,11 @@ import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
+import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "../../orchestration/runtimeLayer.ts";
@@ -159,6 +162,36 @@ const terminalStub = Layer.succeed(TerminalManager.TerminalManager, {
     }),
 } as unknown as typeof TerminalManager.TerminalManager.Service);
 
+const createdWorktrees: VcsCreateWorktreeInput[] = [];
+const gitWorkflowStub = Layer.succeed(GitWorkflowService, {
+  createWorktree: (input: VcsCreateWorktreeInput) =>
+    Effect.sync(() => {
+      createdWorktrees.push(input);
+      const refName = input.newRefName ?? input.refName;
+      return {
+        worktree: {
+          refName,
+          path: `/tmp/aqqua-agent-control/generated/${refName.replaceAll("/", "-")}`,
+        },
+      };
+    }),
+} as unknown as typeof GitWorkflowService.Service);
+
+const worktreeSetupInputs: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput[] = [];
+const setupScriptRunnerStub = Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
+  runForThread: (input: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput) =>
+    Effect.sync(() => {
+      worktreeSetupInputs.push(input);
+      return {
+        status: "started" as const,
+        scriptId: "setup",
+        scriptName: "Setup Worktree",
+        terminalId: "setup-setup",
+        cwd: input.worktreePath,
+      };
+    }),
+});
+
 // One engine and one projection pipeline, composed the way the server composes
 // them. Building `OrchestrationEngineLive` twice would give the test and
 // AgentControl separate read models over the same database, which silently breaks
@@ -171,6 +204,8 @@ const agentControlLayer = it.layer(
         registryStub,
         providerRegistryStub,
         terminalStub,
+        gitWorkflowStub,
+        setupScriptRunnerStub,
         serverSettingsLayerTest({
           agentProfiles: {
             [terminalProfile]: {
@@ -363,6 +398,71 @@ agentControlLayer("AgentControl", (it) => {
         (started.payload as { readonly childThreadId?: string }).childThreadId,
         handle.threadId,
       );
+    }),
+  );
+
+  it.effect("spawns three sibling sub-agents in distinct worktrees when requested", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, projectId, workspaceRoot, worktreePath } = yield* makeOrchestrator();
+      const worktreeCallStart = createdWorktrees.length;
+      const setupCallStart = worktreeSetupInputs.length;
+
+      const handles = [];
+      for (const task of ["Implement lane one", "Implement lane two", "Implement lane three"]) {
+        handles.push(
+          yield* agents.spawn({
+            parentThreadId,
+            selection: { model: null },
+            task,
+            worktree: true,
+          }),
+        );
+      }
+
+      const children = yield* Effect.forEach(handles, (handle) => readThread(handle.threadId));
+      assert.deepEqual(
+        children.map((child) => child.parentThreadId),
+        [parentThreadId, parentThreadId, parentThreadId],
+      );
+      assert.deepEqual(
+        children.map((child) => child.projectId),
+        [projectId, projectId, projectId],
+      );
+      assert.equal(new Set(children.map((child) => child.branch)).size, 3);
+      assert.equal(new Set(children.map((child) => child.worktreePath)).size, 3);
+      for (const child of children) {
+        assert.match(child.branch ?? "", /^aqqua\/[0-9a-f]{8}$/);
+        assert.notEqual(child.worktreePath, worktreePath);
+        assert.ok(child.activities.some((activity) => activity.kind === "setup-script.requested"));
+        assert.ok(child.activities.some((activity) => activity.kind === "setup-script.started"));
+      }
+
+      const calls = createdWorktrees.slice(worktreeCallStart);
+      assert.equal(calls.length, 3);
+      for (const call of calls) {
+        assert.equal(call.cwd, workspaceRoot);
+        assert.equal(call.refName, "feat/delegation");
+        assert.equal(call.baseRefName, "feat/delegation");
+        assert.equal(call.path, null);
+      }
+      assert.deepEqual(
+        worktreeSetupInputs
+          .slice(setupCallStart)
+          .map((input) => input.worktreePath)
+          .toSorted(),
+        children
+          .map((child) => child.worktreePath)
+          .filter((path): path is string => path !== null)
+          .toSorted(),
+      );
+      for (const input of worktreeSetupInputs.slice(setupCallStart)) {
+        assert.equal(input.projectId, projectId);
+        assert.equal(input.projectCwd, workspaceRoot);
+        // No explicit id means the runner resolves the action marked
+        // `runOnWorktreeCreate`, matching a normal Aqqua worktree creation.
+        assert.equal(input.scriptId, undefined);
+      }
     }),
   );
 

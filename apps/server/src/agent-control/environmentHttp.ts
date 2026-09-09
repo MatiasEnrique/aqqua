@@ -71,6 +71,7 @@ export const handleStandaloneSpawn = Effect.fn("environment.agents.handleStandal
     const shared = {
       cwd: payload.cwd,
       task: payload.task,
+      ...(payload.worktree === true ? { worktree: true } : {}),
       ...(payload.title === undefined ? {} : { title: payload.title }),
     };
     if (payload.profile !== undefined) {

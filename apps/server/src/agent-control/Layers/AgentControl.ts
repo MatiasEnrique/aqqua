@@ -16,6 +16,7 @@ import {
   type ProjectId,
   ThreadId,
 } from "@aqqua/contracts";
+import { buildTemporaryWorktreeBranchName } from "@aqqua/shared/git";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -32,6 +33,8 @@ import * as Stream from "effect/Stream";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -76,11 +79,8 @@ import {
 } from "../Status.ts";
 
 /**
- * Live sub-agents allowed per orchestrator.
- *
- * Sub-agents share their orchestrator's worktree in this milestone, so this cap
- * is the primary defence against parallel writers clobbering each other. No
- * orchestration invariant enforces it, so it is enforced here before creation.
+ * Live sub-agents allowed per orchestrator. No orchestration invariant enforces
+ * it, so AgentControl checks the cap before creating a child.
  */
 export const MAX_LIVE_SUB_AGENTS_PER_PARENT = 3;
 
@@ -136,6 +136,8 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry;
   const settings = yield* ServerSettingsService;
   const terminals = yield* TerminalManager.TerminalManager;
+  const gitWorkflow = yield* GitWorkflowService;
+  const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -387,6 +389,79 @@ const make = Effect.gen(function* () {
     return snapshot.terminalId;
   });
 
+  /** Run the project's default worktree-create action without delaying agent startup. */
+  const runWorktreeCreateAction = Effect.fn("AgentControl.runWorktreeCreateAction")(
+    function* (input: {
+      readonly operation: string;
+      readonly childThreadId: ThreadId;
+      readonly projectId: ProjectId;
+      readonly projectWorkspaceRoot: string;
+      readonly worktreePath: string;
+    }) {
+      const requestedAt = yield* nowIso;
+      yield* setupScriptRunner
+        .runForThread({
+          threadId: input.childThreadId,
+          projectId: input.projectId,
+          projectCwd: input.projectWorkspaceRoot,
+          worktreePath: input.worktreePath,
+        })
+        .pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              appendActivity({
+                operation: input.operation,
+                threadId: input.childThreadId,
+                kind: "setup-script.failed",
+                summary: "Setup script failed to start",
+                tone: "error",
+                payload: {
+                  detail: error.message,
+                  worktreePath: input.worktreePath,
+                },
+                createdAt: requestedAt,
+              }),
+            onSuccess: (result) => {
+              if (result.status !== "started") return Effect.void;
+              const payload = {
+                scriptId: result.scriptId,
+                scriptName: result.scriptName,
+                terminalId: result.terminalId,
+                worktreePath: input.worktreePath,
+              };
+              return Effect.gen(function* () {
+                yield* appendActivity({
+                  operation: input.operation,
+                  threadId: input.childThreadId,
+                  kind: "setup-script.requested",
+                  summary: "Starting setup script",
+                  tone: "info",
+                  payload,
+                  createdAt: requestedAt,
+                });
+                yield* appendActivity({
+                  operation: input.operation,
+                  threadId: input.childThreadId,
+                  kind: "setup-script.started",
+                  summary: "Setup script started",
+                  tone: "info",
+                  payload,
+                  createdAt: yield* nowIso,
+                });
+              });
+            },
+          }),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("sub-agent worktree create action failed", {
+              threadId: input.childThreadId,
+              worktreePath: input.worktreePath,
+              detail: Cause.pretty(cause),
+            }),
+          ),
+        );
+    },
+  );
+
   const launchAgent = Effect.fn("AgentControl.launchAgent")(function* (input: {
     readonly operation: string;
     readonly projectId: ProjectId;
@@ -398,6 +473,7 @@ const make = Effect.gen(function* () {
     readonly resolved: ResolvedAgentLaunch | ResolvedAgentProfile;
     readonly task: string;
     readonly title?: string;
+    readonly runWorktreeCreateAction?: boolean;
   }) {
     const resolved = input.resolved;
 
@@ -465,6 +541,15 @@ const make = Effect.gen(function* () {
           createdAt,
         });
       }
+      if (input.runWorktreeCreateAction === true && input.worktreePath !== null) {
+        yield* runWorktreeCreateAction({
+          operation: input.operation,
+          childThreadId,
+          projectId: input.projectId,
+          projectWorkspaceRoot: input.projectWorkspaceRoot,
+          worktreePath: input.worktreePath,
+        });
+      }
       if (resolved.runtime === "terminal") {
         const serverSettings = yield* settings.getSettings.pipe(
           Effect.catchCause(dispatchFailure(input.operation)),
@@ -521,6 +606,55 @@ const make = Effect.gen(function* () {
       // from the UI on demand, like any other thread.
       terminalId,
     } satisfies AgentHandle;
+  });
+
+  /**
+   * Resolve the checkout for one spawn.
+   *
+   * The CLI flag is the whole policy boundary: without it the existing checkout
+   * is reused; with it a fresh temporary branch and registered worktree are
+   * created from the caller's current ref.
+   */
+  const resolveSpawnWorkspace = Effect.fn("AgentControl.resolveSpawnWorkspace")(function* (input: {
+    readonly createWorktree: boolean;
+    readonly projectWorkspaceRoot: string;
+    readonly sourceBranch: string | null;
+    readonly inheritedWorktreePath: string | null;
+    readonly compatibilityLabel: string;
+  }) {
+    if (!input.createWorktree) {
+      return {
+        branch: input.sourceBranch,
+        worktreePath: input.inheritedWorktreePath,
+        runWorktreeCreateAction: false,
+      } as const;
+    }
+
+    const branchToken = yield* uuid;
+    const branch = buildTemporaryWorktreeBranchName(() => branchToken);
+    const baseRef = input.sourceBranch ?? "HEAD";
+    const created = yield* gitWorkflow
+      .createWorktree({
+        cwd: input.projectWorkspaceRoot,
+        refName: baseRef,
+        newRefName: branch,
+        ...(input.sourceBranch === null ? {} : { baseRefName: input.sourceBranch }),
+        path: null,
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new AgentLaunchFailedError({
+              profile: input.compatibilityLabel,
+              detail: `could not create an isolated worktree: ${error.message}`,
+            }),
+        ),
+      );
+    return {
+      branch: created.worktree.refName,
+      worktreePath: created.worktree.path,
+      runWorktreeCreateAction: true,
+    } as const;
   });
 
   const resolveCatalogLaunch = Effect.fn("AgentControl.resolveCatalogLaunch")(function* (input: {
@@ -592,13 +726,19 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       selection: input.selection,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      createWorktree: input.worktree === true,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: parent.branch,
+      inheritedWorktreePath: parent.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawn",
       projectId: parent.projectId,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: input.parentThreadId,
-      branch: parent.branch,
-      worktreePath: parent.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -613,13 +753,19 @@ const make = Effect.gen(function* () {
         projectDefaultModelSelection: project.defaultModelSelection,
         profile: input.profile,
       });
+      const workspace = yield* resolveSpawnWorkspace({
+        createWorktree: input.worktree === true,
+        projectWorkspaceRoot: project.workspaceRoot,
+        sourceBranch: parent.branch,
+        inheritedWorktreePath: parent.worktreePath,
+        compatibilityLabel: launch.compatibilityLabel,
+      });
       return yield* launchAgent({
         operation: "spawn",
         projectId: parent.projectId,
         projectWorkspaceRoot: project.workspaceRoot,
         parentThreadId: input.parentThreadId,
-        branch: parent.branch,
-        worktreePath: parent.worktreePath,
+        ...workspace,
         ...launch,
         task: input.task,
         ...(input.title === undefined ? {} : { title: input.title }),
@@ -694,13 +840,19 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       selection: input.selection,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      createWorktree: input.worktree === true,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: target.branch,
+      inheritedWorktreePath: target.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawnStandalone",
       projectId: project.id,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: null,
-      branch: target.branch,
-      worktreePath: target.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -716,13 +868,19 @@ const make = Effect.gen(function* () {
       projectDefaultModelSelection: project.defaultModelSelection,
       profile: input.profile,
     });
+    const workspace = yield* resolveSpawnWorkspace({
+      createWorktree: input.worktree === true,
+      projectWorkspaceRoot: project.workspaceRoot,
+      sourceBranch: target.branch,
+      inheritedWorktreePath: target.worktreePath,
+      compatibilityLabel: launch.compatibilityLabel,
+    });
     return yield* launchAgent({
       operation: "spawnStandalone",
       projectId: project.id,
       projectWorkspaceRoot: project.workspaceRoot,
       parentThreadId: null,
-      branch: target.branch,
-      worktreePath: target.worktreePath,
+      ...workspace,
       ...launch,
       task: input.task,
       ...(input.title === undefined ? {} : { title: input.title }),

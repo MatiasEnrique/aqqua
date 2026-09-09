@@ -35,6 +35,15 @@ it("treats a spawn with no selector as canonical rather than rejecting it", () =
   assert.equal(request.profile, undefined);
   assert.equal(request.modelSelection, undefined);
   assert.equal(request.reasoning, undefined);
+  assert.equal(request.worktree, undefined);
+});
+
+it("decodes explicit worktree isolation without changing the default", () => {
+  assert.deepEqual(decodeAgentSpawnRequest({ task: "isolated", worktree: true }), {
+    task: "isolated",
+    worktree: true,
+  });
+  assert.deepEqual(decodeAgentSpawnRequest({ task: "shared" }), { task: "shared" });
 });
 
 it("still decodes a legacy profile spawn from an un-migrated client", () => {

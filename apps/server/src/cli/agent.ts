@@ -350,6 +350,9 @@ const spawnCommand = Command.make("spawn", {
     Flag.withDescription("Optional agent thread title."),
     Flag.optional,
   ),
+  worktree: Flag.boolean("worktree").pipe(
+    Flag.withDescription("Run the agent in a fresh branch and worktree."),
+  ),
 }).pipe(
   Command.withDescription("Start an agent on a task and return immediately."),
   Command.withHandler((flags) =>
@@ -382,12 +385,14 @@ const spawnCommand = Command.make("spawn", {
           ? yield* (yield* agentApi()).spawn({
               ...selector,
               task,
+              ...(flags.worktree ? { worktree: true } : {}),
               ...(title === undefined ? {} : { title }),
             })
           : yield* spawnStandaloneAgent({
               flags,
               ...selector,
               task,
+              ...(flags.worktree ? { worktree: true } : {}),
               ...(title === undefined ? {} : { title }),
             });
       const threadId = result.threadId;

@@ -35,8 +35,9 @@ Mobile uses its separate native thread list and device-local preferences.
   resumes a draft if available. With neither an active conversation nor a draft, selecting the
   worktree creates a new conversation there, even when it has snoozed or settled history.
 - Conversations show their branch and recent activity below the title. Hover or activate a parent
-  conversation to open its subthreads in a popover. Subthreads do not add nested sidebar rows. On narrow screens, tapping a parent
-  opens the picker with an **Open parent conversation** action. Snoozed conversations are labeled;
+  conversation to open same-worktree subthreads in a popover. A sub-agent started with
+  `aqqua agent spawn --worktree` appears as a conversation under its own worktree instead. On narrow
+  screens, tap a parent to open the picker with an **Open parent conversation** action. Snoozed conversations are labeled;
   recent settled conversations appear in the **Settled** shelf.
 - Hover or focus a conversation card to reveal its **Settle conversation** button. The control is
   always visible on touch devices. Settled cards expose **Un-settle conversation** in the same place.
@@ -83,7 +84,8 @@ When the strip runs out of room, use the list button at its right edge to open a
 An orchestrator keeps its open sub-agent conversations behind one numbered control. The control
 opens a bounded popover, so a large delegation tree does not expand the tab strip.
 When one of those sub-agents is open, the count control marks which family owns the conversation
-being read.
+being read. This family grouping follows the spawn relationship even when each sub-agent has its
+own worktree.
 
 ### Two kinds of sub-agent
 

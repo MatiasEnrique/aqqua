@@ -32,6 +32,7 @@ export const standaloneSpawnPayload = (input: {
   readonly reasoning?: string;
   readonly task: string;
   readonly title?: string;
+  readonly worktree?: boolean;
 }): AgentStandaloneSpawnRequest => ({
   cwd: input.cwd,
   task: input.task,
@@ -39,6 +40,7 @@ export const standaloneSpawnPayload = (input: {
   ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
   ...(input.reasoning === undefined ? {} : { reasoning: input.reasoning }),
   ...(input.title === undefined ? {} : { title: input.title }),
+  ...(input.worktree === true ? { worktree: true } : {}),
 });
 
 /**
@@ -176,6 +178,7 @@ export const spawnStandaloneAgent = Effect.fn("agentCli.spawnStandalone")(functi
   readonly reasoning?: string;
   readonly task: string;
   readonly title?: string;
+  readonly worktree?: boolean;
 }) {
   return yield* withStandaloneEnvironmentClient({
     flags: input.flags,

@@ -45,6 +45,13 @@ accidentally ask for "this instance, whatever model".
 aqqua agent spawn --instance codex --model gpt-5.6-sol --reasoning high --task-file task.md
 ```
 
+Add `--worktree` when the agent should get a fresh temporary branch and worktree. Without that
+flag, it shares the checkout of the orchestrator that spawned it. Worktree isolation does not
+break the orchestration family: the new conversation appears under its own worktree in the sidebar
+and remains behind the orchestrator's numbered sub-agent control in the header. Aqqua also runs the
+project action marked **Run on worktree create** in the new checkout, with the same environment it
+uses for worktrees created from the app.
+
 ### Defaults and fallback
 
 When a spawn names no model at all, selection falls back in this order:

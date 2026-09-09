@@ -86,13 +86,15 @@ The most common defect in this repo is a change that works on the path you teste
 ## Delegating to Sub-Agents
 
 When a task splits cleanly across providers, delegate with `aqqua agent` from your own
-shell. Sub-agents appear nested under this thread in the sidebar and can be opened,
-read, and interrupted while they work.
+shell. Sub-agents can be opened, read, and interrupted while they work.
 
 - `aqqua agent models` — every advertised provider-instance/model row, plus the
   reason when a known row cannot currently spawn.
 - `aqqua agent spawn --instance codex --model gpt-5.6-sol --reasoning high --task-file <path>`
   — start one; returns immediately.
+- Add `--worktree` to give that spawn a fresh temporary branch and worktree. Without it, the
+  sub-agent shares the orchestrator's checkout. Isolated spawns run the project's configured
+  worktree-create action before the agent starts.
 - `aqqua agent await <threadId>` — wait for its current task; re-run to keep waiting.
 - `aqqua agent send <threadId> --message-file <path>` — continue it with its context intact.
 - `aqqua agent list` / `aqqua agent interrupt <threadId>`.
