@@ -79,7 +79,12 @@ interface AnnotatableCodeViewProps {
   }>;
   sectionId: string;
   sectionTitle: string;
-  composerDraftTarget: ScopedThreadRef | DraftId;
+  /**
+   * Where a review comment goes. `null` when the diff has no conversation to
+   * send comments to — a card's worktree browsed from its flow, say — and the
+   * commenting affordances stay out of the way.
+   */
+  composerDraftTarget: ScopedThreadRef | DraftId | null;
   options: NonNullable<CodeViewProps<DiffCommentAnnotationGroup>["options"]>;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
   className?: string;
@@ -106,8 +111,10 @@ export function AnnotatableCodeView({
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
-  const reviewComments = useComposerDraftStore(
-    (store) => store.getComposerDraft(composerDraftTarget)?.reviewComments ?? EMPTY_REVIEW_COMMENTS,
+  const reviewComments = useComposerDraftStore((store) =>
+    composerDraftTarget === null
+      ? EMPTY_REVIEW_COMMENTS
+      : (store.getComposerDraft(composerDraftTarget)?.reviewComments ?? EMPTY_REVIEW_COMMENTS),
   );
   const [selectedLines, setSelectedLines] = useState<{
     id: string;
@@ -167,7 +174,7 @@ export function AnnotatableCodeView({
       setSelectedLines(null);
       if (draft?.annotation.metadata.entries.some((entry) => entry.id === entryId)) {
         setDraft(null);
-      } else {
+      } else if (composerDraftTarget !== null) {
         removeReviewComment(composerDraftTarget, entryId);
       }
     },
@@ -190,7 +197,7 @@ export function AnnotatableCodeView({
         range: entry.range,
         text,
       });
-      if (comment) addReviewComment(composerDraftTarget, comment);
+      if (comment && composerDraftTarget !== null) addReviewComment(composerDraftTarget, comment);
       setSelectedLines(null);
       setDraft(null);
     },
@@ -199,6 +206,8 @@ export function AnnotatableCodeView({
 
   const beginComment = useCallback(
     (range: SelectedLineRange | null, context: DiffSelectionContext) => {
+      // Nothing to comment into: the diff is being read on its own.
+      if (composerDraftTarget === null) return;
       if (!range) return;
       const item = context.item;
       if (item.type !== "diff") return;
@@ -226,7 +235,7 @@ export function AnnotatableCodeView({
         },
       });
     },
-    [filesByKey, sectionId, sectionTitle],
+    [composerDraftTarget, filesByKey, sectionId, sectionTitle],
   );
 
   const hasOpenComment = draft !== null;

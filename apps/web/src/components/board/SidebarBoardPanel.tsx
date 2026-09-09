@@ -1,24 +1,17 @@
 import { scopeProjectRef } from "@aqqua/client-runtime/environment";
 import { canDeleteCard, cardOperation } from "@aqqua/client-runtime/state/boards";
-import type {
-  EnvironmentId,
-  OrchestrationCard,
-  ProjectId,
-  ScopedProjectRef,
-} from "@aqqua/contracts";
+
+import type { OrchestrationBoard, OrchestrationCard, ScopedProjectRef } from "@aqqua/contracts";
 import {
   ArchiveIcon,
   CheckCircle2Icon,
-  ChevronDownIcon,
+  ChevronRightIcon,
   FolderIcon,
-  FolderTreeIcon,
   Trash2Icon,
   Undo2Icon,
 } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { useEnvironmentsBoards } from "../../state/boards";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   AlertDialog,
@@ -40,33 +33,11 @@ import {
 import { StatusIndicator } from "../StatusIndicator";
 import { cardOperationPresentation, formatElapsed } from "./BoardRunTable.logic";
 import { CardCreateDialog } from "./CardCreateDialog";
-import {
-  BoardSelector,
-  FlowNewCardButton,
-  FlowSlimRow,
-  InFlightCardRow,
-  SectionLabel,
-} from "./SidebarBoardRows";
+import type { FlowProject } from "./flowSelection";
+import { FlowSlimRow, InFlightCardRow, SectionLabel } from "./SidebarBoardRows";
+import { useSidebarFlows } from "./SidebarFlowsProvider";
 import { useSidebarProjectBoardController } from "./useSidebarProjectBoardController";
 import { useSidebarRelativeTimeTick } from "./useSidebarRelativeTimeTick";
-
-const BoardEditorDialog = lazy(() =>
-  import("./BoardEditorDialog").then((module) => ({
-    default: module.BoardEditorDialog,
-  })),
-);
-
-function _cardCommandFailureDescription(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) return error.message;
-  if (typeof error === "string" && error.trim().length > 0) return error;
-  if (typeof error === "object" && error !== null) {
-    const message = (error as { readonly message?: unknown }).message;
-    if (typeof message === "string" && message.trim().length > 0) return message;
-    const detail = (error as { readonly detail?: unknown }).detail;
-    if (typeof detail === "string" && detail.trim().length > 0) return detail;
-  }
-  return "The server rejected the card command without a reason.";
-}
 
 /** Coarse single-unit age for completed/settled rows: `2d`, `5h`, `12m`. */
 function cardAge(at: string | null, nowMs: number): string | null {
@@ -126,159 +97,74 @@ export function TodoCardStateBadge({
   );
 }
 
-export function FlowProjectGroupingToggle({
-  grouped,
-  onToggle,
-}: {
-  readonly grouped: boolean;
-  readonly onToggle: () => void;
-}) {
-  const label = grouped ? "Show flow cards without project groups" : "Group flow cards by project";
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={grouped}
-      onClick={onToggle}
-      className={cn(
-        "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
-        "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
-        grouped && "bg-sidebar-row-selected text-sidebar-foreground",
-      )}
-    >
-      <FolderTreeIcon aria-hidden className="size-3.5" />
-    </button>
-  );
-}
-
-export interface BoardPanelProject {
-  readonly environmentId: EnvironmentId;
-  readonly id: ProjectId;
-  readonly projectKey: string;
-  readonly displayName: string;
-}
+export type BoardPanelProject = FlowProject;
 
 /**
- * Board mode for the app sidebar. The project scope drives what shows:
- * a scoped project shows its boards, and "All projects" means exactly that —
- * one section per project, each with its own board selector.
+ * Board mode for the sidebar's scrolling body: the cards of the one flow the
+ * scope row in the header names. Everything about which flow that is lives in
+ * `SidebarFlowsProvider`, so the header and this list cannot disagree.
  */
-export function SidebarBoardPanel({
-  scopedProjectRef,
-  projects,
-}: {
-  readonly scopedProjectRef: ScopedProjectRef | null;
-  readonly projects: ReadonlyArray<BoardPanelProject>;
-}) {
-  const [groupByProject, setGroupByProject] = useState(false);
-  const scopedProject = useMemo(
-    () =>
-      scopedProjectRef === null
-        ? null
-        : (projects.find(
-            (project) =>
-              project.environmentId === scopedProjectRef.environmentId &&
-              project.id === scopedProjectRef.projectId,
-          ) ?? null),
-    [projects, scopedProjectRef],
-  );
-
-  const environmentIds = useMemo(
-    () => [...new Set(projects.map((project) => project.environmentId))],
-    [projects],
-  );
-  const allEnvironmentBoards = useEnvironmentsBoards(environmentIds);
-
-  if (scopedProjectRef !== null) {
+export function SidebarBoardPanel() {
+  const { selected, cardDialogOpen, setCardDialogOpen } = useSidebarFlows();
+  if (selected === null) {
     return (
-      <ProjectBoardSection
-        projectRef={scopedProjectRef}
-        projectTitle={scopedProject?.displayName ?? scopedProjectRef.projectId}
-        groupedByProject={false}
-        showWhenMissing
-      />
+      <SidebarGroup className="px-2 pt-0">
+        <p className="px-2 text-[13px] text-sidebar-muted-foreground">
+          No flows yet. Create one from the picker above.
+        </p>
+      </SidebarGroup>
     );
   }
-
   return (
-    <>
-      {projects.length > 1 ? (
-        <div className="flex justify-end px-2 pb-1">
-          <FlowProjectGroupingToggle
-            grouped={groupByProject}
-            onToggle={() => setGroupByProject((current) => !current)}
-          />
-        </div>
-      ) : null}
-      {allEnvironmentBoards.length === 0 ? (
-        <SidebarGroup className="px-2 pt-0">
-          <p className="px-2 text-sidebar-muted-foreground text-xs">
-            No flows in any project yet. Scope to a project to create its first flow.
-          </p>
-        </SidebarGroup>
-      ) : null}
-      {projects.map((project) => (
-        <ProjectBoardSection
-          key={project.projectKey}
-          projectRef={scopeProjectRef(project.environmentId, project.id)}
-          projectTitle={project.displayName}
-          groupedByProject={groupByProject}
-          showWhenMissing={false}
-        />
-      ))}
-    </>
+    <FlowCardList
+      key={selected.flow.id}
+      projectRef={scopeProjectRef(selected.project.environmentId, selected.project.id)}
+      project={selected.project}
+      flow={selected.flow}
+      cardDialogOpen={cardDialogOpen}
+      onCardDialogOpenChange={setCardDialogOpen}
+    />
   );
 }
 
 /**
- * One project's boards: the selector on top (a project can hold several
- * boards), then the selected board's cards grouped the way the design reads
- * them — Needs you, Active, To-Do (Start inline), Settled last.
+ * The selected flow's cards, grouped the way the design reads them — Needs you,
+ * Active, To-Do (Start inline), Done, then Settled and Archived last.
  */
-function ProjectBoardSection({
+function FlowCardList({
   projectRef,
-  projectTitle,
-  groupedByProject,
-  showWhenMissing,
+  project,
+  flow,
+  cardDialogOpen,
+  onCardDialogOpenChange,
 }: {
   readonly projectRef: ScopedProjectRef;
-  readonly projectTitle: string;
-  readonly groupedByProject: boolean;
-  /** Scoped view explains a missing board; the all-projects list skips it. */
-  readonly showWhenMissing: boolean;
+  readonly project: FlowProject;
+  readonly flow: OrchestrationBoard;
+  readonly cardDialogOpen: boolean;
+  readonly onCardDialogOpenChange: (open: boolean) => void;
 }) {
-  const controller = useSidebarProjectBoardController({ projectRef });
+  const controller = useSidebarProjectBoardController({ projectRef, boardId: flow.id });
   const {
     activeCards,
     archivedCards,
     archivedCollapsed,
     archiveCardRun,
     attachAnimatedList,
-    board,
-    boardNameFor,
-    boards,
-    cardDialogOpen,
-    chosenBoardIds,
     deleteCardRun,
-    editorTarget,
     environmentId,
-    handleBoardSubmit,
     handleCardSubmit,
     needsYouCards,
     openCard,
     pendingCardIds,
     pendingArchive,
     pendingDelete,
-    project,
+    projectDetails,
     releaseCard,
     retryDeleteCleanup,
     sections,
     selectedCardId,
-    setCardDialogOpen,
     setArchivedCollapsed,
-    setChosenBoardIds,
-    setEditorTarget,
     setPendingDelete,
     setPendingArchive,
     setSettledCollapsed,
@@ -287,68 +173,39 @@ function ProjectBoardSection({
     unarchiveCardRun,
     withPendingCard,
   } = controller;
-
-  if (boards.length === 0 && !showWhenMissing) return null;
+  const projectTitle = project.displayName;
+  const flowName = flow.name;
 
   const projectIcon =
-    project === null ? (
-      <FolderIcon className="size-4 shrink-0 text-sidebar-muted-foreground/50" />
+    projectDetails === null ? (
+      <FolderIcon className="size-3.5 shrink-0 text-sidebar-muted-foreground/50" />
     ) : (
       <ProjectFavicon
         environmentId={environmentId}
-        cwd={project.workspaceRoot}
-        className="size-4 shrink-0 rounded-sm"
+        cwd={projectDetails.workspaceRoot}
+        className="size-3.5 shrink-0 rounded-sm"
       />
     );
 
   return (
-    <SidebarGroup className="gap-3 px-2 pt-0 pb-4">
-      {groupedByProject ? (
-        <div
-          data-flow-project-group={projectTitle}
-          className="flex h-7 items-center gap-1.5 rounded-md px-1"
-        >
-          {projectIcon}
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-muted-foreground">
-            {projectTitle}
-          </span>
-        </div>
-      ) : null}
-      <div className="flex items-center gap-1">
-        <div className="min-w-0 flex-1">
-          <BoardSelector
-            boards={boards}
-            selectedBoardIds={chosenBoardIds}
-            projectTitle={projectTitle}
-            onSelectionChange={setChosenBoardIds}
-            onNewCard={() => setCardDialogOpen(true)}
-            onEditBoard={(candidate) => setEditorTarget({ board: candidate })}
-            onNewBoard={() => setEditorTarget({ board: null })}
-          />
-        </div>
-        {boards.length === 0 ? null : (
-          <FlowNewCardButton projectTitle={projectTitle} onClick={() => setCardDialogOpen(true)} />
-        )}
-      </div>
-
-      {boards.length > 0 &&
-      needsYouCards.length +
+    <SidebarGroup className="gap-4 px-2 pt-0 pb-4">
+      {needsYouCards.length +
         activeCards.length +
         sections.todo.length +
         sections.done.length +
         sections.settled.length +
         archivedCards.length +
         sections.deleting.length ===
-        0 ? (
-        <p className="px-2 text-sidebar-muted-foreground text-xs">
+      0 ? (
+        <p className="px-2 text-[13px] text-sidebar-muted-foreground">
           No cards yet. Add one to fill the backlog.
         </p>
       ) : null}
 
       {needsYouCards.length > 0 ? (
         <section className="flex flex-col">
-          <SectionLabel className="text-warning-foreground">
-            Needs you · {needsYouCards.length}
+          <SectionLabel className="text-warning-foreground" count={needsYouCards.length}>
+            Needs you
           </SectionLabel>
           {/* Panels need air between them to read as separate objects — the
               same gap the conversation list keeps. */}
@@ -359,7 +216,7 @@ function ProjectBoardSection({
                 card={card}
                 projectIcon={projectIcon}
                 projectName={projectTitle}
-                flowName={boardNameFor(card)}
+                flowName={flowName}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
                 onDelete={
@@ -376,8 +233,8 @@ function ProjectBoardSection({
 
       {activeCards.length > 0 ? (
         <section className="flex flex-col">
-          <SectionLabel className="text-info-foreground">
-            Active · {activeCards.length}
+          <SectionLabel className="text-info-foreground" count={activeCards.length}>
+            Active
           </SectionLabel>
           <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {activeCards.map((card) => (
@@ -386,7 +243,7 @@ function ProjectBoardSection({
                 card={card}
                 projectIcon={projectIcon}
                 projectName={projectTitle}
-                flowName={boardNameFor(card)}
+                flowName={flowName}
                 selected={card.id === selectedCardId}
                 onOpen={() => openCard(card.id)}
                 onDelete={
@@ -405,9 +262,10 @@ function ProjectBoardSection({
         <section className="flex flex-col">
           <SectionLabel
             className="text-sidebar-muted-foreground"
+            count={sections.todo.length}
             trailing={<span className="text-sidebar-muted-foreground/60">backlog</span>}
           >
-            To-Do · {sections.todo.length}
+            To-Do
           </SectionLabel>
           <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.todo.map((card) => {
@@ -421,7 +279,7 @@ function ProjectBoardSection({
                   card={card}
                   projectIcon={projectIcon}
                   projectName={projectTitle}
-                  flowName={boardNameFor(card)}
+                  flowName={flowName}
                   selected={card.id === selectedCardId}
                   onOpen={() => openCard(card.id)}
                   recede
@@ -471,8 +329,8 @@ function ProjectBoardSection({
 
       {sections.done.length > 0 ? (
         <section className="flex flex-col">
-          <SectionLabel className="text-success-foreground">
-            Done · {sections.done.length}
+          <SectionLabel className="text-success-foreground" count={sections.done.length}>
+            Done
           </SectionLabel>
           <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.done.map((card) => {
@@ -483,7 +341,7 @@ function ProjectBoardSection({
                   card={card}
                   projectIcon={projectIcon}
                   projectName={projectTitle}
-                  flowName={boardNameFor(card)}
+                  flowName={flowName}
                   selected={card.id === selectedCardId}
                   onOpen={() => openCard(card.id)}
                   titleClassName="text-sidebar-foreground/90"
@@ -496,7 +354,7 @@ function ProjectBoardSection({
                         reserveWidth
                         resting={
                           <span className="inline-flex items-center gap-2">
-                            <span className="text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                            <span className="text-[11px] text-sidebar-muted-foreground/70 tabular-nums">
                               <RelativeCardAge at={card.completedAt} />
                             </span>
                             <FlowCardStateBadge card={card} />
@@ -544,20 +402,20 @@ function ProjectBoardSection({
           <button
             type="button"
             aria-expanded={!settledCollapsed}
-            className="flex items-center gap-2 rounded-sm px-2 pb-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pl-1 pr-2 text-left text-sidebar-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             onClick={() => setSettledCollapsed((current) => !current)}
           >
-            <span className="shrink-0 text-[13px] text-sidebar-muted-foreground">
-              {settledCollapsed ? `Settled (${sections.settled.length})` : "Settled"}
-            </span>
-            <span aria-hidden className="h-px min-w-0 flex-1 bg-sidebar-border" />
-            <ChevronDownIcon
+            <ChevronRightIcon
               aria-hidden
               className={cn(
-                "size-3.5 shrink-0 text-sidebar-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                settledCollapsed && "-rotate-90",
+                "size-3.5 shrink-0 transition-transform duration-(--duration-fast) ease-(--ease-fluid) motion-reduce:transition-none",
+                !settledCollapsed && "rotate-90",
               )}
             />
+            <span className="text-[13px] font-medium leading-5">Settled</span>
+            <span className="text-[11px] tabular-nums text-sidebar-muted-foreground/70">
+              {sections.settled.length}
+            </span>
           </button>
           <div
             inert={settledCollapsed}
@@ -576,7 +434,7 @@ function ProjectBoardSection({
                       card={card}
                       projectIcon={projectIcon}
                       projectName={projectTitle}
-                      flowName={boardNameFor(card)}
+                      flowName={flowName}
                       selected={card.id === selectedCardId}
                       onOpen={() => openCard(card.id)}
                       recede
@@ -589,7 +447,7 @@ function ProjectBoardSection({
                           reserveWidth
                           resting={
                             <span className="inline-flex items-center gap-2">
-                              <span className="text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                              <span className="text-[11px] text-sidebar-muted-foreground/70 tabular-nums">
                                 <RelativeCardAge at={card.settledAt} />
                               </span>
                               <FlowCardStateBadge card={card} />
@@ -653,20 +511,20 @@ function ProjectBoardSection({
           <button
             type="button"
             aria-expanded={!archivedCollapsed}
-            className="flex items-center gap-2 rounded-sm px-2 pb-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pl-1 pr-2 text-left text-sidebar-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             onClick={() => setArchivedCollapsed((current) => !current)}
           >
-            <span className="shrink-0 text-[13px] text-sidebar-muted-foreground">
-              {archivedCollapsed ? `Archived (${archivedCards.length})` : "Archived"}
-            </span>
-            <span aria-hidden className="h-px min-w-0 flex-1 bg-sidebar-border" />
-            <ChevronDownIcon
+            <ChevronRightIcon
               aria-hidden
               className={cn(
-                "size-3.5 shrink-0 text-sidebar-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                archivedCollapsed && "-rotate-90",
+                "size-3.5 shrink-0 transition-transform duration-(--duration-fast) ease-(--ease-fluid) motion-reduce:transition-none",
+                !archivedCollapsed && "rotate-90",
               )}
             />
+            <span className="text-[13px] font-medium leading-5">Archived</span>
+            <span className="text-[11px] tabular-nums text-sidebar-muted-foreground/70">
+              {archivedCards.length}
+            </span>
           </button>
           <div
             inert={archivedCollapsed}
@@ -683,7 +541,7 @@ function ProjectBoardSection({
                     card={card}
                     projectIcon={projectIcon}
                     projectName={projectTitle}
-                    flowName={boardNameFor(card)}
+                    flowName={flowName}
                     selected={false}
                     interactive={false}
                     onOpen={() => undefined}
@@ -699,7 +557,7 @@ function ProjectBoardSection({
                       <SidebarCardHoverActionSlot
                         reserveWidth
                         resting={
-                          <span className="font-mono text-[10px] text-sidebar-muted-foreground/70 tabular-nums">
+                          <span className="font-mono text-[11px] text-sidebar-muted-foreground/70 tabular-nums">
                             <RelativeCardAge at={card.archivedAt} />
                           </span>
                         }
@@ -727,8 +585,8 @@ function ProjectBoardSection({
           board already — this is a receipt, not a place to act. */}
       {sections.deleting.length > 0 ? (
         <section className="flex flex-col">
-          <SectionLabel className="text-sidebar-muted-foreground">
-            Deleting · {sections.deleting.length}
+          <SectionLabel className="text-sidebar-muted-foreground" count={sections.deleting.length}>
+            Deleting
           </SectionLabel>
           <ul ref={attachAnimatedList} className="flex flex-col gap-1">
             {sections.deleting.map((card) => (
@@ -737,7 +595,7 @@ function ProjectBoardSection({
                 card={card}
                 projectIcon={projectIcon}
                 projectName={projectTitle}
-                flowName={boardNameFor(card)}
+                flowName={flowName}
                 selected={false}
                 onOpen={() => undefined}
                 interactive={false}
@@ -764,26 +622,13 @@ function ProjectBoardSection({
         </section>
       ) : null}
 
-      {editorTarget !== null ? (
-        <Suspense fallback={null}>
-          <BoardEditorDialog
-            open
-            board={editorTarget.board}
-            environmentId={environmentId}
-            projectTitle={project?.title ?? projectTitle}
-            workspaceRoot={project?.workspaceRoot ?? null}
-            onOpenChange={(open) => {
-              if (!open) setEditorTarget(null);
-            }}
-            onSubmit={handleBoardSubmit}
-          />
-        </Suspense>
-      ) : null}
+      {/* The picker already chose the flow, so the dialog asks only for the
+          card's inputs. */}
       <CardCreateDialog
         open={cardDialogOpen}
-        boards={boards}
-        initialBoardId={board?.id ?? null}
-        onOpenChange={setCardDialogOpen}
+        boards={[flow]}
+        initialBoardId={flow.id}
+        onOpenChange={onCardDialogOpenChange}
         onSubmit={handleCardSubmit}
       />
       <AlertDialog

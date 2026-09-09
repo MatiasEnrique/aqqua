@@ -25,6 +25,7 @@ import {
   CloudUploadIcon,
   CloudDownloadIcon,
   ExternalLinkIcon,
+  GitBranchIcon,
   GitBranchPlusIcon,
   GitCommitIcon,
   InfoIcon,
@@ -1723,7 +1724,7 @@ export default function GitActionsControl({
                 />
               }
             >
-              <GitBranchPlusIcon className="size-3.5" aria-hidden />
+              <GitBranchIcon className="size-3.5" aria-hidden />
             </TooltipTrigger>
             <TooltipPopup side="left">
               {initAction.isPending ? "Initializing Git..." : "Initialize Git"}
@@ -1826,10 +1827,7 @@ export default function GitActionsControl({
                       />
                     }
                   >
-                    <GitQuickActionIcon
-                      quickAction={quickAction}
-                      SourceControlIcon={SourceControlIcon}
-                    />
+                    <GitBranchIcon className="size-3.5" aria-hidden />
                   </TooltipTrigger>
                   <TooltipPopup side="left">Git actions</TooltipPopup>
                 </Tooltip>

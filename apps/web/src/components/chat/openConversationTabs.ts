@@ -187,6 +187,32 @@ export function resolveConversationTabAfterClose(input: {
   return families[closingIndex - 1]?.parent ?? families[closingIndex + 1]?.parent ?? null;
 }
 
+/** Closes a settled conversation family and chooses the nearest visible tab. */
+export function resolveConversationTabSettlement(input: {
+  readonly tabs: readonly ConversationTab[];
+  readonly settlingKey: string;
+}): {
+  readonly keysToClose: readonly string[];
+  readonly closesActiveTab: boolean;
+  readonly target: ConversationTab | null;
+} {
+  const family = groupConversationTabFamilies(input.tabs).find(
+    (candidate) => candidate.parent.key === input.settlingKey,
+  );
+  const closingTabs =
+    family === undefined
+      ? input.tabs.filter((tab) => tab.key === input.settlingKey)
+      : [family.parent, ...family.children];
+  return {
+    keysToClose: closingTabs.map((tab) => tab.key),
+    closesActiveTab: closingTabs.some((tab) => tab.isActive),
+    target: resolveConversationTabAfterClose({
+      tabs: input.tabs,
+      closingKey: input.settlingKey,
+    }),
+  };
+}
+
 /** The tab key of a conversation's orchestrator, if it has one. */
 export function conversationTabParentKey(tab: ConversationTab): string | null {
   return tab._tag === "thread" ? tab.parentKey : null;
@@ -266,6 +292,11 @@ interface ConversationTabSourceBase {
 export type ConversationTabScope =
   | { readonly scope: "all" }
   | {
+      readonly scope: "project";
+      /** Null while the selected project is still resolving. */
+      readonly projectKey: string | null;
+    }
+  | {
       readonly scope: "worktree";
       /** Null while the selected worktree is still resolving. */
       readonly worktreeKey: string | null;
@@ -307,11 +338,17 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
     ),
   );
 
-  const belongsToScope = (conversationWorktreeKey: string | null, key: string) =>
-    source.scope === "all" ||
-    source.worktreeKey === null ||
-    key === source.activeKey ||
-    conversationWorktreeKey === source.worktreeKey;
+  const belongsToScope = (input: {
+    readonly conversationProjectKey: string;
+    readonly conversationWorktreeKey: string | null;
+    readonly key: string;
+  }) => {
+    if (source.scope === "all" || input.key === source.activeKey) return true;
+    if (source.scope === "project") {
+      return source.projectKey === null || input.conversationProjectKey === source.projectKey;
+    }
+    return source.worktreeKey === null || input.conversationWorktreeKey === source.worktreeKey;
+  };
 
   const projectForTab = (
     environmentId: EnvironmentId,
@@ -335,19 +372,22 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
       if (thread.providerSubagent != null) {
         return [];
       }
-      if (
-        source.scope === "worktree" &&
-        !belongsToScope(
-          resolveSidebarConversationWorktreeKey({
-            environmentId: thread.environmentId,
-            projectId: thread.projectId,
-            worktreePath: thread.worktreePath ?? null,
-            projectRootByProjectKey: source.projectRootByProjectKey,
-          }),
-          key,
-        )
-      ) {
-        return [];
+      if (source.scope !== "all") {
+        const conversationProjectKey = sidebarProjectKey(thread.environmentId, thread.projectId);
+        if (
+          !belongsToScope({
+            conversationProjectKey,
+            conversationWorktreeKey: resolveSidebarConversationWorktreeKey({
+              environmentId: thread.environmentId,
+              projectId: thread.projectId,
+              worktreePath: thread.worktreePath ?? null,
+              projectRootByProjectKey: source.projectRootByProjectKey,
+            }),
+            key,
+          })
+        ) {
+          return [];
+        }
       }
       const parentThreadId = thread.parentThreadId ?? null;
       return [
@@ -368,17 +408,20 @@ function buildUngroupedConversationTabs(source: ConversationTabSource): Conversa
     }
     const draft = draftByKey.get(key);
     if (draft !== undefined) {
-      if (
-        source.scope === "worktree" &&
-        !belongsToScope(
-          resolveSidebarDraftWorktreeKey({
-            draft,
-            projectRootByProjectKey: source.projectRootByProjectKey,
-          }),
-          key,
-        )
-      ) {
-        return [];
+      if (source.scope !== "all") {
+        const conversationProjectKey = sidebarProjectKey(draft.environmentId, draft.projectId);
+        if (
+          !belongsToScope({
+            conversationProjectKey,
+            conversationWorktreeKey: resolveSidebarDraftWorktreeKey({
+              draft,
+              projectRootByProjectKey: source.projectRootByProjectKey,
+            }),
+            key,
+          })
+        ) {
+          return [];
+        }
       }
       return [
         {

@@ -16,7 +16,9 @@ Mobile uses its separate native thread list and device-local preferences.
 
 ## Projects and worktrees
 
-- Use the project picker to show all projects or select several. Selection survives reload and app
+- Use the project picker to show all projects or select several. It heads both surfaces and holds
+  one scope between them: on Threads it filters the thread list, and on Flows it narrows which
+  projects' flows the picker below it offers. Selection survives reload and app
   relaunch. Each open window can keep its own selection; reconnecting an environment restores its
   selected projects. While every selected project is unavailable, the picker keeps the filter and
   labels it **Selected projects unavailable** instead of exposing unrelated projects.
@@ -38,6 +40,8 @@ Mobile uses its separate native thread list and device-local preferences.
   recent settled conversations appear in the **Settled** shelf.
 - Hover or focus a conversation card to reveal its **Settle conversation** button. The control is
   always visible on touch devices. Settled cards expose **Un-settle conversation** in the same place.
+- Delete actions in the **Settled** shelf permanently delete the selected conversations without a
+  confirmation dialog. They leave the worktree on disk.
 - Settling a conversation that spawned sub-agents archives those sub-agents with it, including ones
   still working. Bring one back from **Settings → Archive**; un-settling the parent does not.
   Native subagents are left alone — they belong to their owner's transcript, not the inbox.
@@ -64,12 +68,14 @@ preference is saved across reloads.
 ## Conversation tabs
 
 The conversation bar contains open conversations and drafts. In **Settings → General → Header
-tabs**, choose whether it shows tabs from every worktree or only the selected worktree. The choice
-survives reloads and app relaunches. Tabs hidden by the selected-worktree view stay open, so
-switching back to all worktrees restores them in their original order. Use the filter icon between
-Search and Collapse sidebar to switch the scope without opening Settings.
-Persisted conversation tabs have an **Archive** action; archiving a parent conversation archives
-its sub-agent tree, while draft tabs cannot be archived.
+tabs**, choose whether it shows tabs from every worktree, every worktree in the selected project,
+or only the selected worktree. The choice survives reloads and app relaunches. Tabs hidden by a
+project or worktree filter stay open, so switching back to all worktrees restores them in their
+original order. Use the filter icon between Search and Collapse sidebar to choose the scope without
+opening Settings.
+Persisted conversation tabs have a check action that settles the conversation and files it in the
+**Settled** section. The settled tab closes and the nearest remaining tab becomes active. Settling a
+parent also files its sub-agent tree, while draft tabs only have a close action.
 Closing the active draft opens the previous conversation tab, or the next tab when the draft was
 first. Closing the only open draft returns to the thread list.
 When the strip runs out of room, use the list button at its right edge to open any conversation.
@@ -107,8 +113,9 @@ the feature is running appears — existing harness children are not imported re
 Mobile keeps its flat list rather than nesting: a native subagent row names its provider, and in
 the archive it also names the conversation that owns it.
 
-Settled and snoozed conversations remain reachable through the sidebar, header tabs, and command palette.
-New activity wakes or un-settles a conversation according to its lifecycle rules.
+Settled and snoozed conversations remain reachable through the sidebar and command palette. Opening
+one adds it to the header tabs again. New activity wakes or un-settles a conversation according to
+its lifecycle rules.
 
 ## Workspace tools
 

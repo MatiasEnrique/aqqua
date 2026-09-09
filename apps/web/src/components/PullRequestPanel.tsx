@@ -24,6 +24,7 @@ import {
   shouldRefetchChecks,
 } from "./PullRequestPanel.logic";
 import { PanelSurfaceHeader } from "./PanelSurfaceHeader";
+import { RIGHT_PANEL_SURFACE_META } from "~/rightPanelSurfaceMeta";
 import { DeleteBranchDialog } from "./pullRequest/DeleteBranchDialog";
 import { PullRequestMergeActionsPopover } from "./pullRequest/PullRequestMergeActionsPopover";
 import { PullRequestChecksSection } from "./pullRequest/PullRequestChecksSection";
@@ -145,8 +146,8 @@ export function PullRequestPanel({
 
   const panelHeader = (
     <PanelSurfaceHeader
-      icon={GitPullRequestIcon}
-      title="Pull request"
+      icon={RIGHT_PANEL_SURFACE_META.pullRequest.icon}
+      title={RIGHT_PANEL_SURFACE_META.pullRequest.label}
       actions={
         <Button
           variant="ghost"

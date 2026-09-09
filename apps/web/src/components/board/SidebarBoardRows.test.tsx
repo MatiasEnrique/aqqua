@@ -1,15 +1,39 @@
-import { BoardId } from "@aqqua/contracts";
-import type { OrchestrationCard } from "@aqqua/contracts";
-import { Children, type ReactElement, type ReactNode } from "react";
+import { BoardId, EnvironmentId, ProjectId } from "@aqqua/contracts";
+import type { OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { BoardSelector, FlowNewCardButton, FlowSlimRow, InFlightCardRow } from "./SidebarBoardRows";
+import type { FlowGroup, FlowProject } from "./flowSelection";
+import {
+  FlowEditButton,
+  FlowNewCardButton,
+  FlowNewFlowButton,
+  FlowPicker,
+  FlowSlimRow,
+  InFlightCardRow,
+} from "./SidebarBoardRows";
 
-const boards = [
-  { id: BoardId.make("flow-a"), name: "Delivery" },
-  { id: BoardId.make("flow-b"), name: "Release" },
-] as never;
+const project: FlowProject = {
+  environmentId: EnvironmentId.make("env-1"),
+  id: ProjectId.make("project-1"),
+  projectKey: "project-1",
+  displayName: "aqqua",
+  workspaceRoot: "/tmp/aqqua",
+};
+
+const flow = (id: string, name: string): OrchestrationBoard => ({
+  id: BoardId.make(id),
+  projectId: project.id,
+  name,
+  steps: [],
+  createdAt: "2026-08-07T12:00:00.000Z",
+  updatedAt: "2026-08-07T12:00:00.000Z",
+  deletedAt: null,
+});
+
+const groups: ReadonlyArray<FlowGroup> = [
+  { project, flows: [flow("flow-a", "Delivery"), flow("flow-b", "Release")] },
+];
 
 const card = {
   id: "card-1",
@@ -25,68 +49,54 @@ const card = {
   lastError: null,
 } as unknown as OrchestrationCard;
 
-describe("BoardSelector", () => {
-  it("uses the same empty-is-all multi-select model as project scope", () => {
+describe("FlowPicker", () => {
+  it("wears the selected flow's project so no separate project filter is needed", () => {
     const markup = renderToStaticMarkup(
-      <BoardSelector
-        boards={boards}
-        selectedBoardIds={[]}
-        projectTitle="aqqua"
-        onSelectionChange={() => {}}
-        onNewCard={() => {}}
-        onEditBoard={() => {}}
-        onNewBoard={() => {}}
+      <FlowPicker
+        groups={groups}
+        selected={{ project, flow: groups[0]!.flows[0]! }}
+        onSelect={() => {}}
       />,
     );
 
-    expect(markup).toContain('aria-label="Filter flows in aqqua"');
-    expect(markup).toContain('placeholder="All flows"');
+    expect(markup).toContain('aria-label="Select flow"');
+    expect(markup).toContain('title="aqqua · Delivery"');
+    expect(markup).toContain("Delivery");
+    // One flow at a time: the trigger names it instead of listing chips.
+    expect(markup).not.toContain("Release");
   });
 
-  it("renders every selected flow as a removable chip", () => {
+  it("says so when no project holds a flow yet", () => {
     const markup = renderToStaticMarkup(
-      <BoardSelector
-        boards={boards}
-        selectedBoardIds={[BoardId.make("flow-a"), BoardId.make("flow-b")]}
-        projectTitle="aqqua"
-        onSelectionChange={() => {}}
-        onNewCard={() => {}}
-        onEditBoard={() => {}}
-        onNewBoard={() => {}}
-      />,
+      <FlowPicker groups={[{ project, flows: [] }]} selected={null} onSelect={() => {}} />,
     );
 
-    expect(markup).toContain('aria-label="Delivery"');
-    expect(markup).toContain('aria-label="Release"');
-    expect(markup).toContain("Delivery");
-    expect(markup).toContain("Release");
+    expect(markup).toContain("No flow yet");
   });
 });
 
-describe("FlowNewCardButton", () => {
-  it("exposes card creation beside the flow selector", () => {
-    const onClick = vi.fn();
-    const element = FlowNewCardButton({ projectTitle: "aqqua", onClick }) as ReactElement<{
-      readonly children: ReactNode;
-    }>;
-    const [trigger, popup] = Children.toArray(element.props.children) as ReadonlyArray<
-      ReactElement<{ readonly render?: ReactElement; readonly children?: ReactNode }>
-    >;
-    const button = trigger?.props.render as ReactElement<{
-      readonly "aria-label": string;
-      readonly onClick: () => void;
-    }>;
+describe("flow header actions", () => {
+  it("names the flow they act on", () => {
+    const onNewCard = vi.fn();
+    const onEdit = vi.fn();
+    const newCard = renderToStaticMarkup(
+      <FlowNewCardButton flowName="Delivery" onClick={onNewCard} />,
+    );
+    const edit = renderToStaticMarkup(<FlowEditButton flowName="Delivery" onClick={onEdit} />);
 
-    button.props.onClick();
+    const newFlow = renderToStaticMarkup(
+      <FlowNewFlowButton projectName="aqqua" onClick={() => {}} />,
+    );
 
-    expect(button.props["aria-label"]).toBe("New card in aqqua");
-    expect(popup?.props.children).toBe("New card");
-    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(newCard).toContain('aria-label="New card in Delivery"');
+    expect(edit).toContain('aria-label="Edit Delivery"');
+    // Creating a flow names the project it lands in, not a flow.
+    expect(newFlow).toContain('aria-label="New flow in aqqua"');
   });
 });
 
 describe("InFlightCardRow", () => {
-  it("uses the compact worktree-card row language", () => {
+  it("uses the conversation row's language", () => {
     const markup = renderToStaticMarkup(
       <InFlightCardRow
         card={card}
@@ -101,9 +111,13 @@ describe("InFlightCardRow", () => {
     );
     const rowClassName = markup.match(/class="(group\/v2-row[^"]+)"/)?.[1] ?? "";
 
-    expect(markup).toContain("h-11");
-    expect(markup).toContain("rounded-lg");
-    expect(markup).toContain("text-xs font-semibold");
+    // The same geometry and type scale a conversation row uses, so the two
+    // surfaces read as one sidebar.
+    expect(markup).toContain("min-h-10");
+    expect(markup).toContain("rounded-md");
+    expect(markup).toContain("text-[13px] leading-5");
+    expect(markup).toContain("text-[11px] leading-4");
+    expect(markup).not.toContain("h-11");
     expect(markup).not.toContain("h-[3.25rem]");
     expect(markup).not.toContain("rounded-2xl border");
     expect(rowClassName).toContain("hover:bg-sidebar-control-surface/60");

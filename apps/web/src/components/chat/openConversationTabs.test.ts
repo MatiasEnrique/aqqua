@@ -10,6 +10,7 @@ import {
   openConversationTab,
   openNewSubAgentConversationTabs,
   resolveConversationTabAfterClose,
+  resolveConversationTabSettlement,
   resolveConversationTabRouteKey,
   resolveWorktreeFocusTarget,
   resolveWorktreeSelectionTarget,
@@ -115,6 +116,37 @@ describe("resolveConversationTabAfterClose", () => {
     expect(
       resolveConversationTabAfterClose({ tabs: [parent, child, closing], closingKey: closing.key }),
     ).toBe(parent);
+  });
+});
+
+describe("resolveConversationTabSettlement", () => {
+  it("closes the settled family and targets the previous visible tab", () => {
+    const previous = conversationTab("previous");
+    const parent = conversationTab("parent");
+    const activeChild = conversationTab("child", true, parent.key);
+
+    expect(
+      resolveConversationTabSettlement({
+        tabs: [previous, parent, activeChild],
+        settlingKey: parent.key,
+      }),
+    ).toEqual({
+      keysToClose: [parent.key, activeChild.key],
+      closesActiveTab: true,
+      target: previous,
+    });
+  });
+
+  it("targets the next tab when the first visible tab settles", () => {
+    const settling = conversationTab("settling", true);
+    const next = conversationTab("next");
+
+    expect(
+      resolveConversationTabSettlement({
+        tabs: [settling, next],
+        settlingKey: settling.key,
+      }).target,
+    ).toBe(next);
   });
 });
 
@@ -656,6 +688,86 @@ describe("buildConversationTabs — cross-worktree tabs", () => {
     };
 
     expect(buildConversationTabs(source)).toHaveLength(1);
+  });
+});
+
+describe("buildConversationTabs — selected-project scope", () => {
+  const projectRootByProjectKey = new Map([
+    ["env:project", "/repo"],
+    ["env:other-project", "/other-repo"],
+  ]);
+  const projectScope = {
+    scope: "project",
+    projectKey: "env:project",
+    projectRootByProjectKey,
+  } as const;
+  const checkoutThread = thread("checkout-thread");
+  const worktreeThread = thread("worktree-thread", { worktreePath: "/repo-wt" } as never);
+  const otherProjectThread = thread("other-project-thread", {
+    projectId: "other-project",
+    worktreePath: "/other-repo-wt",
+  } as never);
+  const openKeys = [key("checkout-thread"), key("worktree-thread"), key("other-project-thread")];
+
+  it("shows the checkout and every worktree from the selected project", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [checkoutThread, worktreeThread, otherProjectThread],
+      drafts: [],
+      activeKey: null,
+      ...projectScope,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("checkout-thread"), key("worktree-thread")]);
+    expect(tabs.every((tab) => tab.project === null)).toBe(true);
+  });
+
+  it("applies the selected-project scope to drafts", () => {
+    const tabs = buildConversationTabs({
+      openKeys: [key("checkout-draft"), key("worktree-draft"), key("other-project-draft")],
+      threads: [],
+      drafts: [
+        draft("checkout", "checkout-draft"),
+        draft("worktree", "worktree-draft", {
+          envMode: "worktree",
+          worktreePath: "/repo-wt",
+        }),
+        draft("other", "other-project-draft", {
+          projectId: "other-project",
+          envMode: "worktree",
+          worktreePath: "/other-repo-wt",
+        }),
+      ],
+      activeKey: null,
+      ...projectScope,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual([key("checkout-draft"), key("worktree-draft")]);
+  });
+
+  it("shows every open tab until the selected project resolves", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [checkoutThread, worktreeThread, otherProjectThread],
+      drafts: [],
+      activeKey: null,
+      ...projectScope,
+      projectKey: null,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual(openKeys);
+  });
+
+  it("keeps the routed conversation visible during a project change", () => {
+    const tabs = buildConversationTabs({
+      openKeys,
+      threads: [checkoutThread, worktreeThread, otherProjectThread],
+      drafts: [],
+      activeKey: key("other-project-thread"),
+      ...projectScope,
+    });
+
+    expect(tabs.map((tab) => tab.key)).toEqual(openKeys);
   });
 });
 

@@ -4,7 +4,7 @@ import {
   scopeThreadRef,
 } from "@aqqua/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation } from "@tanstack/react-router";
 import {
   EllipsisIcon,
   FolderPlusIcon,
@@ -17,6 +17,7 @@ import {
   Fragment,
   lazy,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -43,6 +44,7 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChro
 import { Button } from "../ui/button";
 import { CommandDialogTrigger } from "../ui/command";
 import { Kbd } from "../ui/kbd";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
@@ -51,7 +53,7 @@ import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/to
 import type { SidebarV2ViewModel } from "./models";
 import { ProjectNewWorktreeButton } from "./ProjectNewWorktreeButton";
 import { ProjectSettingsPopover } from "./ProjectSettingsPopover";
-import { resolveProjectScopeAddition } from "./projectScopeSelection";
+import { SidebarFlowScopeRow, SidebarFlowsProvider } from "../board/SidebarFlowsProvider";
 import { SidebarProjectScopeChips } from "./SidebarProjectScopeChips";
 import { SidebarSettledSection } from "./SidebarSettledSection";
 import {
@@ -64,43 +66,102 @@ import { WorktreeProjectFolder } from "./WorktreeProjectFolder";
 import { buildWorktreeCardGroups } from "./worktreeCardGroups";
 import { resolveActiveWorktreeProjectKey } from "./activeWorktree";
 
+// The card list is the weight, so it stays lazy; the flow scope row and the
+// selection it shares with the list sit in the sidebar header and load with it.
 const loadSidebarBoardPanel = () =>
   import("../board/SidebarBoardPanel").then((module) => ({
     default: module.SidebarBoardPanel,
   }));
 const SidebarBoardPanel = lazy(loadSidebarBoardPanel);
 
-function HeaderTabScopeQuickAction() {
-  const headerTabScope = useClientSettings((settings) => settings.headerTabScope);
-  const updateSettings = useUpdateClientSettings();
-  const showingSelectedWorktree = headerTabScope === "worktree";
-  const actionLabel = showingSelectedWorktree
-    ? "Show header tabs from all worktrees"
-    : "Show header tabs from the selected worktree";
+/**
+ * Flows scope: the header's flow picker and the body's card list are one
+ * selection, so the surface wraps both halves of the sidebar rather than
+ * living inside either.
+ */
+function FlowsSurfaceScope(props: {
+  readonly active: boolean;
+  readonly projects: readonly SidebarProjectSnapshot[];
+  readonly children: ReactNode;
+}) {
+  if (!props.active) return props.children;
+  return <SidebarFlowsProvider projects={props.projects}>{props.children}</SidebarFlowsProvider>;
+}
 
+/** Sidebar scope-row action that starts adding a project. Both surfaces carry
+ * it: a project can be added from Flows as well as from Threads. */
+function NewProjectButton({ onClick }: { readonly onClick: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <SidebarMenuButton
             size="icon"
+            className="relative shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            onClick={onClick}
             type="button"
-            className="size-7 rounded-md focus-visible:ring-offset-2"
-            aria-label="Limit header tabs to the selected worktree"
-            aria-pressed={showingSelectedWorktree}
-            isActive={showingSelectedWorktree}
-            onClick={() =>
-              updateSettings({
-                headerTabScope: showingSelectedWorktree ? "all" : "worktree",
-              })
-            }
+            aria-label="New project"
           />
         }
       >
-        <ListFilterIcon />
+        <FolderPlusIcon />
+        <span
+          className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+          aria-hidden="true"
+        />
       </TooltipTrigger>
-      <TooltipPopup side="bottom">{actionLabel}</TooltipPopup>
+      <TooltipPopup side="right">New project</TooltipPopup>
     </Tooltip>
+  );
+}
+
+function HeaderTabScopeQuickAction() {
+  const headerTabScope = useClientSettings((settings) => settings.headerTabScope);
+  const updateSettings = useUpdateClientSettings();
+  const scopeLabel =
+    headerTabScope === "all"
+      ? "All worktrees"
+      : headerTabScope === "project"
+        ? "Selected project"
+        : "Selected worktree";
+
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <SidebarMenuButton
+                  size="icon"
+                  type="button"
+                  className="size-7 rounded-md focus-visible:ring-offset-2"
+                  aria-label="Filter header tabs"
+                  isActive={headerTabScope !== "all"}
+                />
+              }
+            />
+          }
+        >
+          <ListFilterIcon />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">Header tabs: {scopeLabel}</TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="end" sideOffset={6} className="min-w-44">
+        <MenuRadioGroup
+          value={headerTabScope}
+          onValueChange={(value) => {
+            if (value === "all" || value === "project" || value === "worktree") {
+              updateSettings({ headerTabScope: value });
+            }
+          }}
+        >
+          <MenuRadioItem value="all">All worktrees</MenuRadioItem>
+          <MenuRadioItem value="project">Selected project</MenuRadioItem>
+          <MenuRadioItem value="worktree">Selected worktree</MenuRadioItem>
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -168,7 +229,7 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     snoozeThread,
     unsnoozeThread,
     confirmAndDeleteThread,
-    deleteThreads,
+    deleteThreadsWithoutConfirmation,
   } = useThreadActions();
   const {
     handleRemoveProjectMembers,
@@ -193,7 +254,9 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
 
   const pathname = useLocation({ select: (location) => location.pathname });
   const isBoardSurface = pathname.startsWith("/board/");
-  const boardNavigate = useNavigate();
+  // Flows read the same project scope the thread list does. An empty selection
+  // means every project, matching the chip row's own "All projects" reading.
+  const scopedFlowProjects = projectScopeSelection.size === 0 ? projectGroups : scopedProjectGroups;
   const openConversationTabKeys = useUiStateStore((store) => store.openConversationTabKeys);
   const worktreeConversationExpandedByKey = useUiStateStore(
     (store) => store.worktreeConversationExpandedByKey,
@@ -336,14 +399,11 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
     [settleThread, unsettleThread],
   );
 
-  /**
-   * The settled shelf's delete, for one row or a whole selection: same
-   * confirmation the context menu runs, asked once for the batch.
-   */
+  /** Settled work is already filed away, so its shelf deletes without another prompt. */
   const handleDeleteThreads = useCallback(
     (threads: readonly EnvironmentThreadShell[]) => {
       if (threads.length === 0) return;
-      void deleteThreads(threads).then((result) => {
+      void deleteThreadsWithoutConfirmation(threads).then((result) => {
         if (result._tag !== "Success") {
           toastManager.add({
             type: "error",
@@ -354,13 +414,12 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
           });
           return;
         }
-        // Null means the confirmation was declined, so nothing left the sidebar.
         if (result.value !== null) {
           useThreadSelectionStore.getState().removeFromSelection([...result.value]);
         }
       });
     },
-    [deleteThreads],
+    [deleteThreadsWithoutConfirmation],
   );
 
   const handleThreadContextMenu = useCallback(
@@ -396,14 +455,23 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
           if (action === "settle") return (await settleThread(threadRef))._tag === "Success";
           if (action === "unsettle") return (await unsettleThread(threadRef))._tag === "Success";
           if (action === "unsnooze") return (await unsnoozeThread(threadRef))._tag === "Success";
-          return (await confirmAndDeleteThread(thread))._tag === "Success";
+          return section === "settled"
+            ? (await deleteThreadsWithoutConfirmation([thread]))._tag === "Success"
+            : (await confirmAndDeleteThread(thread))._tag === "Success";
         };
         if (!(await runAction())) {
           toastManager.add({ type: "error", title: "Thread action failed" });
         }
       });
     },
-    [confirmAndDeleteThread, settleThread, snoozeThread, unsettleThread, unsnoozeThread],
+    [
+      confirmAndDeleteThread,
+      deleteThreadsWithoutConfirmation,
+      settleThread,
+      snoozeThread,
+      unsettleThread,
+      unsnoozeThread,
+    ],
   );
 
   const handleDraftContextMenu = useCallback(
@@ -539,259 +607,230 @@ export function SidebarV2View(props: { model: SidebarV2ViewModel }) {
           </>
         }
       />
-      <SidebarContent
-        className="@container/sidebar-conversations gap-0"
-        fixedHeader={
-          <div className="px-2 pb-2 pt-2">
-            <SidebarGroup className="gap-0.5 p-0">
-              <SidebarMenuButton
-                type="button"
-                onClick={handleNewThreadClick}
-                disabled={projects.length === 0}
-                aria-label="New thread"
-                className="h-8 gap-1.5 rounded-md px-1 text-[13px] font-medium leading-5 text-sidebar-foreground/80 [&_svg]:stroke-[1.5]"
-              >
-                <SquarePenIcon />
-                <span className="flex-1">New thread</span>
-                {newThreadShortcutLabel ? (
-                  <Kbd className="h-4 rounded-sm bg-sidebar-control-surface px-1.5 text-[11px] font-normal text-sidebar-muted-foreground ring-1 ring-sidebar-border">
-                    {newThreadShortcutLabel}
-                  </Kbd>
-                ) : null}
-              </SidebarMenuButton>
-              <SidebarSurfaceSwitcher
-                orientation="rows"
-                scopedProjectRef={boardProjectRef}
-                onFlowsIntent={loadSidebarBoardPanel}
-              />
-            </SidebarGroup>
-            <div className="h-3" />
-            {projectGroups.length > 0 ? (
-              <div className="mt-1 flex items-center gap-1">
-                <div className="min-w-0 flex-1">
-                  <SidebarProjectScopeChips
-                    projectGroups={projectGroups}
-                    scopedProjectGroups={scopedProjectGroups}
-                    selectedProjectKeys={[...projectScopeSelection]}
-                    onSelectionChange={(projectKeys) => {
-                      // In board mode the scope filter doubles as the board's
-                      // project switcher — the surface is per-project, so
-                      // adding a project has to move the route with it.
-                      // Removals leave the route alone: there is no single
-                      // project left to point at.
-                      const addedKey = resolveProjectScopeAddition(projectScopeSelection, [
-                        ...projectKeys,
-                      ]);
-                      setProjectScope(projectKeys);
-                      if (!isBoardSurface || addedKey === null) return;
-                      const group = projectGroups.find(
-                        (project) => project.projectKey === addedKey,
-                      );
-                      if (group === undefined) return;
-                      void boardNavigate({
-                        to: "/board/$environmentId/$projectId",
-                        params: {
-                          environmentId: group.environmentId,
-                          projectId: group.id,
-                        },
-                      });
-                    }}
-                    onProjectContextMenu={(event, project) => {
-                      handleLocationContextMenu(event, {
-                        projectRef: scopeProjectRef(project.environmentId, project.id),
-                      });
-                    }}
-                  />
-                </div>
-                {scopedProjectGroup ? (
-                  <>
-                    {renderProjectActionsButton(scopedProjectGroup)}
-                    <ProjectNewWorktreeButton
-                      projectRef={scopeProjectRef(
-                        scopedProjectGroup.environmentId,
-                        scopedProjectGroup.id,
-                      )}
-                      projectName={scopedProjectGroup.displayName}
-                    />
-                  </>
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <SidebarMenuButton
-                        size="icon"
-                        className="relative shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-                        onClick={openAddProjectCommandPalette}
-                        type="button"
-                        aria-label="New project"
-                      />
-                    }
-                  >
-                    <FolderPlusIcon />
-                    <span
-                      className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-                      aria-hidden="true"
-                    />
-                  </TooltipTrigger>
-                  <TooltipPopup side="right">New project</TooltipPopup>
-                </Tooltip>
-              </div>
-            ) : null}
-          </div>
-        }
-      >
-        {isBoardSurface ? (
-          <Suspense fallback={null}>
-            <SidebarBoardPanel
-              scopedProjectRef={
-                scopedProjectGroup
-                  ? scopeProjectRef(scopedProjectGroup.environmentId, scopedProjectGroup.id)
-                  : null
-              }
-              projects={scopedProjectGroups.length > 0 ? scopedProjectGroups : projectGroups}
-            />
-          </Suspense>
-        ) : (
-          <SidebarGroup data-sidebar-thread-list className="px-2 pb-1 pt-0">
-            <TooltipProvider
-              key="sidebar-thread-tooltips-150"
-              delay={150}
-              closeDelay={0}
-              timeout={400}
-            >
-              {conversationGrouping === "status" ? (
-                <SidebarConversationGroups
-                  grouping="status"
-                  threads={statusThreads}
-                  drafts={statusDrafts}
-                  descendantsByRoot={threadFamilies.descendantsByRoot}
-                  threadSectionByKey={threadSectionByKey}
-                  isMobile={isMobile}
-                  selectedThreadKey={routeThreadKey}
-                  selectedDraftId={route.routeDraftId}
-                  onSelectThread={handleThreadClick}
-                  onThreadContextMenu={handleThreadContextMenu}
-                  onToggleThreadSettled={handleToggleThreadSettled}
-                  onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
-                  onDraftContextMenu={handleDraftContextMenu}
+      <FlowsSurfaceScope active={isBoardSurface} projects={scopedFlowProjects}>
+        <SidebarContent
+          className="@container/sidebar-conversations gap-0"
+          fixedHeader={
+            <div className="px-2 pb-2 pt-2">
+              <SidebarGroup className="gap-0.5 p-0">
+                <SidebarMenuButton
+                  type="button"
+                  onClick={handleNewThreadClick}
+                  disabled={projects.length === 0}
+                  aria-label="New thread"
+                  className="h-8 gap-1.5 rounded-md px-1 text-[13px] font-medium leading-5 text-sidebar-foreground/80 [&_svg]:stroke-[1.5]"
+                >
+                  <SquarePenIcon />
+                  <span className="flex-1">New thread</span>
+                  {newThreadShortcutLabel ? (
+                    <Kbd className="h-4 rounded-sm bg-sidebar-control-surface px-1.5 text-[11px] font-normal text-sidebar-muted-foreground ring-1 ring-sidebar-border">
+                      {newThreadShortcutLabel}
+                    </Kbd>
+                  ) : null}
+                </SidebarMenuButton>
+                <SidebarSurfaceSwitcher
+                  orientation="rows"
+                  scopedProjectRef={boardProjectRef}
+                  onFlowsIntent={loadSidebarBoardPanel}
                 />
-              ) : (
-                <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1">
-                  {worktreeCardGroups.map((cardGroup) => {
-                    const { project } = cardGroup;
-                    const conversations =
-                      conversationGrouping === "project" ? (
-                        <li className="list-none">
-                          <SidebarConversationGroups
-                            grouping="project"
-                            threads={cardGroup.worktrees
-                              .flatMap((worktree) => threadsByWorktreeKey.get(worktree.key) ?? [])
-                              .filter((thread) => !isSettledThread(thread))
-                              .toSorted(
-                                (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-                              )}
-                            drafts={cardGroup.worktrees.flatMap((worktree) => worktree.drafts)}
-                            descendantsByRoot={threadFamilies.descendantsByRoot}
-                            threadSectionByKey={threadSectionByKey}
-                            isMobile={isMobile}
-                            selectedThreadKey={routeThreadKey}
-                            selectedDraftId={route.routeDraftId}
-                            onSelectThread={handleThreadClick}
-                            onThreadContextMenu={handleThreadContextMenu}
-                            onToggleThreadSettled={handleToggleThreadSettled}
-                            onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
-                            onDraftContextMenu={handleDraftContextMenu}
+              </SidebarGroup>
+              <div className="h-3" />
+              {/* The project filter heads both surfaces. Threads narrow their
+                list with it; Flows narrow which projects' flows the picker
+                below offers, so the two surfaces answer to one scope. */}
+              {isBoardSurface || projectGroups.length > 0 ? (
+                <>
+                  <div className="mt-1 flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <SidebarProjectScopeChips
+                        ariaLabel={isBoardSurface ? "Filter flows by project" : undefined}
+                        projectGroups={projectGroups}
+                        scopedProjectGroups={scopedProjectGroups}
+                        selectedProjectKeys={[...projectScopeSelection]}
+                        onSelectionChange={setProjectScope}
+                        onProjectContextMenu={(event, project) => {
+                          handleLocationContextMenu(event, {
+                            projectRef: scopeProjectRef(project.environmentId, project.id),
+                          });
+                        }}
+                      />
+                    </div>
+                    {scopedProjectGroup ? (
+                      <>
+                        {renderProjectActionsButton(scopedProjectGroup)}
+                        {/* Worktrees are thread work; Flows start theirs from a
+                          card, so the button stays on Threads. */}
+                        {isBoardSurface ? null : (
+                          <ProjectNewWorktreeButton
+                            projectRef={scopeProjectRef(
+                              scopedProjectGroup.environmentId,
+                              scopedProjectGroup.id,
+                            )}
+                            projectName={scopedProjectGroup.displayName}
                           />
-                        </li>
-                      ) : (
-                        renderWorktreeCards(cardGroup.worktrees)
-                      );
-                    if (project === null) {
-                      return (
-                        <Fragment key={`worktree-folder:${cardGroup.key}`}>
-                          {conversations}
-                        </Fragment>
-                      );
-                    }
-                    const projectRef = scopeProjectRef(project.environmentId, project.id);
-                    const expanded = resolveProjectExpanded(projectExpandedById, [
-                      project.projectKey,
-                    ]);
-                    const projectState =
-                      repositoryGroups.find(
-                        (repository) => repository.project.projectKey === project.projectKey,
-                      )?.state ?? "idle";
-                    return (
-                      <WorktreeProjectFolder
-                        key={`worktree-folder:${cardGroup.key}`}
-                        displayName={project.displayName}
-                        environmentId={project.environmentId}
-                        workspaceRoot={project.workspaceRoot}
-                        projectKey={project.projectKey}
-                        worktreeCount={cardGroup.worktrees.length}
-                        state={projectState === "settled" ? "idle" : projectState}
-                        expanded={expanded}
-                        onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
-                        onContextMenu={(event) => handleLocationContextMenu(event, { projectRef })}
-                        actions={
-                          <>
-                            {renderProjectActionsButton(project)}
-                            <ProjectNewWorktreeButton
-                              projectRef={projectRef}
-                              projectName={project.displayName}
-                            />
-                          </>
-                        }
-                      >
-                        {conversations}
-                      </WorktreeProjectFolder>
-                    );
-                  })}
-                </ul>
-              )}
-            </TooltipProvider>
-            {showEmptyState ? (
-              <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-[13px] text-muted-foreground/60">
-                {projects.length === 0 ? (
-                  <>
-                    <span>No projects yet</span>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={openAddProjectCommandPalette}
-                      className="border-sidebar-border bg-transparent text-[13px] text-sidebar-muted-foreground shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                    >
-                      <PlusIcon className="size-3" />
-                      Add project
-                    </Button>
-                  </>
-                ) : scopedProjectGroup ? (
-                  `No threads in ${scopedProjectGroup.displayName} yet`
+                        )}
+                      </>
+                    ) : null}
+                    <NewProjectButton onClick={openAddProjectCommandPalette} />
+                  </div>
+                  {isBoardSurface ? (
+                    <div className="mt-1 flex items-center gap-1">
+                      <SidebarFlowScopeRow />
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          }
+        >
+          {isBoardSurface ? (
+            <Suspense fallback={null}>
+              <SidebarBoardPanel />
+            </Suspense>
+          ) : (
+            <SidebarGroup data-sidebar-thread-list className="px-2 pb-1 pt-0">
+              <TooltipProvider
+                key="sidebar-thread-tooltips-150"
+                delay={150}
+                closeDelay={0}
+                timeout={400}
+              >
+                {conversationGrouping === "status" ? (
+                  <SidebarConversationGroups
+                    grouping="status"
+                    threads={statusThreads}
+                    drafts={statusDrafts}
+                    descendantsByRoot={threadFamilies.descendantsByRoot}
+                    threadSectionByKey={threadSectionByKey}
+                    isMobile={isMobile}
+                    selectedThreadKey={routeThreadKey}
+                    selectedDraftId={route.routeDraftId}
+                    onSelectThread={handleThreadClick}
+                    onThreadContextMenu={handleThreadContextMenu}
+                    onToggleThreadSettled={handleToggleThreadSettled}
+                    onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
+                    onDraftContextMenu={handleDraftContextMenu}
+                  />
                 ) : (
-                  "No threads yet"
+                  <ul ref={attachListAutoAnimateRef} className="flex flex-col gap-1">
+                    {worktreeCardGroups.map((cardGroup) => {
+                      const { project } = cardGroup;
+                      const conversations =
+                        conversationGrouping === "project" ? (
+                          <li className="list-none">
+                            <SidebarConversationGroups
+                              grouping="project"
+                              threads={cardGroup.worktrees
+                                .flatMap((worktree) => threadsByWorktreeKey.get(worktree.key) ?? [])
+                                .filter((thread) => !isSettledThread(thread))
+                                .toSorted(
+                                  (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+                                )}
+                              drafts={cardGroup.worktrees.flatMap((worktree) => worktree.drafts)}
+                              descendantsByRoot={threadFamilies.descendantsByRoot}
+                              threadSectionByKey={threadSectionByKey}
+                              isMobile={isMobile}
+                              selectedThreadKey={routeThreadKey}
+                              selectedDraftId={route.routeDraftId}
+                              onSelectThread={handleThreadClick}
+                              onThreadContextMenu={handleThreadContextMenu}
+                              onToggleThreadSettled={handleToggleThreadSettled}
+                              onSelectDraft={(draft) => navigateToDraft(draft.draftId)}
+                              onDraftContextMenu={handleDraftContextMenu}
+                            />
+                          </li>
+                        ) : (
+                          renderWorktreeCards(cardGroup.worktrees)
+                        );
+                      if (project === null) {
+                        return (
+                          <Fragment key={`worktree-folder:${cardGroup.key}`}>
+                            {conversations}
+                          </Fragment>
+                        );
+                      }
+                      const projectRef = scopeProjectRef(project.environmentId, project.id);
+                      const expanded = resolveProjectExpanded(projectExpandedById, [
+                        project.projectKey,
+                      ]);
+                      const projectState =
+                        repositoryGroups.find(
+                          (repository) => repository.project.projectKey === project.projectKey,
+                        )?.state ?? "idle";
+                      return (
+                        <WorktreeProjectFolder
+                          key={`worktree-folder:${cardGroup.key}`}
+                          displayName={project.displayName}
+                          environmentId={project.environmentId}
+                          workspaceRoot={project.workspaceRoot}
+                          projectKey={project.projectKey}
+                          worktreeCount={cardGroup.worktrees.length}
+                          state={projectState === "settled" ? "idle" : projectState}
+                          expanded={expanded}
+                          onToggle={() => setProjectExpanded(project.projectKey, !expanded)}
+                          onContextMenu={(event) =>
+                            handleLocationContextMenu(event, { projectRef })
+                          }
+                          actions={
+                            <>
+                              {renderProjectActionsButton(project)}
+                              <ProjectNewWorktreeButton
+                                projectRef={projectRef}
+                                projectName={project.displayName}
+                              />
+                            </>
+                          }
+                        >
+                          {conversations}
+                        </WorktreeProjectFolder>
+                      );
+                    })}
+                  </ul>
                 )}
-              </div>
-            ) : null}
-            {/* Status grouping already collects settled work into its own
+              </TooltipProvider>
+              {showEmptyState ? (
+                <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-[13px] text-muted-foreground/60">
+                  {projects.length === 0 ? (
+                    <>
+                      <span>No projects yet</span>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={openAddProjectCommandPalette}
+                        className="border-sidebar-border bg-transparent text-[13px] text-sidebar-muted-foreground shadow-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                      >
+                        <PlusIcon className="size-3" />
+                        Add project
+                      </Button>
+                    </>
+                  ) : scopedProjectGroup ? (
+                    `No threads in ${scopedProjectGroup.displayName} yet`
+                  ) : (
+                    "No threads yet"
+                  )}
+                </div>
+              ) : null}
+              {/* Status grouping already collects settled work into its own
                 section at the foot of the list, so the shelf would only say
                 the same thing twice there. */}
-            {conversationGrouping === "status" ? null : (
-              <SidebarSettledSection
-                threads={settledThreads}
-                projectCwdByKey={projectCwdByKey}
-                projectDisplayNameByKey={projectDisplayNameByKey}
-                selectedThreadKey={routeThreadKey}
-                onSelectThread={handleThreadClick}
-                onThreadContextMenu={(event, thread) =>
-                  handleThreadContextMenu(event, thread, "settled")
-                }
-                onRestoreThread={(thread) => handleToggleThreadSettled(thread, "settled")}
-                onDeleteThreads={handleDeleteThreads}
-              />
-            )}
-          </SidebarGroup>
-        )}
-      </SidebarContent>
+              {conversationGrouping === "status" ? null : (
+                <SidebarSettledSection
+                  threads={settledThreads}
+                  projectCwdByKey={projectCwdByKey}
+                  projectDisplayNameByKey={projectDisplayNameByKey}
+                  selectedThreadKey={routeThreadKey}
+                  onSelectThread={handleThreadClick}
+                  onThreadContextMenu={(event, thread) =>
+                    handleThreadContextMenu(event, thread, "settled")
+                  }
+                  onRestoreThread={(thread) => handleToggleThreadSettled(thread, "settled")}
+                  onDeleteThreads={handleDeleteThreads}
+                />
+              )}
+            </SidebarGroup>
+          )}
+        </SidebarContent>
+      </FlowsSurfaceScope>
       <ProjectSettingsPopover
         handle={projectSettingsPopoverHandle}
         target={projectActionsTarget}

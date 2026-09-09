@@ -80,7 +80,12 @@ export interface DiffPanelCommitTarget {
 
 export interface DiffPanelProps {
   mode?: DiffPanelMode;
-  composerDraftTarget: ScopedThreadRef | DraftId;
+  /**
+   * Conversation the diff's review comments go to. `null` when the diff is
+   * read on its own — a flow card's worktree, say — which drops commenting
+   * rather than pretending there is somewhere to send it.
+   */
+  composerDraftTarget: ScopedThreadRef | DraftId | null;
   initialGitScope: "branch" | "unstaged";
   /** Renders one immutable commit through the regular diff-viewer surface. */
   commitTarget?: DiffPanelCommitTarget | null;

@@ -33,7 +33,13 @@ export type CardSelection =
       readonly stepIndex: number;
       readonly threadId: ThreadId;
     }
-  | { readonly kind: "artifact"; readonly stepIndex: number };
+  | { readonly kind: "artifact"; readonly stepIndex: number }
+  /**
+   * A conversation opened in the card's worktree that no step owns. The flow
+   * runs its steps; these are the ones you start yourself alongside them, and
+   * they are ordinary threads in every other respect.
+   */
+  | { readonly kind: "conversation"; readonly threadId: ThreadId };
 
 /** URL form of a selection — short enough to read in the address bar. */
 export function formatCardSelection(selection: CardSelection): string {
@@ -44,6 +50,8 @@ export function formatCardSelection(selection: CardSelection): string {
       return `sub:${selection.stepIndex}:${selection.threadId}`;
     case "artifact":
       return `artifact:${selection.stepIndex}`;
+    case "conversation":
+      return `conv:${selection.threadId}`;
   }
 }
 
@@ -56,6 +64,11 @@ function parseStepIndex(raw: string | undefined): number | null {
 export function parseCardSelection(raw: string | null | undefined): CardSelection | null {
   if (raw === null || raw === undefined || raw === "") return null;
   const [kind, first, second] = raw.split(":");
+  if (kind === "conv") {
+    return first === undefined || first === ""
+      ? null
+      : { kind: "conversation", threadId: first as ThreadId };
+  }
   const stepIndex = parseStepIndex(first);
   if (stepIndex === null) return null;
   if (kind === "step") return { kind: "step", stepIndex };
@@ -92,8 +105,15 @@ export function resolveCardSelection(input: {
   readonly board: OrchestrationBoard;
   readonly requested: CardSelection | null;
   readonly detailThreadIds: ReadonlySet<string>;
+  /** Ids of the card's own conversations; a stale one falls back to a step. */
+  readonly conversationThreadIds?: ReadonlySet<string>;
 }): CardSelection {
   const { card, board, requested } = input;
+  if (requested?.kind === "conversation") {
+    return (input.conversationThreadIds ?? new Set()).has(requested.threadId)
+      ? requested
+      : defaultCardSelection(card, board);
+  }
   const steps = selectCardSteps(card, board);
   const requestedStep = requested === null ? undefined : steps[requested.stepIndex];
   if (requested === null || requestedStep === undefined || requestedStep.state === "pending") {
@@ -110,7 +130,7 @@ export function selectionThreadId(
   card: OrchestrationCard,
   selection: CardSelection,
 ): ThreadId | null {
-  if (selection.kind === "subagent") {
+  if (selection.kind === "subagent" || selection.kind === "conversation") {
     return selection.threadId;
   }
   return cardStepThreadId(card, selection.stepIndex);
@@ -174,6 +194,9 @@ export function resolveCardThreadPresence(input: {
   if (threadId !== null) {
     return input.threadShellExists ? "linked" : "unavailable";
   }
+  // A conversation is its own thread: without one there is nothing to say
+  // about the card's steps.
+  if (selection.kind === "conversation") return "unavailable";
   if (isCardStarting(card)) return "starting";
   if (card.position.kind === "todo") return "unreleased";
   const operation = cardOperation(card);
@@ -233,6 +256,8 @@ export type CardTreeIconState = "done" | "working" | "needsInput" | "failed" | "
 export interface CardTreeThread {
   readonly id: ThreadId;
   readonly title: string;
+  /** The checkout the thread runs in; a card's own conversations share its worktree. */
+  readonly worktreePath?: string | null;
   readonly parentThreadId?: ThreadId | null;
   readonly providerSubagent?: ProviderSubagentBinding | null;
   readonly createdAt: string;
@@ -337,10 +362,18 @@ export interface CardTreeStepRow {
   readonly leaves: ReadonlyArray<CardTreeLeaf>;
 }
 
+export interface CardTreeConversationRow {
+  readonly threadId: ThreadId;
+  readonly title: string;
+  readonly status: CardTreeIconState;
+}
+
 export interface CardTreeModel {
   readonly steps: ReadonlyArray<CardTreeStepRow>;
   /** Done is a terminal row, not a step: it can only ever be reached. */
   readonly done: { readonly reached: boolean; readonly trailing: string };
+  /** Conversations started in the card's worktree outside its steps. */
+  readonly conversations: ReadonlyArray<CardTreeConversationRow>;
 }
 
 function stepIconState(
@@ -422,6 +455,8 @@ export function buildCardTree(input: {
   readonly card: OrchestrationCard;
   readonly board: OrchestrationBoard;
   readonly threads: ReadonlyArray<CardTreeThread>;
+  /** Threads living in the card's worktree that no step spawned. */
+  readonly conversations?: ReadonlyArray<CardTreeThread>;
   readonly artifactByStepIndex: ReadonlyMap<number, CardTreeArtifactStat>;
   readonly nowMs: number;
 }): CardTreeModel {
@@ -492,5 +527,33 @@ export function buildCardTree(input: {
         ? (durationLabel(card.releasedAt, Date.parse(card.completedAt ?? "")) ?? "reached")
         : "not reached",
     },
+    conversations: (input.conversations ?? []).map((thread) => ({
+      threadId: thread.id,
+      title: thread.title,
+      status: threadIconState(thread),
+    })),
   };
+}
+
+/**
+ * The conversations a card carries beyond its steps: threads checked out in the
+ * card's own worktree that no step spawned and no agent spawned under a step.
+ * They are ordinary threads — the card is only where you reach them from.
+ */
+export function selectCardConversations(input: {
+  readonly card: OrchestrationCard;
+  readonly threads: ReadonlyArray<CardTreeThread>;
+}): ReadonlyArray<CardTreeThread> {
+  const worktreePath = input.card.worktreePath;
+  if (worktreePath === null) return [];
+  const stepThreadIds = new Set(input.card.stepThreads.map((entry) => entry.threadId as string));
+  return input.threads
+    .filter(
+      (thread) =>
+        thread.worktreePath === worktreePath &&
+        !stepThreadIds.has(thread.id as string) &&
+        (thread.providerSubagent ?? null) === null &&
+        (thread.parentThreadId ?? null) === null,
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }

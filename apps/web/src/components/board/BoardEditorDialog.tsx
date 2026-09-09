@@ -47,6 +47,7 @@ import {
   type TemplatePlaceholderOption,
 } from "./BoardEditorDialog.logic";
 import { PromptEditor, SkillsMenu } from "./BoardPromptEditor";
+import type { FlowProject } from "./flowSelection";
 import { type BoardEditorSubmit, useBoardEditorController } from "./useBoardEditorController";
 
 export type { BoardEditorSubmit } from "./useBoardEditorController";
@@ -89,19 +90,32 @@ export function BoardEditorDialog({
   board,
   environmentId,
   projectTitle,
+  projectOptions,
+  selectedProjectKey,
+  onProjectChange,
   workspaceRoot,
   onOpenChange,
   onSubmit,
+  onDelete,
 }: {
   readonly open: boolean;
   /** `null` creates a board; a board edits it in place. */
   readonly board: OrchestrationBoard | null;
   readonly environmentId: EnvironmentId;
   readonly projectTitle?: string;
+  /**
+   * Projects the new flow could belong to. Given only while creating: a saved
+   * flow stays in the project that owns it.
+   */
+  readonly projectOptions?: ReadonlyArray<FlowProject> | undefined;
+  readonly selectedProjectKey?: string | undefined;
+  readonly onProjectChange?: ((project: FlowProject) => void) | undefined;
   /** Project root the step threads run in; scopes native-skill discovery. */
   readonly workspaceRoot?: string | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly onSubmit: (input: BoardEditorSubmit) => Promise<boolean> | boolean;
+  /** Omitted while creating: there is nothing to delete yet. */
+  readonly onDelete?: (() => void) | undefined;
 }) {
   const [isSaving, setIsSaving] = useState(false);
 
@@ -130,12 +144,74 @@ export function BoardEditorDialog({
           board={board}
           environmentId={environmentId}
           projectTitle={projectTitle}
+          projectOptions={projectOptions}
+          selectedProjectKey={selectedProjectKey}
+          onProjectChange={onProjectChange}
           workspaceRoot={workspaceRoot}
           isSaving={isSaving}
           onSave={handleSave}
+          onDelete={onDelete}
         />
       </DialogPopup>
     </Dialog>
+  );
+}
+
+const CHIP_CLASSES = "flex min-w-0 items-center gap-1.5 rounded-sm bg-muted px-2 py-0.5";
+
+/**
+ * The project the flow belongs to. A flow cannot move between projects once
+ * saved, so this only opens as a picker while creating — and only when the
+ * caller offers more than one project to choose from.
+ */
+function ProjectChip({
+  title,
+  options,
+  selectedProjectKey,
+  onChange,
+}: {
+  readonly title: string;
+  readonly options: ReadonlyArray<FlowProject> | undefined;
+  readonly selectedProjectKey: string | undefined;
+  readonly onChange: ((project: FlowProject) => void) | undefined;
+}) {
+  if (options === undefined || onChange === undefined || options.length < 2) {
+    return (
+      <span className={CHIP_CLASSES}>
+        <LayoutGridIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+        <span className="truncate font-medium text-foreground/80 text-xs">{title}</span>
+      </span>
+    );
+  }
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label="Select project"
+        className={cn(
+          CHIP_CLASSES,
+          "cursor-pointer outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <LayoutGridIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+        <span className="truncate font-medium text-foreground/80 text-xs">{title}</span>
+        <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup align="start">
+        <MenuRadioGroup
+          value={selectedProjectKey ?? null}
+          onValueChange={(value) => {
+            const project = options.find((candidate) => candidate.projectKey === value);
+            if (project !== undefined) onChange(project);
+          }}
+        >
+          {options.map((project) => (
+            <MenuRadioItem key={project.projectKey} value={project.projectKey}>
+              <span className="min-w-0 truncate">{project.displayName}</span>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -143,16 +219,24 @@ function BoardEditorForm({
   board,
   environmentId,
   projectTitle,
+  projectOptions,
+  selectedProjectKey,
+  onProjectChange,
   workspaceRoot,
   isSaving,
   onSave,
+  onDelete,
 }: {
   readonly board: OrchestrationBoard | null;
   readonly environmentId: EnvironmentId;
   readonly projectTitle?: string | undefined;
+  readonly projectOptions?: ReadonlyArray<FlowProject> | undefined;
+  readonly selectedProjectKey?: string | undefined;
+  readonly onProjectChange?: ((project: FlowProject) => void) | undefined;
   readonly workspaceRoot?: string | null | undefined;
   readonly isSaving: boolean;
   readonly onSave: (input: BoardEditorSubmit) => Promise<void>;
+  readonly onDelete?: (() => void) | undefined;
 }) {
   const controller = useBoardEditorController({
     board,
@@ -196,12 +280,12 @@ function BoardEditorForm({
     >
       <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="flex min-w-0 items-center gap-1.5 rounded-sm bg-muted px-2 py-0.5">
-            <LayoutGridIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate font-medium text-foreground/80 text-xs">
-              {projectTitle ?? "Project"}
-            </span>
-          </span>
+          <ProjectChip
+            title={projectTitle ?? "Project"}
+            options={projectOptions}
+            selectedProjectKey={selectedProjectKey}
+            onChange={onProjectChange}
+          />
           <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
           <DialogTitle className="shrink-0 font-medium font-sans text-muted-foreground text-xs leading-none">
             {board === null ? "New flow" : "Edit flow"}
@@ -250,6 +334,19 @@ function BoardEditorForm({
 
       <div className="flex items-center justify-between gap-3 rounded-b-[calc(var(--radius-2xl)-1px)] border-t bg-muted/40 px-3.5 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
+          {board === null || onDelete === undefined ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isSaving}
+              className="shrink-0 text-destructive-foreground [&_svg]:text-destructive-foreground"
+              onClick={onDelete}
+            >
+              <Trash2Icon />
+              Delete flow
+            </Button>
+          )}
           {cardFieldCount > 0 ? (
             <span className="flex h-[26px] shrink-0 items-center rounded-md border border-border px-2 font-medium text-muted-foreground text-xs">
               {cardFieldCount} card field{cardFieldCount === 1 ? "" : "s"}

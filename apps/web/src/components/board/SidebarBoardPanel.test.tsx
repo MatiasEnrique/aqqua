@@ -3,7 +3,7 @@ import type { OrchestrationCard } from "@aqqua/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { FlowProjectGroupingToggle, TodoCardStateBadge } from "./SidebarBoardPanel";
+import { TodoCardStateBadge } from "./SidebarBoardPanel";
 
 const startingCard: OrchestrationCard = {
   id: CardId.make("card-1"),
@@ -41,21 +41,5 @@ describe("TodoCardStateBadge", () => {
     expect(markup).toContain("Starting…");
     expect(markup).not.toContain(">Working</span>");
     expect(markup.match(/role="status"/g) ?? []).toHaveLength(1);
-  });
-});
-
-describe("FlowProjectGroupingToggle", () => {
-  it("offers the compact project grouping control used by the board sidebar", () => {
-    const flat = renderToStaticMarkup(
-      <FlowProjectGroupingToggle grouped={false} onToggle={() => {}} />,
-    );
-    const grouped = renderToStaticMarkup(
-      <FlowProjectGroupingToggle grouped={true} onToggle={() => {}} />,
-    );
-
-    expect(flat).toContain('aria-label="Group flow cards by project"');
-    expect(flat).toContain('aria-pressed="false"');
-    expect(grouped).toContain('aria-label="Show flow cards without project groups"');
-    expect(grouped).toContain('aria-pressed="true"');
   });
 });

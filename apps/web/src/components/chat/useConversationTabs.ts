@@ -11,7 +11,7 @@ import { useUiStateStore } from "../../uiStateStore";
 import { useWorktreeHeaderStore } from "../../worktreeHeaderStore";
 import { useEnvironmentsCards } from "../../state/boards";
 import { selectSidebarDraftRows } from "../Sidebar.logic";
-import { buildProjectRootByProjectKey } from "../Sidebar.worktreeGroups";
+import { buildProjectRootByProjectKey, sidebarProjectKey } from "../Sidebar.worktreeGroups";
 import {
   buildConversationTabs,
   type ConversationTab,
@@ -139,16 +139,19 @@ export function useConversationTabs(input: {
   const activeWorktreeKey = useWorktreeHeaderStore(
     (store) => store.activeWorktreeGroup?.key ?? null,
   );
+  const activeProjectKey = useWorktreeHeaderStore((store) => {
+    const group = store.activeWorktreeGroup;
+    return group === null ? null : sidebarProjectKey(group.environmentId, group.projectId);
+  });
   const projectRootByProjectKey = useMemo(() => buildProjectRootByProjectKey(projects), [projects]);
   const tabScope = useMemo<ConversationTabScope>(
     () =>
       headerTabScope === "worktree"
-        ? {
-            scope: "worktree",
-            worktreeKey: activeWorktreeKey,
-          }
-        : { scope: "all" },
-    [activeWorktreeKey, headerTabScope],
+        ? { scope: "worktree", worktreeKey: activeWorktreeKey }
+        : headerTabScope === "project"
+          ? { scope: "project", projectKey: activeProjectKey }
+          : { scope: "all" },
+    [activeProjectKey, activeWorktreeKey, headerTabScope],
   );
 
   const tabs = useMemo(

@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@aqqua/client-runtime/state/models";
-import { ArchiveIcon, GitForkIcon, RotateCcwIcon } from "lucide-react";
+import { CheckIcon, GitForkIcon, RotateCcwIcon } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "~/lib/utils";
 import { useThreadSelectionStore } from "../../threadSelectionStore";
@@ -60,7 +60,7 @@ export function ConversationThreadRow(props: {
         : {
             label: `Settle conversation ${props.thread.title}`,
             tooltip: "Settle conversation",
-            icon: <ArchiveIcon aria-hidden className="size-3.5" />,
+            icon: <CheckIcon aria-hidden className="size-3.5" />,
           };
   const metadata = [
     props.section === "snoozed" ? "Snoozed" : props.section === "settled" ? "Settled" : null,

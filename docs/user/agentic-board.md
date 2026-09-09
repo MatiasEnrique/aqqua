@@ -158,13 +158,44 @@ step. Follow the card in Flows for startup progress or failure.
 uses the same durable cleanup operation as the UI and returns a started card to
 To-Do; it also requires the running server.
 
+## The card's workspace
+
+A card's panes carry the same right-hand activity rail the conversation view
+has. **Files**, **Changes**, and **History** read the card's own worktree, so
+you can browse the checkout, review its diff, and read its log even when no
+conversation is open — while a card is starting, after a step's conversation was
+removed, or from the flow index for the project's checkout. Opening a file from
+the card's Files panel opens it in your preferred editor. **Terminal**,
+**Browser**, and **Pull request** stay unavailable there: each of them acts
+through a conversation, so they appear once a step or one of your own
+conversations is open.
+
+## Conversations alongside the steps
+
+A card's steps are conversations the flow runs for you. You can also start your
+own next to them: the **+** at the end of the step tabs opens a new conversation
+in the card's worktree, on the card's branch. It is an ordinary thread — same
+composer, same model picker, same panels — and it appears as a tab beside the
+steps for as long as it shares the card's checkout. Starting one never moves the
+card; only its steps do that.
+
 ## Position and status
 
-In Flows the sidebar can filter several projects and several flows at once. It
-lists their cards as compact two-line rows: the project icon and card title sit
-above the flow name and worktree, with the current state at the right edge. The
-small project-grouping button adds project headers when several projects are in
-scope. Cards remain grouped by urgency: **Needs you** (paused, needs input, or
+In Flows the sidebar shows one flow at a time, in the same layout the thread
+list uses: the project filter takes the header row it fills on Threads, the flow
+picker sits under it, and the flow's steps take the header tab strip the open
+conversations fill. The filter is the same one Threads uses and carries the same
+selection, so scoping to a project on either surface scopes the other; the
+picker then lists only the scoped projects' flows, under the project that owns
+each, and wears the selected flow's project icon. Beside the picker sit the same icon actions the
+Threads row carries: **Edit flow** opens the selected flow's editor — which also
+holds **Delete flow** — **New card** adds a card straight to it, **New flow**
+opens an empty editor whose header chip picks the project it lands in, and
+**New project** adds a project without leaving Flows.
+Deleting a flow takes its cards out of Flows with it and leaves their worktrees
+and branches in the repository, so delete the cards first to clean those up. The flow's cards are compact two-line
+rows: the project icon and card title sit above the flow name and worktree, with
+the current state at the right edge. Cards are grouped by urgency: **Needs you** (paused, needs input, or
 failed), **Active** (running), **To-Do** (the backlog, with Start inline),
 **Done**, and collapsed **Settled** and **Archived** history at the bottom.
 When active cards exist, opening a flow lands on the most urgent one. If the

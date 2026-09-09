@@ -1,12 +1,13 @@
 import type { EnvironmentId, GitHistoryCommitSummary } from "@aqqua/contracts";
 import type { TimestampFormat } from "@aqqua/contracts/settings";
-import { GitBranch, GitGraph, LoaderCircle, RefreshCw, Tag } from "lucide-react";
+import { GitBranch, LoaderCircle, RefreshCw, Tag } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { formatChatTimestampTooltip, formatRelativeTimeLabel } from "../../timestampFormat";
 import DiffPanel, { type DiffPanelProps } from "../DiffPanel";
 import { PanelSurfaceHeader } from "../PanelSurfaceHeader";
+import { RIGHT_PANEL_SURFACE_META } from "../../rightPanelSurfaceMeta";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { ScrollArea } from "../ui/scroll-area";
@@ -209,8 +210,8 @@ export function GitHistoryPanel(
   return (
     <div className="@container/history flex h-full min-h-0 flex-col bg-background">
       <PanelSurfaceHeader
-        icon={GitGraph}
-        title="History"
+        icon={RIGHT_PANEL_SURFACE_META.history.icon}
+        title={RIGHT_PANEL_SURFACE_META.history.label}
         meta={refName ? `${repositoryName} · ${refName}` : repositoryName}
         actions={
           <>

@@ -5,6 +5,7 @@ import {
   createBoardEnvironmentAtoms,
   createEnvironmentBoardAtoms,
   selectCard,
+  type ProjectBoards,
 } from "@aqqua/client-runtime/state/boards";
 import type {
   CardId,
@@ -58,11 +59,14 @@ export function useEnvironmentBoards(
   );
 }
 
-/** Live boards across exactly the environments represented in an all-projects view. */
-export function useEnvironmentsBoards(
-  environmentIds: ReadonlyArray<EnvironmentId>,
-): ReadonlyArray<OrchestrationBoard> {
-  return useAtomValue(environmentBoards.environmentsBoardsAtom(environmentIds));
+/**
+ * Boards for several projects at once, each entry still tagged with its
+ * project — what the flow picker needs to group flows under their project.
+ */
+export function useProjectsBoards(
+  refs: ReadonlyArray<ScopedProjectRef>,
+): ReadonlyArray<ProjectBoards> {
+  return useAtomValue(environmentBoards.projectsBoardsAtom(refs));
 }
 
 /** All of a project's boards — projects can hold more than one. */

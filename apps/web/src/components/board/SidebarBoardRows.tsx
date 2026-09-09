@@ -1,8 +1,18 @@
-import type { BoardId, OrchestrationBoard, OrchestrationCard } from "@aqqua/contracts";
-import { LayoutGridIcon, PencilIcon, PlusIcon, SquarePlusIcon, Trash2Icon } from "lucide-react";
+import type { OrchestrationCard } from "@aqqua/contracts";
+import {
+  ChevronDownIcon,
+  Grid2x2PlusIcon,
+  LayoutGridIcon,
+  PencilIcon,
+  SquarePlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
+import type { FlowChoice, FlowGroup } from "./flowSelection";
+import { ProjectFavicon } from "../ProjectFavicon";
+import { SidebarActionIconButton } from "../sidebar-v2/SidebarActionIconButton";
 import {
   FlowCardBranch,
   FlowCardFailureNote,
@@ -12,166 +22,198 @@ import {
   SidebarCardStatusSwapSlot,
   sidebarRegistryRowSurfaceClassName,
 } from "../sidebar/card";
-import { ComboboxEmpty, ComboboxItem, ComboboxList } from "../ui/combobox";
-import { SidebarScopePicker } from "../sidebar-v2/SidebarScopePicker";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/menu";
 import { cardNeedsYou } from "./BoardRunTable.logic";
 
 export function FlowNewCardButton({
-  projectTitle,
+  flowName,
+  disabled = false,
   onClick,
 }: {
-  readonly projectTitle: string;
+  readonly flowName: string;
+  readonly disabled?: boolean;
   readonly onClick: () => void;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`New card in ${projectTitle}`}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground transition-[background-color,color,scale] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] motion-reduce:transform-none"
-            onClick={onClick}
-          />
-        }
-      >
-        <SquarePlusIcon aria-hidden className="size-3.5" />
-      </TooltipTrigger>
-      <TooltipPopup side="right">New card</TooltipPopup>
-    </Tooltip>
+    <SidebarActionIconButton
+      icon={SquarePlusIcon}
+      label={`New card in ${flowName}`}
+      tooltip="New card"
+      disabled={disabled}
+      onClick={onClick}
+    />
+  );
+}
+
+export function FlowNewFlowButton({
+  projectName,
+  disabled = false,
+  onClick,
+}: {
+  readonly projectName: string;
+  readonly disabled?: boolean;
+  readonly onClick: () => void;
+}) {
+  return (
+    <SidebarActionIconButton
+      icon={Grid2x2PlusIcon}
+      label={`New flow in ${projectName}`}
+      tooltip="New flow"
+      disabled={disabled}
+      onClick={onClick}
+    />
+  );
+}
+
+export function FlowEditButton({
+  flowName,
+  disabled = false,
+  onClick,
+}: {
+  readonly flowName: string;
+  readonly disabled?: boolean;
+  readonly onClick: () => void;
+}) {
+  return (
+    <SidebarActionIconButton
+      icon={PencilIcon}
+      label={`Edit ${flowName}`}
+      tooltip="Edit flow"
+      disabled={disabled}
+      onClick={onClick}
+    />
   );
 }
 
 /**
- * The board switcher: same control as the project selector above it. The menu
- * lists the project's boards and carries the board-level actions.
+ * The sidebar's one scope control: a flow at a time, listed under the project
+ * that owns it. Picking a flow picks its project too, which is why the trigger
+ * wears the project's icon — there is no second project filter to consult.
  */
-export function BoardSelector({
-  boards,
-  selectedBoardIds,
-  projectTitle,
-  onSelectionChange,
-  onNewCard,
-  onEditBoard,
-  onNewBoard,
+export function FlowPicker({
+  groups,
+  selected,
+  onSelect,
 }: {
-  readonly boards: ReadonlyArray<OrchestrationBoard>;
-  /** Empty means every flow, matching the project filter above it. */
-  readonly selectedBoardIds: ReadonlyArray<BoardId>;
-  readonly projectTitle: string;
-  readonly onSelectionChange: (boardIds: ReadonlyArray<BoardId>) => void;
-  readonly onNewCard: () => void;
-  readonly onEditBoard: (board: OrchestrationBoard) => void;
-  readonly onNewBoard: () => void;
+  readonly groups: ReadonlyArray<FlowGroup>;
+  readonly selected: FlowChoice | null;
+  readonly onSelect: (choice: FlowChoice) => void;
 }) {
-  const chosenBoards = boards.filter((candidate) => selectedBoardIds.includes(candidate.id));
+  const selectedId = selected?.flow.id ?? null;
   return (
-    <SidebarScopePicker
-      items={boards}
-      chosenItems={chosenBoards}
-      itemKey={(candidate) => candidate.id}
-      itemLabel={(candidate) => candidate.name}
-      icon={<LayoutGridIcon className="size-4" />}
-      testId={`sidebar-flow-scope-chips-${projectTitle}`}
-      inputLabel={`Filter flows in ${projectTitle}`}
-      allItemsLabel="All flows"
-      onSelectionChange={(next) => onSelectionChange(next.map((candidate) => candidate.id))}
-      renderChip={(candidate) => (
-        <>
-          <LayoutGridIcon className="size-3 shrink-0" />
-          <span className="min-w-0 truncate">{candidate.name}</span>
-        </>
-      )}
-      renderPopup={(close) => (
-        <>
-          {chosenBoards.length > 0 ? (
-            <div className="border-b border-border/60 p-1">
-              <button
-                type="button"
-                className="w-full cursor-pointer rounded-sm px-2 py-1 text-left text-xs font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => onSelectionChange([])}
-              >
-                Deselect all
-              </button>
-            </div>
-          ) : null}
-          <ComboboxEmpty>No flows found.</ComboboxEmpty>
-          <ComboboxList>
-            {(candidate: OrchestrationBoard) => (
-              <ComboboxItem
-                key={candidate.id}
-                value={candidate}
-                className="pe-1"
-                contentClassName="flex min-w-0 items-center gap-2"
-              >
-                <LayoutGridIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
-                <button
-                  type="button"
-                  aria-label={`Edit ${candidate.name}`}
-                  className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/55 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    close();
-                    onEditBoard(candidate);
-                  }}
-                >
-                  <PencilIcon className="size-3.5" />
-                </button>
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-          <div className="grid gap-0.5 border-t border-border/60 p-1">
-            {boards.length === 0 ? null : (
-              <button
-                type="button"
-                className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => {
-                  close();
-                  onNewCard();
-                }}
-              >
-                <PlusIcon className="size-4" />
-                New card
-              </button>
-            )}
-            <button
-              type="button"
-              className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => {
-                close();
-                onNewBoard();
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Select flow"
+        title={
+          selected === null ? undefined : `${selected.project.displayName} · ${selected.flow.name}`
+        }
+        className={cn(
+          "flex min-h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-1 text-left text-[13px] font-medium leading-5 text-sidebar-foreground outline-none",
+          "transition-colors hover:bg-sidebar-row-hover data-popup-open:bg-sidebar-row-hover",
+          "focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+        data-testid="sidebar-flow-picker"
+      >
+        {selected === null ? (
+          <LayoutGridIcon
+            aria-hidden
+            className="size-3.5 shrink-0 text-sidebar-muted-foreground/80"
+          />
+        ) : (
+          <ProjectFavicon
+            environmentId={selected.project.environmentId}
+            cwd={selected.project.workspaceRoot}
+            className="size-3.5 shrink-0 rounded-sm"
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate">{selected?.flow.name ?? "No flow yet"}</span>
+        <ChevronDownIcon
+          aria-hidden
+          className="size-3.5 shrink-0 text-sidebar-muted-foreground/70"
+        />
+      </DropdownMenuTrigger>
+      {/* Same anchoring as the project menu: the popup takes the trigger's
+          width so it reads as the field opening, not a box beside it. */}
+      <DropdownMenuContent align="start" className="w-(--anchor-width) min-w-60">
+        {groups.map((group, index) => (
+          <DropdownMenuGroup key={group.project.projectKey}>
+            {index === 0 ? null : <DropdownMenuSeparator />}
+            <DropdownMenuLabel className="flex items-center gap-2">
+              <ProjectFavicon
+                environmentId={group.project.environmentId}
+                cwd={group.project.workspaceRoot}
+                className="size-3.5 shrink-0 rounded-sm"
+              />
+              <span className="min-w-0 truncate">{group.project.displayName}</span>
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={selectedId}
+              onValueChange={(value) => {
+                const flow = group.flows.find((candidate) => candidate.id === value);
+                if (flow === undefined) return;
+                onSelect({ project: group.project, flow });
               }}
             >
-              <LayoutGridIcon className="size-4" />
-              {boards.length === 0 ? "Create flow" : "New flow"}
-            </button>
-          </div>
-        </>
-      )}
-    />
+              {/* The menu's own size runs a step above the project label these
+                  flows sit under, which read as the flow outranking its
+                  project. */}
+              {group.flows.map((flow) => (
+                <DropdownMenuRadioItem
+                  key={flow.id}
+                  value={flow.id}
+                  closeOnClick
+                  className="gap-2 text-xs sm:text-xs"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <LayoutGridIcon
+                      aria-hidden
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                    />
+                    <span className="min-w-0 truncate">{flow.name}</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 export function SectionLabel({
   className,
+  count,
   trailing,
   children,
 }: {
   readonly className?: string;
+  /** Rendered beside the label the way the thread list weighs its group counts. */
+  readonly count?: number;
   readonly trailing?: React.ReactNode;
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between px-2 pb-1">
-      <span className={cn("font-semibold text-[10.5px] uppercase tracking-[0.08em]", className)}>
-        {children}
-      </span>
-      {trailing === undefined ? null : <span className="text-[10.5px]">{trailing}</span>}
-    </div>
+    <h3 className="mb-1 flex h-8 items-center gap-2 rounded-md bg-sidebar-control-surface/60 px-2 text-[13px] font-semibold text-sidebar-foreground">
+      <span className={cn("min-w-0 truncate", className)}>{children}</span>
+      {count === undefined ? null : (
+        <span className="text-[11px] font-normal tabular-nums text-sidebar-muted-foreground">
+          {count}
+        </span>
+      )}
+      {trailing === undefined ? null : (
+        <span className="ml-auto text-[11px] font-normal">{trailing}</span>
+      )}
+    </h3>
   );
 }
 
@@ -244,7 +286,7 @@ export function FlowSlimRow({
     <SidebarCardItem size="flow">
       <div
         className={cn(
-          "group/v2-row relative flex h-11 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-left outline-none select-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
+          "group/v2-row relative flex min-h-10 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-0.5 text-left outline-none select-none transition-colors duration-(--duration-fast) ease-(--ease-fluid)",
           sidebarRegistryRowSurfaceClassName(selected),
           recede && !selected && "text-sidebar-muted-foreground/75",
           !interactive && "cursor-default opacity-70",
@@ -258,18 +300,18 @@ export function FlowSlimRow({
             role="img"
             aria-label={`Project: ${projectName}`}
             title={projectName}
-            className="flex size-5 shrink-0 items-center justify-center"
+            className="flex size-3.5 shrink-0 items-center justify-center"
           >
             {projectIcon}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span className="flex min-w-0 flex-1 flex-col justify-center">
             <span className="flex min-w-0 items-center gap-1.5">
               {leading === undefined ? null : leading}
-              <span className={cn("min-w-0 flex-1 truncate text-[13px]", titleClassName)}>
+              <span className={cn("min-w-0 flex-1 truncate text-[13px] leading-5", titleClassName)}>
                 {card.title}
               </span>
             </span>
-            <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-none text-sidebar-muted-foreground/70">
+            <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-sidebar-muted-foreground">
               <span data-flow-name={flowName} title={flowName} className="min-w-0 truncate">
                 {flowName}
               </span>
@@ -314,7 +356,7 @@ export function InFlightCardRow({
     <SidebarCardItem size="flow">
       <div
         className={cn(
-          "group/v2-row relative flex h-11 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-left outline-none select-none duration-(--duration-fast) ease-(--ease-fluid)",
+          "group/v2-row relative flex min-h-10 w-full cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-0.5 text-left outline-none select-none duration-(--duration-fast) ease-(--ease-fluid)",
           sidebarRegistryRowSurfaceClassName(selected),
           inFlight && !selected
             ? "opacity-70 transition-[background-color,color,opacity] hover:opacity-100"
@@ -327,15 +369,15 @@ export function InFlightCardRow({
             role="img"
             aria-label={`Project: ${projectName}`}
             title={projectName}
-            className="flex size-5 shrink-0 items-center justify-center"
+            className="flex size-3.5 shrink-0 items-center justify-center"
           >
             {projectIcon}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-            <span className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground">
+          <span className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="min-w-0 truncate text-[13px] leading-5 text-sidebar-foreground">
               {card.title}
             </span>
-            <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-none text-sidebar-muted-foreground/70">
+            <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-sidebar-muted-foreground">
               <span data-flow-name={flowName} title={flowName} className="min-w-0 truncate">
                 {flowName}
               </span>
@@ -345,7 +387,7 @@ export function InFlightCardRow({
           <span className="pointer-events-auto">
             <SidebarCardStatusSwapSlot
               className="h-5"
-              resting={<FlowCardStateBadge card={card} className="text-[8px]" />}
+              resting={<FlowCardStateBadge card={card} />}
               actions={
                 onDelete === null ? null : (
                   <SidebarCardActionButton

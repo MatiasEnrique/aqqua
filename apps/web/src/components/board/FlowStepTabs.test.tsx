@@ -68,6 +68,7 @@ const model: CardTreeModel = {
     },
   ],
   done: { reached: false, trailing: "not reached" },
+  conversations: [],
 };
 
 describe("FlowStepTabs", () => {
@@ -98,7 +99,8 @@ describe("FlowStepTabs", () => {
     );
 
     expect(markup).toContain("Plan.md");
-    expect(markup).toContain('data-active-flow-step="true"');
+    // The strip marks the current tab the same way the conversation strip does.
+    expect(markup).toContain('data-active-tab="true"');
   });
 
   it("names the current leaf on its owning step trigger", () => {

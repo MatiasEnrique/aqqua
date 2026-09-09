@@ -1,10 +1,15 @@
-import { FileTextIcon } from "lucide-react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { FileTextIcon, PlusIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
-import { cn } from "~/lib/utils";
+import { registerConversationTabStrip } from "../chat/conversationTabStripScroll";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { StatusIndicator } from "../StatusIndicator";
 import { TabFamilyCountTrigger, TabFamilyPopover } from "../TabFamilyPopover";
-import { ScrollArea } from "../ui/scroll-area";
+import {
+  WorkspaceTabShell,
+  WorkspaceTabStrip,
+  workspaceTabContentClassName,
+} from "../WorkspaceTabStrip";
 import type {
   CardSelection,
   CardTreeIconState,
@@ -38,40 +43,89 @@ export function FlowStepTabs(props: {
   readonly model: CardTreeModel;
   readonly selection: CardSelection;
   readonly onSelect: (selection: CardSelection) => void;
+  /** Starts another conversation in the card's worktree, after the ones there. */
+  readonly onNewConversation?: (() => void) | undefined;
   readonly actions?: ReactNode;
 }) {
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const activeStepIndex = props.selection.stepIndex;
-
-  useEffect(() => {
-    stripRef.current
-      ?.querySelector<HTMLElement>("[data-active-flow-step='true']")
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeStepIndex]);
-
   return (
-    <nav
-      aria-label="Flow steps"
+    <WorkspaceTabStrip
+      label="Flow steps"
+      activeKey={formatFlowStepKey(props.selection)}
       data-flow-step-tabbar
-      className="flex h-[var(--workspace-tabbar-height)] shrink-0 items-center px-2 pt-[5px] pb-1"
+      // The titlebar's paging arrows move whichever strip is mounted; the
+      // steps use the same ones the conversations do.
+      onViewportChange={registerConversationTabStrip}
+      trailing={props.actions}
     >
-      <ScrollArea ref={stripRef} hideScrollbars scrollFade className="min-w-0 flex-1 rounded-none">
-        <ol className="flex h-full w-max min-w-full items-center gap-1">
-          {props.model.steps.map((step) => (
-            <FlowStepTabFamily
-              key={step.stepIndex}
-              step={step}
-              selection={props.selection}
-              onSelect={props.onSelect}
-            />
-          ))}
-          <li
+      {props.model.steps.map((step) => (
+        <FlowStepTabFamily
+          key={step.stepIndex}
+          step={step}
+          selection={props.selection}
+          onSelect={props.onSelect}
+        />
+      ))}
+      {props.model.conversations.map((conversation) => (
+        <li key={conversation.threadId} className="shrink-0">
+          <WorkspaceTabShell
+            active={
+              props.selection.kind === "conversation" &&
+              props.selection.threadId === conversation.threadId
+            }
+          >
+            <button
+              type="button"
+              aria-current={
+                props.selection.kind === "conversation" &&
+                props.selection.threadId === conversation.threadId
+                  ? "page"
+                  : undefined
+              }
+              onClick={() =>
+                props.onSelect({ kind: "conversation", threadId: conversation.threadId })
+              }
+              className={workspaceTabContentClassName(
+                props.selection.kind === "conversation" &&
+                  props.selection.threadId === conversation.threadId
+                  ? "active"
+                  : "inactive",
+              )}
+            >
+              <StatusIndicator
+                state={STATUS_STATE[conversation.status]}
+                label={STATUS_LABEL[conversation.status]}
+                size="size-1.5"
+              />
+              <span className="max-w-44 truncate">{conversation.title}</span>
+            </button>
+          </WorkspaceTabShell>
+        </li>
+      ))}
+      {props.onNewConversation === undefined ? null : (
+        <li className="shrink-0">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="New conversation in this card"
+                  onClick={props.onNewConversation}
+                  className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [-webkit-app-region:no-drag]"
+                />
+              }
+            >
+              <PlusIcon aria-hidden className="size-4" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">New conversation</TooltipPopup>
+          </Tooltip>
+        </li>
+      )}
+      <li className="shrink-0">
+        <WorkspaceTabShell active={false} muted={!props.model.done.reached}>
+          <span
             aria-label={`Done: ${props.model.done.trailing}`}
-            className={cn(
-              "flex h-8 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 text-xs",
-              props.model.done.reached
-                ? "border-input bg-card font-semibold text-foreground"
-                : "border-border/60 bg-card/40 text-muted-foreground/60",
+            className={workspaceTabContentClassName(
+              props.model.done.reached ? "inactive" : "muted",
             )}
           >
             <StatusIndicator
@@ -81,12 +135,23 @@ export function FlowStepTabs(props: {
               pulse={false}
             />
             <span>Done</span>
-          </li>
-        </ol>
-      </ScrollArea>
-      {props.actions}
-    </nav>
+          </span>
+        </WorkspaceTabShell>
+      </li>
+    </WorkspaceTabStrip>
   );
+}
+
+/** What the strip scrolls on: the tab in view, and which leaf of it. */
+function formatFlowStepKey(selection: CardSelection): string {
+  switch (selection.kind) {
+    case "conversation":
+      return `conversation:${selection.threadId}`;
+    case "subagent":
+      return `${selection.stepIndex}:${selection.threadId}`;
+    default:
+      return `${selection.stepIndex}:${selection.kind}`;
+  }
 }
 
 function FlowStepTabFamily(props: {
@@ -101,7 +166,7 @@ function FlowStepTabFamily(props: {
     props.selection.stepIndex === props.step.stepIndex;
   const holdsActiveLeaf =
     !pending &&
-    props.selection.kind !== "step" &&
+    (props.selection.kind === "subagent" || props.selection.kind === "artifact") &&
     props.selection.stepIndex === props.step.stepIndex;
 
   const parentShell = (
@@ -140,23 +205,12 @@ function FlowStepTabShell(props: {
 }) {
   const pending = props.step.state === "pending";
   return (
-    <div
-      data-active-flow-step={props.active}
-      className={cn(
-        "flex items-center border bg-card pr-1.5 pl-2.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid) [-webkit-app-region:no-drag]",
-        "h-8 rounded-xl",
-        props.active
-          ? "border-input"
-          : pending
-            ? "border-border/60 bg-card/40"
-            : "border-border hover:border-input",
-      )}
-    >
+    <WorkspaceTabShell active={props.active} muted={pending} className="pr-1.5">
       {pending ? (
         <span
           aria-disabled="true"
           aria-label={`${props.step.label}: Not started`}
-          className="flex h-full min-w-0 items-center gap-[7px] text-muted-foreground/60 text-xs"
+          className={workspaceTabContentClassName("muted")}
         >
           <StatusIndicator state="stale" label="Not started" size="size-1.5" pulse={false} />
           <span className="max-w-44 truncate">{props.step.label}</span>
@@ -166,10 +220,7 @@ function FlowStepTabShell(props: {
           type="button"
           aria-current={props.active ? "step" : undefined}
           onClick={() => props.onSelect({ kind: "step", stepIndex: props.step.stepIndex })}
-          className={cn(
-            "flex h-full min-w-0 cursor-pointer items-center gap-[7px] rounded-md text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-            props.active ? "font-semibold text-foreground" : "text-muted-foreground",
-          )}
+          className={workspaceTabContentClassName(props.active ? "active" : "inactive")}
         >
           <StatusIndicator
             state={STATUS_STATE[props.step.status]}
@@ -187,7 +238,7 @@ function FlowStepTabShell(props: {
           {...props.details}
         />
       )}
-    </div>
+    </WorkspaceTabShell>
   );
 }
 
@@ -216,7 +267,7 @@ function FlowStepDetailCountChip(props: {
           active={props.holdsActiveLeaf}
           markerAttributes={{
             "data-flow-step-count": true,
-            "data-active-flow-step": props.holdsActiveLeaf ? true : undefined,
+            "data-active-tab": props.holdsActiveLeaf ? true : undefined,
           }}
           leadingMargin
         />
@@ -243,7 +294,8 @@ function FlowStepDetailCountChip(props: {
 }
 
 function isLeafActive(leaf: CardTreeLeaf, selection: CardSelection): boolean {
-  if (selection.stepIndex !== leaf.stepIndex || selection.kind === "step") return false;
+  if (selection.kind === "step" || selection.kind === "conversation") return false;
+  if (selection.stepIndex !== leaf.stepIndex) return false;
   return leaf.kind === "subagent"
     ? selection.kind === "subagent" && selection.threadId === leaf.threadId
     : selection.kind === "artifact";

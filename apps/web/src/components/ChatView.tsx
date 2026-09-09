@@ -162,7 +162,7 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomHex } from "~/lib/utils";
-import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
+import { WorkspaceTopbar } from "./WorkspaceTopbar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -181,7 +181,7 @@ import { ConversationTabs } from "./chat/ConversationTabs";
 import { NativeSubagentActivity } from "./chat/NativeSubagentActivity";
 import {
   resolveConversationTabAfterClose,
-  resolveWorktreeFocusTarget,
+  resolveConversationTabSettlement,
   type WorktreeFocusTarget,
 } from "./chat/openConversationTabs";
 import { useConversationTabs } from "./chat/useConversationTabs";
@@ -1340,7 +1340,6 @@ function ChatViewContent(props: ChatViewProps) {
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
-  const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const worktreeTabsHeader = surfaceTabs === undefined;
   const headerWorktreeGroup = useWorktreeHeaderStore((store) => store.activeWorktreeGroup);
   const { tabs: conversationTabs } = useConversationTabs({
@@ -1349,20 +1348,6 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const conversationTabsRef = useRef(conversationTabs);
   conversationTabsRef.current = conversationTabs;
-  const headerWorktreeGroupRef = useRef(headerWorktreeGroup);
-  headerWorktreeGroupRef.current = headerWorktreeGroup;
-  const resolveFocusAfterConversationClose = useCallback(
-    (excludedKey: string): WorktreeFocusTarget => {
-      const worktree = headerWorktreeGroupRef.current;
-      if (worktree === null) return { _tag: "none" };
-      return resolveWorktreeFocusTarget({
-        worktree,
-        openKeys: new Set(useUiStateStore.getState().openConversationTabKeys),
-        excludedKey,
-      });
-    },
-    [],
-  );
   const navigateAfterConversationClose = useCallback(
     (target: Exclude<WorktreeFocusTarget, { readonly _tag: "none" }>) =>
       target._tag === "thread"
@@ -1381,30 +1366,43 @@ function ChatViewContent(props: ChatViewProps) {
           }),
     [navigate],
   );
-  const { archiveThread } = useThreadActions();
-  const archiveConversationTab = useCallback(
+  const { settleThread } = useThreadActions();
+  const settleConversationTab = useCallback(
     (threadRef: ScopedThreadRef) => {
-      const target = resolveFocusAfterConversationClose(scopedThreadKey(threadRef));
+      const settlement = resolveConversationTabSettlement({
+        tabs: conversationTabsRef.current,
+        settlingKey: scopedThreadKey(threadRef),
+      });
       void (async () => {
-        const result = await archiveThread(
-          threadRef,
-          target._tag === "none"
-            ? undefined
-            : { navigateAfterArchive: () => navigateAfterConversationClose(target) },
-        );
+        const result = await settleThread(threadRef);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to archive conversation",
+              title: "Failed to settle conversation",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
+          return;
+        }
+        if (result._tag === "Failure") return;
+
+        const closingKeys = new Set(settlement.keysToClose);
+        const openKeys = useUiStateStore.getState().openConversationTabKeys;
+        useUiStateStore
+          .getState()
+          .setOpenConversationTabKeys(openKeys.filter((key) => !closingKeys.has(key)));
+
+        if (!settlement.closesActiveTab) return;
+        if (settlement.target === null) {
+          await navigate({ to: "/", replace: true });
+        } else {
+          await navigateAfterConversationClose(settlement.target);
         }
       })();
     },
-    [archiveThread, navigateAfterConversationClose, resolveFocusAfterConversationClose],
+    [navigate, navigateAfterConversationClose, settleThread],
   );
   const newConversationTabLabel = headerWorktreeGroup
     ? `New conversation in ${headerWorktreeGroup.label}`
@@ -6653,57 +6651,53 @@ function ChatViewContent(props: ChatViewProps) {
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Conversations and workspace actions share one native titlebar row. */}
-        <header
-          data-chat-header
-          className={cn(
-            "bg-sidebar transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
-            isElectron
-              ? cn(
-                  "workspace-topbar drag-region relative gap-2",
-                  reserveTitleBarControlInset &&
-                    !inlineRightPanelOwnsTitleBar &&
-                    "wco:pr-[var(--workspace-native-controls-inset)]",
-                )
-              : "workspace-topbar gap-2 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
-            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
-          )}
-        >
-          <div className="min-w-0 flex-1">
-            {surfaceTabs ??
-              (worktreeTabsHeader ? (
-                <ConversationTabs
-                  tabs={conversationTabs}
-                  onSelectThread={navigateToThreadRef}
-                  onSelectDraft={navigateToDraftId}
-                  onDiscardDraft={discardConversationDraftTab}
-                  onArchiveThread={archiveConversationTab}
-                  confirmArchive={confirmThreadArchive}
-                  onNewThread={handleNewThreadInActiveWorktree}
-                  newThreadLabel={newConversationTabLabel}
-                />
-              ) : null)}
-          </div>
-          {!shouldUsePlanSidebarSheet && !rightPanelOpen ? panelLayoutControls : null}
-          {shouldUsePlanSidebarSheet ? (
-            <Popover open={workspaceToolsOpen} onOpenChange={setWorkspaceToolsOpen}>
-              <PopoverTrigger
-                render={<Button variant="ghost" size="icon-sm" aria-label="Workspace tools" />}
-              >
-                <PanelRightIcon aria-hidden className="size-4" />
-              </PopoverTrigger>
-              <PopoverPopup keepMounted align="end" viewportClassName="p-2">
-                {rightPanelSurfaceControls}
-                <PanelLayoutControls
-                  terminalAvailable={activeProject !== null}
-                  terminalOpen={terminalUiState.terminalOpen}
-                  terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
-                  onToggleTerminal={toggleTerminalVisibility}
-                />
-                {workspaceActions}
-              </PopoverPopup>
-            </Popover>
-          ) : undefined}
-        </header>
+        <WorkspaceTopbar
+          reserveControlInset={reserveTitleBarControlInset}
+          ownsTitleBarControls={inlineRightPanelOwnsTitleBar}
+          tabs={
+            <>
+              {surfaceTabs ??
+                (worktreeTabsHeader ? (
+                  <ConversationTabs
+                    tabs={conversationTabs}
+                    onSelectThread={navigateToThreadRef}
+                    onSelectDraft={navigateToDraftId}
+                    onDiscardDraft={discardConversationDraftTab}
+                    onSettleThread={settleConversationTab}
+                    onNewThread={handleNewThreadInActiveWorktree}
+                    newThreadLabel={newConversationTabLabel}
+                  />
+                ) : null)}
+            </>
+          }
+          trailing={
+            <>
+              {!shouldUsePlanSidebarSheet && !rightPanelOpen ? panelLayoutControls : null}
+              {shouldUsePlanSidebarSheet ? (
+                <Popover open={workspaceToolsOpen} onOpenChange={setWorkspaceToolsOpen}>
+                  <PopoverTrigger
+                    render={<Button variant="ghost" size="icon-sm" aria-label="Workspace tools" />}
+                  >
+                    <PanelRightIcon aria-hidden className="size-4" />
+                  </PopoverTrigger>
+                  <PopoverPopup keepMounted align="end" viewportClassName="p-2">
+                    {rightPanelSurfaceControls}
+                    <PanelLayoutControls
+                      terminalAvailable={activeProject !== null}
+                      terminalOpen={terminalUiState.terminalOpen}
+                      terminalShortcutLabel={shortcutLabelForCommand(
+                        keybindings,
+                        "terminal.toggle",
+                      )}
+                      onToggleTerminal={toggleTerminalVisibility}
+                    />
+                    {workspaceActions}
+                  </PopoverPopup>
+                </Popover>
+              ) : undefined}
+            </>
+          }
+        />
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => {

@@ -77,7 +77,7 @@ export function SidebarSettledSection(props: {
   readonly onThreadContextMenu: (event: ReactMouseEvent, thread: EnvironmentThreadShell) => void;
   /** Un-settles the conversation, which drops it back into its project. */
   readonly onRestoreThread: (thread: EnvironmentThreadShell) => void;
-  /** Deletes conversations for good, behind the same confirmation the menu uses. */
+  /** Deletes conversations for good without another confirmation prompt. */
   readonly onDeleteThreads: (threads: readonly EnvironmentThreadShell[]) => void;
 }) {
   const { onSelectThread } = props;

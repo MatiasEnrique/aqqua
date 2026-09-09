@@ -136,7 +136,7 @@ function MenuCheckboxItem({
               <path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
             </svg>
           </MenuPrimitive.CheckboxItemIndicator>
-          <span className="col-start-2">{children}</span>
+          <span className="col-start-2 min-w-0">{children}</span>
         </>
       )}
     </MenuPrimitive.CheckboxItem>

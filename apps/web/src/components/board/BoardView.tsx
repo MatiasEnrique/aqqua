@@ -9,7 +9,10 @@ import { randomUUID } from "~/lib/utils";
 import { boardEnvironment, useEnvironmentCards, useProjectBoards } from "../../state/boards";
 import { useProject } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useClientSettings } from "../../hooks/useSettings";
 import { Button } from "../ui/button";
+import { WorkspaceContentSlab, WorkspaceTopbar } from "../WorkspaceTopbar";
+import { WorkspaceRightPanel } from "./WorkspaceRightPanel";
 import {
   Empty,
   EmptyContent,
@@ -47,6 +50,7 @@ export function BoardView({
     [environmentId, projectId],
   );
   const project = useProject(projectRef);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const boards = useProjectBoards(projectRef);
   const environmentCards = useEnvironmentCards(environmentId);
   // The landing pick considers every board's cards, not just the first's.
@@ -114,80 +118,92 @@ export function BoardView({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto px-4 pt-8 pb-10 sm:px-8">
-      {board === null ? (
-        <Empty className="flex-1 pb-16">
-          <EmptyHeader className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
-            <EmptyMedia variant="icon">
-              <LayoutGridIcon className="size-4.5 text-muted-foreground" />
-            </EmptyMedia>
-            <EmptyTitle>No flow in {project?.title ?? projectId}</EmptyTitle>
-            <EmptyDescription>
-              Define the steps once for this project. Every card you create runs through them. If
-              your flow lives in another project, switch projects from the sidebar menu.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 delay-100 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
-            <Button size="sm" className="gap-1.5" onClick={() => setEditorOpen(true)}>
-              <PlusIcon className="size-3.5" />
-              Create flow
-            </Button>
-          </EmptyContent>
-        </Empty>
-      ) : bestCardId === null ? (
-        <Empty className="flex-1 pb-16">
-          <EmptyHeader className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
-            <EmptyMedia variant="icon">
-              <LayoutGridIcon className="size-4.5 text-muted-foreground" />
-            </EmptyMedia>
-            <EmptyTitle>
-              {sections.settled.length > 0 ? "No active cards" : "No cards yet"}
-            </EmptyTitle>
-            <EmptyDescription>
-              {sections.settled.length > 0
-                ? "Choose a card from Settled history, or add a new one to the active flow."
-                : "Add a card and its fields fill the pipeline's placeholders. Start it whenever the backlog is ready."}
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 delay-100 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="gap-1.5" onClick={() => setCardDialogOpen(true)}>
-                <PlusIcon className="size-3.5" />
-                New card
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                onClick={() => setEditorOpen(true)}
-              >
-                <PencilIcon className="size-3.5" />
-                Edit flow
-              </Button>
-            </div>
-          </EmptyContent>
-        </Empty>
-      ) : null}
+    <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden bg-sidebar">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+        <WorkspaceTopbar />
+        <WorkspaceContentSlab className="flex-col overflow-y-auto px-4 pt-8 pb-10 sm:px-8">
+          {board === null ? (
+            <Empty className="flex-1 pb-16">
+              <EmptyHeader className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
+                <EmptyMedia variant="icon">
+                  <LayoutGridIcon className="size-4.5 text-muted-foreground" />
+                </EmptyMedia>
+                <EmptyTitle>No flow in {project?.title ?? projectId}</EmptyTitle>
+                <EmptyDescription>
+                  Define the steps once for this project. Every card you create runs through them.
+                  If your flow lives in another project, switch projects from the sidebar menu.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 delay-100 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
+                <Button size="sm" className="gap-1.5" onClick={() => setEditorOpen(true)}>
+                  <PlusIcon className="size-3.5" />
+                  Create flow
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : bestCardId === null ? (
+            <Empty className="flex-1 pb-16">
+              <EmptyHeader className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
+                <EmptyMedia variant="icon">
+                  <LayoutGridIcon className="size-4.5 text-muted-foreground" />
+                </EmptyMedia>
+                <EmptyTitle>
+                  {sections.settled.length > 0 ? "No active cards" : "No cards yet"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {sections.settled.length > 0
+                    ? "Choose a card from Settled history, or add a new one to the active flow."
+                    : "Add a card and its fields fill the pipeline's placeholders. Start it whenever the backlog is ready."}
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 delay-100 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none">
+                <div className="flex items-center gap-2">
+                  <Button size="sm" className="gap-1.5" onClick={() => setCardDialogOpen(true)}>
+                    <PlusIcon className="size-3.5" />
+                    New card
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setEditorOpen(true)}
+                  >
+                    <PencilIcon className="size-3.5" />
+                    Edit flow
+                  </Button>
+                </div>
+              </EmptyContent>
+            </Empty>
+          ) : null}
 
-      {editorOpen ? (
-        <Suspense fallback={null}>
-          <BoardEditorDialog
-            open
-            board={board}
-            environmentId={environmentId}
-            projectTitle={project?.title ?? projectId}
-            workspaceRoot={project?.workspaceRoot ?? null}
-            onOpenChange={setEditorOpen}
-            onSubmit={handleBoardSubmit}
+          {editorOpen ? (
+            <Suspense fallback={null}>
+              <BoardEditorDialog
+                open
+                board={board}
+                environmentId={environmentId}
+                projectTitle={project?.title ?? projectId}
+                workspaceRoot={project?.workspaceRoot ?? null}
+                onOpenChange={setEditorOpen}
+                onSubmit={handleBoardSubmit}
+              />
+            </Suspense>
+          ) : null}
+          <CardCreateDialog
+            open={cardDialogOpen}
+            boards={boards}
+            initialBoardId={board?.id ?? null}
+            onOpenChange={setCardDialogOpen}
+            onSubmit={handleCardSubmit}
           />
-        </Suspense>
-      ) : null}
-      <CardCreateDialog
-        open={cardDialogOpen}
-        boards={boards}
-        initialBoardId={board?.id ?? null}
-        onOpenChange={setCardDialogOpen}
-        onSubmit={handleCardSubmit}
+        </WorkspaceContentSlab>
+      </div>
+      {/* The project's own checkout: the flow index is still a workspace. */}
+      <WorkspaceRightPanel
+        environmentId={environmentId}
+        workspaceRoot={project?.workspaceRoot ?? null}
+        projectName={project?.title ?? projectId}
+        timestampFormat={timestampFormat}
       />
     </div>
   );

@@ -81,14 +81,17 @@ describe("ClientSettings header tabs", () => {
     expect(decodeClientSettings({}).headerTabScope).toBe("all");
   });
 
-  it.each(["all", "worktree"] as const)("accepts the supported tab scope: %s", (headerTabScope) => {
-    expect(decodeClientSettings({ headerTabScope }).headerTabScope).toBe(headerTabScope);
-    expect(decodeClientSettingsPatch({ headerTabScope }).headerTabScope).toBe(headerTabScope);
-  });
+  it.each(["all", "project", "worktree"] as const)(
+    "accepts the supported tab scope: %s",
+    (headerTabScope) => {
+      expect(decodeClientSettings({ headerTabScope }).headerTabScope).toBe(headerTabScope);
+      expect(decodeClientSettingsPatch({ headerTabScope }).headerTabScope).toBe(headerTabScope);
+    },
+  );
 
   it("rejects an unsupported tab scope", () => {
-    expect(() => decodeClientSettings({ headerTabScope: "project" })).toThrow();
-    expect(() => decodeClientSettingsPatch({ headerTabScope: "project" })).toThrow();
+    expect(() => decodeClientSettings({ headerTabScope: "repository" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ headerTabScope: "repository" })).toThrow();
   });
 });
 

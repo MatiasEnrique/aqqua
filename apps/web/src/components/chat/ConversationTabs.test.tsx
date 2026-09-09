@@ -41,8 +41,7 @@ const render = (tabs: readonly ConversationTab[]) =>
       onSelectThread={() => {}}
       onSelectDraft={() => {}}
       onDiscardDraft={() => {}}
-      onArchiveThread={() => {}}
-      confirmArchive={true}
+      onSettleThread={() => {}}
       onNewThread={() => {}}
       newThreadLabel="New conversation in colors"
     />,
@@ -72,13 +71,14 @@ describe("ConversationTabs", () => {
     expect(markup).toContain('data-active-tab="false"');
   });
 
-  it("keeps persisted conversations open while still offering archive", () => {
+  it("offers a direct settle action for persisted conversations", () => {
     const markup = render([tab()]);
 
     expect(markup).not.toContain('aria-label="Close Fix palette warmth"');
-    expect(markup).toContain('aria-label="Archive Fix palette warmth"');
-    // Nothing in the strip offers the removed settled lifecycle or deletion.
-    expect(markup).not.toContain("Settle");
+    expect(markup).toContain('aria-label="Settle Fix palette warmth"');
+    expect(markup).toContain("lucide-check");
+    expect(markup).not.toContain("Confirm");
+    expect(markup).not.toContain("Archive");
     expect(markup).not.toContain("Delete");
   });
 
@@ -95,7 +95,7 @@ describe("ConversationTabs", () => {
       },
     ]);
 
-    expect(markup).not.toContain('aria-label="Archive New conversation"');
+    expect(markup).not.toContain('aria-label="Settle New conversation"');
     expect(markup).toContain('aria-label="Close New conversation"');
   });
 
@@ -127,7 +127,7 @@ describe("ConversationTabs", () => {
       markup.indexOf('data-project-favicon="/repo/colors"'),
       markup.indexOf(">Fix palette warmth<"),
       markup.indexOf('role="status"'),
-      markup.indexOf('aria-label="Archive Fix palette warmth"'),
+      markup.indexOf('aria-label="Settle Fix palette warmth"'),
     ];
 
     expect(positions).not.toContain(-1);
@@ -176,14 +176,14 @@ describe("ConversationTabs", () => {
     expect(markup).not.toContain('aria-label="Close Audit card tokens"');
   });
 
-  it("archives from the orchestrator, not from the sub-agent's chip", () => {
+  it("settles from the orchestrator, not from the sub-agent's chip", () => {
     const markup = render([
       tab({ key: "parent", title: "Worktree card list" }),
       tab({ key: "child", title: "Audit card tokens", parentKey: "parent" }),
     ]);
 
-    expect(markup).toContain('aria-label="Archive Worktree card list"');
-    expect(markup).not.toContain('aria-label="Archive Audit card tokens"');
+    expect(markup).toContain('aria-label="Settle Worktree card list"');
+    expect(markup).not.toContain('aria-label="Settle Audit card tokens"');
   });
 
   it("leaves a lone conversation untrayed", () => {

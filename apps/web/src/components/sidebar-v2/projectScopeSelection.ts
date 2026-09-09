@@ -82,20 +82,6 @@ export function resolveSoleScopedProjectGroup<T extends ProjectScopeCandidate>(
 }
 
 /**
- * The project a scope change just added, if it added exactly one.
- *
- * Board mode follows this into the project's route. Removals and multi-key
- * jumps return null: there is no single project to point the surface at.
- */
-export function resolveProjectScopeAddition(
-  previous: ProjectScopeSelection,
-  next: readonly string[],
-): string | null {
-  const added = next.filter((key) => !previous.has(key));
-  return added.length === 1 ? (added[0] ?? null) : null;
-}
-
-/**
  * A stable cache key for the current scope, order-independent.
  *
  * Paging state (the settled tail) resets on this, so `{a, b}` reached by

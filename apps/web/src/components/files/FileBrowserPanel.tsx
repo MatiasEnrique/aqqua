@@ -6,7 +6,7 @@ import type { EnvironmentId, ProjectEntry } from "@aqqua/contracts";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { squashAtomCommandFailure } from "@aqqua/client-runtime/state/runtime";
 import { serializeComposerFileLink } from "@aqqua/shared/composerTrigger";
-import { Files, RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -20,6 +20,7 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { PanelSurfaceHeader } from "~/components/PanelSurfaceHeader";
+import { RIGHT_PANEL_SURFACE_META } from "~/rightPanelSurfaceMeta";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -474,10 +475,12 @@ export default function FileBrowserPanel({
         data-file-browser-panel={`${environmentId}:${cwd}`}
       >
         <PanelSurfaceHeader
-          icon={Files}
-          title={projectName}
+          icon={RIGHT_PANEL_SURFACE_META.files.icon}
+          title={RIGHT_PANEL_SURFACE_META.files.label}
           meta={
             <>
+              {projectName}
+              {" · "}
               {entriesQuery.isPending && entriesQuery.data === null
                 ? "Indexing…"
                 : `${fileCount.toLocaleString()} files`}

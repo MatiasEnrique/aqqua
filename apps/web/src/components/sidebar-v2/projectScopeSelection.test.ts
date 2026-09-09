@@ -4,7 +4,6 @@ import {
   projectScopeSelectionFromKeys,
   projectScopeSelectionKey,
   pruneProjectScopeSelection,
-  resolveProjectScopeAddition,
   resolveScopedProjectKeys,
   resolveSelectedProjectGroups,
   resolveSoleScopedProjectGroup,
@@ -27,26 +26,6 @@ describe("projectScopeSelectionFromKeys", () => {
     expect(selection.size).toBe(0);
     expect(resolveSelectedProjectGroups(selection, candidates)).toEqual([]);
     expect(projectScopeSelectionKey(selection)).toBe("all");
-  });
-});
-
-describe("resolveProjectScopeAddition", () => {
-  it("names the project that was just added", () => {
-    expect(resolveProjectScopeAddition(new Set(["aqqua-web"]), ["aqqua-web", "docs"])).toBe("docs");
-  });
-
-  it("names nothing when a project was removed", () => {
-    expect(resolveProjectScopeAddition(new Set(["aqqua-web", "docs"]), ["aqqua-web"])).toBeNull();
-  });
-
-  it("names nothing when the scope was cleared back to every project", () => {
-    expect(resolveProjectScopeAddition(new Set(["aqqua-web"]), [])).toBeNull();
-  });
-
-  it("names nothing when several projects arrive at once", () => {
-    expect(resolveProjectScopeAddition(EMPTY_PROJECT_SCOPE_SELECTION, ["docs", "marketing"])).toBe(
-      null,
-    );
   });
 });
 

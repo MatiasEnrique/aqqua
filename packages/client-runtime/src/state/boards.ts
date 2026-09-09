@@ -46,7 +46,13 @@ import {
   unsettleCard,
   updateBoard,
 } from "../operations/commands.ts";
-import { arrayElementsEqual, parseProjectKey, projectKey } from "./entities.ts";
+import {
+  arrayElementsEqual,
+  parseProjectKey,
+  parseProjectRefCollectionKey,
+  projectKey,
+  projectRefCollectionKey,
+} from "./entities.ts";
 import {
   createAtomCommandScheduler,
   createEnvironmentCommand,
@@ -77,6 +83,14 @@ const EMPTY_CARDS_BY_ENVIRONMENT: ReadonlyMap<
   EnvironmentId,
   ReadonlyArray<OrchestrationCard>
 > = new Map();
+
+/** One project paired with its live boards, for views that render both. */
+export interface ProjectBoards {
+  readonly ref: ScopedProjectRef;
+  readonly boards: ReadonlyArray<OrchestrationBoard>;
+}
+
+const EMPTY_PROJECT_BOARDS: ReadonlyArray<ProjectBoards> = Object.freeze([]);
 
 // ── Pure selectors ─────────────────────────────────────────────
 
@@ -599,21 +613,6 @@ export function createEnvironmentBoardAtoms(input: {
     ).pipe(Atom.withLabel(`environment-cards:${environmentId}`)),
   );
 
-  const environmentsBoardsAtomFamily = Atom.family((key: string) => {
-    const environmentIds = (JSON.parse(key) as ReadonlyArray<string>).map((id) =>
-      EnvironmentId.make(id),
-    );
-    let previous: ReadonlyArray<OrchestrationBoard> = EMPTY_BOARDS;
-    return Atom.make((get) => {
-      const next = environmentIds.flatMap((environmentId) =>
-        get(environmentBoardsAtom(environmentId)),
-      );
-      if (arrayElementsEqual(previous, next)) return previous;
-      previous = next;
-      return next;
-    }).pipe(Atom.withLabel(`environment-boards-many:${key}`));
-  });
-
   const environmentsCardsAtomFamily = Atom.family((key: string) => {
     const environmentIds = (JSON.parse(key) as ReadonlyArray<string>).map((id) =>
       EnvironmentId.make(id),
@@ -652,6 +651,34 @@ export function createEnvironmentBoardAtoms(input: {
     }).pipe(Atom.withLabel(`project-boards:${key}`));
   });
 
+  /**
+   * Boards for an explicit list of projects, each still tagged with the project
+   * it belongs to. A flat board list cannot say which environment a board came
+   * from — project ids are only unique inside one — so anything that renders
+   * projects and their flows together reads them from here.
+   */
+  const projectsBoardsAtomFamily = Atom.family((key: string) => {
+    const refs = parseProjectRefCollectionKey(key);
+    let previous: ReadonlyArray<ProjectBoards> = EMPTY_PROJECT_BOARDS;
+    return Atom.make((get) => {
+      const next = refs.map((ref) => ({
+        ref,
+        boards: get(projectBoardsAtomFamily(projectKey(ref))),
+      }));
+      const unchanged =
+        previous.length === next.length &&
+        next.every(
+          (entry, index) =>
+            previous[index]?.boards === entry.boards &&
+            previous[index]?.ref.environmentId === entry.ref.environmentId &&
+            previous[index]?.ref.projectId === entry.ref.projectId,
+        );
+      if (unchanged) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`projects-boards:${key}`));
+  });
+
   const projectBoardAtomFamily = Atom.family((key: string) =>
     Atom.make(
       (get): OrchestrationBoard | null => get(projectBoardsAtomFamily(key))[0] ?? null,
@@ -682,12 +709,12 @@ export function createEnvironmentBoardAtoms(input: {
 
   return {
     environmentBoardsAtom,
-    environmentsBoardsAtom: (environmentIds: ReadonlyArray<EnvironmentId>) =>
-      environmentsBoardsAtomFamily(JSON.stringify(environmentIds)),
     environmentCardsAtom,
     environmentsCardsAtom: (environmentIds: ReadonlyArray<EnvironmentId>) =>
       environmentsCardsAtomFamily(JSON.stringify(environmentIds)),
     projectBoardsAtom: (ref: ScopedProjectRef) => projectBoardsAtomFamily(projectKey(ref)),
+    projectsBoardsAtom: (refs: ReadonlyArray<ScopedProjectRef>) =>
+      projectsBoardsAtomFamily(projectRefCollectionKey(refs)),
     projectBoardAtom: (ref: ScopedProjectRef) => projectBoardAtomFamily(projectKey(ref)),
     projectCardsAtom: (ref: ScopedProjectRef) => projectCardsAtomFamily(projectKey(ref)),
     projectCardSectionsAtom: (ref: ScopedProjectRef) =>

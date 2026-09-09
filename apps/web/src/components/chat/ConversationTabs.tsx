@@ -1,6 +1,6 @@
 import type { ScopedThreadRef } from "@aqqua/contracts";
-import { ArchiveIcon, ListIcon, PlusIcon, CircleIcon, XIcon } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { CheckIcon, ListIcon, PlusIcon, CircleIcon, XIcon } from "lucide-react";
+import { memo, useMemo } from "react";
 import {
   Menu,
   MenuGroup,
@@ -9,12 +9,16 @@ import {
   MenuPopup,
   MenuTrigger,
 } from "~/components/ui/menu";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { ConversationStateIcon } from "../ConversationStateIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { StatusIndicator } from "../StatusIndicator";
 import { TabFamilyCountTrigger, TabFamilyPopover } from "../TabFamilyPopover";
+import {
+  WorkspaceTabShell,
+  WorkspaceTabStrip,
+  workspaceTabContentClassName,
+} from "../WorkspaceTabStrip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   type ConversationTab,
@@ -42,84 +46,58 @@ export const ConversationTabs = memo(function ConversationTabs(props: {
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
   readonly onDiscardDraft: (draftId: string) => void;
-  readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
-  readonly confirmArchive: boolean;
+  readonly onSettleThread: (threadRef: ScopedThreadRef) => void;
   readonly onNewThread: () => void;
   readonly newThreadLabel: string;
 }) {
-  const stripRef = useRef<HTMLDivElement | null>(null);
+  // A descendant conversation has its own key here even though the strip shows
+  // its family's chip, so this is the one signal the strip needs to scroll.
   const activeKey = props.tabs.find((tab) => tab.isActive)?.key ?? null;
   const families = useMemo(() => groupConversationTabFamilies(props.tabs), [props.tabs]);
-  const activeSubAgentInPopover = families.some((family) =>
-    family.children.some((child) => child.isActive),
-  );
-
-  // The paging arrows live in the sidebar's titlebar corner, so hand them the
-  // viewport they move.
-  useEffect(() => {
-    registerConversationTabStrip(
-      stripRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null,
-    );
-    return () => registerConversationTabStrip(null);
-  }, []);
-
-  // Keep the routed conversation visible when the strip overflows — arriving
-  // from a deep link or a notification must not land on a tab off-screen.
-  useEffect(() => {
-    const activeTab = stripRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
-    activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeKey, activeSubAgentInPopover]);
 
   return (
-    <nav
-      aria-label="Open conversations"
+    <WorkspaceTabStrip
+      label="Open conversations"
+      activeKey={activeKey}
       data-conversation-tabbar
-      className="flex h-[var(--workspace-tabbar-height)] min-w-0 items-center gap-1 py-1 has-[[data-has-overflow-x]]:[&>[data-conversation-tab-overflow]]:block"
+      className="has-[[data-has-overflow-x]]:[&>[data-conversation-tab-overflow]]:block"
+      onViewportChange={registerConversationTabStrip}
+      trailing={
+        <ConversationTabOverflowPicker
+          tabs={props.tabs}
+          onSelectThread={props.onSelectThread}
+          onSelectDraft={props.onSelectDraft}
+        />
+      }
     >
-      <ScrollArea
-        ref={stripRef}
-        hideScrollbars
-        scrollFade
-        className="min-w-0 flex-1 rounded-none"
-        data-conversation-tab-list
-      >
-        <ul className="flex h-full w-max min-w-full items-center gap-1">
-          {families.map((family) => (
-            <ConversationTabFamilyItem
-              key={family.key}
-              family={family}
-              onSelectThread={props.onSelectThread}
-              onSelectDraft={props.onSelectDraft}
-              onDiscardDraft={props.onDiscardDraft}
-              onArchiveThread={props.onArchiveThread}
-              confirmArchive={props.confirmArchive}
-            />
-          ))}
-          <li className="shrink-0">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={props.newThreadLabel}
-                    onClick={props.onNewThread}
-                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [-webkit-app-region:no-drag]"
-                  />
-                }
-              >
-                <PlusIcon aria-hidden className="size-4" />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">{props.newThreadLabel}</TooltipPopup>
-            </Tooltip>
-          </li>
-        </ul>
-      </ScrollArea>
-      <ConversationTabOverflowPicker
-        tabs={props.tabs}
-        onSelectThread={props.onSelectThread}
-        onSelectDraft={props.onSelectDraft}
-      />
-    </nav>
+      {families.map((family) => (
+        <ConversationTabFamilyItem
+          key={family.key}
+          family={family}
+          onSelectThread={props.onSelectThread}
+          onSelectDraft={props.onSelectDraft}
+          onDiscardDraft={props.onDiscardDraft}
+          onSettleThread={props.onSettleThread}
+        />
+      ))}
+      <li className="shrink-0">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={props.newThreadLabel}
+                onClick={props.onNewThread}
+                className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [-webkit-app-region:no-drag]"
+              />
+            }
+          >
+            <PlusIcon aria-hidden className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">{props.newThreadLabel}</TooltipPopup>
+        </Tooltip>
+      </li>
+    </WorkspaceTabStrip>
   );
 });
 
@@ -179,13 +157,12 @@ function ConversationTabFamilyItem(props: {
   readonly onSelectThread: (threadRef: ScopedThreadRef) => void;
   readonly onSelectDraft: (draftId: string) => void;
   readonly onDiscardDraft: (draftId: string) => void;
-  readonly onArchiveThread: (threadRef: ScopedThreadRef) => void;
-  readonly confirmArchive: boolean;
+  readonly onSettleThread: (threadRef: ScopedThreadRef) => void;
 }) {
   const { family } = props;
   // Narrow through a local: a discriminant check on `family.parent` does not
   // survive into the closures below, and both variants carry `threadRef`, so
-  // the unnarrowed archive case would compile while the draft case would not.
+  // the unnarrowed settle case would compile while the draft case would not.
   const parent = family.parent;
   const selectTab = (tab: ConversationTab) => () =>
     tab._tag === "thread" ? props.onSelectThread(tab.threadRef) : props.onSelectDraft(tab.draftId);
@@ -194,11 +171,8 @@ function ConversationTabFamilyItem(props: {
     <ConversationTabShell
       tab={parent}
       onSelect={selectTab(parent)}
-      onArchive={
-        parent._tag === "thread" ? () => props.onArchiveThread(parent.threadRef) : undefined
-      }
+      onSettle={parent._tag === "thread" ? () => props.onSettleThread(parent.threadRef) : undefined}
       onClose={parent._tag === "draft" ? () => props.onDiscardDraft(parent.draftId) : undefined}
-      confirmArchive={props.confirmArchive}
       subAgents={
         family.children.length === 0
           ? undefined
@@ -269,7 +243,7 @@ function SubAgentCountChip(props: {
 /**
  * A tab reads left to right as where it lives, what it is, and how it is
  * doing: project icon, then title, then the state glyph next to the
- * close/archive control that acts on it.
+ * close/settle control that acts on it.
  */
 function ConversationTabIdentity(props: { readonly tab: ConversationTab }) {
   return (
@@ -298,16 +272,15 @@ function ConversationTabIdentity(props: { readonly tab: ConversationTab }) {
 /**
  * One tab: a white shell that carries its own border.
  *
- * The archive control is a sibling button rather than a nested one — a button
- * inside a button is invalid and unreachable by keyboard — so tabs with an
- * archive or close action are flex rows of two controls sharing one surface.
+ * The settle control is a sibling button rather than a nested one — a button
+ * inside a button is invalid and unreachable by keyboard — so tabs with a
+ * settle or close action are flex rows of two controls sharing one surface.
  */
 function ConversationTabShell(props: {
   readonly tab: ConversationTab;
   readonly onSelect: () => void;
-  readonly onArchive?: (() => void) | undefined;
+  readonly onSettle?: (() => void) | undefined;
   readonly onClose?: (() => void) | undefined;
-  readonly confirmArchive: boolean;
   /** Present only for an orchestrator: the count chip that opens its picker. */
   readonly subAgents?:
     | {
@@ -318,33 +291,14 @@ function ConversationTabShell(props: {
     | undefined;
 }) {
   const { tab } = props;
-  const [isConfirmingArchive, setIsConfirmingArchive] = useState(false);
-  const confirmArchiveRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (isConfirmingArchive) confirmArchiveRef.current?.focus();
-  }, [isConfirmingArchive]);
 
   return (
-    <div
-      data-active-tab={tab.isActive}
-      data-testid={`conversation-tab-${tab.key}`}
-      className={cn(
-        "flex shrink-0 items-center gap-1 pr-2 pl-2.5 transition-colors duration-(--duration-fast) ease-(--ease-fluid) [-webkit-app-region:no-drag]",
-        "h-7 rounded-md",
-        // Fill alone marks the current tab — an outline on every tab turns the
-        // strip into a row of boxes competing with the header's own edges.
-        tab.isActive ? "bg-sidebar-row-active" : "hover:bg-accent",
-      )}
-    >
+    <WorkspaceTabShell active={tab.isActive} data-testid={`conversation-tab-${tab.key}`}>
       <button
         type="button"
         onClick={props.onSelect}
         aria-current={tab.isActive ? "page" : undefined}
-        className={cn(
-          "flex h-full min-w-0 cursor-pointer items-center gap-[7px] rounded-md text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-          tab.isActive ? "font-semibold text-foreground" : "text-muted-foreground",
-        )}
+        className={workspaceTabContentClassName(tab.isActive ? "active" : "inactive")}
       >
         <ConversationTabIdentity tab={tab} />
       </button>
@@ -372,43 +326,23 @@ function ConversationTabShell(props: {
           <TooltipPopup side="bottom">Close conversation</TooltipPopup>
         </Tooltip>
       )}
-      {props.onArchive === undefined ? null : isConfirmingArchive ? (
-        <button
-          ref={confirmArchiveRef}
-          type="button"
-          aria-label={`Confirm archive ${tab.title}`}
-          onBlur={() => setIsConfirmingArchive(false)}
-          onClick={() => {
-            setIsConfirmingArchive(false);
-            props.onArchive?.();
-          }}
-          className="inline-flex h-5 shrink-0 cursor-pointer items-center rounded-sm bg-destructive/12 px-1.5 text-[10px] font-medium text-destructive outline-none transition-colors hover:bg-destructive/18 focus-visible:ring-2 focus-visible:ring-destructive/40"
-        >
-          Confirm
-        </button>
-      ) : (
+      {props.onSettle === undefined ? null : (
         <Tooltip>
           <TooltipTrigger
             render={
               <button
                 type="button"
-                aria-label={`Archive ${tab.title}`}
-                onClick={() => {
-                  if (props.confirmArchive) {
-                    setIsConfirmingArchive(true);
-                  } else {
-                    props.onArchive?.();
-                  }
-                }}
+                aria-label={`Settle ${tab.title}`}
+                onClick={props.onSettle}
                 className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/60 outline-none transition-colors duration-(--duration-fast) ease-(--ease-fluid) hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               />
             }
           >
-            <ArchiveIcon aria-hidden className="size-3" />
+            <CheckIcon aria-hidden className="size-3" />
           </TooltipTrigger>
-          <TooltipPopup side="bottom">Archive conversation</TooltipPopup>
+          <TooltipPopup side="bottom">Settle conversation</TooltipPopup>
         </Tooltip>
       )}
-    </div>
+    </WorkspaceTabShell>
   );
 }

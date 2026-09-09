@@ -1,17 +1,6 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@aqqua/contracts";
 import { getTerminalLabel } from "@aqqua/shared/terminalLabels";
-import {
-  ClipboardList,
-  FileDiff,
-  Files,
-  GitGraph,
-  GitPullRequest,
-  Globe2,
-  PanelRightClose,
-  Plus,
-  TerminalSquare,
-  X,
-} from "lucide-react";
+import { PanelRightClose, Plus, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -31,6 +20,7 @@ import {
   type RightPanelSurface,
 } from "~/rightPanelStore";
 import { RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS } from "~/rightPanelAvailability";
+import { RIGHT_PANEL_SURFACE_META } from "~/rightPanelSurfaceMeta";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -118,6 +108,11 @@ function SurfaceMenuItem(props: {
   return <DisabledReasonTooltip reason={props.disabledReason} trigger={item} />;
 }
 
+function SurfaceMenuIcon({ kind }: { kind: RightPanelSurface["kind"] }) {
+  const Icon = RIGHT_PANEL_SURFACE_META[kind].icon;
+  return <Icon />;
+}
+
 function RightPanelEmptyState(props: {
   onAddBrowser: () => void;
   onAddTerminal: () => void;
@@ -134,49 +129,43 @@ function RightPanelEmptyState(props: {
 }) {
   const actions = [
     {
-      label: "Browser",
+      ...RIGHT_PANEL_SURFACE_META.preview,
       description: "Open a local app or URL.",
-      icon: Globe2,
       available: props.browserAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.browser,
       onClick: props.onAddBrowser,
     },
     {
-      label: "Terminal",
+      ...RIGHT_PANEL_SURFACE_META.terminal,
       description: "Start a shell in this workspace.",
-      icon: TerminalSquare,
       available: props.terminalAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.terminal,
       onClick: props.onAddTerminal,
     },
     {
-      label: "Files",
+      ...RIGHT_PANEL_SURFACE_META.files,
       description: "Browse and read workspace files.",
-      icon: Files,
       available: props.filesAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files,
       onClick: props.onAddFiles,
     },
     {
-      label: "Diff",
+      ...RIGHT_PANEL_SURFACE_META.diff,
       description: "Review changes in this thread.",
-      icon: FileDiff,
       available: props.diffAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff,
       onClick: props.onAddDiff,
     },
     {
-      label: "History",
+      ...RIGHT_PANEL_SURFACE_META.history,
       description: "Browse the repository commit graph.",
-      icon: GitGraph,
       available: props.historyAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.history,
       onClick: props.onAddHistory,
     },
     {
-      label: "Pull request",
+      ...RIGHT_PANEL_SURFACE_META.pullRequest,
       description: "Watch the current pull request and its checks.",
-      icon: GitPullRequest,
       available: props.pullRequestAvailable,
       disabledReason: RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.pullRequest,
       onClick: props.onAddPullRequest,
@@ -246,50 +235,33 @@ export function rightPanelSurfaceTitle(
 ): string {
   switch (surface.kind) {
     case "diff":
-      return "Diff";
     case "history":
-      return "History";
     case "pullRequest":
-      return "Pull request";
     case "files":
-      return "Files";
+    case "plan":
+      return RIGHT_PANEL_SURFACE_META[surface.kind].label;
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
         getTerminalLabel(surface.activeTerminalId)
       );
-    case "plan":
-      return "Plan";
     case "preview": {
+      const fallback = RIGHT_PANEL_SURFACE_META.preview.label;
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
-      if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
+      if (!snapshot || snapshot.navStatus._tag === "Idle") return fallback;
       if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
       try {
-        return new URL(snapshot.navStatus.url).host || "Browser";
+        return new URL(snapshot.navStatus.url).host || fallback;
       } catch {
-        return "Browser";
+        return fallback;
       }
     }
   }
 }
 
 function SurfaceIcon({ surface }: { surface: RightPanelSurface }) {
-  switch (surface.kind) {
-    case "preview":
-      return <Globe2 className="size-3.5 shrink-0" />;
-    case "diff":
-      return <FileDiff className="size-3.5 shrink-0" />;
-    case "history":
-      return <GitGraph className="size-3.5 shrink-0" />;
-    case "pullRequest":
-      return <GitPullRequest className="size-3.5 shrink-0" />;
-    case "files":
-      return <Files className="size-3.5 shrink-0" />;
-    case "terminal":
-      return <TerminalSquare className="size-3.5 shrink-0" />;
-    case "plan":
-      return <ClipboardList className="size-3.5 shrink-0" />;
-  }
+  const Icon = RIGHT_PANEL_SURFACE_META[surface.kind].icon;
+  return <Icon className="size-3.5 shrink-0" />;
 }
 
 /** Visible tabs keep open tools directly reachable; overflow scrolls horizontally. */
@@ -485,24 +457,21 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
   const activities: RightPanelActivity[] = [
     {
       kind: "files",
-      label: "Files",
-      icon: Files,
+      ...RIGHT_PANEL_SURFACE_META.files,
       available: props.filesAvailable || hasSurfaceOfKind("files"),
       disabledReason: props.filesAvailable ? null : RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files,
       onAdd: props.onAddFiles,
     },
     {
       kind: "diff",
-      label: "Changes",
-      icon: FileDiff,
+      ...RIGHT_PANEL_SURFACE_META.diff,
       available: props.diffAvailable || hasSurfaceOfKind("diff"),
       disabledReason: props.diffAvailable ? null : RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff,
       onAdd: props.onAddDiff,
     },
     {
       kind: "history",
-      label: "History",
-      icon: GitGraph,
+      ...RIGHT_PANEL_SURFACE_META.history,
       available: props.historyAvailable || hasSurfaceOfKind("history"),
       disabledReason: props.historyAvailable
         ? null
@@ -511,8 +480,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
     },
     {
       kind: "pullRequest",
-      label: "Pull request",
-      icon: GitPullRequest,
+      ...RIGHT_PANEL_SURFACE_META.pullRequest,
       available: props.pullRequestAvailable || hasSurfaceOfKind("pullRequest"),
       disabledReason: props.pullRequestAvailable
         ? null
@@ -521,8 +489,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
     },
     {
       kind: "terminal",
-      label: "Terminal",
-      icon: TerminalSquare,
+      ...RIGHT_PANEL_SURFACE_META.terminal,
       available: props.terminalAvailable || hasSurfaceOfKind("terminal"),
       disabledReason: props.terminalAvailable
         ? null
@@ -531,8 +498,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
     },
     {
       kind: "preview",
-      label: "Browser",
-      icon: Globe2,
+      ...RIGHT_PANEL_SURFACE_META.preview,
       available: props.browserAvailable || hasSurfaceOfKind("preview"),
       disabledReason: props.browserAvailable
         ? null
@@ -543,8 +509,7 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
   if (hasSurfaceOfKind("plan")) {
     activities.push({
       kind: "plan",
-      label: "Plan",
-      icon: ClipboardList,
+      ...RIGHT_PANEL_SURFACE_META.plan,
       available: true,
       disabledReason: null,
     });
@@ -727,48 +692,48 @@ export function RightPanelSidebar(props: RightPanelSidebarProps) {
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.browser}
                 onClick={props.onAddBrowser}
               >
-                <Globe2 />
-                Browser
+                <SurfaceMenuIcon kind="preview" />
+                {RIGHT_PANEL_SURFACE_META.preview.label}
               </SurfaceMenuItem>
               <SurfaceMenuItem
                 available={props.terminalAvailable}
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.terminal}
                 onClick={props.onAddTerminal}
               >
-                <TerminalSquare />
-                Terminal
+                <SurfaceMenuIcon kind="terminal" />
+                {RIGHT_PANEL_SURFACE_META.terminal.label}
               </SurfaceMenuItem>
               <SurfaceMenuItem
                 available={props.filesAvailable}
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.files}
                 onClick={props.onAddFiles}
               >
-                <Files />
-                Files
+                <SurfaceMenuIcon kind="files" />
+                {RIGHT_PANEL_SURFACE_META.files.label}
               </SurfaceMenuItem>
               <SurfaceMenuItem
                 available={props.diffAvailable}
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.diff}
                 onClick={props.onAddDiff}
               >
-                <FileDiff />
-                Changes
+                <SurfaceMenuIcon kind="diff" />
+                {RIGHT_PANEL_SURFACE_META.diff.label}
               </SurfaceMenuItem>
               <SurfaceMenuItem
                 available={props.historyAvailable}
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.history}
                 onClick={props.onAddHistory}
               >
-                <GitGraph />
-                History
+                <SurfaceMenuIcon kind="history" />
+                {RIGHT_PANEL_SURFACE_META.history.label}
               </SurfaceMenuItem>
               <SurfaceMenuItem
                 available={props.pullRequestAvailable}
                 disabledReason={RIGHT_PANEL_SURFACE_UNAVAILABLE_REASONS.pullRequest}
                 onClick={props.onAddPullRequest}
               >
-                <GitPullRequest />
-                Pull request
+                <SurfaceMenuIcon kind="pullRequest" />
+                {RIGHT_PANEL_SURFACE_META.pullRequest.label}
               </SurfaceMenuItem>
             </MenuPopup>
           </Menu>

@@ -942,7 +942,13 @@ export function useThreadActions() {
   );
 
   const deleteThreads = useCallback(
-    async (targets: ReadonlyArray<EnvironmentThreadShell>) => {
+    async (
+      targets: ReadonlyArray<EnvironmentThreadShell>,
+      // The settled shelf is already the deliberate deletion boundary. Its
+      // direct action deletes conversation data only and never infers that the
+      // worktree should also be removed.
+      options: { readonly confirm?: boolean } = {},
+    ) => {
       const flowOwned = readFlowOwnedTarget(targets);
       if (flowOwned !== null) {
         return AsyncResult.failure(
@@ -954,9 +960,12 @@ export function useThreadActions() {
           ),
         );
       }
-      const planResult = await confirmThreadDeletion(targets);
+      const planResult =
+        options.confirm === false
+          ? AsyncResult.success<ThreadDeletionExecutionPlan | null>(null)
+          : await confirmThreadDeletion(targets);
       if (planResult._tag === "Failure") return planResult;
-      if (planResult.value === null) return AsyncResult.success(null);
+      if (options.confirm !== false && planResult.value === null) return AsyncResult.success(null);
 
       const deletedThreadKeys = new Set<string>();
       const removedWorktreeKeys = new Set<string>();
@@ -964,7 +973,7 @@ export function useThreadActions() {
         const result = await deleteThread(target, {
           deletedThreadKeys,
           removedWorktreeKeys,
-          deletionPlan: planResult.value,
+          ...(planResult.value === null ? {} : { deletionPlan: planResult.value }),
         });
         if (result._tag === "Failure") return result;
         deletedThreadKeys.add(scopedThreadKey(scopeThreadRef(target.environmentId, target.id)));
@@ -972,6 +981,11 @@ export function useThreadActions() {
       return AsyncResult.success(deletedThreadKeys as ReadonlySet<string>);
     },
     [confirmThreadDeletion, deleteThread],
+  );
+
+  const deleteThreadsWithoutConfirmation = useCallback(
+    (targets: ReadonlyArray<EnvironmentThreadShell>) => deleteThreads(targets, { confirm: false }),
+    [deleteThreads],
   );
 
   const confirmAndDeleteThread = useCallback(
@@ -987,6 +1001,7 @@ export function useThreadActions() {
       archiveThread,
       unarchiveThread,
       deleteThreads,
+      deleteThreadsWithoutConfirmation,
       confirmAndDeleteThread,
       settleThread,
       settleThreads,
@@ -1000,6 +1015,7 @@ export function useThreadActions() {
       confirmAndDeleteThread,
       deleteWorktree,
       deleteThreads,
+      deleteThreadsWithoutConfirmation,
       settleThread,
       settleThreads,
       snoozeThread,

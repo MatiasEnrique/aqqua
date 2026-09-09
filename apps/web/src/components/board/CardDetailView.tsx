@@ -13,7 +13,7 @@ import {
 } from "@aqqua/client-runtime/state/runtime";
 import type { CardId, EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@aqqua/contracts";
 import { InfoIcon, RotateCcwIcon, SkipForwardIcon, Trash2Icon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { boardArtifacts, boardEnvironment, useBoard, useCard } from "../../state/boards";
 import {
   useThreadDetail,
@@ -21,6 +21,9 @@ import {
   useThreadShells,
   useThreadStatus,
 } from "../../state/entities";
+import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useClientSettings } from "../../hooks/useSettings";
+import { useProject } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -58,9 +61,12 @@ import {
   resolveCardSelection,
   resolveFlowTabSelection,
   resolveCardThreadPresence,
+  selectCardConversations,
   selectCardDetailThreads,
   selectionThreadId,
 } from "./CardDetail.logic";
+import { WorkspaceContentSlab, WorkspaceTopbar } from "../WorkspaceTopbar";
+import { WorkspaceRightPanel } from "./WorkspaceRightPanel";
 import { FlowStepTabs } from "./FlowStepTabs";
 
 export interface CardDetailViewProps {
@@ -152,6 +158,11 @@ export function CardDetailView({
   const retryCard = useAtomCommand(boardEnvironment.retryCard);
   const resetCard = useAtomCommand(boardEnvironment.resetCard);
   const deleteCard = useAtomCommand(boardEnvironment.deleteCard);
+  const newThread = useNewThreadHandler();
+  const project = useProject(
+    useMemo(() => scopeProjectRef(environmentId, projectId), [environmentId, projectId]),
+  );
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>(null);
   // Local only, and only until the projection catches up: the server decides
   // what actually happens to the card, this just keeps one click from being
@@ -169,6 +180,7 @@ export function CardDetailView({
           title: shell.title,
           parentThreadId: shell.parentThreadId ?? null,
           providerSubagent: shell.providerSubagent ?? null,
+          worktreePath: shell.worktreePath ?? null,
           createdAt: shell.createdAt,
           updatedAt: shell.updatedAt,
           isWorking: shell.session?.status === "running" || shell.session?.status === "starting",
@@ -178,8 +190,18 @@ export function CardDetailView({
   );
 
   const requested = useMemo(() => parseCardSelection(selectionParam), [selectionParam]);
+  const conversations = useMemo(
+    () => (card === null ? [] : selectCardConversations({ card, threads })),
+    [card, threads],
+  );
+  const conversationThreadIds = useMemo(
+    () => new Set(conversations.map((thread) => thread.id as string)),
+    [conversations],
+  );
   const detailThreadIds = useMemo(() => {
-    if (card === null || requested === null) return new Set<string>();
+    if (card === null || requested === null || requested.kind === "conversation") {
+      return new Set<string>();
+    }
     const parent = cardStepThreadId(card, requested.stepIndex);
     return new Set(selectCardDetailThreads(threads, parent).map((thread) => thread.id as string));
   }, [card, requested, threads]);
@@ -188,14 +210,23 @@ export function CardDetailView({
     if (card === null || board === null) {
       return { kind: "step", stepIndex: 0 };
     }
-    return resolveCardSelection({ card, board, requested, detailThreadIds });
-  }, [board, card, detailThreadIds, requested]);
+    return resolveCardSelection({
+      card,
+      board,
+      requested,
+      detailThreadIds,
+      conversationThreadIds,
+    });
+  }, [board, card, conversationThreadIds, detailThreadIds, requested]);
 
   const flowTabSelection = useMemo(
     () =>
       resolveFlowTabSelection({
         selection,
-        stepThreadId: card === null ? null : cardStepThreadId(card, selection.stepIndex),
+        stepThreadId:
+          card === null || selection.kind === "conversation"
+            ? null
+            : cardStepThreadId(card, selection.stepIndex),
         threads,
       }),
     [card, selection, threads],
@@ -282,10 +313,30 @@ export function CardDetailView({
       card,
       board,
       threads,
+      conversations,
       artifactByStepIndex,
       nowMs,
     });
-  }, [artifactByStepIndex, board, card, nowMs, threads]);
+  }, [artifactByStepIndex, board, card, conversations, nowMs, threads]);
+
+  /**
+   * Another conversation in the card's worktree. The flow runs its steps; this
+   * is the thread you start next to them, and it is an ordinary thread — same
+   * composer, same workspace, same panels — that the card lists because it
+   * shares the card's checkout.
+   */
+  const startCardConversation = useCallback(() => {
+    if (card?.worktreePath == null) return;
+    // Same options the sidebar uses to start a thread in a worktree: the card's
+    // checkout is the point, so the draft opens there rather than on the
+    // project's default branch.
+    void newThread(scopeProjectRef(environmentId, projectId), {
+      branch: card.branch,
+      worktreePath: card.worktreePath,
+      envMode: "worktree",
+      startFromOrigin: false,
+    });
+  }, [card?.branch, card?.worktreePath, environmentId, newThread, projectId]);
 
   const select = useCallback(
     (next: CardSelection) => {
@@ -296,7 +347,7 @@ export function CardDetailView({
 
   const selectNativeSubagentThread = useCallback(
     (nextThreadRef: ScopedThreadRef) => {
-      if (card === null) return;
+      if (card === null || selection.kind === "conversation") return;
       const stepThreadId = cardStepThreadId(card, selection.stepIndex);
       select(
         nextThreadRef.threadId === stepThreadId
@@ -308,7 +359,7 @@ export function CardDetailView({
             },
       );
     },
-    [card, select, selection.stepIndex],
+    [card, select, selection],
   );
 
   const availability = useMemo(() => {
@@ -411,7 +462,9 @@ export function CardDetailView({
     // Sub-agents keep the plain send arrow: only the step can move the card.
     // So do finished steps — the card's actions belong to where it sits.
     if (card === null || availability === null) return undefined;
-    if (selection.kind === "subagent" || card.position.kind !== "step") return undefined;
+    // The card's own conversations and its sub-agents never move it: only the
+    // step it sits in carries the card's actions.
+    if (selection.kind !== "step" || card.position.kind !== "step") return undefined;
     if (selection.stepIndex !== currentStepIndex) return undefined;
     return (state: { promptHasText: boolean; disabled: boolean; focusComposer: () => void }) => (
       <CardComposerActions
@@ -462,7 +515,7 @@ export function CardDetailView({
         },
       ];
     }
-    if (selection.stepIndex !== currentStepIndex) return [];
+    if (selection.kind === "conversation" || selection.stepIndex !== currentStepIndex) return [];
     // An operation that failed says so first, and keeps saying so: it is the
     // reason a card is back where the user thought it had left.
     if (failureNote !== null) {
@@ -513,8 +566,11 @@ export function CardDetailView({
 
   if (card === null || board === null || tree === null) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground text-sm">
-        This card is no longer in the flow.
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-sidebar">
+        <WorkspaceTopbar />
+        <WorkspaceContentSlab className="items-center justify-center px-6 text-center text-muted-foreground text-sm">
+          This card is no longer in the flow.
+        </WorkspaceContentSlab>
       </div>
     );
   }
@@ -524,6 +580,7 @@ export function CardDetailView({
       model={tree}
       selection={flowTabSelection}
       onSelect={select}
+      onNewConversation={startCardConversation}
       actions={
         canForceAdvance ? (
           <Button
@@ -540,6 +597,30 @@ export function CardDetailView({
         ) : null
       }
     />
+  );
+
+  /**
+   * The panes a card shows when it has no conversation to open still belong to
+   * the workspace: same titlebar row, same tab strip, same content slab as the
+   * transcript that replaces them once a step thread exists.
+   */
+  const framed = (children: ReactNode) => (
+    <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden bg-sidebar">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+        <WorkspaceTopbar tabs={surfaceTabs} />
+        <WorkspaceContentSlab className="flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+          {children}
+        </WorkspaceContentSlab>
+      </div>
+      {/* The card owns a checkout even with no conversation in front of it, so
+          the workspace panels stay reachable. */}
+      <WorkspaceRightPanel
+        environmentId={environmentId}
+        workspaceRoot={card?.worktreePath ?? null}
+        projectName={project?.title ?? projectId}
+        timestampFormat={timestampFormat}
+      />
+    </div>
   );
 
   const confirmation =
@@ -600,54 +681,48 @@ export function CardDetailView({
     );
 
   if (isCardDeleting(card)) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {surfaceTabs}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
-          <Trash2Icon aria-hidden className="size-5 text-destructive-foreground" />
-          <span className="font-medium text-foreground">
-            {card.lastError === null ? "Deleting card…" : "Deletion needs another attempt"}
-          </span>
-          <span className="max-w-md text-muted-foreground">
-            {card.lastError ??
-              "Removing its conversations, worktree, and artifacts. The card has already left the flow; this view closes when cleanup finishes."}
-          </span>
-          {card.lastError === null ? null : (
-            <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
-              {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
-              Retry cleanup
-            </Button>
-          )}
-        </div>
-      </div>
+    return framed(
+      <>
+        <Trash2Icon aria-hidden className="size-5 text-destructive-foreground" />
+        <span className="font-medium text-foreground">
+          {card.lastError === null ? "Deleting card…" : "Deletion needs another attempt"}
+        </span>
+        <span className="max-w-md text-muted-foreground">
+          {card.lastError ??
+            "Removing its conversations, worktree, and artifacts. The card has already left the flow; this view closes when cleanup finishes."}
+        </span>
+        {card.lastError === null ? null : (
+          <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
+            {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
+            Retry cleanup
+          </Button>
+        )}
+      </>,
     );
   }
 
   if (card.operation?.kind === "resetting") {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {surfaceTabs}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
-          {card.lastError === null ? (
-            <Spinner className="size-5" />
-          ) : (
-            <RotateCcwIcon aria-hidden className="size-5 text-warning-foreground" />
-          )}
-          <span className="font-medium text-foreground">
-            {card.lastError === null ? "Resetting card…" : "Reset needs another attempt"}
-          </span>
-          <span className="max-w-md text-muted-foreground">
-            {card.lastError ??
-              "Archiving its conversations and removing artifacts. The card returns to To-Do when cleanup finishes."}
-          </span>
-          {card.lastError === null ? null : (
-            <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
-              {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
-              Retry cleanup
-            </Button>
-          )}
-        </div>
-      </div>
+    return framed(
+      <>
+        {card.lastError === null ? (
+          <Spinner className="size-5" />
+        ) : (
+          <RotateCcwIcon aria-hidden className="size-5 text-warning-foreground" />
+        )}
+        <span className="font-medium text-foreground">
+          {card.lastError === null ? "Resetting card…" : "Reset needs another attempt"}
+        </span>
+        <span className="max-w-md text-muted-foreground">
+          {card.lastError ??
+            "Archiving its conversations and removing artifacts. The card returns to To-Do when cleanup finishes."}
+        </span>
+        {card.lastError === null ? null : (
+          <Button size="sm" onClick={retryCleanup} disabled={cleanupRetryPending}>
+            {cleanupRetryPending ? <Spinner className="size-3.5" /> : <RotateCcwIcon />}
+            Retry cleanup
+          </Button>
+        )}
+      </>,
     );
   }
 
@@ -688,58 +763,52 @@ export function CardDetailView({
           ? { key: "delete", label: "Delete card", run: () => setPendingConfirmation("delete") }
           : null,
       ].flatMap((action) => (action === null ? [] : [action]));
-      return (
-        <div className="flex h-full min-h-0 flex-col">
-          {surfaceTabs}
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm">
-            <InfoIcon aria-hidden className="size-5 text-muted-foreground" />
-            <span className="font-medium text-foreground">This flow conversation was removed.</span>
-            <span className="max-w-md text-muted-foreground">
-              {isCurrentStep
-                ? "The card still points at this step, but its conversation no longer exists. Pick it up again from here, or clear the card."
-                : "This conversation is no longer available, so its history cannot be shown."}
-            </span>
-            {actions.length === 0 ? null : (
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                {actions.map((action) => (
-                  <Button
-                    key={action.key}
-                    size="sm"
-                    variant={action.key === "delete" ? "destructive" : "outline"}
-                    disabled={busy}
-                    onClick={action.run}
-                  >
-                    {action.label}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
+      return framed(
+        <>
+          <InfoIcon aria-hidden className="size-5 text-muted-foreground" />
+          <span className="font-medium text-foreground">This flow conversation was removed.</span>
+          <span className="max-w-md text-muted-foreground">
+            {isCurrentStep
+              ? "The card still points at this step, but its conversation no longer exists. Pick it up again from here, or clear the card."
+              : "This conversation is no longer available, so its history cannot be shown."}
+          </span>
+          {actions.length === 0 ? null : (
+            <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+              {actions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  variant={action.key === "delete" ? "destructive" : "outline"}
+                  disabled={busy}
+                  onClick={action.run}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          )}
           {confirmation}
-        </div>
+        </>,
       );
     }
     // Between Start and the first step thread the server is doing real work
     // (worktree, checkout, setup script) — show that instead of a dead pane.
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {surfaceTabs}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-sm">
-          {presence === "unreleased" ? (
-            "This card has not been released yet — start it from the flow."
-          ) : (
-            <>
-              <Spinner className="size-4" />
-              <span>
-                {presence === "starting"
-                  ? "Starting this card — creating its worktree and checking out the branch…"
-                  : "Preparing this step's thread…"}
-              </span>
-            </>
-          )}
-        </div>
+    return framed(
+      <>
+        {presence === "unreleased" ? (
+          "This card has not been released yet — start it from the flow."
+        ) : (
+          <>
+            <Spinner className="size-4" />
+            <span>
+              {presence === "starting"
+                ? "Starting this card — creating its worktree and checking out the branch…"
+                : "Preparing this step's thread…"}
+            </span>
+          </>
+        )}
         {confirmation}
-      </div>
+      </>,
     );
   }
 

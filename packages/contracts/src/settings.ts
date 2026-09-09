@@ -26,7 +26,7 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
-export const HeaderTabScope = Schema.Literals(["all", "worktree"]);
+export const HeaderTabScope = Schema.Literals(["all", "project", "worktree"]);
 export type HeaderTabScope = typeof HeaderTabScope.Type;
 export const DEFAULT_HEADER_TAB_SCOPE: HeaderTabScope = "all";
 

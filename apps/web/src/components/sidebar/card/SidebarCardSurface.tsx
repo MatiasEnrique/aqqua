@@ -91,7 +91,7 @@ export function sidebarCardSurfaceClassName(state: SidebarCardSurfaceState): str
  */
 const INTRINSIC_SIZE = {
   card: "[content-visibility:auto] [contain-intrinsic-size:auto_52px]",
-  flow: "[content-visibility:auto] [contain-intrinsic-size:auto_46px]",
+  flow: "[content-visibility:auto] [contain-intrinsic-size:auto_40px]",
   slim: "[content-visibility:auto] [contain-intrinsic-size:auto_34px]",
   /**
    * Nested rows inside a family panel. Their guides used to paint outside the

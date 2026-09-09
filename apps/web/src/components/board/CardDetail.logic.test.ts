@@ -29,6 +29,7 @@ import {
   resolveCardSelection,
   resolveFlowTabSelection,
   resolveCardThreadPresence,
+  selectCardConversations,
   selectCardDetailThreads,
   selectionThreadId,
   type CardTreeThread,
@@ -529,5 +530,62 @@ describe("missing card conversations", () => {
         selection: { kind: "step", stepIndex: 0 },
       }),
     ).toEqual({ canRetryStep: false, canMarkDone: false, canReset: false, canDelete: false });
+  });
+});
+
+describe("card conversations", () => {
+  const conversationCard = card({
+    worktreePath: "/tmp/wt",
+    stepThreads: [
+      { stepIndex: 0, threadId: ThreadId.make("thread-plan"), spawnedAt: "2026-04-01T00:00:00Z" },
+    ],
+  });
+  const threads = [
+    thread({ id: "thread-plan", title: "Planning", worktreePath: "/tmp/wt" }),
+    thread({ id: "ad-hoc", title: "Poke at the failing test", worktreePath: "/tmp/wt" }),
+    thread({ id: "elsewhere", title: "Another worktree", worktreePath: "/tmp/other" }),
+    thread({
+      id: "sub-agent",
+      title: "Sub-agent",
+      worktreePath: "/tmp/wt",
+      parentThreadId: ThreadId.make("thread-plan"),
+    }),
+  ];
+
+  it("claims the threads sharing the card's worktree that no step spawned", () => {
+    expect(
+      selectCardConversations({ card: conversationCard, threads }).map((entry) => entry.id),
+    ).toEqual(["ad-hoc"]);
+  });
+
+  it("keeps no conversations for a card without a worktree", () => {
+    expect(selectCardConversations({ card: card({ worktreePath: null }), threads })).toEqual([]);
+  });
+
+  it("round-trips a conversation selection through the URL", () => {
+    const selection = { kind: "conversation", threadId: ThreadId.make("ad-hoc") } as const;
+    expect(formatCardSelection(selection)).toBe("conv:ad-hoc");
+    expect(parseCardSelection("conv:ad-hoc")).toEqual(selection);
+  });
+
+  it("opens the conversation's own thread, not a step's", () => {
+    expect(
+      selectionThreadId(conversationCard, {
+        kind: "conversation",
+        threadId: ThreadId.make("ad-hoc"),
+      }),
+    ).toBe("ad-hoc");
+  });
+
+  it("drops a conversation selection whose thread is gone", () => {
+    expect(
+      resolveCardSelection({
+        card: conversationCard,
+        board: board(),
+        requested: { kind: "conversation", threadId: ThreadId.make("deleted") },
+        detailThreadIds: new Set(),
+        conversationThreadIds: new Set(["ad-hoc"]),
+      }).kind,
+    ).toBe("step");
   });
 });

@@ -306,6 +306,14 @@ describe("WorktreeCard", () => {
     expect(markup).toContain("Snoozed · feature/sidebar");
   });
 
+  it("uses a check icon for the settle action", () => {
+    const markup = renderThreads(group(), [thread()]);
+
+    expect(markup).toContain('aria-label="Settle conversation Fix sidebar rows"');
+    expect(markup).toContain("lucide-check");
+    expect(markup).not.toContain("lucide-archive");
+  });
+
   it("leaves settled conversations to the sidebar's own settled shelf", () => {
     const settledThread = thread({ id: ThreadId.make("settled"), title: "Old work" });
     const threadKey = scopedThreadKey(

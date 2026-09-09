@@ -161,6 +161,7 @@ const SIDEBAR_CONVERSATION_GROUPING_LABELS: Record<SidebarConversationGrouping, 
 
 const HEADER_TAB_SCOPE_LABELS: Record<HeaderTabScope, string> = {
   all: "All worktrees",
+  project: "Selected project",
   worktree: "Selected worktree",
 };
 
@@ -525,9 +526,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-        ? ["Archive confirmation"]
-        : []),
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
@@ -537,7 +535,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       isTextGenerationModelDirty,
       isBackgroundActivityDirty,
       settings.autoOpenPlanSidebar,
-      settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
       settings.autoSettleOnMergedChangeRequest,
@@ -592,7 +589,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       autoSettleOnMergedChangeRequest: DEFAULT_UNIFIED_SETTINGS.autoSettleOnMergedChangeRequest,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-      confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
     });
@@ -1090,7 +1086,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           title="Header tabs"
-          description="Show open conversations from every worktree or only the selected worktree."
+          description="Show open conversations from every worktree, the selected project, or only the selected worktree."
           resetAction={
             settings.headerTabScope !== DEFAULT_UNIFIED_SETTINGS.headerTabScope ? (
               <SettingResetButton
@@ -1107,7 +1103,7 @@ export function GeneralSettingsPanel() {
             <Select
               value={settings.headerTabScope}
               onValueChange={(value) => {
-                if (value === "all" || value === "worktree") {
+                if (value === "all" || value === "project" || value === "worktree") {
                   updateSettings({ headerTabScope: value });
                 }
               }}
@@ -1117,6 +1113,7 @@ export function GeneralSettingsPanel() {
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 <SelectItem value="all">All worktrees</SelectItem>
+                <SelectItem value="project">Selected project</SelectItem>
                 <SelectItem value="worktree">Selected worktree</SelectItem>
               </SelectPopup>
             </Select>
@@ -1547,32 +1544,6 @@ export function GeneralSettingsPanel() {
               placeholder="~/"
               spellCheck={false}
               aria-label="Add project base directory"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Archive confirmation"
-          description="Require a second click on the inline archive action before a thread is archived."
-          resetAction={
-            settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
-              <SettingResetButton
-                label="archive confirmation"
-                onClick={() =>
-                  updateSettings({
-                    confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.confirmThreadArchive}
-              onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadArchive: Boolean(checked) })
-              }
-              aria-label="Confirm thread archiving"
             />
           }
         />

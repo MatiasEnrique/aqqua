@@ -49,7 +49,9 @@ export function SidebarProjectScopePopup(props: {
   const selectedProjectKeys = props.selectedProjectKeys;
 
   return (
-    <DropdownMenuContent align="start" className="w-60">
+    // Matching the trigger width keeps the menu visually anchored to the field
+    // instead of floating as a narrower box beside long project names.
+    <DropdownMenuContent align="start" className="w-(--anchor-width) min-w-60">
       <DropdownMenuCheckboxItem
         checked={selectedProjectKeys.length === 0}
         closeOnClick
@@ -92,6 +94,8 @@ export function SidebarProjectScopePopup(props: {
  * available choices and keeps multi-selection visible as a short summary.
  */
 export function SidebarProjectScopeChips(props: {
+  /** What the filter narrows on this surface. Defaults to the thread list. */
+  readonly ariaLabel?: string | undefined;
   readonly projectGroups: readonly SidebarProjectSnapshot[];
   readonly scopedProjectGroups: readonly SidebarProjectSnapshot[];
   readonly selectedProjectKeys: readonly string[];
@@ -101,7 +105,7 @@ export function SidebarProjectScopeChips(props: {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Filter threads by project"
+        aria-label={props.ariaLabel ?? "Filter threads by project"}
         className={cn(
           "flex min-h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-1 text-left text-[13px] font-medium leading-5 text-sidebar-foreground outline-none",
           "transition-colors hover:bg-sidebar-row-hover data-popup-open:bg-sidebar-row-hover",
