@@ -130,6 +130,7 @@ const decodeAgentInterruptResponse = Schema.decodeUnknownEffect(AgentInterruptRe
 const decodeAgentListResponse = Schema.decodeUnknownEffect(AgentListResponse);
 const decodeAgentProfilesResponse = Schema.decodeUnknownEffect(AgentProfilesResponse);
 const decodeAgentModelsResponse = Schema.decodeUnknownEffect(AgentModelsResponse);
+const decodeThreadId = Schema.decodeUnknownEffect(ThreadId);
 
 const invalidServerResponse = (status: number, path: string) =>
   new AgentCliError({
@@ -331,7 +332,12 @@ export const resolveSpawnWorktree = Effect.fn("agentCli.resolveSpawnWorktree")(f
   }
   if (input.fresh) return { worktree: true } as const;
   if (input.fromThreadId !== undefined) {
-    return { worktreeFromThreadId: ThreadId.make(input.fromThreadId) } as const;
+    const worktreeFromThreadId = yield* decodeThreadId(input.fromThreadId).pipe(
+      Effect.mapError(
+        () => new AgentCliError({ detail: "--worktree-from must be a non-empty thread ID." }),
+      ),
+    );
+    return { worktreeFromThreadId } as const;
   }
   return {};
 });

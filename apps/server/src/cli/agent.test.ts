@@ -202,6 +202,9 @@ it.effect("selects a fresh or existing worktree and rejects both together", () =
       resolveSpawnWorktree({ fresh: true, fromThreadId: "implementation-thread" }),
     );
     assert.match(conflict.message, /cannot be combined/);
+
+    const invalid = yield* Effect.flip(resolveSpawnWorktree({ fresh: false, fromThreadId: "   " }));
+    assert.match(invalid.message, /non-empty thread ID/);
   }),
 );
 

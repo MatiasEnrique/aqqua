@@ -689,6 +689,12 @@ const make = Effect.gen(function* () {
   }) {
     if (input.worktreeFromThreadId !== undefined) {
       const target = yield* readThread(input.operation, input.worktreeFromThreadId);
+      const ownedAgentThread =
+        target !== null &&
+        (input.parentThreadId === null
+          ? target.parentThreadId === null &&
+            target.activities.some((activity) => activity.kind === "agent.cli.started")
+          : target.parentThreadId === input.parentThreadId);
       if (
         target === null ||
         target.deletedAt !== null ||
@@ -697,7 +703,7 @@ const make = Effect.gen(function* () {
         target.projectId !== input.projectId ||
         target.branch === null ||
         target.worktreePath === null ||
-        (input.parentThreadId !== null && target.parentThreadId !== input.parentThreadId)
+        !ownedAgentThread
       ) {
         return yield* new AgentWorktreeUnavailableError({
           threadId: input.worktreeFromThreadId,

@@ -56,7 +56,8 @@ the agent may begin before the action finishes.
 Use `--worktree-from <threadId>` to put a later agent in the worktree attached to an earlier sibling.
 For example, an implementation agent can create the worktree with `--worktree`, then a review agent
 can reuse it by naming the implementation thread. Aqqua verifies that the thread belongs to the same
-orchestrator and project. Reusing a worktree does not rerun the worktree-create action.
+orchestrator and project. Outside an agent session, reuse only accepts a worktree created by an
+earlier standalone `aqqua agent spawn`. Reusing a worktree does not rerun the worktree-create action.
 
 ### Defaults and fallback
 

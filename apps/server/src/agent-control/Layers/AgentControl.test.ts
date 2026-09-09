@@ -755,6 +755,77 @@ agentControlLayer("AgentControl", (it) => {
     }),
   );
 
+  it.effect("reuses a worktree created by an earlier standalone agent", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { workspaceRoot } = yield* makeOrchestrator();
+      const createStart = createdWorktrees.length;
+      const setupStart = worktreeSetupInputs.length;
+
+      const implementation = yield* agents.spawnStandalone({
+        cwd: workspaceRoot,
+        selection: { model: null },
+        task: "Implement from the CLI",
+        worktree: true,
+      });
+      const review = yield* agents.spawnStandalone({
+        cwd: workspaceRoot,
+        selection: { model: null },
+        task: "Review from the CLI",
+        worktreeFromThreadId: implementation.threadId,
+      });
+
+      const [implementationThread, reviewThread] = yield* Effect.all([
+        readThread(implementation.threadId),
+        readThread(review.threadId),
+      ]);
+      assert.equal(reviewThread.branch, implementationThread.branch);
+      assert.equal(reviewThread.worktreePath, implementationThread.worktreePath);
+      assert.equal(createdWorktrees.length - createStart, 1);
+      assert.equal(worktreeSetupInputs.length - setupStart, 1);
+    }),
+  );
+
+  it.effect("rejects an ordinary root thread as a standalone worktree source", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, worktreePath } = yield* makeOrchestrator();
+
+      const failure = yield* Effect.flip(
+        agents.spawnStandalone({
+          cwd: worktreePath,
+          selection: { model: null },
+          task: "Do not enter the root conversation's worktree",
+          worktreeFromThreadId: parentThreadId,
+        }),
+      );
+      assert.equal(failure._tag, "AgentWorktreeUnavailableError");
+    }),
+  );
+
+  it.effect("rejects an orchestrator-owned child as a standalone worktree source", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentControl;
+      const { parentThreadId, workspaceRoot } = yield* makeOrchestrator();
+      const child = yield* agents.spawn({
+        parentThreadId,
+        selection: { model: null },
+        task: "Implement for the orchestrator",
+        worktree: true,
+      });
+
+      const failure = yield* Effect.flip(
+        agents.spawnStandalone({
+          cwd: workspaceRoot,
+          selection: { model: null },
+          task: "Do not enter another orchestrator's worktree",
+          worktreeFromThreadId: child.threadId,
+        }),
+      );
+      assert.equal(failure._tag, "AgentWorktreeUnavailableError");
+    }),
+  );
+
   it.effect("keeps resolving a worktree after its last existing thread is archived", () =>
     Effect.gen(function* () {
       const agents = yield* AgentControl;

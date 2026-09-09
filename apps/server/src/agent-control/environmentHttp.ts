@@ -22,6 +22,7 @@ import { AgentControl } from "./Services/AgentControl.ts";
 import {
   AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
   AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+  agentSpawnWorkspaceSelection,
   hasAgentSpawnSelectorConflict,
   hasAgentSpawnWorktreeConflict,
 } from "./SpawnRequest.ts";
@@ -78,10 +79,7 @@ export const handleStandaloneSpawn = Effect.fn("environment.agents.handleStandal
     const shared = {
       cwd: payload.cwd,
       task: payload.task,
-      ...(payload.worktree === true ? { worktree: true } : {}),
-      ...(payload.worktreeFromThreadId === undefined
-        ? {}
-        : { worktreeFromThreadId: payload.worktreeFromThreadId }),
+      ...agentSpawnWorkspaceSelection(payload),
       ...(payload.title === undefined ? {} : { title: payload.title }),
     };
     if (payload.profile !== undefined) {

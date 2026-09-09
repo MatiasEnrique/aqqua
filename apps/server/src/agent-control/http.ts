@@ -37,6 +37,7 @@ import { AgentControl } from "./Services/AgentControl.ts";
 import {
   AGENT_SPAWN_SELECTOR_CONFLICT_MESSAGE,
   AGENT_SPAWN_WORKTREE_CONFLICT_MESSAGE,
+  agentSpawnWorkspaceSelection,
   hasAgentSpawnSelectorConflict,
   hasAgentSpawnWorktreeConflict,
 } from "./SpawnRequest.ts";
@@ -143,21 +144,18 @@ export const dispatchAgentSpawn = Effect.fn("agentControl.dispatchSpawn")(functi
   readonly body: AgentSpawnRequestType;
 }) {
   const { agents, body, parentThreadId } = input;
-  const shared = {
-    parentThreadId,
-    task: body.task,
-    ...(body.worktree === true ? { worktree: true } : {}),
-    ...(body.worktreeFromThreadId === undefined
-      ? {}
-      : { worktreeFromThreadId: body.worktreeFromThreadId }),
-    ...(body.title === undefined ? {} : { title: body.title }),
-  };
   if (hasAgentSpawnSelectorConflict(body)) {
     return yield* Effect.fail(selectorConflict);
   }
   if (hasAgentSpawnWorktreeConflict(body)) {
     return yield* Effect.fail(worktreeConflict);
   }
+  const shared = {
+    parentThreadId,
+    task: body.task,
+    ...agentSpawnWorkspaceSelection(body),
+    ...(body.title === undefined ? {} : { title: body.title }),
+  };
   if (body.profile !== undefined) {
     const profile = yield* decodeProfileName(body.profile);
     return yield* agents.spawnProfile({ ...shared, profile });
